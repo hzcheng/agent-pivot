@@ -339,10 +339,12 @@ async function postedMessages(page) {
     return page.evaluate(() => window.__postedMessages);
 }
 
-// Applied acknowledgements are protocol traffic, not user intents.
+// Applied acknowledgements and the startup capabilities handshake are
+// protocol traffic, not user intents.
 async function postedIntents(page) {
     return (await postedMessages(page)).filter(message =>
         message.type !== 'conversation-viewer-applied'
+        && message.type !== 'conversation-viewer-capabilities'
     );
 }
 
@@ -1845,7 +1847,10 @@ async function renderHostViewerDocument(options = {}) {
             }],
             previousCursor: 'before-input-2',
             nextCursor: 'after-input-2',
-            isStart: false,
+            // Most Host-document fixtures exercise ordinary navigation. It
+            // has a previous navigation cursor but no retained history page
+            // behind it, so opening must not enqueue a history backfill.
+            isStart: true,
             isEnd: false,
             ...options.pageOverrides,
         }),
@@ -4335,6 +4340,142 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Undo the current correlated earlier-page request/result protocol
+        // before stepping back through the existing historical fixtures.
+        .replace(
+            '        // loaded on demand when the transcript reaches its top.\n'
+                + '        earlierPageCursor: undefined,\n'
+                + '        earlierPageRequested: false,\n'
+                + '        earlierPageRequestId: undefined,\n'
+                + '        nextEarlierPageRequestId: 0,\n'
+                + "        earlierPageStatus: '',\n",
+            '        // loaded on demand when the transcript reaches its top.\n'
+                + '        previousCursor: undefined,\n'
+                + '        earlierPageRequested: false,\n'
+                + '        earlierPageRequestId: undefined,\n'
+                + '        nextEarlierPageRequestId: 0,\n'
+                + "        earlierPageStatus: '',\n"
+        )
+        .replace(
+            '        state.earlierPageCursor = message.earlierPageCursor;\n'
+                + '        state.earlierPageRequested = false;\n'
+                + '        state.earlierPageRequestId = undefined;\n'
+                + "        state.earlierPageStatus = '';\n",
+            '        state.previousCursor = message.previousCursor;\n'
+                + '        state.earlierPageRequested = false;\n'
+                + '        state.earlierPageRequestId = undefined;\n'
+                + "        state.earlierPageStatus = '';\n"
+        )
+        .replace(
+            '                acknowledgePage(message);\n'
+                + '                // Check after the applied receipt has released any incoming\n'
+                + '                // document handoff. This also reaches earlier history for a\n'
+                + '                // short transcript that cannot emit a physical scroll event.\n'
+                + '                window.setTimeout(maybeRequestEarlierPage, 0);\n',
+            '                acknowledgePage(message);\n'
+        )
+        .replace(
+            '    scroll.addEventListener(\'scroll\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n'
+                + '    // Wheel/touch input still arrives when the transcript is already pinned\n'
+                + '    // at top and therefore emits no `scroll` event; it is the explicit retry\n'
+                + '    // gesture after a timed-out history read.\n'
+                + '    scroll.addEventListener(\'wheel\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n'
+                + '    scroll.addEventListener(\'touchmove\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n',
+            '    scroll.addEventListener(\'scroll\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n'
+        )
+        .replace(
+            '            || state.earlierPageCursor === undefined\n',
+            '            || state.previousCursor === undefined\n'
+        )
+        .replace(
+            "            'html', 'htmlSignature', 'restoreFrame', 'restoreFocus', 'previousCursor',\n"
+                + "            'earlierPageCursor',\n"
+                + "            'nextCursor', 'subagents', 'activeSubagent', 'displayName',\n",
+            "            'html', 'htmlSignature', 'restoreFrame', 'restoreFocus', 'previousCursor',\n"
+                + "            'nextCursor', 'subagents', 'activeSubagent', 'displayName',\n"
+        )
+        .replace(
+            "            && (message.earlierPageCursor === undefined\n"
+                + "                || typeof message.earlierPageCursor === 'string')\n",
+            ''
+        )
+        .replace(
+            '        earlierPageRequested: false,\n'
+                + '        earlierPageRequestId: undefined,\n'
+                + '        nextEarlierPageRequestId: 0,\n'
+                + "        earlierPageStatus: '',\n",
+            '        earlierPageRequested: false,\n'
+        )
+        .replace(
+            "    function updateTranscriptStatus() {\n"
+                + '        var messagesToShow = [];\n'
+                + '        [\n'
+                + '            baseTranscriptStatus,\n'
+                + "            messages.querySelector('.conversation-deferred-messages')\n"
+                + "                ? 'Loading earlier messages.'\n"
+                + "                : '',\n"
+                + '            state.earlierPageStatus,\n'
+                + '        ].forEach(function (text) {\n'
+                + '            if (text && messagesToShow.indexOf(text) === -1) {\n'
+                + '                messagesToShow.push(text);\n'
+                + '            }\n'
+                + '        });\n'
+                + "        status.textContent = messagesToShow.join(' ');\n"
+                + '    }\n',
+            ''
+        )
+        .replace(
+            '        state.earlierPageRequested = false;\n'
+                + '        state.earlierPageRequestId = undefined;\n'
+                + "        state.earlierPageStatus = '';\n",
+            '        state.earlierPageRequested = false;\n'
+        )
+        .replace(
+            "        baseTranscriptStatus = statusMessages.join(' ');\n"
+                + '        updateTranscriptStatus();\n',
+            "        baseTranscriptStatus = statusMessages.join(' ');\n"
+                + "        if (messages.querySelector('.conversation-deferred-messages')) {\n"
+                + "            statusMessages.push('Loading earlier messages.');\n"
+                + '        }\n'
+                + "        status.textContent = statusMessages.join(' ');\n"
+        )
+        .replace(
+            '            updateTranscriptStatus();\n',
+            '            status.textContent = baseTranscriptStatus;\n'
+        )
+        .replace(
+            /\n    function applyEarlierPageResult\(message\) \{[\s\S]*?\n    \}\n\n    reconcileController\.attach\(\);\n/,
+            '\n    reconcileController.attach();\n'
+        )
+        .replace(
+            '        state.earlierPageRequested = true;\n'
+                + '        state.earlierPageRequestId = ++state.nextEarlierPageRequestId;\n'
+                + "        state.earlierPageStatus = 'Loading earlier messages.';\n"
+                + '        updateTranscriptStatus();\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-load-earlier',\n"
+                + '            version: 1,\n'
+                + '            requestId: state.earlierPageRequestId,\n'
+                + '            subscriptionGeneration: state.subscriptionGeneration,\n'
+                + '        });\n',
+            '        state.earlierPageRequested = true;\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-load-earlier',\n"
+                + '            version: 1,\n'
+                + '        });\n'
+        )
+        .replace(
+            '        if (applyEarlierPageResult(event.data)) return;\n',
+            ''
+        )
         .replace(
             /\n    \/\/ Keep the first painted frame narrow:[\s\S]*?\n    }\n\n    function applyPage\(message\) \{/,
             '\n    function applyPage(message) {'
@@ -4348,6 +4489,46 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             ''
         )
         .replace(
+            '        // Earlier history sitting behind the oldest retained page\'s cursor;\n'
+                + '        // loaded on demand when the transcript reaches its top.\n'
+                + '        previousCursor: undefined,\n'
+                + '        earlierPageRequested: false,\n',
+            ''
+        )
+        .replace(
+            '        // A page apply (full, patch, or chunk) moves the boundary: re-arm\n'
+                + '        // the scroll-to-top request and expose the latest cursor.\n'
+                + '        state.previousCursor = message.previousCursor;\n'
+                + '        state.earlierPageRequested = false;\n',
+            ''
+        )
+        .replace(
+            '\n    // On-demand earlier-page loading: the transcript reaching its top while\n'
+                + '    // earlier history sits behind the oldest retained page\'s cursor posts a\n'
+                + '    // single load request (re-armed by the next page apply). The Host loads\n'
+                + '    // exactly one page per request, so scrolling up walks history without\n'
+                + '    // paying for it on open.\n'
+                + '    var autoScrollThresholdPx = Number(document.body.getAttribute(\n'
+                + "        'data-auto-scroll-threshold'\n"
+                + '    )) || 0;\n'
+                + '    function maybeRequestEarlierPage() {\n'
+                + '        if (state.earlierPageRequested\n'
+                + '            || state.previousCursor === undefined\n'
+                + '            || scroll.scrollTop > autoScrollThresholdPx) {\n'
+                + '            return;\n'
+                + '        }\n'
+                + '        state.earlierPageRequested = true;\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-load-earlier',\n"
+                + '            version: 1,\n'
+                + '        });\n'
+                + '    }\n'
+                + '    scroll.addEventListener(\'scroll\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n',
+            ''
+        )
+        .replace(
             '        baseTranscriptStatus = statusMessages.join(\' \');\n',
             ''
         )
@@ -4356,6 +4537,82 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '    // backfill chunk can clear that notice without a full page message.\n'
                 + '    var baseTranscriptStatus = \'\';\n',
             ''
+        )
+        .replace(
+            "            'nextCursor', 'subagents', 'activeSubagent', 'displayName',\n"
+                + "            'target', 'comments', 'projectComments', 'bookmarks',\n"
+                + "            'tailInteractionId', 'tailHtml',\n",
+            "            'nextCursor', 'subagents', 'activeSubagent', 'displayName',\n"
+                + "            'target', 'comments', 'projectComments', 'bookmarks',\n"
+        )
+        .replace(
+            '            && (message.tailHtml === undefined\n'
+                + "                || (typeof message.tailHtml === 'string'\n"
+                + '                    && message.tailHtml.length > 0))\n'
+                + '            && (message.tailInteractionId === undefined\n'
+                + "                || (typeof message.tailInteractionId === 'string'\n"
+                + '                    && message.tailInteractionId.length > 0\n'
+                + '                    && message.tailInteractionId.length <= 512\n'
+                + "                    && typeof message.tailHtml === 'string'))\n"
+                + '            && (message.tailHtml === undefined\n'
+                + "                || typeof message.tailInteractionId === 'string')\n",
+            ''
+        )
+        .replace(
+            "        var hasHtml = typeof message.html === 'string';\n"
+                + '        // A refresh that only changed the trailing interaction group carries\n'
+                + '        // just that group. Validate it against the live document before any\n'
+                + "        // state moves: a patch that does not match the visible tail is a\n"
+                + '        // resync, never a guess.\n'
+                + '        var wantsTailPatch = !hasHtml\n'
+                + "            && typeof message.tailHtml === 'string';\n"
+                + '        var tailPatch = wantsTailPatch ? prepareTailPatch(message) : null;\n',
+            "        var hasHtml = typeof message.html === 'string';\n"
+        )
+        .replace(
+            '        if (!hasHtml && !frame && !tailPatch) {\n',
+            '        if (!hasHtml && !frame) {\n'
+        )
+        .replace(
+            '            if (wantsTailPatch) {\n'
+                + '                // The patch base is missing (the visible tail is not the\n'
+                + '                // patched group): resync instead of stranding the stream.\n'
+                + '                requestConversationResync(message);\n'
+                + '                return;\n'
+                + '            }\n',
+            ''
+        )
+        .replace(
+            '            state.messageIds = reconciled.ids;\n'
+                + '            state.messageSignatures = reconciled.signatures;\n'
+                + '        } else if (tailPatch) {\n'
+                + '            applyTailPatchDom(tailPatch);\n'
+                + '        }\n',
+            '            state.messageIds = reconciled.ids;\n'
+                + '            state.messageSignatures = reconciled.signatures;\n'
+                + '        }\n'
+        )
+        .replace(
+            /hasHtml \|\| !!frame \|\| !!tailPatch/g,
+            'hasHtml || !!frame'
+        )
+        .replace(
+            '    // Advertise wire features this script applies correctly through a\n'
+                + '    // dedicated message rather than a field on the applied receipt: Hosts\n'
+                + '    // older than this script silently ignore unknown message types, but\n'
+                + '    // their exact-key receipt whitelist rejects unknown fields, which would\n'
+                + '    // wedge every acknowledgement (and with it the history backfill). The\n'
+                + '    // echoed document identity binds the advertisement to this document so\n'
+                + '    // a queued message from a replaced document cannot arm patches for its\n'
+                + '    // successor.\n'
+                + '    post({\n'
+                + "        type: 'conversation-viewer-capabilities',\n"
+                + '        version: 1,\n'
+                + "        capabilities: ['tail-patch'],\n"
+                + "        documentId: document.body.getAttribute('data-document-id') || '',\n"
+                + '    });\n'
+                + '    postFocusState();\n',
+            '    postFocusState();\n'
         )
         .replace(
             '        updatePosition(message);\n'
@@ -6523,6 +6780,12 @@ test('CONVERSATION-COMMENTS-DOM-STABILITY-001 keeps the Conversation DOM intact 
             isEnd: true,
         },
     });
+    // The baseline must follow the deferred presentation pass: it appends
+    // the copy-action icons, and under CI load it can land after goto
+    // returns. The correlated applied receipt proves that pass finished.
+    await page.waitForFunction(() => window.__postedMessages.some(
+        message => message.type === 'conversation-viewer-applied'
+    ));
     const baseline = await page.evaluate(() => {
         const root = document.querySelector('[data-conversation-messages]');
         window.__panelStableConversationRoot = root;
@@ -17013,4 +17276,392 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 ignores a history chunk after a
     assert.equal((await postedMessages(page)).filter(message =>
         message.type === 'conversation-viewer-history-chunk-applied'
     ).length, 0, 'the superseded slice is never acknowledged');
+});
+
+function tailPatchPage(overrides) {
+    return Object.assign({
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        htmlSignature: 'sig-grown',
+        tailInteractionId: 'msg-2',
+        tailHtml: '<article data-message-id="msg-2" data-interaction-id="msg-2">'
+            + '<section><p>msg-2 grown answer</p></section></article>',
+        outline: progressiveOutline(3),
+        selectedInteractionId: 'msg-2',
+        selectedInput: 2,
+        totalInputs: 3,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    }, overrides);
+}
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies a streaming tail patch in place and keeps the prefix untouched', async t => {
+    const page = await openViewerPage(t);
+    // The document opens with its capability handshake on a dedicated
+    // message, keeping the applied receipt's envelope byte-compatible with
+    // Hosts whose exact-key whitelist predates tail patches.
+    assert.deepEqual((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-capabilities'
+    ), [{
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        capabilities: ['tail-patch'],
+        documentId: '',
+    }]);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 3, 0),
+        htmlSignature: 'sig-initial',
+        outline: progressiveOutline(3),
+        selectedInteractionId: 'msg-2',
+        selectedInput: 2,
+        totalInputs: 3,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-initial'
+    ));
+    await page.evaluate(() => {
+        window.__prefixNode =
+            document.querySelector('[data-message-id="msg-0"]');
+    });
+
+    await sendPage(page, tailPatchPage({}));
+
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-message-id]').count(), 3,
+        'the patch replaces the group, it does not append');
+    assert.equal((await page.locator('[data-message-id="msg-2"]')
+        .textContent()).trim(), 'msg-2 grown answer');
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-message-id="msg-0"]')
+            === window.__prefixNode
+    ), true, 'the untouched prefix keeps its DOM nodes');
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.requestId === 2
+            && message.htmlSignature === 'sig-grown'
+    ));
+
+    // The acknowledged signature keeps later unchanged refreshes HTML-free.
+    await page.evaluate(() => {
+        window.__postedMessages = [];
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 3,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        htmlSignature: 'sig-grown',
+        outline: progressiveOutline(3),
+        selectedInteractionId: 'msg-2',
+        selectedInput: 2,
+        totalInputs: 3,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.requestId === 3
+    ));
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-request-sync'
+    ).length, 0, 'an HTML-free delta applies cleanly after the patch');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests an earlier page when the transcript reaches its top', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 30, 0),
+        htmlSignature: 'sig-top',
+        previousCursor: 'cursor-1',
+        earlierPageCursor: 'cursor-1',
+        outline: progressiveOutline(30),
+        selectedInteractionId: 'msg-29',
+        selectedInput: 29,
+        totalInputs: 30,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-top'
+    ));
+
+    const requestEarlier = () => page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.scrollTop = 0;
+        scroll.dispatchEvent(new Event('scroll'));
+    });
+    const loadEarlierPosts = async () => (await postedMessages(page)).filter(
+        message => message.type === 'conversation-viewer-load-earlier'
+    );
+
+    await requestEarlier();
+    assert.equal((await loadEarlierPosts()).length, 1,
+        'reaching the top with earlier history requests one page');
+    assert.deepEqual((await loadEarlierPosts()).at(-1), {
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+    });
+    await requestEarlier();
+    assert.equal((await loadEarlierPosts()).length, 1,
+        'a second top hit is throttled until the next page applies');
+
+    // A new page applies: the request is re-armed.
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        html: messageHtml('msg', 30, 0),
+        htmlSignature: 'sig-top-2',
+        previousCursor: 'cursor-2',
+        earlierPageCursor: 'cursor-2',
+        outline: progressiveOutline(30),
+        selectedInteractionId: 'msg-29',
+        selectedInput: 29,
+        totalInputs: 30,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-top-2'
+    ));
+    await requestEarlier();
+    assert.equal((await loadEarlierPosts()).length, 2,
+        'a page apply re-arms the top request');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles an unavailable earlier-page request without leaving a loading status', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 30, 0),
+        htmlSignature: 'sig-unavailable',
+        previousCursor: 'cursor-1',
+        earlierPageCursor: 'cursor-1',
+        outline: progressiveOutline(30),
+        selectedInteractionId: 'msg-29',
+        selectedInput: 29,
+        totalInputs: 30,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-unavailable'
+    ));
+    await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.scrollTop = 0;
+        scroll.dispatchEvent(new Event('scroll'));
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-load-earlier-result',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 1,
+        outcome: 'unavailable',
+    });
+    assert.equal(await page.locator('[data-conversation-status]').textContent(), '');
+    await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.dispatchEvent(new Event('scroll'));
+    });
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ).length, 1, 'an unavailable boundary must not re-enter a loading loop');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests earlier history when a short page starts at top', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 1, 0),
+        htmlSignature: 'sig-short-top',
+        previousCursor: 'selection-cursor',
+        earlierPageCursor: 'history-cursor',
+        outline: progressiveOutline(1),
+        selectedInteractionId: 'msg-0',
+        selectedInput: 0,
+        totalInputs: 1,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ));
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ).length, 1, 'a short non-scrollable page still reaches older history');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 ignores an old earlier-page result after refresh', async t => {
+    const page = await openViewerPage(t);
+    const pageMessage = (requestId, signature, cursor) => ({
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId,
+        subscriptionGeneration: 1,
+        updateKind: requestId === 1 ? 'initial' : 'refresh',
+        html: messageHtml('msg', 1, 0),
+        htmlSignature: signature,
+        previousCursor: cursor,
+        earlierPageCursor: cursor,
+        outline: progressiveOutline(1),
+        selectedInteractionId: 'msg-0',
+        selectedInput: 0,
+        totalInputs: 1,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await sendPage(page, pageMessage(1, 'sig-old', 'cursor-old'));
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-load-earlier'
+            && message.requestId === 1
+    ));
+    await sendPage(page, pageMessage(2, 'sig-new', 'cursor-new'));
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-load-earlier'
+            && message.requestId === 2
+    ));
+    await sendPage(page, {
+        type: 'conversation-viewer-load-earlier-result',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 1,
+        outcome: 'unavailable',
+    });
+    assert.equal(await page.locator('[data-conversation-status]').textContent(),
+        'Loading earlier messages.');
+    await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.dispatchEvent(new Event('wheel'));
+    });
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ).length, 2, 'the current request remains pending after an old result');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resyncs when a tail patch misses the visible tail', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 3, 0),
+        htmlSignature: 'sig-initial',
+        outline: progressiveOutline(3),
+        selectedInteractionId: 'msg-2',
+        selectedInput: 2,
+        totalInputs: 3,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-initial'
+    ));
+
+    // The patch targets a group that is not the visible tail.
+    await sendPage(page, tailPatchPage({ tailInteractionId: 'msg-0' }));
+    assert.ok((await postedMessages(page)).some(message =>
+        message.type === 'conversation-viewer-request-sync'
+            && message.requestId === 2
+            && message.htmlSignature === 'sig-grown'
+    ), 'a mismatched patch triggers a correlated resync');
+    assert.equal((await page.locator('[data-message-id="msg-2"]')
+        .textContent()).trim(), 'msg-2', 'the document stays unchanged');
+
+    // A patch whose payload mixes interaction groups is likewise refused.
+    await sendPage(page, tailPatchPage({
+        requestId: 3,
+        htmlSignature: 'sig-mixed',
+        tailHtml: '<article data-message-id="msg-2" data-interaction-id="msg-2">'
+            + '<section><p>grown</p></section></article>'
+            + '<article data-message-id="msg-9" data-interaction-id="msg-9">'
+            + '<section><p>stray</p></section></article>',
+    }));
+    assert.ok((await postedMessages(page)).some(message =>
+        message.type === 'conversation-viewer-request-sync'
+            && message.htmlSignature === 'sig-mixed'
+    ), 'a mixed-group payload triggers a correlated resync');
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-message-id]').count(), 3);
+    assert.equal(await page.locator(
+        '.conversation-deferred-messages').count(), 0);
+
+    // A stray non-message element in the payload is refused the same way.
+    await sendPage(page, tailPatchPage({
+        requestId: 4,
+        htmlSignature: 'sig-stray',
+        tailHtml: '<section class="conversation-deferred-messages">'
+            + 'Loading earlier messages…</section>'
+            + '<article data-message-id="msg-2" data-interaction-id="msg-2">'
+            + '<section><p>grown</p></section></article>',
+    }));
+    assert.ok((await postedMessages(page)).some(message =>
+        message.type === 'conversation-viewer-request-sync'
+            && message.htmlSignature === 'sig-stray'
+    ), 'a stray-element payload triggers a correlated resync');
+    assert.equal(await page.locator(
+        '.conversation-deferred-messages').count(), 0,
+        'the stray placeholder never lands');
 });

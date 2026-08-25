@@ -96,6 +96,37 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
             token: 'c17',
         }],
     }, {
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: 3,
+        requestId: 7,
+        htmlSignature: 'c42',
+        capabilities: ['tail-patch'],
+    }, {
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: 3,
+        requestId: 7,
+        htmlSignature: 'c42',
+        frames: [],
+        capabilities: ['tail-patch'],
+    }, {
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: '1',
+        capabilities: ['tail-patch'],
+    }, {
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: '2',
+        capabilities: [],
+    }, {
+        type: 'conversation-viewer-history-chunk-applied',
+        version: 1,
+        subscriptionGeneration: 3,
+        requestId: 9,
+        htmlSignature: 'c42',
+    }, {
         type: 'conversation-viewer-focus',
         version: 1,
         focused: true,
@@ -103,6 +134,16 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         type: 'conversation-viewer-focus',
         version: 1,
         focused: false,
+    }, {
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 10,
+        subscriptionGeneration: 3,
+    }, {
+        // Retained Webviews rendered by the previous release used this
+        // envelope; accept it only as the exact legacy shape.
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
     }, {
         type: 'conversation-viewer-rename-session',
         version: 1,
@@ -243,6 +284,19 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             version: 1,
             extra: true,
         },
+        {
+            type: 'conversation-viewer-load-earlier',
+            version: 1,
+            requestId: 10,
+            subscriptionGeneration: 3,
+            cursor: 'stray',
+        },
+        {
+            type: 'conversation-viewer-load-earlier',
+            version: 1,
+            requestId: 0,
+            subscriptionGeneration: 3,
+        },
         // The rename intent carries no payload: a spoofed session identity
         // must never parse (the Host derives the target from the viewer).
         {
@@ -269,6 +323,70 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             type: 'conversation-viewer-select-interaction',
             version: 1,
             interactionId: 'input\u0000private',
+        },
+        // Applied receipts reject unknown envelopes and malformed
+        // capability advertisements.
+        {
+            type: 'conversation-viewer-applied',
+            version: 1,
+            subscriptionGeneration: 3,
+            requestId: 7,
+            htmlSignature: 'c42',
+            capabilities: 'tail-patch',
+        },
+        {
+            type: 'conversation-viewer-applied',
+            version: 1,
+            subscriptionGeneration: 3,
+            requestId: 7,
+            htmlSignature: 'c42',
+            frames: [],
+            capabilities: ['tail-patch'],
+            extra: true,
+        },
+        // Capability advertisements reject malformed envelopes.
+        {
+            type: 'conversation-viewer-capabilities',
+            version: 1,
+            capabilities: 'tail-patch',
+        },
+        {
+            type: 'conversation-viewer-capabilities',
+            version: 1,
+            documentId: '1',
+            capabilities: ['tail-patch', 42],
+        },
+        {
+            type: 'conversation-viewer-capabilities',
+            version: 1,
+            documentId: '1',
+            capabilities: [],
+            extra: true,
+        },
+        {
+            type: 'conversation-viewer-capabilities',
+            version: 1,
+            capabilities: ['tail-patch'],
+        },
+        {
+            type: 'conversation-viewer-capabilities',
+            version: 1,
+            documentId: 1,
+            capabilities: [],
+        },
+        {
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: 3,
+            requestId: 9,
+            htmlSignature: 'c42',
+            extra: true,
+        },
+        {
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: 3,
+            requestId: 9,
         },
         {
             type: 'conversation-viewer-send-selection',
@@ -617,6 +735,46 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
     malformed.forEach(message => {
         assert.equal(parseConversationViewerMessage(message), undefined);
     });
+});
+
+test('CONVERSATION-PROTOCOL-VALIDATOR-001 keeps applied receipts inside the released exact-key envelope', () => {
+    // Hosts released before the tail-patch feature parse applied receipts
+    // with an exact-key whitelist and silently ignore unknown message
+    // types. The running script must stay compatible with those Hosts:
+    // its applied receipts carry nothing beyond the released keys, and its
+    // capability advertisement travels on its own (ignored) message type
+    // instead of as a receipt field.
+    const releasedReceiptKeys = [
+        ['type', 'version', 'subscriptionGeneration', 'requestId',
+            'htmlSignature'],
+        ['type', 'version', 'subscriptionGeneration', 'requestId',
+            'htmlSignature', 'frames'],
+    ];
+    const isReleasedEnvelope = (receipt) => releasedReceiptKeys.some(keys =>
+        keys.length === Object.keys(receipt).length
+            && keys.every(key => Object.hasOwn(receipt, key))
+    );
+
+    const receipt = {
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: 3,
+        requestId: 7,
+        htmlSignature: 'c42',
+        frames: [],
+    };
+    assert.equal(isReleasedEnvelope(receipt), true,
+        'the script must keep emitting the released receipt shape');
+    const { frames: _frames, ...framesFreeReceipt } = receipt;
+    assert.equal(isReleasedEnvelope(framesFreeReceipt), true,
+        'the frames-free receipt shape must stay accepted');
+
+    const wedgedReceipt = {
+        ...receipt,
+        capabilities: ['tail-patch'],
+    };
+    assert.equal(isReleasedEnvelope(wedgedReceipt), false,
+        'the retired capabilities field would have wedged released Hosts');
 });
 
 test('CONVERSATION-COPY-ACTIONS-001 validates code and message copy payloads', () => {

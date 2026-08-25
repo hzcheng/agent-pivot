@@ -49,6 +49,7 @@ import type {
     ConversationViewerAppliedMessage,
     ConversationViewerCopyMessage,
     ConversationViewerHistoryChunkAppliedMessage,
+    ConversationViewerLoadEarlierMessage,
 } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
@@ -280,6 +281,10 @@ export interface ConversationViewerPageMessage {
     updateKind: 'initial' | 'navigation' | 'refresh';
     html?: string;
     htmlSignature: string;
+    /** Wire-only: when set, `html` is omitted and the Webview replaces just
+     * this trailing interaction group with `tailHtml`. */
+    tailInteractionId?: string;
+    tailHtml?: string;
     restoreFrame?: boolean;
     /** Return keyboard focus to the selected interaction after a document recovery. */
     restoreFocus?: boolean;
@@ -290,6 +295,10 @@ export interface ConversationViewerPageMessage {
     partial: boolean;
     atLatest: boolean;
     previousCursor?: string;
+    /** Cursor for on-demand retained-window history loading. This is kept
+     * separate from `previousCursor`, which also drives ordinary selection
+     * navigation inside an already complete page. */
+    earlierPageCursor?: string;
     nextCursor?: string;
     stale: boolean;
     displayName: string;
@@ -304,6 +313,20 @@ export interface ConversationViewerPageMessage {
     comments: ConversationCommentSnapshot;
     projectComments: ProjectCommentSnapshot;
     bookmarks: ConversationBookmarkSnapshot;
+}
+
+/**
+ * Wire-only tail patch: when a refresh changes only the trailing
+ * interaction group (the dominant streaming case), the Host omits the full
+ * HTML and sends the re-rendered trailing group instead. The Webview
+ * replaces that group in place and confirms with the page's full content
+ * signature, so acknowledgement, watchdog, and recovery semantics are
+ * identical to a full delivery.
+ */
+interface ConversationTailSplit {
+    prefixSignature: string;
+    tailInteractionId: string;
+    tailHtml: string;
 }
 
 /**
@@ -378,12 +401,50 @@ export class ConversationViewer implements ConversationViewerApi {
     private currentRequestId = 0;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
+    // The tail split of latestPublication's render: lets a refresh that
+    // only changed the trailing interaction group send just that group.
+    private latestTailSplit?: ConversationTailSplit;
+    // The running Webview document advertises tail-patch support through a
+    // dedicated capabilities message posted at script startup. Documents
+    // rendered by older scripts never post it, so they keep receiving
+    // full-HTML refreshes. The flag is scoped to the document: it survives
+    // in-place target switches but resets on every document replacement,
+    // whose fresh script re-posts its capabilities before any receipt.
+    private webviewTailPatchCapable = false;
+    // Monotonic identity of the document most recently rendered for this
+    // panel; the capabilities handshake echoes it back, so only the running
+    // document's advertisement arms delta deliveries.
+    private currentDocumentId = '0';
+    private documentSerial = 0;
+    // Set by createPublication and consumed synchronously by
+    // deliverPublication; never valid across an await boundary.
+    private lastPublicationTailSplit?: ConversationTailSplit;
     // A large, latest-at-tail page first sends its recent messages. Once the
     // Webview has applied that lightweight page, it receives the complete
     // retained window through the normal, correlated publication channel.
     // Keeping this state on the publication (rather than an unbound timer)
     // makes a target change or user navigation naturally cancel the follow-up.
     private progressivePublication?: ConversationViewerPageMessage;
+    // A revalidation deferred while a progressive backfill holds the
+    // incomplete-content obligation; run once the full-content receipt
+    // closes it. Cleared on every target switch.
+    private pendingRevalidationInteractionId?: string;
+    // A page-boundary continuation currently prepending one older page on
+    // demand (the user scrolled the transcript to its top while earlier
+    // history sits behind the oldest retained page's cursor).
+    private earlierPageBackfill?: {
+        token: number;
+        request: ConversationViewerLoadEarlierMessage;
+        target: ConversationViewerTarget;
+        abortController?: ConversationAbortController;
+        timer?: unknown;
+    };
+    private nextEarlierPageBackfillToken = 0;
+    // The oldest interaction of a page-boundary walk that made no progress
+    // (its prepended page was evicted by the retention budget). Blocks
+    // further automatic retries for that boundary so an ack-triggered
+    // restart cannot loop forever. Cleared on every target switch.
+    private earlierBackfillStuckAnchor?: string;
     // A partial page remains incomplete until a different full-content page
     // applies. Auxiliary and subagent publications may supersede either
     // phase, so this is bound to the generation instead of one request id.
@@ -816,12 +877,231 @@ export class ConversationViewer implements ConversationViewerApi {
             || this.outlineController.selection !== expectedInteractionId) {
             return;
         }
+        // A progressive page is still backfilling its deferred history: a
+        // revalidation refresh would supersede the partial page before its
+        // receipt, advance the request counter, and silently cancel the
+        // chunked backfill — degrading every large-session open to a full
+        // re-render. The completion publication converges state and the
+        // session watch covers genuine appends, so defer the freshness
+        // check until the incomplete-content obligation closes.
+        if (this.progressiveContentIncomplete?.generation
+            === this.subscriptionGeneration) {
+            this.pendingRevalidationInteractionId = expectedInteractionId;
+            return;
+        }
         await this.loadAuthoritative(
             'refresh',
             false,
             undefined,
             expectedInteractionId
         );
+    }
+
+    private runPendingRevalidation(): void {
+        const pending = this.pendingRevalidationInteractionId;
+        if (pending === undefined) {
+            return;
+        }
+        if (this.outlineController.selection !== pending) {
+            // A newer selection superseded the deferred freshness check.
+            this.pendingRevalidationInteractionId = undefined;
+            return;
+        }
+        if (this.progressivePublication
+            || this.progressiveContentIncomplete
+            || this.suspended
+            || !this.target
+            || !this.panel) {
+            // The obligation is still open: keep it pending; a later
+            // full-content receipt closes the obligation and reruns this.
+            return;
+        }
+        this.pendingRevalidationInteractionId = undefined;
+        void this.loadAuthoritative(
+            'refresh',
+            false,
+            undefined,
+            pending
+        );
+    }
+
+    private settleEarlierPageBackfill(
+        request: ConversationViewerLoadEarlierMessage,
+        outcome: 'busy' | 'unavailable' | 'stalled' | 'timed-out'
+    ): void {
+        // A retained previous Webview script sent the original two-field
+        // envelope. It cannot understand a correlated result, so rebuild its
+        // document on a terminal failure to clear its one-shot request flag.
+        if (request.requestId === undefined
+            || request.subscriptionGeneration === undefined) {
+            if (outcome !== 'busy') {
+                this.rebuildLatestDocument();
+            }
+            return;
+        }
+        if (!this.panel) {
+            return;
+        }
+        void Promise.resolve(this.panel.webview.postMessage({
+            type: 'conversation-viewer-load-earlier-result',
+            version: 1,
+            subscriptionGeneration: this.subscriptionGeneration,
+            requestId: request.requestId,
+            outcome,
+        })).catch(() => undefined);
+    }
+
+    private clearEarlierPageBackfillTimer(backfill: NonNullable<
+        ConversationViewer['earlierPageBackfill']
+    >): void {
+        const timer = backfill.timer;
+        backfill.timer = undefined;
+        if (timer === undefined) {
+            return;
+        }
+        if (this.options.clearTimer) {
+            this.options.clearTimer(timer);
+        } else {
+            clearTimeout(timer as NodeJS.Timeout);
+        }
+    }
+
+    private cancelEarlierPageBackfill(): void {
+        const backfill = this.earlierPageBackfill;
+        this.earlierPageBackfill = undefined;
+        if (!backfill) {
+            return;
+        }
+        this.clearEarlierPageBackfillTimer(backfill);
+        backfill.abortController?.abort();
+    }
+
+    private maybeContinueEarlierPageBackfill(
+        request: ConversationViewerLoadEarlierMessage
+    ): void {
+        // User-driven: the Webview posts conversation-viewer-load-earlier
+        // when the transcript reaches its top with earlier history pending.
+        // Loads exactly one older page per request; the next page loads
+        // when the user scrolls up again.
+        const target = this.target;
+        const panel = this.panel;
+        const edge = this.pages[0]?.page;
+        if (request.subscriptionGeneration !== undefined
+            && request.subscriptionGeneration !== this.subscriptionGeneration) {
+            return;
+        }
+        if (!target || !panel || this.suspended
+            || !edge
+            || edge.isStart
+            || edge.previousCursor === undefined) {
+            this.settleEarlierPageBackfill(request, 'unavailable');
+            return;
+        }
+        if (this.progressivePublication
+            || this.progressiveContentIncomplete
+            || this.progressiveBackfill
+            || this.authoritativeLoadInFlight
+            || this.earlierPageBackfill) {
+            this.settleEarlierPageBackfill(request, 'busy');
+            return;
+        }
+        if (edge.interactionStates[0]?.interactionId
+            === this.earlierBackfillStuckAnchor) {
+            this.settleEarlierPageBackfill(request, 'stalled');
+            return;
+        }
+        const anchor = edge.interactionStates[0]?.interactionId;
+        const outline = this.outlineController.snapshot;
+        if (!anchor || !outline) {
+            this.settleEarlierPageBackfill(request, 'unavailable');
+            return;
+        }
+        const cursor = edge.previousCursor;
+        const oldestBefore = edge.interactionStates[0]?.interactionId;
+        const backfill: NonNullable<ConversationViewer[
+            'earlierPageBackfill'
+        ]> = {
+            token: ++this.nextEarlierPageBackfillToken,
+            request,
+            target,
+        };
+        this.earlierPageBackfill = backfill;
+        const read = this.read({
+            provider: target.provider,
+            sessionId: this.effectiveSessionId(target),
+            anchorInteractionId: anchor,
+            direction: 'before',
+            cursor,
+            expectedRevision: outline.sourceRevision,
+            limit: CONVERSATION_LIMITS.maxPageInteractions,
+        }, 'before', false, 'refresh', this.outlineController.selection, true);
+        backfill.abortController = this.abortController;
+        const timeout = () => {
+            if (this.earlierPageBackfill !== backfill) {
+                return;
+            }
+            this.earlierPageBackfill = undefined;
+            backfill.timer = undefined;
+            if (this.abortController === backfill.abortController) {
+                backfill.abortController?.abort();
+            }
+            this.settleEarlierPageBackfill(request, 'timed-out');
+        };
+        const timer = this.options.setTimer
+            ? this.options.setTimer(
+                timeout,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            )
+            : setTimeout(
+                timeout,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            );
+        backfill.timer = timer;
+        void read
+            .then(
+                (outcome) => {
+                    if (this.earlierPageBackfill !== backfill) {
+                        return;
+                    }
+                    this.earlierPageBackfill = undefined;
+                    this.clearEarlierPageBackfillTimer(backfill);
+                    if (!outcome) {
+                        if (this.target === target
+                            && (request.subscriptionGeneration === undefined
+                                || this.subscriptionGeneration
+                                    === request.subscriptionGeneration)) {
+                            this.settleEarlierPageBackfill(request, 'unavailable');
+                        }
+                        return;
+                    }
+                    const next = this.pages[0]?.page;
+                    const madeProgress = !!next
+                        && next.interactionStates[0]?.interactionId
+                            !== oldestBefore;
+                    // A prepend evicted by the retention budget made no
+                    // progress: remember this boundary so ack-triggered
+                    // restarts stop retrying it forever.
+                    this.earlierBackfillStuckAnchor = madeProgress
+                        ? undefined
+                        : oldestBefore;
+                    if (!madeProgress) {
+                        this.settleEarlierPageBackfill(request, 'stalled');
+                    }
+                },
+                () => {
+                    if (this.earlierPageBackfill !== backfill) {
+                        return;
+                    }
+                    this.earlierPageBackfill = undefined;
+                    this.clearEarlierPageBackfillTimer(backfill);
+                    if (this.target === target
+                        && (request.subscriptionGeneration === undefined
+                            || this.subscriptionGeneration
+                                === request.subscriptionGeneration)) {
+                        this.settleEarlierPageBackfill(request, 'unavailable');
+                    }
+                }
+            );
     }
 
     async refreshPresentation(): Promise<void> {
@@ -874,6 +1154,7 @@ export class ConversationViewer implements ConversationViewerApi {
             this.authoritativeRefreshPending = false;
             this.abortController?.abort();
             this.abortController = undefined;
+            this.cancelEarlierPageBackfill();
             this.watch?.dispose();
             this.watch = undefined;
             const previousGeneration = this.subscriptionGeneration;
@@ -991,6 +1272,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.latestTailSplit = undefined;
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
@@ -998,6 +1280,9 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
+        this.pendingRevalidationInteractionId = undefined;
+        this.earlierBackfillStuckAnchor = undefined;
+        this.cancelEarlierPageBackfill();
         this.appliedContentSignature = undefined;
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
@@ -1108,6 +1393,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.changesController?.reset();
         this.latestPublication = undefined;
+        this.latestTailSplit = undefined;
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
@@ -1115,6 +1401,9 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
+        this.pendingRevalidationInteractionId = undefined;
+        this.earlierBackfillStuckAnchor = undefined;
+        this.cancelEarlierPageBackfill();
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1137,6 +1426,19 @@ export class ConversationViewer implements ConversationViewerApi {
             this.publishKeyboardFocus(parsed.focused && this.panel.active);
             return;
         }
+        if (parsed.type === 'conversation-viewer-capabilities') {
+            // Document-scoped handshake, posted once at script startup:
+            // Hosts predating it ignore the unknown type, while their
+            // exact-key receipt whitelist would have rejected this as a
+            // field on the applied receipt. The echoed document identity
+            // keeps a queued advertisement from an outgoing document from
+            // arming patches for its replacement.
+            if (parsed.documentId === this.currentDocumentId) {
+                this.webviewTailPatchCapable = parsed.capabilities
+                    .includes('tail-patch');
+            }
+            return;
+        }
         if (!this.target) {
             return;
         }
@@ -1147,7 +1449,13 @@ export class ConversationViewer implements ConversationViewerApi {
             // Ignore any outgoing-document action until the authoritative
             // incoming document is ready, rather than applying it to the
             // already-replaced Host target.
-            this.emitDiagnostic('message-dropped-target-transition');
+            if (parsed.type === 'conversation-viewer-load-earlier'
+                && parsed.subscriptionGeneration
+                    === this.subscriptionGeneration) {
+                this.settleEarlierPageBackfill(parsed, 'busy');
+            } else {
+                this.emitDiagnostic('message-dropped-target-transition');
+            }
             return;
         }
         if (parsed.type === 'conversation-viewer-open-link') {
@@ -1401,6 +1709,10 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.navigate('before');
             return;
         }
+        if (parsed.type === 'conversation-viewer-load-earlier') {
+            this.maybeContinueEarlierPageBackfill(parsed);
+            return;
+        }
         if (parsed.type === 'conversation-viewer-next') {
             await this.navigate('after');
             return;
@@ -1512,8 +1824,12 @@ export class ConversationViewer implements ConversationViewerApi {
         this.stale = false;
         this.telemetryController.reset();
         this.latestPublication = undefined;
+        this.latestTailSplit = undefined;
         this.cancelProgressiveBackfill();
         this.pendingRestoredAuxiliaryState = undefined;
+        this.pendingRevalidationInteractionId = undefined;
+        this.earlierBackfillStuckAnchor = undefined;
+        this.cancelEarlierPageBackfill();
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1842,6 +2158,13 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!target || !panel || this.suspended) {
             return false;
         }
+        // A normal authoritative read supersedes a user-triggered retained
+        // history read. Detach it before aborting so its late completion
+        // cannot settle an obsolete request against the new page.
+        if (this.earlierPageBackfill?.abortController
+            === this.abortController) {
+            this.cancelEarlierPageBackfill();
+        }
         this.abortController?.abort();
         const abortController = new ConversationAbortController();
         this.abortController = abortController;
@@ -1874,7 +2197,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 this.effectiveSessionId(target),
                 abortController.signal
             );
-            if (!this.canPublish(panel, target, generation, requestId)) {
+            if (!this.canPublish(panel, target, generation, requestId)
+                || abortController.signal.aborted) {
                 return false;
             }
             if (outline.provider !== target.provider
@@ -2173,7 +2497,8 @@ export class ConversationViewer implements ConversationViewerApi {
         placement: 'replace' | 'before' | 'after',
         replaceDocument: boolean,
         updateKind: ConversationViewerPageMessage['updateKind'],
-        preferredInteractionId: string
+        preferredInteractionId: string,
+        preserveSelection = false
     ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
@@ -2208,7 +2533,8 @@ export class ConversationViewer implements ConversationViewerApi {
                     this.effectiveSessionId(target),
                     abortController.signal
                 );
-                if (!this.canPublish(panel, target, generation, requestId)) {
+                if (!this.canPublish(panel, target, generation, requestId)
+                    || abortController.signal.aborted) {
                     return false;
                 }
                 if (outline.provider !== target.provider
@@ -2233,7 +2559,8 @@ export class ConversationViewer implements ConversationViewerApi {
                     limit: CONVERSATION_LIMITS.maxPageInteractions,
                 }, abortController.signal);
             }
-            if (!this.canPublish(panel, target, generation, requestId)) {
+            if (!this.canPublish(panel, target, generation, requestId)
+                || abortController.signal.aborted) {
                 return false;
             }
             if (page.provider !== target.provider
@@ -2243,15 +2570,24 @@ export class ConversationViewer implements ConversationViewerApi {
                 return false;
             }
             this.stale = false;
-            const selected = retriedStaleRevision && outline
-                ? this.outlineController.replace(
+            if (preserveSelection) {
+                if (!this.outlineController.contains(page.anchorInteractionId)) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
+            } else if (retriedStaleRevision && outline) {
+                if (!this.outlineController.replace(
                     outline,
                     page.anchorInteractionId
-                )
-                : this.outlineController.select(page.anchorInteractionId);
-            if (!selected) {
-                await this.publishFailure(replaceDocument, updateKind);
-                return false;
+                )) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
+            } else {
+                if (!this.outlineController.select(page.anchorInteractionId)) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
             }
             if (retriedStaleRevision && outline) {
                 this.mergeRefreshPage(page, outline);
@@ -2329,6 +2665,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.emitDiagnostic('publish-failure', { updateKind, replaceDocument });
         this.latestPublication = undefined;
+        this.latestTailSplit = undefined;
         panel.webview.html = this.renderDocument(
             undefined,
             'Conversation history unavailable.'
@@ -2349,7 +2686,12 @@ export class ConversationViewer implements ConversationViewerApi {
         this.cancelProgressiveBackfill();
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
+        const previousPublication = this.latestPublication;
+        const previousTailSplit = this.latestTailSplit;
+        const tailSplit = this.lastPublicationTailSplit;
+        this.lastPublicationTailSplit = undefined;
         this.latestPublication = publication;
+        this.latestTailSplit = tailSplit;
         if (replaceDocument) {
             this.recordPublicationDelivery(publication, 'document');
             panel.webview.html = this.renderDocument(publication);
@@ -2367,11 +2709,39 @@ export class ConversationViewer implements ConversationViewerApi {
             && this.webviewFrames.get(
                 conversationFrameTokenKey(publication.target)
             ) === publication.htmlSignature;
+        // Streaming tail patch: the Webview applied exactly the previous
+        // publication, and everything before the trailing interaction group
+        // is unchanged, so only that group goes on the wire. The receipt
+        // still confirms the full content signature, keeping every later
+        // delta decision authoritative.
+        const tailPatch = !sameAsApplied && !frameRestorable && tailSplit
+            && publication.updateKind === 'refresh'
+            && this.webviewTailPatchCapable
+            && previousPublication !== undefined && previousTailSplit
+            && previousPublication.subscriptionGeneration
+                === publication.subscriptionGeneration
+            && previousPublication.htmlSignature
+                === this.appliedContentSignature
+            && tailSplit.prefixSignature === previousTailSplit.prefixSignature
+            && tailSplit.tailInteractionId
+                === previousTailSplit.tailInteractionId
+            && this.progressiveContentIncomplete?.generation
+                !== publication.subscriptionGeneration
+            && !this.progressivePublication
+            ? tailSplit
+            : undefined;
         const wire: ConversationViewerPageMessage = sameAsApplied
             ? { ...publication, html: undefined }
             : frameRestorable
                 ? { ...publication, html: undefined, restoreFrame: true }
-                : publication;
+                : tailPatch
+                    ? {
+                        ...publication,
+                        html: undefined,
+                        tailInteractionId: tailPatch.tailInteractionId,
+                        tailHtml: tailPatch.tailHtml,
+                    }
+                    : publication;
         let delivered = false;
         try {
             this.recordPublicationDelivery(publication, 'message');
@@ -2395,6 +2765,13 @@ export class ConversationViewer implements ConversationViewerApi {
             || message.requestId !== publication.requestId
             || message.htmlSignature !== publication.htmlSignature) {
             return;
+        }
+        // Transitional documents rendered by the pre-handshake script
+        // advertise tail-patch support on the receipt itself; accept it as
+        // an upgrade path, but never clear the dedicated handshake's
+        // verdict (the current script omits the field).
+        if (message.capabilities?.includes('tail-patch')) {
+            this.webviewTailPatchCapable = true;
         }
         // The Webview is the authority on which frames it still holds:
         // replace the table with its latest report so evicted frames and
@@ -2425,6 +2802,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.publishRestoredAuxiliaryState();
         this.publishDeferredMessages(publication);
+        this.runPendingRevalidation();
     }
 
     private publishDeferredMessages(
@@ -3239,8 +3617,13 @@ export class ConversationViewer implements ConversationViewerApi {
             this.renderCache,
             this.contentSignatures,
             this.effectiveSessionId(target),
-            deferredMessageCount
+            deferredMessageCount,
+            deferredMessageCount === 0
         );
+        // The split describes exactly this publication's render. It is read
+        // synchronously by deliverPublication (the only caller path) before
+        // anything else can create another publication.
+        this.lastPublicationTailSplit = rendered.tailSplit;
         return {
             type: 'conversation-viewer-page',
             version: 1,
@@ -3252,6 +3635,10 @@ export class ConversationViewer implements ConversationViewerApi {
             ...projection,
             previousCursor: selectedIndex > 0
                 ? first?.previousCursor || ''
+                : undefined,
+            earlierPageCursor: !first?.isStart
+                && first?.previousCursor !== undefined
+                ? first.previousCursor
                 : undefined,
             nextCursor: selectedIndex >= 0
                 && selectedIndex < interactionIds.length - 1
@@ -3281,7 +3668,14 @@ export class ConversationViewer implements ConversationViewerApi {
         const projection = this.outlineController.createPublication();
         return projection.atLatest
             && !projection.partial
-            && deferredConversationMessageCount(this.messages()) > 0;
+            // A small deferred prefix used to paint a partial page, wait for
+            // its receipt, and immediately repaint the full transcript. That
+            // two-step path made ordinary 25+ message conversations visibly
+            // pause on “Loading earlier messages” without reducing work.
+            // Enter the progressive protocol only when it can send at least
+            // two bounded history chunks.
+            && deferredConversationMessageCount(this.messages())
+                > CONVERSATION_PROGRESSIVE_CHUNK_MIN_DEFERRED;
     }
 
     private createInteractionInfo(): Map<string, {
@@ -3313,6 +3707,11 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!panel || !target) {
             return '';
         }
+        // A replacement document re-runs the viewer script, which re-posts
+        // its capabilities correlated to this fresh identity; forget what
+        // the outgoing document advertised.
+        this.currentDocumentId = String(++this.documentSerial);
+        this.webviewTailPatchCapable = false;
         return renderConversationViewerDocument({
             panel,
             target,
@@ -3324,6 +3723,7 @@ export class ConversationViewer implements ConversationViewerApi {
             sessionStatusSnapshot: this.sessionStatusController.snapshot,
             sessionStatusRequestId: this.currentRequestId,
             subscriptionGeneration: this.subscriptionGeneration,
+            documentId: this.currentDocumentId,
             initialPage,
             initialStatus,
         });
@@ -3703,6 +4103,15 @@ function renderMessage(
 interface RenderedConversationMessages {
     html: string;
     contentSignature: string;
+    /** Present when requested and the render holds more than one group:
+     * the trailing interaction group rendered separately, plus the content
+     * signature of everything before it. A later publication whose prefix
+     * signature still matches can patch just this group on the wire. */
+    tailSplit?: {
+        prefixSignature: string;
+        tailInteractionId: string;
+        tailHtml: string;
+    };
 }
 
 function renderMessages(
@@ -3712,7 +4121,8 @@ function renderMessages(
     renderCache: ConversationMessageRenderCache,
     contentSignatures: ConversationContentSignatureRegistry,
     sessionId: string,
-    deferredMessageCount = 0
+    deferredMessageCount = 0,
+    withTailSplit = false
 ): RenderedConversationMessages {
     const groups: ConversationMessage[][] = [];
     messages.forEach(message => {
@@ -3724,7 +4134,12 @@ function renderMessages(
         }
     });
     const contentStream = new ConversationContentStream();
-    const html = groups.map(group => {
+    let prefixStream: string | undefined;
+    const groupHtml = groups.map((group, groupIndex) => {
+        if (withTailSplit && groups.length > 1
+            && groupIndex === groups.length - 1) {
+            prefixStream = contentStream.toString();
+        }
         const info = interactionInfo.get(group[0].interactionId);
         const now = Date.now();
         const inputClock = info
@@ -3782,7 +4197,9 @@ function renderMessages(
             ));
         }
         return rendered.join('');
-    }).join('');
+    });
+    const html = groupHtml.join('');
+    const tailInteractionId = groups[groups.length - 1]?.[0]?.interactionId;
     return {
         html: deferredMessageCount
             ? `<section class="conversation-deferred-messages">Loading earlier messages…</section>${html}`
@@ -3790,6 +4207,16 @@ function renderMessages(
         contentSignature: contentSignatures.tokenFor(
             `${deferredMessageCount}\u0001${contentStream.toString()}`
         ),
+        tailSplit: prefixStream !== undefined && tailInteractionId
+            && groupHtml[groupHtml.length - 1].length > 0
+            ? {
+                prefixSignature: contentSignatures.tokenFor(
+                    `0\u0001${prefixStream}`
+                ),
+                tailInteractionId,
+                tailHtml: groupHtml[groupHtml.length - 1],
+            }
+            : undefined,
     };
 }
 

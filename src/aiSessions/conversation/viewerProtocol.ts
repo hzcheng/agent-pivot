@@ -304,6 +304,24 @@ export interface ConversationViewerAppliedMessage {
     requestId: number;
     htmlSignature: string;
     frames?: ConversationViewerAppliedFrame[];
+    /** Tolerated legacy advertisement: documents rendered by the
+     * pre-handshake script carry it on the receipt. Accepted so a Host
+     * that already shipped the handshake keeps acknowledging them. */
+    capabilities?: string[];
+}
+
+/** Wire features the running Webview script applies correctly, posted once
+ * at document startup on its own message type: Hosts predating this
+ * message silently ignore unknown types, while their exact-key receipt
+ * whitelist would reject extra fields on the applied receipt. The echoed
+ * documentId binds the advertisement to the document that actually
+ * rendered it, so a queued message from a replaced document cannot arm
+ * delta deliveries for its successor. */
+export interface ConversationViewerCapabilitiesMessage {
+    type: 'conversation-viewer-capabilities';
+    version: 1;
+    documentId: string;
+    capabilities: string[];
 }
 
 /** Correlated receipt for one history backfill chunk. The signature is the
@@ -321,6 +339,19 @@ export interface ConversationViewerFocusMessage {
     type: 'conversation-viewer-focus';
     version: 1;
     focused: boolean;
+}
+
+/** The user scrolled the transcript to its top while earlier history sits
+ * behind the oldest retained page's cursor; load one more page on demand
+ * instead of walking every page automatically on open. */
+export interface ConversationViewerLoadEarlierMessage {
+    type: 'conversation-viewer-load-earlier';
+    version: 1;
+    /** Webview-generated correlation for this one top-of-history request.
+     * Optional solely for a retained document rendered by the previous
+     * released script, which sent the original two-field envelope. */
+    requestId?: number;
+    subscriptionGeneration?: number;
 }
 
 export interface ConversationViewerOpenSubagentMessage {
@@ -361,8 +392,10 @@ export type ConversationViewerMessage =
     | ConversationViewerCycleStatusSessionMessage
     | ConversationViewerRequestSyncMessage
     | ConversationViewerAppliedMessage
+    | ConversationViewerCapabilitiesMessage
     | ConversationViewerHistoryChunkAppliedMessage
     | ConversationViewerFocusMessage
+    | ConversationViewerLoadEarlierMessage
     | ConversationViewerOpenSubagentMessage
     | ConversationViewerCloseSubagentMessage
     | ConversationViewerRenameSessionMessage
@@ -616,13 +649,15 @@ export function parseConversationViewerMessage(
         return value as unknown as ConversationViewerRequestSyncMessage;
     }
     if (value.type === 'conversation-viewer-applied') {
-        if (!hasExactKeys(value, [
+        const appliedKeys = [
             'type', 'version', 'subscriptionGeneration', 'requestId',
             'htmlSignature',
-        ])
+        ];
+        if (!hasExactKeys(value, appliedKeys)
+            && !hasExactKeys(value, [...appliedKeys, 'frames'])
+            && !hasExactKeys(value, [...appliedKeys, 'capabilities'])
             && !hasExactKeys(value, [
-                'type', 'version', 'subscriptionGeneration', 'requestId',
-                'htmlSignature', 'frames',
+                ...appliedKeys, 'frames', 'capabilities',
             ])) {
             return undefined;
         }
@@ -637,7 +672,30 @@ export function parseConversationViewerMessage(
             && !isAppliedFrameInventory(value.frames)) {
             return undefined;
         }
+        if (value.capabilities !== undefined
+            && (!Array.isArray(value.capabilities)
+                || value.capabilities.length > 16
+                || value.capabilities.some((capability: unknown) =>
+                    typeof capability !== 'string'
+                    || capability.length > 64))) {
+            return undefined;
+        }
         return value as unknown as ConversationViewerAppliedMessage;
+    }
+    if (value.type === 'conversation-viewer-capabilities') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'documentId', 'capabilities',
+        ])
+            || typeof value.documentId !== 'string'
+            || value.documentId.length > 64
+            || !Array.isArray(value.capabilities)
+            || value.capabilities.length > 16
+            || value.capabilities.some((capability: unknown) =>
+                typeof capability !== 'string'
+                || capability.length > 64)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerCapabilitiesMessage;
     }
     if (value.type === 'conversation-viewer-history-chunk-applied') {
         if (!hasExactKeys(value, [
@@ -661,6 +719,18 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerFocusMessage;
+    }
+    if (value.type === 'conversation-viewer-load-earlier') {
+        const legacy = hasExactKeys(value, ['type', 'version']);
+        const correlated = hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+        ])
+            && isPositiveSafeInteger(value.requestId)
+            && isPositiveSafeInteger(value.subscriptionGeneration);
+        if (!legacy && !correlated) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerLoadEarlierMessage;
     }
     if (value.type === 'conversation-viewer-open-subagent') {
         if (!hasExactKeys(value, ['type', 'version', 'subagentId'])

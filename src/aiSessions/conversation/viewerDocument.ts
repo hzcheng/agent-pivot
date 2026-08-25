@@ -54,6 +54,10 @@ export interface ConversationViewerDocumentOptions {
     sessionStatusSnapshot?: ConversationSessionStatus;
     sessionStatusRequestId?: number;
     subscriptionGeneration: number;
+    /** Per-render identity echoed back by the capabilities handshake so a
+     * queued advertisement from a replaced document can never arm delta
+     * deliveries for its successor. */
+    documentId: string;
     initialPage?: ConversationViewerPageMessage;
     initialStatus?: string;
 }
@@ -168,6 +172,7 @@ export function renderConversationViewerDocument(
     <title>AI Conversation</title>
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
+    data-document-id="${escapeAttribute(options.documentId)}"
     data-mermaid-src="${escapeAttribute(mermaid.toString())}"
     data-session-status-request-id="${sessionStatusRequestId}"
     data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${projectCommentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>

@@ -177,6 +177,12 @@ function decodeInitialPublication(html) {
         .replace(/&amp;/g, '&'));
 }
 
+function decodeDocumentId(html) {
+    const match = html.match(/data-document-id="([^"]*)"/);
+    assert.ok(match, 'Host document must carry a document identity');
+    return match[1];
+}
+
 // Delta publications omit the HTML string when the rendered content is
 // identical to what the Webview already applied. Content assertions must
 // therefore target the last publication that actually carried HTML.
@@ -189,7 +195,7 @@ function lastContentPublication(panel) {
     return publication;
 }
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 publishes recent messages before completing a long latest page', async () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 renders a modest latest page in one publication', async () => {
     const sessionId = 'progressive-page';
     const interactionIds = Array.from(
         { length: 30 },
@@ -205,30 +211,19 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 publishes recent messages befor
 
     await viewer.open(target(sessionId, interactionIds.at(-1)));
 
-    const recent = decodeInitialPublication(panel.webview.html);
-    assert.match(recent.html, /Loading earlier messages/);
-    assert.match(recent.html, /message-29/);
-    assert.doesNotMatch(recent.html, /message-0/);
-
-    await panel.receive({
-        type: 'conversation-viewer-applied',
-        version: 1,
-        subscriptionGeneration: recent.subscriptionGeneration,
-        requestId: recent.requestId,
-        htmlSignature: recent.htmlSignature,
-    });
-
-    const complete = lastContentPublication(panel);
-    assert.equal(complete.updateKind, 'refresh');
-    assert.doesNotMatch(complete.html, /Loading earlier messages/);
-    assert.match(complete.html, /message-0/);
-    assert.match(complete.html, /message-29/);
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(initial.html, /Loading earlier messages/);
+    assert.match(initial.html, /message-0/);
+    assert.match(initial.html, /message-29/);
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).length, 0, 'the modest page must not wait for a second full refresh');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes a recovered recent-message page', async () => {
     const sessionId = 'progressive-recovery';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const { viewer, panel } = createViewer({
@@ -262,15 +257,41 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes a recovered recent-me
         requestId: recovered.requestId,
         htmlSignature: recovered.htmlSignature,
     });
-    const complete = lastContentPublication(panel);
-    assert.doesNotMatch(complete.html, /Loading earlier messages/);
-    assert.match(complete.html, /message-0/);
+    const firstChunk = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(firstChunk, 'the recovered partial page must resume backfill');
+    assert.match(firstChunk.html, /message-64/);
+    assert.doesNotMatch(firstChunk.html, /message-0/);
+
+    let chunk = firstChunk;
+    while (chunk) {
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: chunk.subscriptionGeneration,
+            requestId: chunk.requestId,
+            htmlSignature: chunk.htmlSignature,
+        });
+        if (chunk.complete) {
+            break;
+        }
+        chunk = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).at(-1);
+    }
+    assert.ok(chunk?.complete, 'the recovered backfill must reach history start');
+    const complete = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(complete?.html, undefined);
+    assert.equal(complete?.updateKind, 'refresh');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a dropped complete progressive page', async () => {
     const sessionId = 'progressive-completion-timeout';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const timers = new Map();
@@ -306,7 +327,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a dropped complete pro
     assert.ok(timer, 'the complete progressive page must be acknowledged');
 
     timer.callback();
-    const recovered = decodeInitialPublication(panel.webview.html);
+    const recovered = lastContentPublication(panel);
     assert.doesNotMatch(recovered.html, /Loading earlier messages/);
     assert.match(recovered.html, /message-0/);
     viewer.dispose();
@@ -315,7 +336,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a dropped complete pro
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost first progressive acknowledgement', async () => {
     const sessionId = 'progressive-first-ack-timeout';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const timers = new Map();
@@ -346,6 +367,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost first progressi
     timer.callback();
     const recovered = decodeInitialPublication(panel.webview.html);
     assert.notEqual(recovered.requestId, partial.requestId);
+    assert.match(recovered.html, /Loading earlier messages/);
     await panel.receive({
         type: 'conversation-viewer-applied',
         version: 1,
@@ -353,14 +375,16 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost first progressi
         requestId: recovered.requestId,
         htmlSignature: recovered.htmlSignature,
     });
-    assert.match(lastContentPublication(panel).html, /message-0/);
+    assert.ok(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ), 'the recovered document must resume its bounded history backfill');
     viewer.dispose();
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 transfers the incomplete-content watchdog across authority suspension', async () => {
     const sessionId = 'progressive-authority-rollover';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const timers = new Map();
@@ -400,7 +424,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 transfers the incomplete-conten
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps an interaction group intact at the progressive boundary', async () => {
     const sessionId = 'progressive-group-boundary';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const { viewer, panel } = createViewer({
@@ -410,16 +434,16 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps an interaction group inta
                 interactionIds,
                 anchorInteractionId: interactionIds.at(-1),
             });
-            result.messages.splice(19, 0,
+            result.messages.splice(89, 0,
                 {
-                    id: 'input-19:progress',
-                    interactionId: 'input-19',
+                    id: 'input-90:progress',
+                    interactionId: 'input-90',
                     role: 'progress',
                     markdown: 'group-progress',
                 },
                 {
-                    id: 'input-19:assistant',
-                    interactionId: 'input-19',
+                    id: 'input-90:assistant',
+                    interactionId: 'input-90',
                     role: 'assistant',
                     markdown: 'group-answer',
                 }
@@ -430,10 +454,10 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps an interaction group inta
 
     await viewer.open(target(sessionId, interactionIds.at(-1)));
     const recent = decodeInitialPublication(panel.webview.html);
-    assert.match(recent.html, /message-18/);
+    assert.match(recent.html, /message-89/);
     assert.match(recent.html, /group-progress/);
     assert.match(recent.html, /group-answer/);
-    assert.doesNotMatch(recent.html, /message-17/);
+    assert.doesNotMatch(recent.html, /message-88/);
     viewer.dispose();
 });
 
@@ -517,6 +541,348 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 backfills a long history in ack
         chunkRanges.length,
         'no further chunks after completion'
     );
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 defers post-load revalidation while the backfill is open', async () => {
+    const sessionId = 'progressive-revalidate';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    let outlineReads = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async () => {
+            outlineReads += 1;
+            return outline(sessionId, interactionIds);
+        },
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /Loading earlier messages/);
+
+    // The dashboard's post-load hygiene revalidation arrives before the
+    // partial page's receipt. It must defer: a refresh here would advance
+    // the request counter, orphan the receipt, and cancel the backfill.
+    await viewer.revalidateLatest(interactionIds.at(-1));
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+                && message.updateKind === 'refresh'
+        ).length,
+        0,
+        'revalidation must not supersede an open backfill'
+    );
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: partial.subscriptionGeneration,
+        requestId: partial.requestId,
+        htmlSignature: partial.htmlSignature,
+    });
+
+    const chunkRanges = [[64, 88], [40, 64], [16, 40], [0, 16]];
+    for (const [index, [start, end]] of chunkRanges.entries()) {
+        const sentChunks = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        );
+        assert.equal(sentChunks.length, index + 1,
+            'the partial receipt must anchor the chunked backfill');
+        const chunk = sentChunks.at(-1);
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: chunk.subscriptionGeneration,
+            requestId: chunk.requestId,
+            htmlSignature: chunk.htmlSignature,
+        });
+        assert.equal(chunk.complete, index === chunkRanges.length - 1);
+    }
+
+    const completion = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(completion, 'the completion publication must exist');
+    const readsBeforeCompletion = outlineReads;
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: completion.subscriptionGeneration,
+        requestId: completion.requestId,
+        htmlSignature: completion.htmlSignature,
+    });
+
+    // The obligation is closed; the deferred freshness check runs exactly
+    // once. Content is unchanged, so it settles as a read without a
+    // publication (its retained-revision short-circuit publishes nothing).
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(outlineReads, readsBeforeCompletion + 1,
+        'the deferred revalidation re-reads exactly once after completion');
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+                && message.requestId > completion.requestId
+        ).length,
+        0,
+        'an unchanged revalidation publishes nothing new'
+    );
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundary to the session start', async () => {
+    const sessionId = 'progressive-boundary';
+    const olderInteractions = ['input-1', 'input-2'];
+    const recentInteractions = ['input-3', 'input-4', 'input-5'];
+    const requests = [];
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, [
+            ...olderInteractions,
+            ...recentInteractions,
+        ]),
+        readPage: async request => {
+            requests.push(request);
+            if (request.direction === 'before') {
+                // The older page reaches the session start.
+                return page(sessionId, 'input-1', 'message', {
+                    interactionIds: olderInteractions,
+                    anchorInteractionId: 'input-1',
+                });
+            }
+            // The opening page stops mid-session: earlier history sits
+            // behind a cursor boundary.
+            return {
+                ...page(sessionId, 'input-5', 'message', {
+                    interactionIds: recentInteractions,
+                    anchorInteractionId: 'input-5',
+                }),
+                previousCursor: 'cursor-1',
+                isStart: false,
+            };
+        },
+    });
+
+    await viewer.open(target(sessionId, 'input-5'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(initial.html, /data-message-id="input-1:user"/,
+        'the opening page stops before the session start');
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    // The retained-window settle does NOT walk the boundary: loading older
+    // pages is on demand, so a page that stops mid-session must not
+    // publish the older page until the user scrolls to the top.
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(requests.filter(request => request.direction === 'before').length,
+        0,
+        'the older page must stay off the wire until requested');
+
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        const latest = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).at(-1);
+        if (latest && typeof latest.html === 'string'
+            && /data-message-id="input-1:user"/.test(latest.html)) {
+            break;
+        }
+    }
+    assert.ok(requests.some(request => request.direction === 'before'),
+        'the boundary walk must request the previous page on demand');
+    const walked = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(walked, 'the boundary walk must publish the merged page');
+    assert.match(walked.html, /data-message-id="input-1:user"/);
+    assert.match(walked.html, /data-message-id="input-5:user"/);
+    assert.doesNotMatch(walked.html, /Loading earlier messages/);
+    assert.equal(walked.selectedInteractionId, 'input-5',
+        'the walk preserves the user selection');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles a stalled earlier-page read', async () => {
+    const sessionId = 'progressive-boundary-timeout';
+    const interactionIds = ['input-1', 'input-2'];
+    const timers = new Map();
+    let nextTimer = 1;
+    let resolveBefore;
+    const { viewer, panel } = createViewer({
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, { callback, delayMs });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async request => {
+            if (request.direction === 'before') {
+                return new Promise(resolve => {
+                    resolveBefore = resolve;
+                });
+            }
+            return {
+                ...page(sessionId, 'input-2', 'message', {
+                    interactionIds: ['input-2'],
+                    anchorInteractionId: 'input-2',
+                }),
+                previousCursor: 'cursor-1',
+                isStart: false,
+            };
+        },
+    });
+
+    await viewer.open(target(sessionId, 'input-2'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    const timer = Array.from(timers.values()).find(candidate =>
+        candidate.delayMs === 4_000
+    );
+    assert.ok(timer, 'the earlier-page read must have a bounded wait');
+
+    timer.callback();
+    assert.deepEqual(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-load-earlier-result'
+    ).at(-1), {
+        type: 'conversation-viewer-load-earlier-result',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: 1,
+        outcome: 'timed-out',
+    });
+    // A provider may resolve after it has observed cancellation. That late
+    // result must neither publish stale history nor send a second settlement.
+    resolveBefore({
+        ...page(sessionId, 'input-1', 'late message', {
+            interactionIds,
+            anchorInteractionId: 'input-1',
+        }),
+        isStart: true,
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-load-earlier-result'
+    ).length, 1, 'a timed-out request settles exactly once');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 stops the boundary walk when a prepend makes no progress', async () => {
+    const sessionId = 'progressive-boundary-stuck';
+    const interactions = ['input-1', 'input-2'];
+    let beforeRequests = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactions),
+        readPage: async request => {
+            if (request.direction === 'before') {
+                beforeRequests += 1;
+                // A pathological page that reports no new boundary: the
+                // prepended content leaves the oldest interaction unchanged.
+                return {
+                    ...page(sessionId, 'input-2', 'message', {
+                        interactionIds: ['input-2'],
+                        anchorInteractionId: 'input-2',
+                    }),
+                    previousCursor: 'cursor-stuck',
+                    isStart: false,
+                };
+            }
+            return {
+                ...page(sessionId, 'input-2', 'message', {
+                    interactionIds: ['input-2'],
+                    anchorInteractionId: 'input-2',
+                }),
+                previousCursor: 'cursor-stuck',
+                isStart: false,
+            };
+        },
+    });
+
+    await viewer.open(target(sessionId, 'input-2'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    // The user requests an older page; the walk makes no progress and must
+    // not loop: its own publication receipt must not re-arm the same
+    // boundary, and a further request hits the stuck boundary guard.
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        if (beforeRequests >= 1) break;
+    }
+    const lastPublication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    if (lastPublication) {
+        await panel.receive({
+            type: 'conversation-viewer-applied',
+            version: 1,
+            subscriptionGeneration: lastPublication.subscriptionGeneration,
+            requestId: lastPublication.requestId,
+            htmlSignature: lastPublication.htmlSignature,
+        });
+    }
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(beforeRequests, 1,
+        'a no-progress walk must not be retried on its own receipt');
+    assert.deepEqual(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-load-earlier-result'
+    ).at(-1), {
+        type: 'conversation-viewer-load-earlier-result',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: 2,
+        outcome: 'stalled',
+    }, 'a blocked boundary must settle the matching Webview request');
     viewer.dispose();
 });
 
@@ -701,7 +1067,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 cancels the backfill when an au
     viewer.dispose();
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps the single full refresh for a modest deferred window', async () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 avoids a deferred window for a modest page', async () => {
     const sessionId = 'progressive-chunk-boundary';
     const interactionIds = Array.from(
         { length: 60 },
@@ -716,24 +1082,13 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps the single full refresh f
     });
 
     await viewer.open(target(sessionId, interactionIds.at(-1)));
-    const recent = decodeInitialPublication(panel.webview.html);
-    assert.match(recent.html, /Loading earlier messages/);
-    await panel.receive({
-        type: 'conversation-viewer-applied',
-        version: 1,
-        subscriptionGeneration: recent.subscriptionGeneration,
-        requestId: recent.requestId,
-        htmlSignature: recent.htmlSignature,
-    });
-
-    // 48 deferred messages stay on the single-refresh path.
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(initial.html, /Loading earlier messages/);
+    assert.match(initial.html, /message-0/);
+    assert.match(initial.html, /message-59/);
     assert.equal(panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-history-chunk'
     ).length, 0);
-    const complete = lastContentPublication(panel);
-    assert.equal(complete.updateKind, 'refresh');
-    assert.doesNotMatch(complete.html, /Loading earlier messages/);
-    assert.match(complete.html, /message-0/);
     viewer.dispose();
 });
 
@@ -1004,6 +1359,510 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost backfill comple
     assert.doesNotMatch(recovered.html, /Loading earlier messages/);
     assert.match(recovered.html, /message-0/);
     assert.match(recovered.html, /message-99/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 patches only the trailing interaction while it streams', async () => {
+    const sessionId = 'streaming-tail-patch';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const streamingPage = () => ({
+        provider: 'codex',
+        sessionId,
+        sourceRevision: `r${revision}`,
+        anchorInteractionId: 'input-3',
+        messages: [
+            ...interactionIds.map(id => ({
+                id: `${id}:user`,
+                interactionId: id,
+                role: 'user',
+                markdown: `question-${id}`,
+            })),
+            {
+                id: 'input-3:assistant',
+                interactionId: 'input-3',
+                role: 'assistant',
+                markdown: tailText,
+            },
+        ],
+        interactionStates: interactionIds.map(id => ({
+            interactionId: id,
+            responseState: 'complete',
+        })),
+        previousCursor: undefined,
+        nextCursor: undefined,
+        isStart: true,
+        isEnd: true,
+    });
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => streamingPage(),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.match(initial.html, /answer part/);
+    // The running document advertises tail-patch support once, at startup,
+    // through its own message rather than a field on the receipt.
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: decodeDocumentId(panel.webview.html),
+        capabilities: ['tail-patch'],
+    });
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    // The streamed growth changes only the trailing interaction: the wire
+    // carries just that group, never the whole document.
+    tailText = 'answer part grows further';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const patch = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(patch, 'the streaming refresh must be published');
+    assert.equal(patch.updateKind, 'refresh');
+    assert.equal(patch.html, undefined, 'the full document stays off the wire');
+    assert.equal(patch.tailInteractionId, 'input-3');
+    assert.match(patch.tailHtml, /answer part grows further/);
+    assert.match(patch.tailHtml, /question-input-3/);
+    assert.doesNotMatch(patch.tailHtml, /question-input-1/);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: patch.subscriptionGeneration,
+        requestId: patch.requestId,
+        htmlSignature: patch.htmlSignature,
+    });
+
+    // After the patched receipt, an unchanged refresh omits HTML entirely.
+    revision = 3;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const idle = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(idle.html, undefined);
+    assert.equal(idle.tailHtml, undefined);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: idle.subscriptionGeneration,
+        requestId: idle.requestId,
+        htmlSignature: idle.htmlSignature,
+    });
+
+    // A new interaction changes the prefix: back to a full refresh.
+    interactionIds.push('input-4');
+    tailText = 'next answer';
+    revision = 4;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const grown = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(typeof grown.html, 'string');
+    assert.equal(grown.tailHtml, undefined);
+    assert.match(grown.html, /question-input-4/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 delivers full HTML while the previous publication is unacknowledged', async () => {
+    const sessionId = 'streaming-tail-unacked';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: `r${revision}`,
+            anchorInteractionId: 'input-3',
+            messages: [
+                ...interactionIds.map(id => ({
+                    id: `${id}:user`,
+                    interactionId: id,
+                    role: 'user',
+                    markdown: `question-${id}`,
+                })),
+                {
+                    id: 'input-3:assistant',
+                    interactionId: 'input-3',
+                    role: 'assistant',
+                    markdown: tailText,
+                },
+            ],
+            interactionStates: interactionIds.map(id => ({
+                interactionId: id,
+                responseState: 'complete',
+            })),
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: decodeDocumentId(panel.webview.html),
+        capabilities: ['tail-patch'],
+    });
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    tailText = 'answer part two';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const first = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(first.tailInteractionId, 'input-3',
+        'the first streamed growth patches the tail');
+
+    // Without the first patch's receipt the Webview base is unknown, so the
+    // next growth must carry the full document again.
+    tailText = 'answer part three';
+    revision = 3;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const second = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(typeof second.html, 'string');
+    assert.equal(second.tailHtml, undefined);
+    assert.match(second.html, /answer part three/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps full-HTML refreshes for a Webview without tail-patch support', async () => {
+    const sessionId = 'streaming-tail-capability';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: `r${revision}`,
+            anchorInteractionId: 'input-3',
+            messages: [
+                ...interactionIds.map(id => ({
+                    id: `${id}:user`,
+                    interactionId: id,
+                    role: 'user',
+                    markdown: `question-${id}`,
+                })),
+                {
+                    id: 'input-3:assistant',
+                    interactionId: 'input-3',
+                    role: 'assistant',
+                    markdown: tailText,
+                },
+            ],
+            interactionStates: interactionIds.map(id => ({
+                interactionId: id,
+                responseState: 'complete',
+            })),
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    // A document rendered by an older script never posts the capabilities
+    // message, so every refresh keeps the full document on the wire.
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    tailText = 'answer part grows';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const refresh = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(typeof refresh.html, 'string',
+        'an incapable document keeps receiving full HTML');
+    assert.equal(refresh.tailHtml, undefined);
+    assert.match(refresh.html, /answer part grows/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 arms tail patches from a transitional receipt without the dedicated handshake', async () => {
+    const sessionId = 'streaming-tail-transitional';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: `r${revision}`,
+            anchorInteractionId: 'input-3',
+            messages: [
+                ...interactionIds.map(id => ({
+                    id: `${id}:user`,
+                    interactionId: id,
+                    role: 'user',
+                    markdown: `question-${id}`,
+                })),
+                {
+                    id: 'input-3:assistant',
+                    interactionId: 'input-3',
+                    role: 'assistant',
+                    markdown: tailText,
+                },
+            ],
+            interactionStates: interactionIds.map(id => ({
+                interactionId: id,
+                responseState: 'complete',
+            })),
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    // A document rendered by the pre-handshake script acknowledges with
+    // the capability on the receipt and never posts the dedicated message.
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+        capabilities: ['tail-patch'],
+    });
+
+    tailText = 'answer part grows';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const patch = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(patch.tailInteractionId, 'input-3',
+        'the transitional receipt arms the patch wire');
+    assert.equal(patch.html, undefined);
+    assert.match(patch.tailHtml, /answer part grows/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-locks tail patches behind a document replacement until the fresh script re-posts its capabilities', async () => {
+    const sessionId = 'streaming-tail-rebuild';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: `r${revision}`,
+            anchorInteractionId: 'input-3',
+            messages: [
+                ...interactionIds.map(id => ({
+                    id: `${id}:user`,
+                    interactionId: id,
+                    role: 'user',
+                    markdown: `question-${id}`,
+                })),
+                {
+                    id: 'input-3:assistant',
+                    interactionId: 'input-3',
+                    role: 'assistant',
+                    markdown: tailText,
+                },
+            ],
+            interactionStates: interactionIds.map(id => ({
+                interactionId: id,
+                responseState: 'complete',
+            })),
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    const firstDocumentId = decodeDocumentId(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: firstDocumentId,
+        capabilities: ['tail-patch'],
+    });
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    tailText = 'answer part grows';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const patch = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(patch.tailInteractionId, 'input-3');
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: patch.subscriptionGeneration,
+        requestId: patch.requestId,
+        htmlSignature: patch.htmlSignature,
+    });
+
+    // A recovery rebuild replaces the document: the outgoing script's
+    // capability advertisement must not leak into the fresh document.
+    await panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: patch.subscriptionGeneration,
+        requestId: patch.requestId,
+        htmlSignature: patch.htmlSignature,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId,
+    });
+    const rebuilt = decodeInitialPublication(panel.webview.html);
+    assert.notEqual(rebuilt.requestId, patch.requestId);
+    const rebuiltDocumentId = decodeDocumentId(panel.webview.html);
+    assert.notEqual(rebuiltDocumentId, firstDocumentId);
+
+    // A capabilities advertisement still queued from the replaced document
+    // must not arm patches for its successor.
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: firstDocumentId,
+        capabilities: ['tail-patch'],
+    });
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: rebuilt.subscriptionGeneration,
+        requestId: rebuilt.requestId,
+        htmlSignature: rebuilt.htmlSignature,
+    });
+
+    tailText = 'answer part grows again';
+    revision = 3;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const fullRefresh = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(typeof fullRefresh.html, 'string',
+        'the fresh document keeps full HTML until it re-posts capabilities');
+    assert.equal(fullRefresh.tailHtml, undefined);
+
+    // The fresh script's startup handshake re-arms tail patches.
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: rebuiltDocumentId,
+        capabilities: ['tail-patch'],
+    });
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: fullRefresh.subscriptionGeneration,
+        requestId: fullRefresh.requestId,
+        htmlSignature: fullRefresh.htmlSignature,
+    });
+    tailText = 'answer part grows once more';
+    revision = 4;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const rearmed = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(rearmed.tailInteractionId, 'input-3');
+    assert.equal(rearmed.html, undefined);
+    assert.match(rearmed.tailHtml, /answer part grows once more/);
     viewer.dispose();
 });
 

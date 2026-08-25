@@ -405,10 +405,32 @@
         worklogExpanded: new Map(),
         renderGeneration: 0,
         appliedHtmlSignature: undefined,
+        // Earlier history sitting behind the oldest retained page's cursor;
+        // loaded on demand when the transcript reaches its top.
+        earlierPageCursor: undefined,
+        earlierPageRequested: false,
+        earlierPageRequestId: undefined,
+        nextEarlierPageRequestId: 0,
+        earlierPageStatus: '',
     };
     // The status text without the deferred-history notice, so a completing
     // backfill chunk can clear that notice without a full page message.
     var baseTranscriptStatus = '';
+    function updateTranscriptStatus() {
+        var messagesToShow = [];
+        [
+            baseTranscriptStatus,
+            messages.querySelector('.conversation-deferred-messages')
+                ? 'Loading earlier messages.'
+                : '',
+            state.earlierPageStatus,
+        ].forEach(function (text) {
+            if (text && messagesToShow.indexOf(text) === -1) {
+                messagesToShow.push(text);
+            }
+        });
+        status.textContent = messagesToShow.join(' ');
+    }
     var readingAnchorController =
         window.__agentPivotConversation.readingAnchor.create({
             scroll: scroll,
@@ -995,8 +1017,10 @@
         ];
         var allowedKeys = new Set(requiredKeys.concat([
             'html', 'htmlSignature', 'restoreFrame', 'restoreFocus', 'previousCursor',
+            'earlierPageCursor',
             'nextCursor', 'subagents', 'activeSubagent', 'displayName',
             'target', 'comments', 'projectComments', 'bookmarks',
+            'tailInteractionId', 'tailHtml',
         ]));
         if (Object.keys(message).some(function (key) {
             return !allowedKeys.has(key);
@@ -1020,6 +1044,16 @@
                 || typeof message.htmlSignature === 'string')
             && (message.html !== undefined
                 || message.htmlSignature !== undefined)
+            && (message.tailHtml === undefined
+                || (typeof message.tailHtml === 'string'
+                    && message.tailHtml.length > 0))
+            && (message.tailInteractionId === undefined
+                || (typeof message.tailInteractionId === 'string'
+                    && message.tailInteractionId.length > 0
+                    && message.tailInteractionId.length <= 512
+                    && typeof message.tailHtml === 'string'))
+            && (message.tailHtml === undefined
+                || typeof message.tailInteractionId === 'string')
             && (message.restoreFrame === undefined
                 || typeof message.restoreFrame === 'boolean')
             && (message.restoreFocus === undefined
@@ -1034,6 +1068,8 @@
             && typeof message.atLatest === 'boolean'
             && (message.previousCursor === undefined
                 || typeof message.previousCursor === 'string')
+            && (message.earlierPageCursor === undefined
+                || typeof message.earlierPageCursor === 'string')
             && (message.nextCursor === undefined
                 || typeof message.nextCursor === 'string')
             && validSubagents(message.subagents)
@@ -1723,6 +1759,10 @@
                     reconcileController.scrollToEnd();
                 }
                 acknowledgePage(message);
+                // Check after the applied receipt has released any incoming
+                // document handoff. This also reaches earlier history for a
+                // short transcript that cannot emit a physical scroll event.
+                window.setTimeout(maybeRequestEarlierPage, 0);
             } catch (_presentationError) {
                 requestConversationResync(message, _presentationError);
             }
@@ -1754,16 +1794,29 @@
         }
         state.latestRequestId = message.requestId;
         var hasHtml = typeof message.html === 'string';
+        // A refresh that only changed the trailing interaction group carries
+        // just that group. Validate it against the live document before any
+        // state moves: a patch that does not match the visible tail is a
+        // resync, never a guess.
+        var wantsTailPatch = !hasHtml
+            && typeof message.tailHtml === 'string';
+        var tailPatch = wantsTailPatch ? prepareTailPatch(message) : null;
         // A stashed frame whose token matches this page's signature is
         // byte-identical to what the Host published: restore it whole and
         // skip the sanitize, parse, and reconcile entirely.
         var frame = hasHtml || message.restoreFrame === true
             ? takeRestorableFrame(message)
             : undefined;
-        if (!hasHtml && !frame) {
+        if (!hasHtml && !frame && !tailPatch) {
             if (message.restoreFrame === true) {
                 // The Host believes this frame is cached but it is not (or
                 // its token moved on): request a full resync.
+                requestConversationResync(message);
+                return;
+            }
+            if (wantsTailPatch) {
+                // The patch base is missing (the visible tail is not the
+                // patched group): resync instead of stranding the stream.
                 requestConversationResync(message);
                 return;
             }
@@ -1818,10 +1871,18 @@
             applyWorklogStates();
             state.messageIds = reconciled.ids;
             state.messageSignatures = reconciled.signatures;
+        } else if (tailPatch) {
+            applyTailPatchDom(tailPatch);
         }
         if (typeof message.htmlSignature === 'string') {
             state.appliedHtmlSignature = message.htmlSignature;
         }
+        // A page apply (full, patch, or chunk) moves the boundary: re-arm
+        // the scroll-to-top request and expose the latest cursor.
+        state.earlierPageCursor = message.earlierPageCursor;
+        state.earlierPageRequested = false;
+        state.earlierPageRequestId = undefined;
+        state.earlierPageStatus = '';
         // A content-first Host load delivers restored side state later in a
         // same-generation, HTML-free refresh. These snapshots are still
         // authoritative and must update without resetting the transcript.
@@ -1897,10 +1958,7 @@
             statusMessages.push('Partial history — showing newest inputs.');
         }
         baseTranscriptStatus = statusMessages.join(' ');
-        if (messages.querySelector('.conversation-deferred-messages')) {
-            statusMessages.push('Loading earlier messages.');
-        }
-        status.textContent = statusMessages.join(' ');
+        updateTranscriptStatus();
 
         var selectedMessages = Array.prototype.filter.call(
             messages.querySelectorAll('[data-interaction-id]'),
@@ -1977,7 +2035,7 @@
             scheduleDeferredPagePresentation(
                 message,
                 renderGeneration,
-                hasHtml || !!frame
+                hasHtml || !!frame || !!tailPatch
             );
             return;
         }
@@ -1994,7 +2052,7 @@
         scheduleDeferredPagePresentation(
             message,
             renderGeneration,
-            hasHtml || !!frame
+            hasHtml || !!frame || !!tailPatch
         );
     }
 
@@ -2075,6 +2133,17 @@
             requestLegacyConversationResync('empty-history-chunk');
             return true;
         }
+        // Every element must be a message node: a stray element would be
+        // prepended but never tracked by the message bookkeeping.
+        var strayElement = Array.prototype.slice.call(
+            template.content.children
+        ).some(function (node) {
+            return !node.matches(conversationMessageSelector());
+        });
+        if (strayElement) {
+            requestLegacyConversationResync('stray-history-chunk-element');
+            return true;
+        }
         var previousScrollHeight = scroll.scrollHeight;
         var previousScrollTop = scroll.scrollTop;
         placeholder.after(template.content);
@@ -2111,7 +2180,7 @@
         }
         reconcileController.trackEnd();
         if (message.complete) {
-            status.textContent = baseTranscriptStatus;
+            updateTranscriptStatus();
         }
         // Acknowledge before the deferred decoration pass: the Host paces
         // the next slice on this receipt, and the decoration is idempotent.
@@ -2188,11 +2257,177 @@
         post(message);
     }
 
+    // Validate and sanitize a streaming tail patch against the live
+    // document. Returns null unless the patched interaction group is a
+    // proper trailing slice of the visible messages: only then is replacing
+    // it in place equivalent to applying the full page.
+    function prepareTailPatch(message) {
+        if (typeof message.tailInteractionId !== 'string'
+            || !message.tailInteractionId
+            || !state.initialized) {
+            return null;
+        }
+        var current = Array.prototype.slice.call(
+            messages.querySelectorAll(conversationMessageSelector())
+        );
+        var groupStart = current.length;
+        while (groupStart > 0
+            && current[groupStart - 1].getAttribute('data-interaction-id')
+                === message.tailInteractionId) {
+            groupStart -= 1;
+        }
+        if (groupStart === current.length || groupStart === 0) {
+            return null;
+        }
+        var clean = window.DOMPurify.sanitize(message.tailHtml, {
+            ALLOWED_TAGS: allowedTags,
+            ALLOWED_ATTR: allowedAttributes,
+            ALLOW_DATA_ATTR: false,
+            ALLOW_ARIA_ATTR: false,
+        });
+        var template = document.createElement('template');
+        template.innerHTML = clean;
+        var inserted = Array.prototype.slice.call(
+            template.content.querySelectorAll(conversationMessageSelector())
+        );
+        if (!inserted.length || inserted.some(function (node) {
+            return node.getAttribute('data-interaction-id')
+                !== message.tailInteractionId;
+        })) {
+            return null;
+        }
+        // Every element must be a message of the patched group: a stray
+        // non-message element would be inserted but never re-validated or
+        // removed by later patches.
+        var strayElement = Array.prototype.slice.call(
+            template.content.children
+        ).some(function (node) {
+            return !node.matches(conversationMessageSelector());
+        });
+        if (strayElement) {
+            return null;
+        }
+        return {
+            groupStart: groupStart,
+            current: current,
+            fragment: template.content,
+            inserted: inserted,
+        };
+    }
+
+    // Replace the trailing interaction group in place. Signature
+    // bookkeeping mirrors the reconcile path exactly: template outerHTML
+    // captured before worklog states or image attributes are applied.
+    function applyTailPatchDom(patch) {
+        var ids = [];
+        var signatures = new Map();
+        patch.current.slice(0, patch.groupStart).forEach(function (node) {
+            var id = conversationMessageId(node);
+            ids.push(id);
+            signatures.set(id, state.messageSignatures.get(id));
+        });
+        patch.inserted.forEach(function (node) {
+            var id = conversationMessageId(node);
+            ids.push(id);
+            signatures.set(id, node.outerHTML);
+        });
+        var removed = patch.current.slice(patch.groupStart);
+        removed.forEach(function (node) {
+            releaseMermaidObjectUrls(node);
+        });
+        patch.current[patch.groupStart - 1].after(patch.fragment);
+        removed.forEach(function (node) {
+            node.remove();
+        });
+        patch.inserted.forEach(function (node) {
+            Array.prototype.forEach.call(
+                node.querySelectorAll('img'),
+                function (image) {
+                    image.loading = 'lazy';
+                    image.decoding = 'async';
+                    image.referrerPolicy = 'no-referrer';
+                }
+            );
+        });
+        applyWorklogStates();
+        state.messageIds = ids;
+        state.messageSignatures = signatures;
+    }
+
     function postNavigation(type) {
         post({ type: type, version: 1 });
     }
 
+    function applyEarlierPageResult(message) {
+        if (!message || typeof message !== 'object'
+            || message.type !== 'conversation-viewer-load-earlier-result') {
+            return false;
+        }
+        if (message.version !== 1
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || !Number.isSafeInteger(message.requestId)
+            || message.requestId !== state.earlierPageRequestId
+            || ['busy', 'unavailable', 'stalled', 'timed-out'].indexOf(
+                message.outcome
+            ) === -1) {
+            return true;
+        }
+        state.earlierPageRequested = false;
+        state.earlierPageRequestId = undefined;
+        state.earlierPageStatus = message.outcome === 'stalled'
+            ? 'Earlier messages could not be loaded.'
+            : message.outcome === 'timed-out'
+                ? 'Loading earlier messages timed out. Try again.'
+                : '';
+        // A no-progress boundary is terminal for this retained page just as
+        // an exhausted cursor is: keep the explanatory status but stop
+        // issuing the same automatic top-of-history request on every scroll.
+        if (message.outcome === 'unavailable' || message.outcome === 'stalled') {
+            state.earlierPageCursor = undefined;
+        }
+        updateTranscriptStatus();
+        return true;
+    }
+
     reconcileController.attach();
+
+    // On-demand earlier-page loading: the transcript reaching its top while
+    // earlier history sits behind the oldest retained page's cursor posts a
+    // single load request (re-armed by the next page apply). The Host loads
+    // exactly one page per request, so scrolling up walks history without
+    // paying for it on open.
+    var autoScrollThresholdPx = Number(document.body.getAttribute(
+        'data-auto-scroll-threshold'
+    )) || 0;
+    function maybeRequestEarlierPage() {
+        if (state.earlierPageRequested
+            || state.earlierPageCursor === undefined
+            || scroll.scrollTop > autoScrollThresholdPx) {
+            return;
+        }
+        state.earlierPageRequested = true;
+        state.earlierPageRequestId = ++state.nextEarlierPageRequestId;
+        state.earlierPageStatus = 'Loading earlier messages.';
+        updateTranscriptStatus();
+        post({
+            type: 'conversation-viewer-load-earlier',
+            version: 1,
+            requestId: state.earlierPageRequestId,
+            subscriptionGeneration: state.subscriptionGeneration,
+        });
+    }
+    scroll.addEventListener('scroll', maybeRequestEarlierPage, {
+        passive: true,
+    });
+    // Wheel/touch input still arrives when the transcript is already pinned
+    // at top and therefore emits no `scroll` event; it is the explicit retry
+    // gesture after a timed-out history read.
+    scroll.addEventListener('wheel', maybeRequestEarlierPage, {
+        passive: true,
+    });
+    scroll.addEventListener('touchmove', maybeRequestEarlierPage, {
+        passive: true,
+    });
 
     previous.addEventListener('click', function () {
         postNavigation('conversation-viewer-previous');
@@ -2510,6 +2745,7 @@
         if (applySessionStatusMessage(event.data)) return;
         if (applyFollowNotice(event.data)) return;
         if (applyLoadingNotice(event.data)) return;
+        if (applyEarlierPageResult(event.data)) return;
         if (applyHistoryChunk(event.data)) return;
         try {
             applyPage(event.data);
@@ -2529,6 +2765,20 @@
     }
     window.addEventListener('focus', postFocusState);
     window.addEventListener('blur', postFocusState);
+    // Advertise wire features this script applies correctly through a
+    // dedicated message rather than a field on the applied receipt: Hosts
+    // older than this script silently ignore unknown message types, but
+    // their exact-key receipt whitelist rejects unknown fields, which would
+    // wedge every acknowledgement (and with it the history backfill). The
+    // echoed document identity binds the advertisement to this document so
+    // a queued message from a replaced document cannot arm patches for its
+    // successor.
+    post({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        capabilities: ['tail-patch'],
+        documentId: document.body.getAttribute('data-document-id') || '',
+    });
     postFocusState();
     window.addEventListener('unload', releaseMermaidObjectUrls);
 

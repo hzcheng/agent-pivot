@@ -75,12 +75,18 @@ test('WEBVIEW-AI-SESSION-CARD-ACTIVATION-001 maps card bodies and the primary ac
 
     assert.deepEqual(
         normalizeRealmValue(getAiSessionCardActivation(createTarget(active), 'project-a').message),
-        {
+        [{
             type: 'focus-ai-session-terminal',
             projectId: 'project-a',
             provider: 'codex',
             sessionId: 'active-session',
-        }
+        }, {
+            type: 'open-active-ai-session-conversation',
+            version: 1,
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'active-session',
+        }]
     );
     assert.deepEqual(
         normalizeRealmValue(getAiSessionCardActivation(createTarget(inactive), 'project-a').message),
@@ -103,16 +109,22 @@ test('WEBVIEW-AI-SESSION-CARD-ACTIVATION-001 maps card bodies and the primary ac
         normalizeRealmValue(
             getAiSessionCardActivation(createTarget(active, { primary: true }), 'project-a').message
         ),
-        {
+        [{
             type: 'focus-ai-session-terminal',
             projectId: 'project-a',
             provider: 'codex',
             sessionId: 'active-session',
-        }
+        }, {
+            type: 'open-active-ai-session-conversation',
+            version: 1,
+            projectId: 'project-a',
+            provider: 'codex',
+            sessionId: 'active-session',
+        }]
     );
 });
 
-test('ACTIVE-SESSION-CONVERSATION-OPEN-001 opens the conversation only for an already focused active session', () => {
+test('ACTIVE-SESSION-CONVERSATION-OPEN-001 opens the conversation for every active session on a single click', () => {
     const focused = createRow({
         'data-session-id': 'focused-session',
         'data-session-provider': 'codex',
@@ -153,12 +165,18 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 opens the conversation only for an al
         createTarget(nonFocused),
         'project-a'
     );
-    assert.deepEqual(normalizeRealmValue(nonFocusedActivation.message), {
+    assert.deepEqual(normalizeRealmValue(nonFocusedActivation.message), [{
         type: 'focus-ai-session-terminal',
         projectId: 'project-a',
         provider: 'kimi',
         sessionId: 'non-focused-session',
-    });
+    }, {
+        type: 'open-active-ai-session-conversation',
+        version: 1,
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'non-focused-session',
+    }]);
 
     const pendingActivation = getAiSessionCardActivation(
         createTarget(pending, { primary: true }),

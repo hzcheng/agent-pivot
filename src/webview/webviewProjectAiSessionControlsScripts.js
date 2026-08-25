@@ -818,7 +818,13 @@ function initProjectAiSessionControls(options) {
         // until an explicit acknowledgement (archive, search resume,
         // conversation viewer, terminal/session close, attention-queue jump).
         if (activation.message) {
-            window.vscode.postMessage(activation.message);
+            if (Array.isArray(activation.message)) {
+                activation.message.forEach(message =>
+                    window.vscode.postMessage(message)
+                );
+            } else {
+                window.vscode.postMessage(activation.message);
+            }
         }
         return true;
     }

@@ -814,11 +814,9 @@ function initProjectAiSessionControls(options) {
         var activation = getAiSessionCardActivation(target, projectId);
         if (!activation.handled)
             return false;
-        if (activation.sessionRow
-            && !activation.sessionRow.hasAttribute('data-session-pending')
-            && activation.sessionRow.getAttribute('data-session-id')) {
-            acknowledgeAiSessionRow(activation.sessionRow);
-        }
+        // Activating a card only switches to the session; attention stays
+        // until an explicit acknowledgement (archive, search resume,
+        // conversation viewer, terminal/session close, attention-queue jump).
         if (activation.message) {
             window.vscode.postMessage(activation.message);
         }

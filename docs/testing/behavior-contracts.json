@@ -4333,7 +4333,7 @@
   {
     "id": "ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001",
     "domain": "attention",
-    "title": "A stopped Active Session card clears attention through one correlated authoritative acknowledgement transaction",
+    "title": "An explicit Active Session acknowledgement clears attention through one correlated authoritative transaction, while card activation only switches to the session and never acknowledges",
     "priority": "P0",
     "status": "automated",
     "owners": [

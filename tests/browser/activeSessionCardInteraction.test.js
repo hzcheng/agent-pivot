@@ -1409,7 +1409,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies AI HTML and c
     });
     assert.equal(await page.locator('[data-ai-session-live-region]').textContent(), '',
         'replaying already announced attention event IDs stays silent');
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    await page.evaluate(() => {
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
@@ -1458,7 +1460,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies OPEN HTML and
         await row(page, 'codex', 'session-a').getAttribute('data-ai-session-attention'),
         ''
     );
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    await page.evaluate(() => {
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
@@ -1507,7 +1511,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an AI envelope
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
     assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), null);
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-ai-session-attention'), '');
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    await page.evaluate(() => {
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
@@ -1561,7 +1567,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 closes an OPEN envelo
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
     assert.equal(await row(page, 'codex', 'session-b').getAttribute('data-session-focused'), null);
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-ai-session-attention'), '');
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    await page.evaluate(() => {
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
@@ -1626,7 +1634,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes AI
     await postHostMessage(page, conflictingPresentation);
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-ai-session-attention'), '');
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    await page.evaluate(() => {
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
@@ -1696,7 +1706,9 @@ test('ACTIVE-SESSION-INCREMENTAL-PRESENTATION-ENVELOPE-001 applies and closes OP
     await postHostMessage(page, conflictingPresentation);
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-ai-session-attention'), '');
     assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), '');
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    await page.evaluate(() => {
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
@@ -1856,7 +1868,9 @@ test('ACTIVE-SESSION-FULL-RENDER-TRANSACTION-001 seeds the full document revisio
         await row(page, 'codex', 'session-a').getAttribute('data-session-event-id'),
         'event-a'
     );
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    await page.evaluate(() => {
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
     const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
@@ -1918,11 +1932,23 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 keeps acknowledgement pending u
     await primaryAction.click();
     await primaryAction.click();
     const posted = await postedMessages(page);
-    const acknowledgements = posted.filter(message =>
+    assert.equal(posted.filter(message =>
+        message.type === 'acknowledge-ai-session-attention'
+    ).length, 0,
+        'card activation must not acknowledge attention; it only switches to the session');
+    assert.equal(posted.filter(message =>
+        message.type === 'open-active-ai-session-conversation'
+    ).length, 2, 'card activation still performs the independent open action');
+
+    await page.evaluate(() => {
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
+    const acknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
     assert.equal(acknowledgements.length, 1,
-        'rapid activation must share the pending acknowledgement request');
+        'rapid explicit acknowledgement must share the pending request');
     const request = acknowledgements[0];
     assert.deepEqual(request, {
         type: 'acknowledge-ai-session-attention',
@@ -1936,9 +1962,6 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 keeps acknowledgement pending u
     });
     assert.ok(Number.isSafeInteger(request.requestId) && request.requestId > 0,
         'the acknowledgement requestId must be a safe positive integer');
-    assert.equal(posted.filter(message =>
-        message.type === 'open-active-ai-session-conversation'
-    ).length, 2, 'pending acknowledgement must not suppress the independent open action');
 
     const result = overrides => ({
         type: 'ai-session-attention-acknowledgement-result',
@@ -1998,7 +2021,9 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 keeps acknowledgement pending u
         ...attentionSession,
         attentionEventId: nextEventIds[0],
     }, nextEventIds);
-    await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
+    await page.evaluate(() => {
+        window.__agentPivotAcknowledgeSession('codex', 'session-a');
+    });
     let finalAcknowledgements = (await postedMessages(page)).filter(message =>
         message.type === 'acknowledge-ai-session-attention'
     );
@@ -2418,7 +2443,9 @@ test('ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 clears a stopped Kimi card thro
         };
     }, exposedName);
 
-    await row(page, 'kimi', sessionId).locator('.ai-session-primary-action').click();
+    await page.evaluate(id => {
+        window.__agentPivotAcknowledgeSession('kimi', id);
+    }, sessionId);
     await page.evaluate(() => Promise.all(window.__hostAttentionSettlements));
     const waitForEnvelope = (promise, label) => {
         let timeout;

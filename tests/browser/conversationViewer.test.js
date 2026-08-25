@@ -1847,7 +1847,10 @@ async function renderHostViewerDocument(options = {}) {
             }],
             previousCursor: 'before-input-2',
             nextCursor: 'after-input-2',
-            isStart: false,
+            // Most Host-document fixtures exercise ordinary navigation. It
+            // has a previous navigation cursor but no retained history page
+            // behind it, so opening must not enqueue a history backfill.
+            isStart: true,
             isEnd: false,
             ...options.pageOverrides,
         }),
@@ -4339,6 +4342,73 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     const previousViewerScript = viewerScript
         // Undo the current correlated earlier-page request/result protocol
         // before stepping back through the existing historical fixtures.
+        .replace(
+            '        // loaded on demand when the transcript reaches its top.\n'
+                + '        earlierPageCursor: undefined,\n'
+                + '        earlierPageRequested: false,\n'
+                + '        earlierPageRequestId: undefined,\n'
+                + '        earlierPageLastRequestId: undefined,\n'
+                + '        nextEarlierPageRequestId: 0,\n'
+                + "        earlierPageStatus: '',\n",
+            '        // loaded on demand when the transcript reaches its top.\n'
+                + '        previousCursor: undefined,\n'
+                + '        earlierPageRequested: false,\n'
+                + '        earlierPageRequestId: undefined,\n'
+                + '        nextEarlierPageRequestId: 0,\n'
+                + "        earlierPageStatus: '',\n"
+        )
+        .replace(
+            '        state.earlierPageCursor = message.earlierPageCursor;\n'
+                + '        state.earlierPageLastRequestId = state.earlierPageRequestId;\n'
+                + '        state.earlierPageRequested = false;\n'
+                + '        state.earlierPageRequestId = undefined;\n'
+                + "        state.earlierPageStatus = '';\n",
+            '        state.previousCursor = message.previousCursor;\n'
+                + '        state.earlierPageRequested = false;\n'
+                + '        state.earlierPageRequestId = undefined;\n'
+                + "        state.earlierPageStatus = '';\n"
+        )
+        .replace(
+            '                acknowledgePage(message);\n'
+                + '                // Check after the applied receipt has released any incoming\n'
+                + '                // document handoff. This also reaches earlier history for a\n'
+                + '                // short transcript that cannot emit a physical scroll event.\n'
+                + '                window.setTimeout(maybeRequestEarlierPage, 0);\n',
+            '                acknowledgePage(message);\n'
+        )
+        .replace(
+            '    scroll.addEventListener(\'scroll\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n'
+                + '    // Wheel/touch input still arrives when the transcript is already pinned\n'
+                + '    // at top and therefore emits no `scroll` event; it is the explicit retry\n'
+                + '    // gesture after a timed-out history read.\n'
+                + '    scroll.addEventListener(\'wheel\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n'
+                + '    scroll.addEventListener(\'touchmove\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n',
+            '    scroll.addEventListener(\'scroll\', maybeRequestEarlierPage, {\n'
+                + '        passive: true,\n'
+                + '    });\n'
+        )
+        .replace(
+            '            || state.earlierPageCursor === undefined\n',
+            '            || state.previousCursor === undefined\n'
+        )
+        .replace(
+            "            'html', 'htmlSignature', 'restoreFrame', 'restoreFocus', 'previousCursor',\n"
+                + "            'earlierPageCursor',\n"
+                + "            'nextCursor', 'subagents', 'activeSubagent', 'displayName',\n",
+            "            'html', 'htmlSignature', 'restoreFrame', 'restoreFocus', 'previousCursor',\n"
+                + "            'nextCursor', 'subagents', 'activeSubagent', 'displayName',\n"
+        )
+        .replace(
+            "            && (message.earlierPageCursor === undefined\n"
+                + "                || typeof message.earlierPageCursor === 'string')\n",
+            ''
+        )
         .replace(
             '        earlierPageRequested: false,\n'
                 + '        earlierPageRequestId: undefined,\n'
@@ -17331,6 +17401,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests an earlier page when t
         html: messageHtml('msg', 30, 0),
         htmlSignature: 'sig-top',
         previousCursor: 'cursor-1',
+        earlierPageCursor: 'cursor-1',
         outline: progressiveOutline(30),
         selectedInteractionId: 'msg-29',
         selectedInput: 29,
@@ -17378,6 +17449,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests an earlier page when t
         html: messageHtml('msg', 30, 0),
         htmlSignature: 'sig-top-2',
         previousCursor: 'cursor-2',
+        earlierPageCursor: 'cursor-2',
         outline: progressiveOutline(30),
         selectedInteractionId: 'msg-29',
         selectedInput: 29,
@@ -17408,6 +17480,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles an unavailable earlier-
         html: messageHtml('msg', 30, 0),
         htmlSignature: 'sig-unavailable',
         previousCursor: 'cursor-1',
+        earlierPageCursor: 'cursor-1',
         outline: progressiveOutline(30),
         selectedInteractionId: 'msg-29',
         selectedInput: 29,
@@ -17442,6 +17515,36 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles an unavailable earlier-
     assert.equal((await postedMessages(page)).filter(message =>
         message.type === 'conversation-viewer-load-earlier'
     ).length, 1, 'an unavailable boundary must not re-enter a loading loop');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests earlier history when a short page starts at top', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 1, 0),
+        htmlSignature: 'sig-short-top',
+        previousCursor: 'selection-cursor',
+        earlierPageCursor: 'history-cursor',
+        outline: progressiveOutline(1),
+        selectedInteractionId: 'msg-0',
+        selectedInput: 0,
+        totalInputs: 1,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ));
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ).length, 1, 'a short non-scrollable page still reaches older history');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resyncs when a tail patch misses the visible tail', async t => {

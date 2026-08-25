@@ -347,9 +347,11 @@ export interface ConversationViewerFocusMessage {
 export interface ConversationViewerLoadEarlierMessage {
     type: 'conversation-viewer-load-earlier';
     version: 1;
-    /** Webview-generated correlation for this one top-of-history request. */
-    requestId: number;
-    subscriptionGeneration: number;
+    /** Webview-generated correlation for this one top-of-history request.
+     * Optional solely for a retained document rendered by the previous
+     * released script, which sent the original two-field envelope. */
+    requestId?: number;
+    subscriptionGeneration?: number;
 }
 
 export interface ConversationViewerOpenSubagentMessage {
@@ -719,11 +721,13 @@ export function parseConversationViewerMessage(
         return value as unknown as ConversationViewerFocusMessage;
     }
     if (value.type === 'conversation-viewer-load-earlier') {
-        if (!hasExactKeys(value, [
+        const legacy = hasExactKeys(value, ['type', 'version']);
+        const correlated = hasExactKeys(value, [
             'type', 'version', 'requestId', 'subscriptionGeneration',
         ])
-            || !isPositiveSafeInteger(value.requestId)
-            || !isPositiveSafeInteger(value.subscriptionGeneration)) {
+            && isPositiveSafeInteger(value.requestId)
+            && isPositiveSafeInteger(value.subscriptionGeneration);
+        if (!legacy && !correlated) {
             return undefined;
         }
         return value as unknown as ConversationViewerLoadEarlierMessage;

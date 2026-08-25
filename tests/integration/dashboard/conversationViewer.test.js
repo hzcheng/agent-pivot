@@ -730,6 +730,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles a stalled earlier-page 
     const interactionIds = ['input-1', 'input-2'];
     const timers = new Map();
     let nextTimer = 1;
+    let resolveBefore;
     const { viewer, panel } = createViewer({
         setTimer(callback, delayMs) {
             const handle = nextTimer++;
@@ -742,7 +743,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles a stalled earlier-page 
         readOutline: async () => outline(sessionId, interactionIds),
         readPage: async request => {
             if (request.direction === 'before') {
-                return new Promise(() => {});
+                return new Promise(resolve => {
+                    resolveBefore = resolve;
+                });
             }
             return {
                 ...page(sessionId, 'input-2', 'message', {
@@ -778,6 +781,19 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles a stalled earlier-page 
         requestId: 1,
         outcome: 'timed-out',
     });
+    // A provider may resolve after it has observed cancellation. That late
+    // result must neither publish stale history nor send a second settlement.
+    resolveBefore({
+        ...page(sessionId, 'input-1', 'late message', {
+            interactionIds,
+            anchorInteractionId: 'input-1',
+        }),
+        isStart: true,
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-load-earlier-result'
+    ).length, 1, 'a timed-out request settles exactly once');
     viewer.dispose();
 });
 

@@ -140,6 +140,11 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         requestId: 10,
         subscriptionGeneration: 3,
     }, {
+        // Retained Webviews rendered by the previous release used this
+        // envelope; accept it only as the exact legacy shape.
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+    }, {
         type: 'conversation-viewer-rename-session',
         version: 1,
     }, {

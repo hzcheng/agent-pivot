@@ -407,9 +407,10 @@
         appliedHtmlSignature: undefined,
         // Earlier history sitting behind the oldest retained page's cursor;
         // loaded on demand when the transcript reaches its top.
-        previousCursor: undefined,
+        earlierPageCursor: undefined,
         earlierPageRequested: false,
         earlierPageRequestId: undefined,
+        earlierPageLastRequestId: undefined,
         nextEarlierPageRequestId: 0,
         earlierPageStatus: '',
     };
@@ -1017,6 +1018,7 @@
         ];
         var allowedKeys = new Set(requiredKeys.concat([
             'html', 'htmlSignature', 'restoreFrame', 'restoreFocus', 'previousCursor',
+            'earlierPageCursor',
             'nextCursor', 'subagents', 'activeSubagent', 'displayName',
             'target', 'comments', 'projectComments', 'bookmarks',
             'tailInteractionId', 'tailHtml',
@@ -1067,6 +1069,8 @@
             && typeof message.atLatest === 'boolean'
             && (message.previousCursor === undefined
                 || typeof message.previousCursor === 'string')
+            && (message.earlierPageCursor === undefined
+                || typeof message.earlierPageCursor === 'string')
             && (message.nextCursor === undefined
                 || typeof message.nextCursor === 'string')
             && validSubagents(message.subagents)
@@ -1756,6 +1760,10 @@
                     reconcileController.scrollToEnd();
                 }
                 acknowledgePage(message);
+                // Check after the applied receipt has released any incoming
+                // document handoff. This also reaches earlier history for a
+                // short transcript that cannot emit a physical scroll event.
+                window.setTimeout(maybeRequestEarlierPage, 0);
             } catch (_presentationError) {
                 requestConversationResync(message, _presentationError);
             }
@@ -1872,7 +1880,8 @@
         }
         // A page apply (full, patch, or chunk) moves the boundary: re-arm
         // the scroll-to-top request and expose the latest cursor.
-        state.previousCursor = message.previousCursor;
+        state.earlierPageCursor = message.earlierPageCursor;
+        state.earlierPageLastRequestId = state.earlierPageRequestId;
         state.earlierPageRequested = false;
         state.earlierPageRequestId = undefined;
         state.earlierPageStatus = '';
@@ -2359,7 +2368,8 @@
         if (message.version !== 1
             || message.subscriptionGeneration !== state.subscriptionGeneration
             || !Number.isSafeInteger(message.requestId)
-            || message.requestId !== state.earlierPageRequestId
+            || (message.requestId !== state.earlierPageRequestId
+                && message.requestId !== state.earlierPageLastRequestId)
             || ['busy', 'unavailable', 'stalled', 'timed-out'].indexOf(
                 message.outcome
             ) === -1) {
@@ -2367,6 +2377,7 @@
         }
         state.earlierPageRequested = false;
         state.earlierPageRequestId = undefined;
+        state.earlierPageLastRequestId = undefined;
         state.earlierPageStatus = message.outcome === 'stalled'
             ? 'Earlier messages could not be loaded.'
             : message.outcome === 'timed-out'
@@ -2376,7 +2387,7 @@
         // an exhausted cursor is: keep the explanatory status but stop
         // issuing the same automatic top-of-history request on every scroll.
         if (message.outcome === 'unavailable' || message.outcome === 'stalled') {
-            state.previousCursor = undefined;
+            state.earlierPageCursor = undefined;
         }
         updateTranscriptStatus();
         return true;
@@ -2394,7 +2405,7 @@
     )) || 0;
     function maybeRequestEarlierPage() {
         if (state.earlierPageRequested
-            || state.previousCursor === undefined
+            || state.earlierPageCursor === undefined
             || scroll.scrollTop > autoScrollThresholdPx) {
             return;
         }
@@ -2410,6 +2421,15 @@
         });
     }
     scroll.addEventListener('scroll', maybeRequestEarlierPage, {
+        passive: true,
+    });
+    // Wheel/touch input still arrives when the transcript is already pinned
+    // at top and therefore emits no `scroll` event; it is the explicit retry
+    // gesture after a timed-out history read.
+    scroll.addEventListener('wheel', maybeRequestEarlierPage, {
+        passive: true,
+    });
+    scroll.addEventListener('touchmove', maybeRequestEarlierPage, {
         passive: true,
     });
 

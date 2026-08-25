@@ -1231,6 +1231,162 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
     });
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session before its Host page returns', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        html: `<article data-message-id="${marker}-0" `
+            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    const loadingNotice = (generation, sessionId) => ({
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: generation,
+        target: { projectId: 'project-1', provider: 'codex', sessionId },
+    });
+
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-alpha'));
+    await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-beta'));
+    await page.evaluate(() => {
+        window.__betaNode = document.querySelector('[data-message-id="beta-0"]');
+        var previewControl = document.createElement('button');
+        previewControl.setAttribute('data-preview-control', '');
+        previewControl.textContent = 'beta action';
+        window.__betaNode.appendChild(previewControl);
+    });
+    // This full publication returns to alpha and stashes beta for a later
+    // switch. The following loading notice must reattach beta immediately,
+    // before any Host page for generation five is delivered.
+    await sendPage(page, sessionPage(4, 'session-alpha', 'alpha', 'sig-alpha'));
+    await sendPage(page, loadingNotice(5, 'session-beta'));
+
+    assert.deepEqual(await page.evaluate(() => ({
+        content: document.querySelector('[data-conversation-messages]')
+            .textContent.trim(),
+        sameNode: document.querySelector('[data-message-id="beta-0"]')
+            === window.__betaNode,
+        previewControlDisabled: document.querySelector('[data-preview-control]')
+            .disabled,
+        loading: document.body.getAttribute('data-conversation-loading'),
+    })), {
+        content: 'betabeta action',
+        sameNode: true,
+        previewControlDisabled: true,
+        loading: 'true',
+    });
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preserves cached frames across rapid preview handoffs', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        html: `<article data-message-id="${marker}-0" `
+            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    const loadingNotice = (generation, sessionId) => ({
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: generation,
+        target: { projectId: 'project-1', provider: 'codex', sessionId },
+    });
+
+    // Populate frames for alpha, beta, and gamma, then interrupt a preview
+    // before either page arrives. Both previewed frames must remain usable.
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-alpha'));
+    await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-beta'));
+    await page.evaluate(() => {
+        window.__betaPreviewNode = document.querySelector(
+            '[data-message-id="beta-0"]'
+        );
+        window.__betaPreviewControl = document.createElement('button');
+        window.__betaPreviewControl.textContent = 'beta action';
+        window.__betaPreviewNode.appendChild(window.__betaPreviewControl);
+    });
+    await sendPage(page, sessionPage(4, 'session-gamma', 'gamma', 'sig-gamma'));
+    await page.evaluate(() => {
+        window.__gammaPreviewNode = document.querySelector(
+            '[data-message-id="gamma-0"]'
+        );
+    });
+    await sendPage(page, sessionPage(5, 'session-alpha', 'alpha', 'sig-alpha'));
+    await sendPage(page, loadingNotice(6, 'session-beta'));
+    await sendPage(page, loadingNotice(7, 'session-gamma'));
+
+    assert.deepEqual(await page.evaluate(() => ({
+        content: document.querySelector('[data-conversation-messages]')
+            .textContent.trim(),
+        sameNode: document.querySelector('[data-message-id="gamma-0"]')
+            === window.__gammaPreviewNode,
+    })), { content: 'gamma', sameNode: true });
+
+    await sendPage(page, loadingNotice(8, 'session-beta'));
+    assert.deepEqual(await page.evaluate(() => ({
+        content: document.querySelector('[data-conversation-messages]')
+            .textContent.trim(),
+        sameNode: document.querySelector('[data-message-id="beta-0"]')
+            === window.__betaPreviewNode,
+    })), { content: 'betabeta action', sameNode: true });
+
+    // This authoritative gamma page skips over the final beta preview. The
+    // preview must be unwound so beta is not stashed under alpha's identity.
+    await sendPage(page, sessionPage(9, 'session-gamma', 'gamma', 'sig-gamma'));
+    await sendPage(page, sessionPage(10, 'session-beta', 'beta', 'sig-beta'));
+    assert.deepEqual(await page.evaluate(() => ({
+        sameNode: document.querySelector('[data-message-id="beta-0"]')
+            === window.__betaPreviewNode,
+        controlEnabled: !window.__betaPreviewControl.disabled,
+    })), {
+        sameNode: true,
+        controlEnabled: true,
+    }, 'the interrupted beta preview remains reusable and interactive');
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 correlates resyncs to each page that fails', async t => {
     const page = await openViewerPage(t);
     await page.evaluate(() => {
@@ -1502,6 +1658,26 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts the oldest frame beyond 
         'zeta'
     );
 
+    // Beta is the oldest retained frame. The loading preview must take it
+    // before stashing zeta, otherwise the cache-limit eviction picks beta and
+    // turns this switch into a resync.
+    await sendPage(page, {
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: 8,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId: 'session-beta',
+        },
+    });
+    assert.equal(
+        await page.locator('[data-conversation-messages]').innerText(),
+        'beta',
+        'the oldest retained target is still available for an instant preview'
+    );
+    await sendPage(page, sessionPage(8, 'session-beta', 'beta', 'sig-beta'));
+
     // A restoreFrame offer for an evicted frame is answered with a resync.
     await sendPage(page, sessionPage(
         20, 'session-alpha', 'alpha', 'sig-alpha', { restoreFrame: true }
@@ -1521,7 +1697,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts the oldest frame beyond 
     }]);
     assert.equal(
         await page.locator('[data-conversation-messages]').innerText(),
-        'zeta',
+        'beta',
         'the live session stays on screen until the resynced full page'
     );
 
@@ -4340,6 +4516,79 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Undo the cached-frame preview before stepping back through the
+        // historical fixtures. Previewing is deliberately non-authoritative:
+        // the following page still validates the cached token.
+        .replace(
+            '    // A cached frame can be shown as a non-authoritative preview as soon as\n'
+                + '    // the Host announces a target switch. The eventual page still validates\n'
+                + '    // its token and remains the only authoritative state transition.\n'
+                + '    var previewFrame;\n',
+            ''
+        )
+        .replace(
+            '        // A new notice can supersede a cached preview. Restore that preview\'s\n'
+                + '        // controls before moving its nodes back into the cache; otherwise the\n'
+                + '        // next call overwrites the tracked entries and leaves that frame inert\n'
+                + '        // when it is later restored.\n'
+                + '        if (conversationLoading) {\n'
+                + '            setLoadingInteractivity(false);\n'
+                + '        }\n',
+            ''
+        )
+        .replace(
+            '        conversationLoading = true;\n'
+                + "        document.body.setAttribute('data-conversation-loading', 'true');\n"
+                + "        messages.setAttribute('aria-busy', 'true');\n"
+                + "        status.textContent = 'Loading conversation…';\n"
+                + '        previewCachedFrame(message.target);\n'
+                + '        // Preview nodes are attached synchronously above. Disable the live\n'
+                + '        // controls only after that attachment, otherwise a cached target\n'
+                + '        // could become interactive while the Host still owns the old target.\n'
+                + '        setLoadingInteractivity(true);\n'
+                + '        return true;\n',
+            '        conversationLoading = true;\n'
+                + "        document.body.setAttribute('data-conversation-loading', 'true');\n"
+                + '        setLoadingInteractivity(true);\n'
+                + "        messages.setAttribute('aria-busy', 'true');\n"
+                + "        status.textContent = 'Loading conversation…';\n"
+                + '        return true;\n'
+        )
+        .replace(
+            /\n    function returnPreviewFrameToCache\(\) \{[\s\S]*?\n    \}\n\n    function previewCachedFrame\(target\) \{[\s\S]*?\n    \}\n(?=\n    \/\/ A frame is restorable)/,
+            ''
+        )
+        .replace(
+            '        if (previewFrame && previewFrame.key === key) {\n'
+                + '            var preview = previewFrame.frame;\n'
+                + '            previewFrame = undefined;\n'
+                + '            return preview.token === message.htmlSignature\n'
+                + '                ? preview\n'
+                + '                : undefined;\n'
+                + '        }\n',
+            ''
+        )
+        .replace(
+            '        // The session is really switching: stash the outgoing conversation\n'
+                + '        // as a detached frame before any state is reset, so a later switch\n'
+                + '        // back can reattach it whole. A matching preview already stashed the\n'
+                + '        // outgoing frame when the loading notice arrived.\n'
+                + '        if (previewFrame\n'
+                + '            && previewFrame.key !== frameSessionKey(nextCommentTarget)) {\n'
+                + '            // Loading notices are best-effort. If this page supersedes the\n'
+                + '            // previewed target, put the real outgoing frame back before it is\n'
+                + '            // stashed under its authoritative identity.\n'
+                + '            returnPreviewFrameToCache();\n'
+                + '        }\n'
+                + '        if (!previewFrame\n'
+                + '            || previewFrame.key !== frameSessionKey(nextCommentTarget)) {\n'
+                + '            stashCurrentFrame();\n'
+                + '        }\n',
+            '        // The session is really switching: stash the outgoing conversation\n'
+                + '        // as a detached frame before any state is reset, so a later switch\n'
+                + '        // back can reattach it whole.\n'
+                + '        stashCurrentFrame();\n'
+        )
         // Undo the current correlated earlier-page request/result protocol
         // before stepping back through the existing historical fixtures.
         .replace(

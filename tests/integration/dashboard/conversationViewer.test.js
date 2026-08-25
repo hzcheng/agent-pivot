@@ -437,6 +437,576 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps an interaction group inta
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 backfills a long history in ack-paced chunks', async () => {
+    const sessionId = 'progressive-chunked-backfill';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    assert.match(recent.html, /Loading earlier messages/);
+    assert.match(recent.html, /message-99/);
+    assert.doesNotMatch(recent.html, /message-87/);
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+
+    // 88 deferred messages arrive as four slices, nearest the visible tail
+    // first; each next slice is sent only after the previous one applied.
+    const chunkRanges = [[64, 88], [40, 64], [16, 40], [0, 16]];
+    for (const [index, [start, end]] of chunkRanges.entries()) {
+        const sentChunks = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        );
+        assert.equal(sentChunks.length, index + 1,
+            'the next slice is sent only after the previous receipt');
+        const chunk = sentChunks.at(-1);
+        assert.ok(chunk, `chunk ${index + 1} must be published`);
+        assert.equal(
+            chunk.complete,
+            index === chunkRanges.length - 1,
+            'only the oldest slice completes the backfill'
+        );
+        assert.match(chunk.html, new RegExp(`message-${end - 1}`));
+        assert.match(chunk.html, new RegExp(`message-${start}`));
+        assert.doesNotMatch(chunk.html, new RegExp(`message-${start - 1}`));
+        assert.doesNotMatch(chunk.html, new RegExp(`message-${end}`));
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: chunk.subscriptionGeneration,
+            requestId: chunk.requestId,
+            htmlSignature: chunk.htmlSignature,
+        });
+    }
+
+    // History fully applied: a final refresh publication converges the
+    // session. The content is unchanged, so its HTML stays off the wire.
+    const completion = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(completion, 'the completion publication must exist');
+    assert.equal(completion.updateKind, 'refresh');
+    assert.equal(completion.html, undefined);
+    assert.equal(typeof completion.htmlSignature, 'string');
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: completion.subscriptionGeneration,
+        requestId: completion.requestId,
+        htmlSignature: completion.htmlSignature,
+    });
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).length,
+        chunkRanges.length,
+        'no further chunks after completion'
+    );
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost history chunk with a full refresh', async () => {
+    const sessionId = 'progressive-chunk-timeout';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const timers = new Map();
+    let nextTimer = 1;
+    const { viewer, panel } = createViewer({
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, { callback, delayMs });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+    const chunk = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(chunk, 'the first history chunk must be published');
+    const timer = Array.from(timers.values()).find(candidate =>
+        candidate.delayMs === 4_000
+    );
+    assert.ok(timer, 'an unacknowledged chunk must be watched');
+
+    timer.callback();
+    const recovered = lastContentPublication(panel);
+    assert.equal(recovered.type, 'conversation-viewer-page');
+    assert.equal(recovered.updateKind, 'refresh');
+    assert.doesNotMatch(recovered.html, /Loading earlier messages/);
+    assert.match(recovered.html, /message-0/);
+    assert.match(recovered.html, /message-99/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 defers restored auxiliary state until the backfill completes', async () => {
+    const sessionId = 'progressive-chunk-auxiliary';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const commentStore = {
+        async load() {
+            return { revision: 7, comments: [] };
+        },
+        async save() {},
+    };
+    const { viewer, panel } = createViewer({
+        commentStore,
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+    // Let the comment restore settle while the backfill is in flight.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const chunk = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(chunk, 'the backfill must be in flight');
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).length,
+        0,
+        'auxiliary state must not supersede the in-flight backfill'
+    );
+
+    // Drain the backfill.
+    for (;;) {
+        const pendingChunk = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).at(-1);
+        if (!pendingChunk) {
+            break;
+        }
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: pendingChunk.subscriptionGeneration,
+            requestId: pendingChunk.requestId,
+            htmlSignature: pendingChunk.htmlSignature,
+        });
+        if (pendingChunk.complete) {
+            break;
+        }
+    }
+    const completion = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(completion, 'the completion publication must exist');
+    assert.equal(completion.comments.revision, 7);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 cancels the backfill when an authority rollover supersedes it', async () => {
+    const sessionId = 'progressive-chunk-rollover';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+    const chunk = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(chunk, 'the backfill must be in flight');
+
+    await viewer.reconcileAuthority(() => false);
+    const staleFull = lastContentPublication(panel);
+    assert.doesNotMatch(staleFull.html, /Loading earlier messages/);
+    assert.match(staleFull.html, /message-0/);
+
+    // A late receipt for the canceled chunk must not restart the backfill.
+    await panel.receive({
+        type: 'conversation-viewer-history-chunk-applied',
+        version: 1,
+        subscriptionGeneration: chunk.subscriptionGeneration,
+        requestId: chunk.requestId,
+        htmlSignature: chunk.htmlSignature,
+    });
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: staleFull.subscriptionGeneration,
+        requestId: staleFull.requestId,
+        htmlSignature: staleFull.htmlSignature,
+    });
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).length,
+        1,
+        'no further chunks after the rollover superseded the backfill'
+    );
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps the single full refresh for a modest deferred window', async () => {
+    const sessionId = 'progressive-chunk-boundary';
+    const interactionIds = Array.from(
+        { length: 60 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    assert.match(recent.html, /Loading earlier messages/);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+
+    // 48 deferred messages stay on the single-refresh path.
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).length, 0);
+    const complete = lastContentPublication(panel);
+    assert.equal(complete.updateKind, 'refresh');
+    assert.doesNotMatch(complete.html, /Loading earlier messages/);
+    assert.match(complete.html, /message-0/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps interaction groups intact across chunk boundaries', async () => {
+    const sessionId = 'progressive-chunk-groups';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => {
+            const result = page(sessionId, interactionIds[0], 'message', {
+                interactionIds,
+                anchorInteractionId: interactionIds.at(-1),
+            });
+            // A group larger than one slice, plus a group straddling a
+            // nominal slice boundary (message index 88 starts the first
+            // slice; input-40's group spans the 64|65 boundary).
+            const grouped = [];
+            for (let index = 0; index < 30; index += 1) {
+                grouped.push({
+                    id: `input-40:extra-${index}`,
+                    interactionId: 'input-40',
+                    role: 'progress',
+                    markdown: `group-40-note-${index}`,
+                });
+            }
+            result.messages.splice(40, 0, ...grouped);
+            return result;
+        },
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    assert.match(recent.html, /Loading earlier messages/);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+
+    const seen = [];
+    for (;;) {
+        const chunk = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).at(-1);
+        if (!chunk) {
+            break;
+        }
+        const notes = chunk.html.match(/group-40-note-\d+/g) ?? [];
+        assert.equal(
+            notes.length === 0 || notes.length === 30,
+            true,
+            'a group larger than a slice stays inside one chunk'
+        );
+        if (notes.length) {
+            assert.equal(seen.length, 0,
+                'the oversized group appears exactly once');
+        }
+        seen.push(...notes);
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: chunk.subscriptionGeneration,
+            requestId: chunk.requestId,
+            htmlSignature: chunk.htmlSignature,
+        });
+        if (chunk.complete) {
+            break;
+        }
+    }
+    assert.equal(seen.length, 30, 'every grouped message arrives once');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes through an auxiliary refresh that lands before the first receipt', async () => {
+    const sessionId = 'progressive-chunk-early-auxiliary';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const restoredComments = deferred();
+    const { viewer, panel } = createViewer({
+        commentStore: {
+            load: () => restoredComments.promise,
+            async save() {},
+        },
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    assert.match(recent.html, /Loading earlier messages/);
+    assert.equal(recent.comments.revision, 0,
+        'the readable page must not wait for the auxiliary restore');
+    // The auxiliary restore settles after the publication but before its
+    // receipt: the restore wins the race against the backfill.
+    restoredComments.resolve({ revision: 7, comments: [] });
+    await new Promise(resolve => setImmediate(resolve));
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+
+    // The restored auxiliary state rides a full-content refresh, which
+    // completes the progressive page directly instead of chunking.
+    const complete = lastContentPublication(panel);
+    assert.equal(complete.updateKind, 'refresh');
+    assert.doesNotMatch(complete.html, /Loading earlier messages/);
+    assert.match(complete.html, /message-0/);
+    assert.equal(complete.comments.revision, 7);
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).length, 0);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 ignores a stale chunk receipt while a refresh load is in flight', async () => {
+    const sessionId = 'progressive-chunk-anchor-race';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    let watchCallback;
+    let reads = 0;
+    const pageRequested = deferred();
+    const refreshedPage = deferred();
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: reads > 0 ? 'r2' : 'r1',
+        }),
+        readPage: async () => {
+            reads += 1;
+            if (reads === 1) {
+                return page(sessionId, interactionIds[0], 'message', {
+                    interactionIds,
+                    anchorInteractionId: interactionIds.at(-1),
+                });
+            }
+            // The refresh load allocated its request id already; it now
+            // blocks on the page read.
+            pageRequested.resolve();
+            return refreshedPage.promise;
+        },
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+    const chunk = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(chunk, 'the backfill must be in flight');
+
+    // A refresh load starts, allocates the request counter, and blocks on
+    // the page read. The stale chunk receipt must not publish a completion
+    // over it nor move the request counter.
+    watchCallback();
+    await pageRequested.promise;
+    await panel.receive({
+        type: 'conversation-viewer-history-chunk-applied',
+        version: 1,
+        subscriptionGeneration: chunk.subscriptionGeneration,
+        requestId: chunk.requestId,
+        htmlSignature: chunk.htmlSignature,
+    });
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).length, 0, 'the stale receipt must not publish over the load');
+
+    refreshedPage.resolve(page(sessionId, interactionIds[0], 'message', {
+        interactionIds,
+        anchorInteractionId: interactionIds.at(-1),
+        sourceRevision: 'r2',
+    }));
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const refreshed = lastContentPublication(panel);
+    assert.equal(refreshed.updateKind, 'refresh');
+    assert.match(refreshed.html, /message-0/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost backfill completion publication', async () => {
+    const sessionId = 'progressive-chunk-completion-loss';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const timers = new Map();
+    let nextTimer = 1;
+    const { viewer, panel } = createViewer({
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, { callback, delayMs });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+    // Drain the whole backfill; the completion publication then goes
+    // unacknowledged (lost between Host queue and Webview application).
+    for (;;) {
+        const chunk = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).at(-1);
+        if (!chunk) {
+            break;
+        }
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: chunk.subscriptionGeneration,
+            requestId: chunk.requestId,
+            htmlSignature: chunk.htmlSignature,
+        });
+        if (chunk.complete) {
+            break;
+        }
+    }
+    const completion = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(completion, 'the completion publication must exist');
+    const timer = Array.from(timers.values()).find(candidate =>
+        candidate.delayMs === 4_000
+    );
+    assert.ok(timer, 'the completion publication must be watched');
+
+    timer.callback();
+    const recovered = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(recovered.html, /Loading earlier messages/);
+    assert.match(recovered.html, /message-0/);
+    assert.match(recovered.html, /message-99/);
+    viewer.dispose();
+});
+
 function decodeInitialBookmarks(html) {
     const match = html.match(/data-initial-bookmarks="([^"]+)"/);
     assert.ok(match, 'Host document must contain bookmark state');

@@ -4347,7 +4347,6 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '        earlierPageCursor: undefined,\n'
                 + '        earlierPageRequested: false,\n'
                 + '        earlierPageRequestId: undefined,\n'
-                + '        earlierPageLastRequestId: undefined,\n'
                 + '        nextEarlierPageRequestId: 0,\n'
                 + "        earlierPageStatus: '',\n",
             '        // loaded on demand when the transcript reaches its top.\n'
@@ -4359,7 +4358,6 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         )
         .replace(
             '        state.earlierPageCursor = message.earlierPageCursor;\n'
-                + '        state.earlierPageLastRequestId = state.earlierPageRequestId;\n'
                 + '        state.earlierPageRequested = false;\n'
                 + '        state.earlierPageRequestId = undefined;\n'
                 + "        state.earlierPageStatus = '';\n",
@@ -17545,6 +17543,56 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests earlier history when a
     assert.equal((await postedMessages(page)).filter(message =>
         message.type === 'conversation-viewer-load-earlier'
     ).length, 1, 'a short non-scrollable page still reaches older history');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 ignores an old earlier-page result after refresh', async t => {
+    const page = await openViewerPage(t);
+    const pageMessage = (requestId, signature, cursor) => ({
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId,
+        subscriptionGeneration: 1,
+        updateKind: requestId === 1 ? 'initial' : 'refresh',
+        html: messageHtml('msg', 1, 0),
+        htmlSignature: signature,
+        previousCursor: cursor,
+        earlierPageCursor: cursor,
+        outline: progressiveOutline(1),
+        selectedInteractionId: 'msg-0',
+        selectedInput: 0,
+        totalInputs: 1,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await sendPage(page, pageMessage(1, 'sig-old', 'cursor-old'));
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-load-earlier'
+            && message.requestId === 1
+    ));
+    await sendPage(page, pageMessage(2, 'sig-new', 'cursor-new'));
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-load-earlier'
+            && message.requestId === 2
+    ));
+    await sendPage(page, {
+        type: 'conversation-viewer-load-earlier-result',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 1,
+        outcome: 'unavailable',
+    });
+    assert.equal(await page.locator('[data-conversation-status]').textContent(),
+        'Loading earlier messages.');
+    await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.dispatchEvent(new Event('wheel'));
+    });
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ).length, 2, 'the current request remains pending after an old result');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resyncs when a tail patch misses the visible tail', async t => {

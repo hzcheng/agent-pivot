@@ -2158,6 +2158,13 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!target || !panel || this.suspended) {
             return false;
         }
+        // A normal authoritative read supersedes a user-triggered retained
+        // history read. Detach it before aborting so its late completion
+        // cannot settle an obsolete request against the new page.
+        if (this.earlierPageBackfill?.abortController
+            === this.abortController) {
+            this.cancelEarlierPageBackfill();
+        }
         this.abortController?.abort();
         const abortController = new ConversationAbortController();
         this.abortController = abortController;

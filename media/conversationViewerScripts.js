@@ -410,7 +410,6 @@
         earlierPageCursor: undefined,
         earlierPageRequested: false,
         earlierPageRequestId: undefined,
-        earlierPageLastRequestId: undefined,
         nextEarlierPageRequestId: 0,
         earlierPageStatus: '',
     };
@@ -1881,7 +1880,6 @@
         // A page apply (full, patch, or chunk) moves the boundary: re-arm
         // the scroll-to-top request and expose the latest cursor.
         state.earlierPageCursor = message.earlierPageCursor;
-        state.earlierPageLastRequestId = state.earlierPageRequestId;
         state.earlierPageRequested = false;
         state.earlierPageRequestId = undefined;
         state.earlierPageStatus = '';
@@ -2368,8 +2366,7 @@
         if (message.version !== 1
             || message.subscriptionGeneration !== state.subscriptionGeneration
             || !Number.isSafeInteger(message.requestId)
-            || (message.requestId !== state.earlierPageRequestId
-                && message.requestId !== state.earlierPageLastRequestId)
+            || message.requestId !== state.earlierPageRequestId
             || ['busy', 'unavailable', 'stalled', 'timed-out'].indexOf(
                 message.outcome
             ) === -1) {
@@ -2377,7 +2374,6 @@
         }
         state.earlierPageRequested = false;
         state.earlierPageRequestId = undefined;
-        state.earlierPageLastRequestId = undefined;
         state.earlierPageStatus = message.outcome === 'stalled'
             ? 'Earlier messages could not be loaded.'
             : message.outcome === 'timed-out'

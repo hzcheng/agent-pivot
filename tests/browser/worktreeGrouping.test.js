@@ -103,6 +103,99 @@ test('WORKTREE-GROUPING-UI-001 renders CHATS and ALL tabs with the tree in CHATS
         'the CHATS tab pair carries the view-menu trigger');
 });
 
+test('WORKTREE-GROUPING-UI-001 gives each worktree group a bounded surface and header divider', async t => {
+    const page = await openSurfacePage(320);
+    t.after(() => page.close());
+    await page.addStyleTag({ content: `
+        :root {
+            --vscode-editorWidget-background: #202020;
+            --vscode-widget-border: #666;
+            --vscode-focusBorder: #6ea8fe;
+        }
+    ` });
+
+    const appearance = await page.locator(
+        '.ai-session-worktree-group:not(.ai-session-worktree-anchor)'
+    ).first().evaluate(group => {
+        const groupStyle = getComputedStyle(group);
+        const toolbarStyle = getComputedStyle(group.querySelector('.ai-session-worktree-toolbar'));
+        const headerStyle = getComputedStyle(group.querySelector('.ai-session-worktree-header'));
+        return {
+            background: groupStyle.backgroundColor,
+            borderTopColor: groupStyle.borderTopColor,
+            toolbarBorderBottomWidth: toolbarStyle.borderBottomWidth,
+            toolbarBorderBottomColor: toolbarStyle.borderBottomColor,
+            headerBorderBottomWidth: headerStyle.borderBottomWidth,
+        };
+    });
+    assert.equal(appearance.background, 'rgb(32, 32, 32)',
+        'the worktree must stand apart from the surrounding sidebar');
+    assert.equal(appearance.borderTopColor, 'rgb(102, 102, 102)');
+    assert.equal(appearance.toolbarBorderBottomWidth, '1px',
+        'the full toolbar must separate the group identity from its child sessions');
+    assert.equal(appearance.toolbarBorderBottomColor, 'rgb(102, 102, 102)');
+    assert.equal(appearance.headerBorderBottomWidth, '0px',
+        'the divider belongs to the full-width toolbar, not only the title button');
+
+    const header = page.locator(
+        '.ai-session-worktree-group:not(.ai-session-worktree-anchor) .ai-session-worktree-header'
+    ).first();
+    await header.focus();
+    const focus = await header.evaluate(element => {
+        const style = getComputedStyle(element);
+        return { outlineWidth: style.outlineWidth, outlineColor: style.outlineColor };
+    });
+    assert.equal(focus.outlineWidth, '1px',
+        'keyboard focus must remain distinct from the low-contrast resting surface');
+    assert.equal(focus.outlineColor, 'rgb(110, 168, 254)');
+});
+
+test('WORKTREE-GROUPING-UI-001 keeps a low-contrast fallback group visible at default and minimum widths', async t => {
+    for (const width of [320, 170]) {
+        const page = await openSurfacePage(width);
+        t.after(() => page.close());
+        await page.addStyleTag({ content: `
+            :root {
+                --vscode-panel-border: #666;
+                --vscode-list-hoverBackground: #2a2a2a;
+                --vscode-editorWidget-background: initial;
+                --vscode-widget-border: initial;
+            }
+        ` });
+        await page.evaluate(() => {
+            const fixture = document.createElement('section');
+            fixture.className = 'ai-session-worktree-group';
+            fixture.setAttribute('data-visual-worktree-fixture', '');
+            fixture.innerHTML = `<div class="ai-session-worktree-toolbar">
+                <button type="button" class="ai-session-worktree-header">Fallback worktree</button>
+            </div><div class="ai-session-worktree-session-list">Session</div>`;
+            fixture.style.cssText = 'position:fixed;top:8px;left:8px;width:calc(100vw - 16px);z-index:1';
+            document.querySelector('[data-open-session-surface]').append(fixture);
+        });
+        const group = page.locator('[data-visual-worktree-fixture]');
+        const header = group.locator('.ai-session-worktree-header');
+        const computed = await group.evaluate(element => {
+            const style = getComputedStyle(element);
+            return { background: style.backgroundColor, borderTopColor: style.borderTopColor };
+        });
+        assert.equal(computed.background, 'rgb(24, 24, 24)',
+            'the absent widget token falls back to the sidebar surface');
+        assert.equal(computed.borderTopColor, 'rgb(102, 102, 102)',
+            'the absent widget border falls back to the panel border');
+
+        const restingPixels = await group.screenshot();
+        await header.hover();
+        assert.equal(await header.evaluate(element => getComputedStyle(element).backgroundColor),
+            'rgb(42, 42, 42)', 'hover must use the visible list-hover surface');
+        assert.notDeepEqual(await group.screenshot(), restingPixels,
+            `hover must remain visible above the fallback group surface at ${width}px`);
+        await page.mouse.move(1, 850);
+        await page.addStyleTag({ content: '.ai-session-worktree-group { background-image: none !important; }' });
+        assert.notDeepEqual(await group.screenshot(), restingPixels,
+            `the fallback overlay must remain visible in the ${width}px rendered worktree`);
+    }
+});
+
 test('WORKTREE-GROUPING-UI-001 keeps the live session in the CHATS tree and the ALL list intact', async t => {
     const page = await openSurfacePage(320);
     t.after(() => page.close());

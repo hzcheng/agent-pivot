@@ -728,6 +728,40 @@ async function assertAttentionCleared(page, provider, sessionId) {
         'the retired compact projection badge must not render');
 }
 
+test('OPEN-WINDOW-SWITCHER-UI-001 WORKTREE-GROUPING-UI-001 aligns the Windows rail with the Worktree Group header rhythm', async t => {
+    const page = await openListPage(t, [session('codex', 'rhythm-session', true)], []);
+    const geometry = await page.evaluate(() => {
+        const windowRow = document.querySelector('[data-open-window-row]');
+        const worktreeToolbar = document.querySelector('.ai-session-worktree-toolbar');
+        const worktreeHeader = document.querySelector('.ai-session-worktree-header');
+        const worktreeGroup = document.querySelector('.ai-session-worktree-group');
+        const rowRect = windowRow.getBoundingClientRect();
+        const groupRect = worktreeGroup.getBoundingClientRect();
+        return {
+            windowRowHeight: windowRow.getBoundingClientRect().height,
+            worktreeToolbarHeight: worktreeToolbar.getBoundingClientRect().height,
+            worktreeHeaderHeight: worktreeHeader.getBoundingClientRect().height,
+            windowRowLeft: rowRect.left,
+            windowRowWidth: rowRect.width,
+            worktreeGroupLeft: groupRect.left,
+            worktreeGroupWidth: groupRect.width,
+        };
+    });
+    assert.deepEqual({
+        windowRowHeight: geometry.windowRowHeight,
+        worktreeToolbarHeight: geometry.worktreeToolbarHeight,
+        worktreeHeaderHeight: geometry.worktreeHeaderHeight,
+    }, {
+        windowRowHeight: 32,
+        worktreeToolbarHeight: 32,
+        worktreeHeaderHeight: 32,
+    }, 'Window rows and Worktree Group titles must share the same 32px visual rhythm');
+    assert.equal(geometry.windowRowLeft, geometry.worktreeGroupLeft,
+        'Window rows must start at the same horizontal position as Worktree Groups');
+    assert.equal(geometry.windowRowWidth, geometry.worktreeGroupWidth,
+        'Window rows must span the same width as Worktree Groups');
+});
+
 test('WEBVIEW-AI-SESSION-LIST-SCROLL-001 preserves semantic Active and History anchors through both atomic replacement paths', async t => {
     const active = Array.from({ length: 8 }, (_, index) => session(
         'codex', `active-${index + 1}`, index === 4

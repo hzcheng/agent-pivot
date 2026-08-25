@@ -166,6 +166,111 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
     assert.deepEqual(structure.moreHaspopup, ['menu', 'menu', 'menu']);
 });
 
+test('OPEN-WINDOW-SWITCHER-UI-001 keeps window rows quiet by default and reserves emphasis for the current window', async t => {
+    const page = await openSwitcherPage(t);
+    await page.addStyleTag({ content: `
+        :root {
+            --vscode-sideBar-background: #181818;
+            --vscode-editorWidget-background: #202020;
+            --vscode-widget-border: #666;
+            --vscode-focusBorder: #6ea8fe;
+            --vscode-list-inactiveSelectionBackground: rgba(110, 168, 254, 0.12);
+        }
+    ` });
+    // Let the row surface transitions (120ms) settle before reading computed
+    // values: the added tokens change the current row's background.
+    await page.waitForTimeout(250);
+
+    const appearance = await page.locator('[data-open-window-row]').nth(1).evaluate(row => {
+        const style = getComputedStyle(row);
+        return {
+            background: style.backgroundColor,
+            borderTopWidth: style.borderTopWidth,
+            borderTopStyle: style.borderTopStyle,
+            borderTopColor: style.borderTopColor,
+            boxShadow: style.boxShadow,
+            indicator: getComputedStyle(row.querySelector('.open-window-indicator'), '::before').backgroundColor,
+        };
+    });
+    const rail = await page.locator('[data-open-window-switcher-list]').evaluate(list => {
+        const style = getComputedStyle(list);
+        const rect = list.getBoundingClientRect();
+        const rowRect = list.querySelector('[data-open-window-row]').getBoundingClientRect();
+        return {
+            background: style.backgroundColor,
+            boxShadow: style.boxShadow,
+            marginLeft: style.marginLeft,
+            marginRight: style.marginRight,
+            edgeToEdge: rect.left === rowRect.left && rect.width === rowRect.width,
+        };
+    });
+    const current = await page.locator('[data-open-window-row]').first().evaluate(row => ({
+        background: getComputedStyle(row).backgroundColor,
+        sheen: getComputedStyle(row).backgroundImage,
+        boxShadow: getComputedStyle(row).boxShadow,
+        indicator: getComputedStyle(row.querySelector('.open-window-indicator'), '::before').backgroundColor,
+        indicatorWidth: getComputedStyle(row.querySelector('.open-window-indicator'), '::before').width,
+        nameWeight: getComputedStyle(row.querySelector('.open-window-name')).fontWeight,
+    }));
+    assert.equal(rail.background, 'rgba(0, 0, 0, 0)',
+        'the rail is transparent: the sidebar itself is the surface, not a nested card');
+    assert.equal(rail.boxShadow, 'none');
+    assert.equal(rail.marginLeft, '0px');
+    assert.equal(rail.marginRight, '0px');
+    assert.equal(rail.edgeToEdge, true,
+        'window rows must span the full rail width so they align with the worktree cards below');
+    assert.equal(appearance.background, 'rgba(0, 0, 0, 0)');
+    assert.equal(appearance.borderTopWidth, '0px');
+    assert.equal(appearance.borderTopStyle, 'none');
+    assert.equal(appearance.boxShadow, 'none');
+    assert.equal(appearance.indicator, 'rgba(127, 127, 127, 0.34)',
+        'a quiet tick keeps resting rows scannable without boxing them in');
+    assert.equal(current.background, 'rgba(110, 168, 254, 0.12)');
+    assert.match(current.sheen, /^linear-gradient/,
+        'the current window carries a soft top sheen instead of a flat fill');
+    assert.match(current.boxShadow, /rgba\(127, 127, 127, 0\.2\).*inset/,
+        'the current window uses a hairline ring rather than a hard border');
+    assert.equal(current.indicator, 'rgb(110, 168, 254)',
+        'the accent bar is the single confident focus-color element');
+    assert.equal(current.indicatorWidth, '3px');
+    assert.equal(current.nameWeight, '600');
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 keeps hover visible without widget theme tokens at default and minimum widths', async t => {
+    for (const width of [360, 170]) {
+        const page = await openSwitcherPage(t, { width });
+        await page.addStyleTag({ content: `
+            :root {
+                --vscode-sideBar-background: #181818;
+                --vscode-panel-border: #666;
+                --vscode-editorWidget-background: initial;
+                --vscode-widget-border: initial;
+                --vscode-list-hoverBackground: rgba(255, 255, 255, 0.06);
+            }
+        ` });
+        const row = page.locator('[data-open-window-row]').nth(1);
+        const computed = await page.locator('[data-open-window-switcher-list]').evaluate(element => {
+            const style = getComputedStyle(element);
+            return {
+                background: style.backgroundColor,
+                boxShadow: style.boxShadow,
+            };
+        });
+        assert.equal(computed.background, 'rgba(0, 0, 0, 0)',
+            'the rail adds no surface of its own, even when widget tokens are absent');
+        assert.equal(computed.boxShadow, 'none');
+
+        const restingPixels = await row.screenshot();
+        await row.hover();
+        await page.waitForTimeout(250);
+        assert.notDeepEqual(await row.screenshot(), restingPixels,
+            `hover must remain visible without widget theme tokens at ${width}px`);
+        const hoverShadow = await row.evaluate(element => getComputedStyle(element).boxShadow);
+        assert.match(hoverShadow, /rgba\(127, 127, 127, 0\.16\).*inset/,
+            `the hover hairline ring must not depend on theme widget tokens at ${width}px`);
+    }
+});
+
 test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 webview pending lifecycle', async t => {
     const page = await openSwitcherPage(t);
     const cardId = '__openWorkspaceNavigation-' + 'b'.repeat(24);
@@ -451,8 +556,8 @@ test('OPEN-WINDOW-SWITCHER-UI-001 keeps bridge status in the WINDOWS title row w
         'a hairline separates the WINDOWS label from its rows');
     assert.ok(layout.headerHeight <= 21,
         'the navigation label stays compact, including its one-pixel separator');
-    assert.ok(layout.rowGap <= 1,
-        'the first window row follows the WINDOWS title without a blank status row');
+    assert.ok(layout.rowGap <= 2,
+        'the first window row follows the WINDOWS title without a blank status row; only rail inset is allowed');
 });
 
 // --- production OPEN tab end-to-end (PR-B) ---------------------------------

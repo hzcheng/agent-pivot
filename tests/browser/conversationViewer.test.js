@@ -1231,6 +1231,138 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
     });
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session before its Host page returns', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        html: `<article data-message-id="${marker}-0" `
+            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    const loadingNotice = (generation, sessionId) => ({
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: generation,
+        target: { projectId: 'project-1', provider: 'codex', sessionId },
+    });
+
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-alpha'));
+    await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-beta'));
+    await page.evaluate(() => {
+        window.__betaNode = document.querySelector('[data-message-id="beta-0"]');
+    });
+    // This full publication returns to alpha and stashes beta for a later
+    // switch. The following loading notice must reattach beta immediately,
+    // before any Host page for generation five is delivered.
+    await sendPage(page, sessionPage(4, 'session-alpha', 'alpha', 'sig-alpha'));
+    await sendPage(page, loadingNotice(5, 'session-beta'));
+
+    assert.deepEqual(await page.evaluate(() => ({
+        content: document.querySelector('[data-conversation-messages]')
+            .textContent.trim(),
+        sameNode: document.querySelector('[data-message-id="beta-0"]')
+            === window.__betaNode,
+        loading: document.body.getAttribute('data-conversation-loading'),
+    })), {
+        content: 'beta',
+        sameNode: true,
+        loading: 'true',
+    });
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preserves cached frames across rapid preview handoffs', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        html: `<article data-message-id="${marker}-0" `
+            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    const loadingNotice = (generation, sessionId) => ({
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: generation,
+        target: { projectId: 'project-1', provider: 'codex', sessionId },
+    });
+
+    // Populate frames for alpha, beta, and gamma, then interrupt a preview
+    // before either page arrives. Both previewed frames must remain usable.
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-alpha'));
+    await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-beta'));
+    await page.evaluate(() => {
+        window.__betaPreviewNode = document.querySelector(
+            '[data-message-id="beta-0"]'
+        );
+    });
+    await sendPage(page, sessionPage(4, 'session-gamma', 'gamma', 'sig-gamma'));
+    await page.evaluate(() => {
+        window.__gammaPreviewNode = document.querySelector(
+            '[data-message-id="gamma-0"]'
+        );
+    });
+    await sendPage(page, sessionPage(5, 'session-alpha', 'alpha', 'sig-alpha'));
+    await sendPage(page, loadingNotice(6, 'session-beta'));
+    await sendPage(page, loadingNotice(7, 'session-gamma'));
+
+    assert.deepEqual(await page.evaluate(() => ({
+        content: document.querySelector('[data-conversation-messages]')
+            .textContent.trim(),
+        sameNode: document.querySelector('[data-message-id="gamma-0"]')
+            === window.__gammaPreviewNode,
+    })), { content: 'gamma', sameNode: true });
+
+    await sendPage(page, sessionPage(7, 'session-gamma', 'gamma', 'sig-gamma'));
+    await sendPage(page, sessionPage(8, 'session-beta', 'beta', 'sig-beta'));
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-message-id="beta-0"]')
+            === window.__betaPreviewNode
+    ), true, 'the interrupted beta preview remains a reusable cached frame');
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 correlates resyncs to each page that fails', async t => {
     const page = await openViewerPage(t);
     await page.evaluate(() => {
@@ -4340,6 +4472,51 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Undo the cached-frame preview before stepping back through the
+        // historical fixtures. Previewing is deliberately non-authoritative:
+        // the following page still validates the cached token.
+        .replace(
+            '    // A cached frame can be shown as a non-authoritative preview as soon as\n'
+                + '    // the Host announces a target switch. The eventual page still validates\n'
+                + '    // its token and remains the only authoritative state transition.\n'
+                + '    var previewFrame;\n',
+            ''
+        )
+        .replace(
+            "        status.textContent = 'Loading conversation…';\n"
+                + '        previewCachedFrame(message.target);\n'
+                + '        return true;\n',
+            "        status.textContent = 'Loading conversation…';\n"
+                + '        return true;\n'
+        )
+        .replace(
+            /\n    function returnPreviewFrameToCache\(\) \{[\s\S]*?\n    \}\n\n    function previewCachedFrame\(target\) \{[\s\S]*?\n    \}\n(?=\n    \/\/ A frame is restorable)/,
+            ''
+        )
+        .replace(
+            '        if (previewFrame && previewFrame.key === key) {\n'
+                + '            var preview = previewFrame.frame;\n'
+                + '            previewFrame = undefined;\n'
+                + '            return preview.token === message.htmlSignature\n'
+                + '                ? preview\n'
+                + '                : undefined;\n'
+                + '        }\n',
+            ''
+        )
+        .replace(
+            '        // The session is really switching: stash the outgoing conversation\n'
+                + '        // as a detached frame before any state is reset, so a later switch\n'
+                + '        // back can reattach it whole. A matching preview already stashed the\n'
+                + '        // outgoing frame when the loading notice arrived.\n'
+                + '        if (!previewFrame\n'
+                + '            || previewFrame.key !== frameSessionKey(nextCommentTarget)) {\n'
+                + '            stashCurrentFrame();\n'
+                + '        }\n',
+            '        // The session is really switching: stash the outgoing conversation\n'
+                + '        // as a detached frame before any state is reset, so a later switch\n'
+                + '        // back can reattach it whole.\n'
+                + '        stashCurrentFrame();\n'
+        )
         // Undo the current correlated earlier-page request/result protocol
         // before stepping back through the existing historical fixtures.
         .replace(

@@ -388,6 +388,10 @@
     // cannot balloon Webview memory.
     var frameCache = new Map();
     var frameCacheNodes = 0;
+    // A cached frame can be shown as a non-authoritative preview as soon as
+    // the Host announces a target switch. The eventual page still validates
+    // its token and remains the only authoritative state transition.
+    var previewFrame;
     var FRAME_CACHE_LIMIT = 4;
     var FRAME_CACHE_NODE_BUDGET = 600;
     var state = {
@@ -1197,6 +1201,7 @@
         setLoadingInteractivity(true);
         messages.setAttribute('aria-busy', 'true');
         status.textContent = 'Loading conversation…';
+        previewCachedFrame(message.target);
         return true;
     }
 
@@ -1247,8 +1252,12 @@
         }
         // The session is really switching: stash the outgoing conversation
         // as a detached frame before any state is reset, so a later switch
-        // back can reattach it whole.
-        stashCurrentFrame();
+        // back can reattach it whole. A matching preview already stashed the
+        // outgoing frame when the loading notice arrived.
+        if (!previewFrame
+            || previewFrame.key !== frameSessionKey(nextCommentTarget)) {
+            stashCurrentFrame();
+        }
         telemetryController.resetSession(
             nextCommentTarget,
             message.subscriptionGeneration
@@ -1674,6 +1683,54 @@
         }
     }
 
+    function returnPreviewFrameToCache() {
+        if (!previewFrame) {
+            return;
+        }
+        var outgoingKey = frameSessionKey(commentTarget);
+        var outgoing = outgoingKey ? frameCache.get(outgoingKey) : undefined;
+        if (outgoing) {
+            // A rapid B -> C handoff arrived while B was only a preview.
+            // Put the actual A document back before stashing it under A.
+            messages.replaceChildren.apply(messages, outgoing.nodes);
+            // Its nodes are live again. Remove the old cache entry so the
+            // following stash does not release and re-cache those same nodes.
+            frameCache.delete(outgoingKey);
+            frameCacheNodes -= outgoing.nodeCount;
+        }
+        frameCache.set(previewFrame.key, previewFrame.frame);
+        frameCacheNodes += previewFrame.frame.nodeCount;
+        previewFrame = undefined;
+    }
+
+    function previewCachedFrame(target) {
+        var key = frameSessionKey(target);
+        if (!key) {
+            return;
+        }
+        if (previewFrame && previewFrame.key === key) {
+            return;
+        }
+        returnPreviewFrameToCache();
+        // Preserve the outgoing document before moving the cached incoming
+        // nodes into the live tree. Its semantic state remains authoritative
+        // until the incoming page applies, and all controls are disabled.
+        stashCurrentFrame();
+        var frame = frameCache.get(key);
+        if (!frame) {
+            return;
+        }
+        frameCache.delete(key);
+        frameCacheNodes -= frame.nodeCount;
+        previewFrame = { key: key, frame: frame };
+        messages.replaceChildren.apply(messages, frame.nodes);
+        if (frame.followingEnd) {
+            reconcileController.scrollToEnd();
+        } else {
+            restoreViewportReadingPosition(frame.anchor, frame.scrollTop);
+        }
+    }
+
     // A frame is restorable only when its content token matches the page's
     // signature — the token equality proves the DOM is byte-identical to
     // what the Host just published. Restoring takes the frame out of the
@@ -1682,6 +1739,13 @@
         var key = frameSessionKey(message.target);
         if (!key || typeof message.htmlSignature !== 'string') {
             return undefined;
+        }
+        if (previewFrame && previewFrame.key === key) {
+            var preview = previewFrame.frame;
+            previewFrame = undefined;
+            return preview.token === message.htmlSignature
+                ? preview
+                : undefined;
         }
         var frame = frameCache.get(key);
         if (!frame || frame.token !== message.htmlSignature) {

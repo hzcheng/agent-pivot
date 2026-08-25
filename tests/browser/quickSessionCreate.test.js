@@ -497,6 +497,62 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 ignores a late removal settlement fr
     assert.equal(await reloadedButton.getAttribute('aria-busy'), 'true');
 });
 
+test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 removal rebinds to the refreshed row after an authoritative replacement', async t => {
+    const key = {
+        repositoryKey: '/repo/.git',
+        canonicalWorktreePath: '/repo/.agent-pivot/worktrees/stale-menu',
+    };
+    const worktree = {
+        kind: 'ready',
+        git: {
+            key, branchRef: 'refs/heads/agent-pivot/stale-menu', head: 'a'.repeat(40),
+            isMain: false, isBare: false, health: 'normal', headKind: 'branch',
+        },
+        activity: 'idle', sessions: [], authority: { canResume: true, canRemove: true },
+    };
+    const page = await openQuickCreatePage(t, { worktrees: [worktree] });
+    const project = page.locator('[data-open-session-surface][data-id="project-a"]');
+    const worktreeSelector = '.ai-session-worktree-group[data-worktree-path="'
+        + key.canonicalWorktreePath + '"] .ai-session-worktree-more';
+    const button = project.locator(worktreeSelector);
+    const menu = page.locator('#aiSessionWorktreeMenu');
+    const removeItem = menu.locator('[data-action="worktree-remove"]');
+    await button.click();
+    assert.equal(await removeItem.isVisible(), true,
+        'a removable worktree offers removal inside its unified menu');
+    const originalButton = await button.elementHandle();
+
+    // A live authoritative refresh replaces the row (detaching the ⋯ trigger
+    // the menu was opened from) while the shared menu stays open. The removal
+    // click must rebind to the refreshed row instead of silently dying.
+    await postAuthoritativeWorktreeUpdate(page, 2, { worktrees: [worktree] });
+    const refreshedButton = project.locator(worktreeSelector);
+    assert.equal(await refreshedButton.count(), 1,
+        'the refresh keeps the removable row in view');
+    assert.equal(await originalButton.evaluate(element => element.isConnected), false,
+        'the original trigger no longer lives in the document');
+
+    await removeItem.click();
+    const removal = (await postedMessages(page))
+        .filter(message => message.type === 'remove-managed-worktree');
+    assert.equal(removal.length, 1,
+        'removal must still post when the open menu outlived the row it was opened from');
+    assert.deepEqual({ ...removal[0], requestId: '<nonce>' }, {
+        type: 'remove-managed-worktree', version: 1,
+        requestId: '<nonce>', projectId: 'project-a',
+        repositoryKey: key.repositoryKey, worktreePath: key.canonicalWorktreePath,
+    });
+    // This harness loads no styles, so assert the closed class instead of
+    // computed visibility.
+    assert.ok(!(await menu.getAttribute('class')).includes('visible'),
+        'the menu closes after activation');
+    assert.equal(await refreshedButton.isDisabled(), true,
+        'pending state lands on the refreshed trigger, not the detached original');
+    assert.equal(await refreshedButton.getAttribute('aria-busy'), 'true');
+    assert.equal(await project.locator('[data-ai-session-live-region]').textContent(),
+        'Preparing worktree removal…');
+});
+
 test('WORKTREE-SESSION-CREATE-TARGET-001 a worktree quick button posts its exact target and remembered provider', async t => {
     const key = {
         repositoryKey: '/repo/.git',

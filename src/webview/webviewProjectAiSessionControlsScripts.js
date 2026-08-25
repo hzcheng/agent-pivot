@@ -1044,8 +1044,24 @@ function initProjectAiSessionControls(options) {
             var group = projectDiv && projectDiv.querySelector(
                 '.ai-session-worktree-group[data-worktree-path="' + CSS.escape(context.worktreePath) + '"]'
             );
-            if (!group || !originButton || !originButton.isConnected) return;
-            submitManagedWorktreeRemoval(context.projectId, group, originButton);
+            // An authoritative refresh may have replaced the row while the
+            // menu was open, detaching the origin button; rebind to the
+            // refreshed row's trigger so the click still reaches the host
+            // instead of silently dying with the menu left open.
+            var removalButton = originButton && originButton.isConnected
+                ? originButton
+                : group && group.querySelector('.ai-session-worktree-more');
+            if (!group || !removalButton
+                || removalButton.getAttribute('data-can-remove') !== 'true') {
+                var staleLiveRegion = projectDiv
+                    && projectDiv.querySelector('[data-ai-session-live-region]');
+                if (staleLiveRegion) {
+                    staleLiveRegion.textContent = 'This worktree can no longer be removed.';
+                }
+                closeAiSessionWorktreeMenu();
+                return;
+            }
+            submitManagedWorktreeRemoval(context.projectId, group, removalButton);
         } else {
             return;
         }

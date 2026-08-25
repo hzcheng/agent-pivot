@@ -384,8 +384,9 @@
     // Detached conversation frames keyed by session: switching back to a
     // session whose content token is unchanged reattaches the already-built
     // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
-    // by both frame count and a total node budget so large conversations
-    // cannot balloon Webview memory.
+    // by frame count and a bounded return-path node budget. The two most
+    // recently departed sessions form the return path, so retain both past
+    // the normal budget, but never past the dedicated return-path ceiling.
     var frameCache = new Map();
     var frameCacheNodes = 0;
     // A cached frame can be shown as a non-authoritative preview as soon as
@@ -394,6 +395,8 @@
     var previewFrame;
     var FRAME_CACHE_LIMIT = 4;
     var FRAME_CACHE_NODE_BUDGET = 600;
+    var FRAME_CACHE_RETURN_FRAME_RESERVE = 2;
+    var FRAME_CACHE_RETURN_NODE_BUDGET = 1200;
     var state = {
         atLatest: false,
         initialized: false,
@@ -1207,7 +1210,19 @@
         document.body.setAttribute('data-conversation-loading', 'true');
         messages.setAttribute('aria-busy', 'true');
         status.textContent = 'Loading conversation…';
-        previewCachedFrame(message.target);
+        var previewHit = previewCachedFrame(message.target);
+        // This is deliberately a separate message rather than a field on the
+        // applied receipt: an older Host rejects unknown receipt fields, but
+        // safely ignores this best-effort diagnostic event.
+        post({
+            type: 'conversation-viewer-frame-cache-preview',
+            version: 1,
+            subscriptionGeneration: message.subscriptionGeneration,
+            outcome: previewHit ? 'hit' : 'miss',
+            projectId: message.target.projectId,
+            provider: message.target.provider,
+            sessionId: message.target.sessionId,
+        });
         // Preview nodes are attached synchronously above. Disable the live
         // controls only after that attachment, otherwise a cached target
         // could become interactive while the Host still owns the old target.
@@ -1681,7 +1696,9 @@
         });
         frameCacheNodes += nodes.length;
         while ((frameCache.size > FRAME_CACHE_LIMIT
-                || frameCacheNodes > FRAME_CACHE_NODE_BUDGET)
+                || (frameCacheNodes > FRAME_CACHE_NODE_BUDGET
+                    && (frameCache.size > FRAME_CACHE_RETURN_FRAME_RESERVE
+                        || frameCacheNodes > FRAME_CACHE_RETURN_NODE_BUDGET)))
             && frameCache.size > 1) {
             var oldestKey = frameCache.keys().next().value;
             if (oldestKey === undefined || oldestKey === key) {
@@ -1719,10 +1736,10 @@
     function previewCachedFrame(target) {
         var key = frameSessionKey(target);
         if (!key) {
-            return;
+            return false;
         }
         if (previewFrame && previewFrame.key === key) {
-            return;
+            return true;
         }
         returnPreviewFrameToCache();
         // Take the requested frame before stashing the outgoing one. At the
@@ -1738,7 +1755,7 @@
         // until the incoming page applies, and all controls are disabled.
         stashCurrentFrame();
         if (!frame) {
-            return;
+            return false;
         }
         previewFrame = { key: key, frame: frame };
         messages.replaceChildren.apply(messages, frame.nodes);
@@ -1747,6 +1764,7 @@
         } else {
             restoreViewportReadingPosition(frame.anchor, frame.scrollTop);
         }
+        return true;
     }
 
     // A frame is restorable only when its content token matches the page's

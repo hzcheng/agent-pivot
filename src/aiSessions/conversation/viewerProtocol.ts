@@ -310,6 +310,19 @@ export interface ConversationViewerAppliedMessage {
     capabilities?: string[];
 }
 
+/** Best-effort cache outcome emitted as soon as a loading notice attaches
+ * (or misses) a detached frame. It remains outside the applied receipt so a
+ * retained current script cannot make an older Host reject that receipt. */
+export interface ConversationViewerFrameCachePreviewMessage {
+    type: 'conversation-viewer-frame-cache-preview';
+    version: 1;
+    subscriptionGeneration: number;
+    outcome: 'hit' | 'miss';
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+}
+
 /** Wire features the running Webview script applies correctly, posted once
  * at document startup on its own message type: Hosts predating this
  * message silently ignore unknown types, while their exact-key receipt
@@ -392,6 +405,7 @@ export type ConversationViewerMessage =
     | ConversationViewerCycleStatusSessionMessage
     | ConversationViewerRequestSyncMessage
     | ConversationViewerAppliedMessage
+    | ConversationViewerFrameCachePreviewMessage
     | ConversationViewerCapabilitiesMessage
     | ConversationViewerHistoryChunkAppliedMessage
     | ConversationViewerFocusMessage
@@ -653,12 +667,11 @@ export function parseConversationViewerMessage(
             'type', 'version', 'subscriptionGeneration', 'requestId',
             'htmlSignature',
         ];
-        if (!hasExactKeys(value, appliedKeys)
-            && !hasExactKeys(value, [...appliedKeys, 'frames'])
-            && !hasExactKeys(value, [...appliedKeys, 'capabilities'])
-            && !hasExactKeys(value, [
-                ...appliedKeys, 'frames', 'capabilities',
-            ])) {
+        const appliedOptionalKeys = [
+            ...appliedKeys, 'frames', 'capabilities',
+        ];
+        if (!appliedKeys.every(key => hasOwn(value, key))
+            || Object.keys(value).some(key => !appliedOptionalKeys.includes(key))) {
             return undefined;
         }
         if (!isPositiveSafeInteger(value.subscriptionGeneration)
@@ -681,6 +694,20 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerAppliedMessage;
+    }
+    if (value.type === 'conversation-viewer-frame-cache-preview') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'subscriptionGeneration', 'outcome',
+            'projectId', 'provider', 'sessionId',
+        ])
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || (value.outcome !== 'hit' && value.outcome !== 'miss')
+            || !isConversationViewerTargetId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerFrameCachePreviewMessage;
     }
     if (value.type === 'conversation-viewer-capabilities') {
         if (!hasExactKeys(value, [

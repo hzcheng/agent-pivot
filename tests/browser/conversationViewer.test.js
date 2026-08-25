@@ -1607,6 +1607,78 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 frame restore follows a fresh n
         `the stashed scrollTop 0 must not win, got ${outcome.scrollTop}`);
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps the two-frame return path when large frames exceed the soft node budget', async t => {
+    const page = await openViewerPage(t);
+    const sessionPage = (generation, sessionId, marker, signature) => ({
+        ...hostileConversationPage,
+        requestId: generation * 10,
+        subscriptionGeneration: generation,
+        updateKind: 'initial',
+        html: Array.from({ length: 550 }, (_, index) =>
+            `<article data-message-id="${marker}-${index}" `
+                + `data-interaction-id="${marker}-input"><p>${marker}-${index}</p></article>`
+        ).join(''),
+        htmlSignature: signature,
+        outline: [{
+            interactionId: `${marker}-input`,
+            userPreview: marker,
+            responseState: 'complete',
+        }],
+        selectedInteractionId: `${marker}-input`,
+        selectedInput: 1,
+        totalInputs: 1,
+        previousCursor: undefined,
+        nextCursor: undefined,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input`,
+            displayName: marker,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    const loadingNotice = (generation, sessionId) => ({
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: generation,
+        target: { projectId: 'project-1', provider: 'codex', sessionId },
+    });
+
+    await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-alpha'));
+    await sendPage(page, loadingNotice(3, 'session-beta'));
+    await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-beta'));
+    await sendPage(page, loadingNotice(4, 'session-gamma'));
+    await sendPage(page, sessionPage(4, 'session-gamma', 'gamma', 'sig-gamma'));
+
+    // Alpha and beta together exceed the 600-node normal budget, but they are
+    // the immediate return path while gamma is live. Returning to alpha must
+    // therefore attach its cached DOM before any authoritative page arrives.
+    await sendPage(page, loadingNotice(5, 'session-alpha'));
+    assert.equal(
+        await page.locator('[data-conversation-messages] article').count(),
+        550,
+        'the complete alpha frame is attached before its Host page arrives'
+    );
+    assert.equal(
+        await page.locator('[data-message-id="alpha-0"]').innerText(),
+        'alpha-0'
+    );
+    assert.equal(
+        await page.locator('[data-message-id="alpha-549"]').innerText(),
+        'alpha-549'
+    );
+
+    const alphaPreview = (await postedMessages(page)).find(message =>
+        message.type === 'conversation-viewer-frame-cache-preview'
+            && message.subscriptionGeneration === 5
+    );
+    assert.equal(alphaPreview.outcome, 'hit');
+    await sendPage(page, sessionPage(5, 'session-alpha', 'alpha', 'sig-alpha'));
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts the oldest frame beyond the cache budget and resyncs its restore', async t => {
     const page = await openViewerPage(t);
     const sessionPage = (generation, sessionId, marker, signature, options = {}) => {
@@ -4516,6 +4588,48 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Normalize the newer bounded two-frame reserve and diagnostic receipt
+        // back to the preceding cached-frame generation before the remaining
+        // historical transforms step through older fixtures.
+        .replace(
+            '    // by frame count and a bounded return-path node budget. The two most\n'
+                + '    // recently departed sessions form the return path, so retain both past\n'
+                + '    // the normal budget, but never past the dedicated return-path ceiling.\n',
+            '    // by both frame count and a total node budget so large conversations\n'
+                + '    // cannot balloon Webview memory.\n'
+        )
+        .replace(
+            '    var FRAME_CACHE_NODE_BUDGET = 600;\n'
+                + '    var FRAME_CACHE_RETURN_FRAME_RESERVE = 2;\n'
+                + '    var FRAME_CACHE_RETURN_NODE_BUDGET = 1200;\n',
+            '    var FRAME_CACHE_NODE_BUDGET = 600;\n'
+        )
+        .replace(
+            '        var previewHit = previewCachedFrame(message.target);\n'
+                + '        // This is deliberately a separate message rather than a field on the\n'
+                + '        // applied receipt: an older Host rejects unknown receipt fields, but\n'
+                + '        // safely ignores this best-effort diagnostic event.\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-frame-cache-preview',\n"
+                + '            version: 1,\n'
+                + '            subscriptionGeneration: message.subscriptionGeneration,\n'
+                + "            outcome: previewHit ? 'hit' : 'miss',\n"
+                + '            projectId: message.target.projectId,\n'
+                + '            provider: message.target.provider,\n'
+                + '            sessionId: message.target.sessionId,\n'
+                + '        });\n',
+            '        previewCachedFrame(message.target);\n'
+        )
+        .replace(
+            '        while ((frameCache.size > FRAME_CACHE_LIMIT\n'
+                + '                || (frameCacheNodes > FRAME_CACHE_NODE_BUDGET\n'
+                + '                    && (frameCache.size > FRAME_CACHE_RETURN_FRAME_RESERVE\n'
+                + '                        || frameCacheNodes > FRAME_CACHE_RETURN_NODE_BUDGET)))\n'
+                + '            && frameCache.size > 1) {\n',
+            '        while ((frameCache.size > FRAME_CACHE_LIMIT\n'
+                + '                || frameCacheNodes > FRAME_CACHE_NODE_BUDGET)\n'
+                + '            && frameCache.size > 1) {\n'
+        )
         // Undo the cached-frame preview before stepping back through the
         // historical fixtures. Previewing is deliberately non-authoritative:
         // the following page still validates the cached token.

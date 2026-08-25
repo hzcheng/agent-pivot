@@ -409,10 +409,28 @@
         // loaded on demand when the transcript reaches its top.
         previousCursor: undefined,
         earlierPageRequested: false,
+        earlierPageRequestId: undefined,
+        nextEarlierPageRequestId: 0,
+        earlierPageStatus: '',
     };
     // The status text without the deferred-history notice, so a completing
     // backfill chunk can clear that notice without a full page message.
     var baseTranscriptStatus = '';
+    function updateTranscriptStatus() {
+        var messagesToShow = [];
+        [
+            baseTranscriptStatus,
+            messages.querySelector('.conversation-deferred-messages')
+                ? 'Loading earlier messages.'
+                : '',
+            state.earlierPageStatus,
+        ].forEach(function (text) {
+            if (text && messagesToShow.indexOf(text) === -1) {
+                messagesToShow.push(text);
+            }
+        });
+        status.textContent = messagesToShow.join(' ');
+    }
     var readingAnchorController =
         window.__agentPivotConversation.readingAnchor.create({
             scroll: scroll,
@@ -1856,6 +1874,8 @@
         // the scroll-to-top request and expose the latest cursor.
         state.previousCursor = message.previousCursor;
         state.earlierPageRequested = false;
+        state.earlierPageRequestId = undefined;
+        state.earlierPageStatus = '';
         // A content-first Host load delivers restored side state later in a
         // same-generation, HTML-free refresh. These snapshots are still
         // authoritative and must update without resetting the transcript.
@@ -1931,10 +1951,7 @@
             statusMessages.push('Partial history — showing newest inputs.');
         }
         baseTranscriptStatus = statusMessages.join(' ');
-        if (messages.querySelector('.conversation-deferred-messages')) {
-            statusMessages.push('Loading earlier messages.');
-        }
-        status.textContent = statusMessages.join(' ');
+        updateTranscriptStatus();
 
         var selectedMessages = Array.prototype.filter.call(
             messages.querySelectorAll('[data-interaction-id]'),
@@ -2156,7 +2173,7 @@
         }
         reconcileController.trackEnd();
         if (message.complete) {
-            status.textContent = baseTranscriptStatus;
+            updateTranscriptStatus();
         }
         // Acknowledge before the deferred decoration pass: the Host paces
         // the next slice on this receipt, and the decoration is idempotent.
@@ -2334,6 +2351,37 @@
         post({ type: type, version: 1 });
     }
 
+    function applyEarlierPageResult(message) {
+        if (!message || typeof message !== 'object'
+            || message.type !== 'conversation-viewer-load-earlier-result') {
+            return false;
+        }
+        if (message.version !== 1
+            || message.subscriptionGeneration !== state.subscriptionGeneration
+            || !Number.isSafeInteger(message.requestId)
+            || message.requestId !== state.earlierPageRequestId
+            || ['busy', 'unavailable', 'stalled', 'timed-out'].indexOf(
+                message.outcome
+            ) === -1) {
+            return true;
+        }
+        state.earlierPageRequested = false;
+        state.earlierPageRequestId = undefined;
+        state.earlierPageStatus = message.outcome === 'stalled'
+            ? 'Earlier messages could not be loaded.'
+            : message.outcome === 'timed-out'
+                ? 'Loading earlier messages timed out. Try again.'
+                : '';
+        // A no-progress boundary is terminal for this retained page just as
+        // an exhausted cursor is: keep the explanatory status but stop
+        // issuing the same automatic top-of-history request on every scroll.
+        if (message.outcome === 'unavailable' || message.outcome === 'stalled') {
+            state.previousCursor = undefined;
+        }
+        updateTranscriptStatus();
+        return true;
+    }
+
     reconcileController.attach();
 
     // On-demand earlier-page loading: the transcript reaching its top while
@@ -2351,9 +2399,14 @@
             return;
         }
         state.earlierPageRequested = true;
+        state.earlierPageRequestId = ++state.nextEarlierPageRequestId;
+        state.earlierPageStatus = 'Loading earlier messages.';
+        updateTranscriptStatus();
         post({
             type: 'conversation-viewer-load-earlier',
             version: 1,
+            requestId: state.earlierPageRequestId,
+            subscriptionGeneration: state.subscriptionGeneration,
         });
     }
     scroll.addEventListener('scroll', maybeRequestEarlierPage, {
@@ -2676,6 +2729,7 @@
         if (applySessionStatusMessage(event.data)) return;
         if (applyFollowNotice(event.data)) return;
         if (applyLoadingNotice(event.data)) return;
+        if (applyEarlierPageResult(event.data)) return;
         if (applyHistoryChunk(event.data)) return;
         try {
             applyPage(event.data);

@@ -4337,6 +4337,77 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Undo the current correlated earlier-page request/result protocol
+        // before stepping back through the existing historical fixtures.
+        .replace(
+            '        earlierPageRequested: false,\n'
+                + '        earlierPageRequestId: undefined,\n'
+                + '        nextEarlierPageRequestId: 0,\n'
+                + "        earlierPageStatus: '',\n",
+            '        earlierPageRequested: false,\n'
+        )
+        .replace(
+            "    function updateTranscriptStatus() {\n"
+                + '        var messagesToShow = [];\n'
+                + '        [\n'
+                + '            baseTranscriptStatus,\n'
+                + "            messages.querySelector('.conversation-deferred-messages')\n"
+                + "                ? 'Loading earlier messages.'\n"
+                + "                : '',\n"
+                + '            state.earlierPageStatus,\n'
+                + '        ].forEach(function (text) {\n'
+                + '            if (text && messagesToShow.indexOf(text) === -1) {\n'
+                + '                messagesToShow.push(text);\n'
+                + '            }\n'
+                + '        });\n'
+                + "        status.textContent = messagesToShow.join(' ');\n"
+                + '    }\n',
+            ''
+        )
+        .replace(
+            '        state.earlierPageRequested = false;\n'
+                + '        state.earlierPageRequestId = undefined;\n'
+                + "        state.earlierPageStatus = '';\n",
+            '        state.earlierPageRequested = false;\n'
+        )
+        .replace(
+            "        baseTranscriptStatus = statusMessages.join(' ');\n"
+                + '        updateTranscriptStatus();\n',
+            "        baseTranscriptStatus = statusMessages.join(' ');\n"
+                + "        if (messages.querySelector('.conversation-deferred-messages')) {\n"
+                + "            statusMessages.push('Loading earlier messages.');\n"
+                + '        }\n'
+                + "        status.textContent = statusMessages.join(' ');\n"
+        )
+        .replace(
+            '            updateTranscriptStatus();\n',
+            '            status.textContent = baseTranscriptStatus;\n'
+        )
+        .replace(
+            /\n    function applyEarlierPageResult\(message\) \{[\s\S]*?\n    \}\n\n    reconcileController\.attach\(\);\n/,
+            '\n    reconcileController.attach();\n'
+        )
+        .replace(
+            '        state.earlierPageRequested = true;\n'
+                + '        state.earlierPageRequestId = ++state.nextEarlierPageRequestId;\n'
+                + "        state.earlierPageStatus = 'Loading earlier messages.';\n"
+                + '        updateTranscriptStatus();\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-load-earlier',\n"
+                + '            version: 1,\n'
+                + '            requestId: state.earlierPageRequestId,\n'
+                + '            subscriptionGeneration: state.subscriptionGeneration,\n'
+                + '        });\n',
+            '        state.earlierPageRequested = true;\n'
+                + '        post({\n'
+                + "            type: 'conversation-viewer-load-earlier',\n"
+                + '            version: 1,\n'
+                + '        });\n'
+        )
+        .replace(
+            '        if (applyEarlierPageResult(event.data)) return;\n',
+            ''
+        )
         .replace(
             /\n    \/\/ Keep the first painted frame narrow:[\s\S]*?\n    }\n\n    function applyPage\(message\) \{/,
             '\n    function applyPage(message) {'
@@ -17287,6 +17358,12 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests an earlier page when t
     await requestEarlier();
     assert.equal((await loadEarlierPosts()).length, 1,
         'reaching the top with earlier history requests one page');
+    assert.deepEqual((await loadEarlierPosts()).at(-1), {
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+    });
     await requestEarlier();
     assert.equal((await loadEarlierPosts()).length, 1,
         'a second top hit is throttled until the next page applies');
@@ -17318,6 +17395,53 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests an earlier page when t
     await requestEarlier();
     assert.equal((await loadEarlierPosts()).length, 2,
         'a page apply re-arms the top request');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles an unavailable earlier-page request without leaving a loading status', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 30, 0),
+        htmlSignature: 'sig-unavailable',
+        previousCursor: 'cursor-1',
+        outline: progressiveOutline(30),
+        selectedInteractionId: 'msg-29',
+        selectedInput: 29,
+        totalInputs: 30,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-unavailable'
+    ));
+    await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.scrollTop = 0;
+        scroll.dispatchEvent(new Event('scroll'));
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-load-earlier-result',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 1,
+        outcome: 'unavailable',
+    });
+    assert.equal(await page.locator('[data-conversation-status]').textContent(), '');
+    await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.dispatchEvent(new Event('scroll'));
+    });
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ).length, 1, 'an unavailable boundary must not re-enter a loading loop');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resyncs when a tail patch misses the visible tail', async t => {

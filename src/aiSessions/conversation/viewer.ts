@@ -49,6 +49,7 @@ import type {
     ConversationViewerAppliedMessage,
     ConversationViewerCopyMessage,
     ConversationViewerHistoryChunkAppliedMessage,
+    ConversationViewerLoadEarlierMessage,
 } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
@@ -428,6 +429,8 @@ export class ConversationViewer implements ConversationViewerApi {
     // demand (the user scrolled the transcript to its top while earlier
     // history sits behind the oldest retained page's cursor).
     private earlierPageBackfillInFlight = false;
+    private earlierPageBackfillTimer?: unknown;
+    private earlierPageBackfillTimerToken = 0;
     // The oldest interaction of a page-boundary walk that made no progress
     // (its prepended page was evicted by the retention budget). Blocks
     // further automatic retries for that boundary so an ack-triggered
@@ -913,7 +916,43 @@ export class ConversationViewer implements ConversationViewerApi {
         );
     }
 
-    private maybeContinueEarlierPageBackfill(): void {
+    private settleEarlierPageBackfill(
+        requestId: number,
+        outcome: 'busy' | 'unavailable' | 'stalled' | 'timed-out'
+    ): void {
+        if (!this.panel) {
+            return;
+        }
+        void Promise.resolve(this.panel.webview.postMessage({
+            type: 'conversation-viewer-load-earlier-result',
+            version: 1,
+            subscriptionGeneration: this.subscriptionGeneration,
+            requestId,
+            outcome,
+        })).catch(() => undefined);
+    }
+
+    private clearEarlierPageBackfillTimer(token?: number): void {
+        if (token !== undefined
+            && token !== this.earlierPageBackfillTimerToken) {
+            return;
+        }
+        this.earlierPageBackfillTimerToken += 1;
+        const timer = this.earlierPageBackfillTimer;
+        this.earlierPageBackfillTimer = undefined;
+        if (timer === undefined) {
+            return;
+        }
+        if (this.options.clearTimer) {
+            this.options.clearTimer(timer);
+        } else {
+            clearTimeout(timer as NodeJS.Timeout);
+        }
+    }
+
+    private maybeContinueEarlierPageBackfill(
+        request: ConversationViewerLoadEarlierMessage
+    ): void {
         // User-driven: the Webview posts conversation-viewer-load-earlier
         // when the transcript reaches its top with earlier history pending.
         // Loads exactly one older page per request; the next page loads
@@ -921,28 +960,39 @@ export class ConversationViewer implements ConversationViewerApi {
         const target = this.target;
         const panel = this.panel;
         const edge = this.pages[0]?.page;
+        if (request.subscriptionGeneration !== this.subscriptionGeneration) {
+            return;
+        }
         if (!target || !panel || this.suspended
-            || this.progressivePublication
+            || !edge
+            || edge.isStart
+            || edge.previousCursor === undefined) {
+            this.settleEarlierPageBackfill(request.requestId, 'unavailable');
+            return;
+        }
+        if (this.progressivePublication
             || this.progressiveContentIncomplete
             || this.progressiveBackfill
             || this.authoritativeLoadInFlight
-            || this.earlierPageBackfillInFlight
-            || !edge
-            || edge.isStart
-            || edge.previousCursor === undefined
-            || edge.interactionStates[0]?.interactionId
-                === this.earlierBackfillStuckAnchor) {
+            || this.earlierPageBackfillInFlight) {
+            this.settleEarlierPageBackfill(request.requestId, 'busy');
+            return;
+        }
+        if (edge.interactionStates[0]?.interactionId
+            === this.earlierBackfillStuckAnchor) {
+            this.settleEarlierPageBackfill(request.requestId, 'stalled');
             return;
         }
         const anchor = edge.interactionStates[0]?.interactionId;
         const outline = this.outlineController.snapshot;
         if (!anchor || !outline) {
+            this.settleEarlierPageBackfill(request.requestId, 'unavailable');
             return;
         }
         const cursor = edge.previousCursor;
         const oldestBefore = edge.interactionStates[0]?.interactionId;
         this.earlierPageBackfillInFlight = true;
-        void this.read({
+        const read = this.read({
             provider: target.provider,
             sessionId: this.effectiveSessionId(target),
             anchorInteractionId: anchor,
@@ -950,11 +1000,56 @@ export class ConversationViewer implements ConversationViewerApi {
             cursor,
             expectedRevision: outline.sourceRevision,
             limit: CONVERSATION_LIMITS.maxPageInteractions,
-        }, 'before', false, 'refresh', this.outlineController.selection, true)
+        }, 'before', false, 'refresh', this.outlineController.selection, true);
+        const requestAbortController = this.abortController;
+        const timerToken = ++this.earlierPageBackfillTimerToken;
+        const timeout = () => {
+            if (timerToken !== this.earlierPageBackfillTimerToken) {
+                return;
+            }
+            this.earlierPageBackfillTimer = undefined;
+            this.earlierPageBackfillTimerToken += 1;
+            if (!this.earlierPageBackfillInFlight
+                || this.target !== target
+                || this.subscriptionGeneration !== request.subscriptionGeneration) {
+                return;
+            }
+            if (this.abortController === requestAbortController) {
+                requestAbortController?.abort();
+            }
+            this.earlierPageBackfillInFlight = false;
+            this.settleEarlierPageBackfill(request.requestId, 'timed-out');
+        };
+        const timer = this.options.setTimer
+            ? this.options.setTimer(
+                timeout,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            )
+            : setTimeout(
+                timeout,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            );
+        if (timerToken === this.earlierPageBackfillTimerToken) {
+            this.earlierPageBackfillTimer = timer;
+        } else if (this.options.clearTimer) {
+            this.options.clearTimer(timer);
+        } else {
+            clearTimeout(timer as NodeJS.Timeout);
+        }
+        void read
             .then(
                 (outcome) => {
+                    this.clearEarlierPageBackfillTimer(timerToken);
                     this.earlierPageBackfillInFlight = false;
                     if (!outcome) {
+                        if (this.target === target
+                            && this.subscriptionGeneration
+                                === request.subscriptionGeneration) {
+                            this.settleEarlierPageBackfill(
+                                request.requestId,
+                                'unavailable'
+                            );
+                        }
                         return;
                     }
                     const next = this.pages[0]?.page;
@@ -967,9 +1062,24 @@ export class ConversationViewer implements ConversationViewerApi {
                     this.earlierBackfillStuckAnchor = madeProgress
                         ? undefined
                         : oldestBefore;
+                    if (!madeProgress) {
+                        this.settleEarlierPageBackfill(
+                            request.requestId,
+                            'stalled'
+                        );
+                    }
                 },
                 () => {
+                    this.clearEarlierPageBackfillTimer(timerToken);
                     this.earlierPageBackfillInFlight = false;
+                    if (this.target === target
+                        && this.subscriptionGeneration
+                            === request.subscriptionGeneration) {
+                        this.settleEarlierPageBackfill(
+                            request.requestId,
+                            'unavailable'
+                        );
+                    }
                 }
             );
     }
@@ -1151,6 +1261,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingRestoredAuxiliaryState = undefined;
         this.pendingRevalidationInteractionId = undefined;
         this.earlierBackfillStuckAnchor = undefined;
+        this.earlierPageBackfillInFlight = false;
+        this.clearEarlierPageBackfillTimer();
         this.appliedContentSignature = undefined;
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
@@ -1271,6 +1383,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingRestoredAuxiliaryState = undefined;
         this.pendingRevalidationInteractionId = undefined;
         this.earlierBackfillStuckAnchor = undefined;
+        this.earlierPageBackfillInFlight = false;
+        this.clearEarlierPageBackfillTimer();
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1571,7 +1685,7 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         if (parsed.type === 'conversation-viewer-load-earlier') {
-            this.maybeContinueEarlierPageBackfill();
+            this.maybeContinueEarlierPageBackfill(parsed);
             return;
         }
         if (parsed.type === 'conversation-viewer-next') {
@@ -1690,6 +1804,8 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingRestoredAuxiliaryState = undefined;
         this.pendingRevalidationInteractionId = undefined;
         this.earlierBackfillStuckAnchor = undefined;
+        this.earlierPageBackfillInFlight = false;
+        this.clearEarlierPageBackfillTimer();
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -3514,7 +3630,14 @@ export class ConversationViewer implements ConversationViewerApi {
         const projection = this.outlineController.createPublication();
         return projection.atLatest
             && !projection.partial
-            && deferredConversationMessageCount(this.messages()) > 0;
+            // A small deferred prefix used to paint a partial page, wait for
+            // its receipt, and immediately repaint the full transcript. That
+            // two-step path made ordinary 25+ message conversations visibly
+            // pause on “Loading earlier messages” without reducing work.
+            // Enter the progressive protocol only when it can send at least
+            // two bounded history chunks.
+            && deferredConversationMessageCount(this.messages())
+                > CONVERSATION_PROGRESSIVE_CHUNK_MIN_DEFERRED;
     }
 
     private createInteractionInfo(): Map<string, {

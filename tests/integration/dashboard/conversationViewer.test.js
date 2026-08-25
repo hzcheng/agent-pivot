@@ -195,7 +195,7 @@ function lastContentPublication(panel) {
     return publication;
 }
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 publishes recent messages before completing a long latest page', async () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 renders a modest latest page in one publication', async () => {
     const sessionId = 'progressive-page';
     const interactionIds = Array.from(
         { length: 30 },
@@ -211,30 +211,19 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 publishes recent messages befor
 
     await viewer.open(target(sessionId, interactionIds.at(-1)));
 
-    const recent = decodeInitialPublication(panel.webview.html);
-    assert.match(recent.html, /Loading earlier messages/);
-    assert.match(recent.html, /message-29/);
-    assert.doesNotMatch(recent.html, /message-0/);
-
-    await panel.receive({
-        type: 'conversation-viewer-applied',
-        version: 1,
-        subscriptionGeneration: recent.subscriptionGeneration,
-        requestId: recent.requestId,
-        htmlSignature: recent.htmlSignature,
-    });
-
-    const complete = lastContentPublication(panel);
-    assert.equal(complete.updateKind, 'refresh');
-    assert.doesNotMatch(complete.html, /Loading earlier messages/);
-    assert.match(complete.html, /message-0/);
-    assert.match(complete.html, /message-29/);
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(initial.html, /Loading earlier messages/);
+    assert.match(initial.html, /message-0/);
+    assert.match(initial.html, /message-29/);
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).length, 0, 'the modest page must not wait for a second full refresh');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes a recovered recent-message page', async () => {
     const sessionId = 'progressive-recovery';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const { viewer, panel } = createViewer({
@@ -268,15 +257,41 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes a recovered recent-me
         requestId: recovered.requestId,
         htmlSignature: recovered.htmlSignature,
     });
-    const complete = lastContentPublication(panel);
-    assert.doesNotMatch(complete.html, /Loading earlier messages/);
-    assert.match(complete.html, /message-0/);
+    const firstChunk = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(firstChunk, 'the recovered partial page must resume backfill');
+    assert.match(firstChunk.html, /message-64/);
+    assert.doesNotMatch(firstChunk.html, /message-0/);
+
+    let chunk = firstChunk;
+    while (chunk) {
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: chunk.subscriptionGeneration,
+            requestId: chunk.requestId,
+            htmlSignature: chunk.htmlSignature,
+        });
+        if (chunk.complete) {
+            break;
+        }
+        chunk = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).at(-1);
+    }
+    assert.ok(chunk?.complete, 'the recovered backfill must reach history start');
+    const complete = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(complete?.html, undefined);
+    assert.equal(complete?.updateKind, 'refresh');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a dropped complete progressive page', async () => {
     const sessionId = 'progressive-completion-timeout';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const timers = new Map();
@@ -312,7 +327,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a dropped complete pro
     assert.ok(timer, 'the complete progressive page must be acknowledged');
 
     timer.callback();
-    const recovered = decodeInitialPublication(panel.webview.html);
+    const recovered = lastContentPublication(panel);
     assert.doesNotMatch(recovered.html, /Loading earlier messages/);
     assert.match(recovered.html, /message-0/);
     viewer.dispose();
@@ -321,7 +336,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a dropped complete pro
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost first progressive acknowledgement', async () => {
     const sessionId = 'progressive-first-ack-timeout';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const timers = new Map();
@@ -352,6 +367,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost first progressi
     timer.callback();
     const recovered = decodeInitialPublication(panel.webview.html);
     assert.notEqual(recovered.requestId, partial.requestId);
+    assert.match(recovered.html, /Loading earlier messages/);
     await panel.receive({
         type: 'conversation-viewer-applied',
         version: 1,
@@ -359,14 +375,16 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost first progressi
         requestId: recovered.requestId,
         htmlSignature: recovered.htmlSignature,
     });
-    assert.match(lastContentPublication(panel).html, /message-0/);
+    assert.ok(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ), 'the recovered document must resume its bounded history backfill');
     viewer.dispose();
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 transfers the incomplete-content watchdog across authority suspension', async () => {
     const sessionId = 'progressive-authority-rollover';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const timers = new Map();
@@ -406,7 +424,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 transfers the incomplete-conten
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps an interaction group intact at the progressive boundary', async () => {
     const sessionId = 'progressive-group-boundary';
     const interactionIds = Array.from(
-        { length: 30 },
+        { length: 100 },
         (_item, index) => `input-${index + 1}`
     );
     const { viewer, panel } = createViewer({
@@ -416,16 +434,16 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps an interaction group inta
                 interactionIds,
                 anchorInteractionId: interactionIds.at(-1),
             });
-            result.messages.splice(19, 0,
+            result.messages.splice(89, 0,
                 {
-                    id: 'input-19:progress',
-                    interactionId: 'input-19',
+                    id: 'input-90:progress',
+                    interactionId: 'input-90',
                     role: 'progress',
                     markdown: 'group-progress',
                 },
                 {
-                    id: 'input-19:assistant',
-                    interactionId: 'input-19',
+                    id: 'input-90:assistant',
+                    interactionId: 'input-90',
                     role: 'assistant',
                     markdown: 'group-answer',
                 }
@@ -436,10 +454,10 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps an interaction group inta
 
     await viewer.open(target(sessionId, interactionIds.at(-1)));
     const recent = decodeInitialPublication(panel.webview.html);
-    assert.match(recent.html, /message-18/);
+    assert.match(recent.html, /message-89/);
     assert.match(recent.html, /group-progress/);
     assert.match(recent.html, /group-answer/);
-    assert.doesNotMatch(recent.html, /message-17/);
+    assert.doesNotMatch(recent.html, /message-88/);
     viewer.dispose();
 });
 
@@ -679,6 +697,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundar
     await panel.receive({
         type: 'conversation-viewer-load-earlier',
         version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
     });
 
     for (let attempt = 0; attempt < 20; attempt++) {
@@ -702,6 +722,62 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundar
     assert.doesNotMatch(walked.html, /Loading earlier messages/);
     assert.equal(walked.selectedInteractionId, 'input-5',
         'the walk preserves the user selection');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles a stalled earlier-page read', async () => {
+    const sessionId = 'progressive-boundary-timeout';
+    const interactionIds = ['input-1', 'input-2'];
+    const timers = new Map();
+    let nextTimer = 1;
+    const { viewer, panel } = createViewer({
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, { callback, delayMs });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async request => {
+            if (request.direction === 'before') {
+                return new Promise(() => {});
+            }
+            return {
+                ...page(sessionId, 'input-2', 'message', {
+                    interactionIds: ['input-2'],
+                    anchorInteractionId: 'input-2',
+                }),
+                previousCursor: 'cursor-1',
+                isStart: false,
+            };
+        },
+    });
+
+    await viewer.open(target(sessionId, 'input-2'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    const timer = Array.from(timers.values()).find(candidate =>
+        candidate.delayMs === 4_000
+    );
+    assert.ok(timer, 'the earlier-page read must have a bounded wait');
+
+    timer.callback();
+    assert.deepEqual(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-load-earlier-result'
+    ).at(-1), {
+        type: 'conversation-viewer-load-earlier-result',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: 1,
+        outcome: 'timed-out',
+    });
     viewer.dispose();
 });
 
@@ -752,6 +828,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 stops the boundary walk when a 
     await panel.receive({
         type: 'conversation-viewer-load-earlier',
         version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
     });
     for (let attempt = 0; attempt < 30; attempt++) {
         await new Promise(resolve => setImmediate(resolve));
@@ -772,12 +850,23 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 stops the boundary walk when a 
     await panel.receive({
         type: 'conversation-viewer-load-earlier',
         version: 1,
+        requestId: 2,
+        subscriptionGeneration: initial.subscriptionGeneration,
     });
     for (let attempt = 0; attempt < 30; attempt++) {
         await new Promise(resolve => setImmediate(resolve));
     }
     assert.equal(beforeRequests, 1,
         'a no-progress walk must not be retried on its own receipt');
+    assert.deepEqual(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-load-earlier-result'
+    ).at(-1), {
+        type: 'conversation-viewer-load-earlier-result',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: 2,
+        outcome: 'stalled',
+    }, 'a blocked boundary must settle the matching Webview request');
     viewer.dispose();
 });
 
@@ -962,7 +1051,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 cancels the backfill when an au
     viewer.dispose();
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps the single full refresh for a modest deferred window', async () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 avoids a deferred window for a modest page', async () => {
     const sessionId = 'progressive-chunk-boundary';
     const interactionIds = Array.from(
         { length: 60 },
@@ -977,24 +1066,13 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps the single full refresh f
     });
 
     await viewer.open(target(sessionId, interactionIds.at(-1)));
-    const recent = decodeInitialPublication(panel.webview.html);
-    assert.match(recent.html, /Loading earlier messages/);
-    await panel.receive({
-        type: 'conversation-viewer-applied',
-        version: 1,
-        subscriptionGeneration: recent.subscriptionGeneration,
-        requestId: recent.requestId,
-        htmlSignature: recent.htmlSignature,
-    });
-
-    // 48 deferred messages stay on the single-refresh path.
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(initial.html, /Loading earlier messages/);
+    assert.match(initial.html, /message-0/);
+    assert.match(initial.html, /message-59/);
     assert.equal(panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-history-chunk'
     ).length, 0);
-    const complete = lastContentPublication(panel);
-    assert.equal(complete.updateKind, 'refresh');
-    assert.doesNotMatch(complete.html, /Loading earlier messages/);
-    assert.match(complete.html, /message-0/);
     viewer.dispose();
 });
 

@@ -424,6 +424,10 @@ export class ConversationViewer implements ConversationViewerApi {
     // incomplete-content obligation; run once the full-content receipt
     // closes it. Cleared on every target switch.
     private pendingRevalidationInteractionId?: string;
+    // A page-boundary continuation currently prepending an older page after
+    // the retained-window backfill settled (the oldest retained page still
+    // reported earlier history behind its cursor).
+    private earlierPageBackfillInFlight = false;
     // A partial page remains incomplete until a different full-content page
     // applies. Auxiliary and subagent publications may supersede either
     // phase, so this is bound to the generation instead of one request id.
@@ -901,7 +905,66 @@ export class ConversationViewer implements ConversationViewerApi {
             false,
             undefined,
             pending
+        ).then(
+            () => this.maybeContinueEarlierPageBackfill(),
+            () => undefined
         );
+    }
+
+    private maybeContinueEarlierPageBackfill(): void {
+        const target = this.target;
+        const panel = this.panel;
+        const edge = this.pages[0]?.page;
+        if (!target || !panel || this.suspended
+            || this.progressivePublication
+            || this.progressiveContentIncomplete
+            || this.progressiveBackfill
+            || this.authoritativeLoadInFlight
+            || this.earlierPageBackfillInFlight
+            || !edge
+            || edge.isStart
+            || edge.previousCursor === undefined) {
+            return;
+        }
+        const anchor = edge.interactionStates[0]?.interactionId;
+        const outline = this.outlineController.snapshot;
+        if (!anchor || !outline) {
+            return;
+        }
+        const cursor = edge.previousCursor;
+        const oldestBefore = edge.interactionStates[0]?.interactionId;
+        this.emitDiagnostic('earlier-page-backfill', {
+            anchor,
+            cursor,
+            pageIsStart: edge.isStart,
+        });
+        this.earlierPageBackfillInFlight = true;
+        void this.read({
+            provider: target.provider,
+            sessionId: this.effectiveSessionId(target),
+            anchorInteractionId: anchor,
+            direction: 'before',
+            cursor,
+            expectedRevision: outline.sourceRevision,
+            limit: CONVERSATION_LIMITS.maxPageInteractions,
+        }, 'before', false, 'refresh', this.outlineController.selection, true)
+            .then(
+                () => {
+                    this.earlierPageBackfillInFlight = false;
+                    const next = this.pages[0]?.page;
+                    const madeProgress = !!next
+                        && next.interactionStates[0]?.interactionId
+                            !== oldestBefore;
+                    if (madeProgress
+                        && !next.isStart
+                        && next.previousCursor !== undefined) {
+                        this.maybeContinueEarlierPageBackfill();
+                    }
+                },
+                () => {
+                    this.earlierPageBackfillInFlight = false;
+                }
+            );
     }
 
     async refreshPresentation(): Promise<void> {
@@ -2272,7 +2335,8 @@ export class ConversationViewer implements ConversationViewerApi {
         placement: 'replace' | 'before' | 'after',
         replaceDocument: boolean,
         updateKind: ConversationViewerPageMessage['updateKind'],
-        preferredInteractionId: string
+        preferredInteractionId: string,
+        preserveSelection = false
     ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
@@ -2342,15 +2406,24 @@ export class ConversationViewer implements ConversationViewerApi {
                 return false;
             }
             this.stale = false;
-            const selected = retriedStaleRevision && outline
-                ? this.outlineController.replace(
+            if (preserveSelection) {
+                if (!this.outlineController.contains(page.anchorInteractionId)) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
+            } else if (retriedStaleRevision && outline) {
+                if (!this.outlineController.replace(
                     outline,
                     page.anchorInteractionId
-                )
-                : this.outlineController.select(page.anchorInteractionId);
-            if (!selected) {
-                await this.publishFailure(replaceDocument, updateKind);
-                return false;
+                )) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
+            } else {
+                if (!this.outlineController.select(page.anchorInteractionId)) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
             }
             if (retriedStaleRevision && outline) {
                 this.mergeRefreshPage(page, outline);
@@ -2566,6 +2639,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.publishRestoredAuxiliaryState();
         this.publishDeferredMessages(publication);
         this.runPendingRevalidation();
+        this.maybeContinueEarlierPageBackfill();
     }
 
     private publishDeferredMessages(

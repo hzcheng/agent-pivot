@@ -621,6 +621,84 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 defers post-load revalidation w
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundary to the session start', async () => {
+    const sessionId = 'progressive-boundary';
+    const olderInteractions = ['input-1', 'input-2'];
+    const recentInteractions = ['input-3', 'input-4', 'input-5'];
+    const requests = [];
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, [
+            ...olderInteractions,
+            ...recentInteractions,
+        ]),
+        readPage: async request => {
+            requests.push(request);
+            if (request.direction === 'before') {
+                // The older page reaches the session start.
+                return page(sessionId, 'input-1', 'message', {
+                    interactionIds: olderInteractions,
+                    anchorInteractionId: 'input-1',
+                });
+            }
+            // The opening page stops mid-session: earlier history sits
+            // behind a cursor boundary.
+            return {
+                ...page(sessionId, 'input-5', 'message', {
+                    interactionIds: recentInteractions,
+                    anchorInteractionId: 'input-5',
+                }),
+                previousCursor: 'cursor-1',
+                isStart: false,
+            };
+        },
+    });
+
+    await viewer.open(target(sessionId, 'input-5'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(initial.html, /data-message-id="input-1:user"/,
+        'the opening page stops before the session start');
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    // The retained-window settle (here: the no-plan fallback refresh) is
+    // followed automatically by the boundary walk.
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        if (requests.some(request => request.direction === 'before')) {
+            break;
+        }
+    }
+    assert.ok(requests.some(request => request.direction === 'before'),
+        'the boundary walk must request the previous page');
+
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        const latest = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).at(-1);
+        if (latest && typeof latest.html === 'string'
+            && /data-message-id="input-1:user"/.test(latest.html)) {
+            break;
+        }
+    }
+    const walked = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(walked, 'the boundary walk must publish the merged page');
+    assert.match(walked.html, /data-message-id="input-1:user"/);
+    assert.match(walked.html, /data-message-id="input-5:user"/);
+    assert.doesNotMatch(walked.html, /Loading earlier messages/);
+    assert.equal(walked.selectedInteractionId, 'input-5',
+        'the walk preserves the user selection');
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost history chunk with a full refresh', async () => {
     const sessionId = 'progressive-chunk-timeout';
     const interactionIds = Array.from(

@@ -933,11 +933,6 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         const cursor = edge.previousCursor;
         const oldestBefore = edge.interactionStates[0]?.interactionId;
-        this.emitDiagnostic('earlier-page-backfill', {
-            anchor,
-            cursor,
-            pageIsStart: edge.isStart,
-        });
         this.earlierPageBackfillInFlight = true;
         void this.read({
             provider: target.provider,
@@ -949,8 +944,11 @@ export class ConversationViewer implements ConversationViewerApi {
             limit: CONVERSATION_LIMITS.maxPageInteractions,
         }, 'before', false, 'refresh', this.outlineController.selection, true)
             .then(
-                () => {
+                (outcome) => {
                     this.earlierPageBackfillInFlight = false;
+                    if (!outcome) {
+                        return;
+                    }
                     const next = this.pages[0]?.page;
                     const madeProgress = !!next
                         && next.interactionStates[0]?.interactionId

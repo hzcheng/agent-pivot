@@ -304,6 +304,10 @@ export interface ConversationViewerAppliedMessage {
     requestId: number;
     htmlSignature: string;
     frames?: ConversationViewerAppliedFrame[];
+    /** Tolerated legacy advertisement: documents rendered by the
+     * pre-handshake script carry it on the receipt. Accepted so a Host
+     * that already shipped the handshake keeps acknowledging them. */
+    capabilities?: string[];
 }
 
 /** Wire features the running Webview script applies correctly, posted once
@@ -636,7 +640,11 @@ export function parseConversationViewerMessage(
             'htmlSignature',
         ];
         if (!hasExactKeys(value, appliedKeys)
-            && !hasExactKeys(value, [...appliedKeys, 'frames'])) {
+            && !hasExactKeys(value, [...appliedKeys, 'frames'])
+            && !hasExactKeys(value, [...appliedKeys, 'capabilities'])
+            && !hasExactKeys(value, [
+                ...appliedKeys, 'frames', 'capabilities',
+            ])) {
             return undefined;
         }
         if (!isPositiveSafeInteger(value.subscriptionGeneration)
@@ -648,6 +656,14 @@ export function parseConversationViewerMessage(
         }
         if (value.frames !== undefined
             && !isAppliedFrameInventory(value.frames)) {
+            return undefined;
+        }
+        if (value.capabilities !== undefined
+            && (!Array.isArray(value.capabilities)
+                || value.capabilities.length > 16
+                || value.capabilities.some((capability: unknown) =>
+                    typeof capability !== 'string'
+                    || capability.length > 64))) {
             return undefined;
         }
         return value as unknown as ConversationViewerAppliedMessage;

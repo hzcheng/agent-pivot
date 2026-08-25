@@ -2482,6 +2482,13 @@ export class ConversationViewer implements ConversationViewerApi {
             || message.htmlSignature !== publication.htmlSignature) {
             return;
         }
+        // Transitional documents rendered by the pre-handshake script
+        // advertise tail-patch support on the receipt itself; accept it as
+        // an upgrade path, but never clear the dedicated handshake's
+        // verdict (the current script omits the field).
+        if (message.capabilities?.includes('tail-patch')) {
+            this.webviewTailPatchCapable = true;
+        }
         // The Webview is the authority on which frames it still holds:
         // replace the table with its latest report so evicted frames and
         // document rebuilds stop being offered restores immediately.

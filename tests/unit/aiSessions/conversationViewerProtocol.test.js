@@ -96,6 +96,21 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
             token: 'c17',
         }],
     }, {
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: 3,
+        requestId: 7,
+        htmlSignature: 'c42',
+        capabilities: ['tail-patch'],
+    }, {
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: 3,
+        requestId: 7,
+        htmlSignature: 'c42',
+        frames: [],
+        capabilities: ['tail-patch'],
+    }, {
         type: 'conversation-viewer-capabilities',
         version: 1,
         documentId: '1',
@@ -286,9 +301,16 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             version: 1,
             interactionId: 'input\u0000private',
         },
-        // Applied receipts reject unknown envelopes — including the
-        // retired capabilities field, whose exact-key rejection by older
-        // Hosts wedged every acknowledgement.
+        // Applied receipts reject unknown envelopes and malformed
+        // capability advertisements.
+        {
+            type: 'conversation-viewer-applied',
+            version: 1,
+            subscriptionGeneration: 3,
+            requestId: 7,
+            htmlSignature: 'c42',
+            capabilities: 'tail-patch',
+        },
         {
             type: 'conversation-viewer-applied',
             version: 1,
@@ -297,6 +319,7 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 rejects malformed, inherited, and over
             htmlSignature: 'c42',
             frames: [],
             capabilities: ['tail-patch'],
+            extra: true,
         },
         // Capability advertisements reject malformed envelopes.
         {

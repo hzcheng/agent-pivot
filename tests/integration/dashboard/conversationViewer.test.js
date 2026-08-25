@@ -1294,6 +1294,78 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps full-HTML refreshes for a
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 arms tail patches from a transitional receipt without the dedicated handshake', async () => {
+    const sessionId = 'streaming-tail-transitional';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: `r${revision}`,
+            anchorInteractionId: 'input-3',
+            messages: [
+                ...interactionIds.map(id => ({
+                    id: `${id}:user`,
+                    interactionId: id,
+                    role: 'user',
+                    markdown: `question-${id}`,
+                })),
+                {
+                    id: 'input-3:assistant',
+                    interactionId: 'input-3',
+                    role: 'assistant',
+                    markdown: tailText,
+                },
+            ],
+            interactionStates: interactionIds.map(id => ({
+                interactionId: id,
+                responseState: 'complete',
+            })),
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    // A document rendered by the pre-handshake script acknowledges with
+    // the capability on the receipt and never posts the dedicated message.
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+        capabilities: ['tail-patch'],
+    });
+
+    tailText = 'answer part grows';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const patch = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(patch.tailInteractionId, 'input-3',
+        'the transitional receipt arms the patch wire');
+    assert.equal(patch.html, undefined);
+    assert.match(patch.tailHtml, /answer part grows/);
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-locks tail patches behind a document replacement until the fresh script re-posts its capabilities', async () => {
     const sessionId = 'streaming-tail-rebuild';
     const interactionIds = ['input-1', 'input-2', 'input-3'];

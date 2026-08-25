@@ -197,7 +197,7 @@ export default class ProjectService extends BaseService {
         var groups = this.getGroups();
         for (let group of groups) {
             let project = group.projects.find(p => p.id === projectId);
-            if (project != null) {
+            if (project !== null && project !== undefined) {
                 project.lastOpenedAt = openedAt;
                 await this.saveGroups(groups);
                 return;

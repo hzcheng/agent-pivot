@@ -72,11 +72,13 @@
     "status": "automated",
     "owners": [
       "tests/unit/projects/projectTags.test.js",
-      "tests/contract/projects/controllers.test.js"
+      "tests/contract/projects/controllers.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
     ],
     "evidence": [
       "src/projects/projectTags.ts",
-      "src/projects/projectPromptController.ts"
+      "src/projects/projectPromptController.ts",
+      "src/webview/dashboardViewModel.ts"
     ]
   },
   {
@@ -100,7 +102,8 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/contract/projects/projectMessageHandlers.test.js"
+      "tests/contract/projects/projectMessageHandlers.test.js",
+      "tests/unit/services/projectService.test.js"
     ],
     "evidence": [
       "src/services/projectService.ts",

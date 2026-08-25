@@ -409,7 +409,7 @@ const webviewModules = loadWebviewModules();
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [
-            { id: 'saved', name: 'Dashboard', path: '/work/dashboard', favorite: true },
+            { id: 'saved', name: 'Dashboard', path: '/work/dashboard', favorite: true, tags: ['Frontend'] },
             { id: 'duplicate', name: 'Dashboard copy', path: '/work/dashboard/' },
             { id: 'other', name: 'Other', path: '/work/other' },
         ],
@@ -451,6 +451,8 @@ test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes
     }]);
     assert.deepEqual(catalog.savedProjects.map(item => item.projectId), ['saved', 'other']);
     assert.deepEqual(catalog.savedProjects[0].groupLabels, ['FAVORITES', 'TOOLS']);
+    assert.match(catalog.savedProjects[0].searchText, /frontend/i,
+        'PROJECT-TAGS-001 project tags must be searchable from the dashboard-wide search catalog');
 });
 
 test('WEBVIEW-WEBVIEW-OPTIONS-001 enables scripts and limits local resources to media', () => {

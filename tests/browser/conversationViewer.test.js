@@ -5987,6 +5987,12 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '            );\n'
                 + '        }\n',
             ''
+        )
+        .replace(
+            "        if (messages.querySelector('.conversation-deferred-messages')) {\n"
+                + "            statusMessages.push('Loading earlier messages.');\n"
+                + '        }\n',
+            ''
         );
     const previousOutlineScript = conversationOutlineScript
         .replace(

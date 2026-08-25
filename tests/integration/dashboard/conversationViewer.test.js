@@ -189,6 +189,254 @@ function lastContentPublication(panel) {
     return publication;
 }
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 publishes recent messages before completing a long latest page', async () => {
+    const sessionId = 'progressive-page';
+    const interactionIds = Array.from(
+        { length: 30 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+
+    const recent = decodeInitialPublication(panel.webview.html);
+    assert.match(recent.html, /Loading earlier messages/);
+    assert.match(recent.html, /message-29/);
+    assert.doesNotMatch(recent.html, /message-0/);
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recent.subscriptionGeneration,
+        requestId: recent.requestId,
+        htmlSignature: recent.htmlSignature,
+    });
+
+    const complete = lastContentPublication(panel);
+    assert.equal(complete.updateKind, 'refresh');
+    assert.doesNotMatch(complete.html, /Loading earlier messages/);
+    assert.match(complete.html, /message-0/);
+    assert.match(complete.html, /message-29/);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes a recovered recent-message page', async () => {
+    const sessionId = 'progressive-recovery';
+    const interactionIds = Array.from(
+        { length: 30 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: partial.subscriptionGeneration,
+        requestId: partial.requestId,
+        htmlSignature: partial.htmlSignature,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId,
+    });
+    const recovered = decodeInitialPublication(panel.webview.html);
+    assert.notEqual(recovered.requestId, partial.requestId);
+    assert.match(recovered.html, /Loading earlier messages/);
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recovered.subscriptionGeneration,
+        requestId: recovered.requestId,
+        htmlSignature: recovered.htmlSignature,
+    });
+    const complete = lastContentPublication(panel);
+    assert.doesNotMatch(complete.html, /Loading earlier messages/);
+    assert.match(complete.html, /message-0/);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a dropped complete progressive page', async () => {
+    const sessionId = 'progressive-completion-timeout';
+    const interactionIds = Array.from(
+        { length: 30 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const timers = new Map();
+    let nextTimer = 1;
+    const { viewer, panel } = createViewer({
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, { callback, delayMs });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: partial.subscriptionGeneration,
+        requestId: partial.requestId,
+        htmlSignature: partial.htmlSignature,
+    });
+    const timer = Array.from(timers.values()).find(candidate =>
+        candidate.delayMs === 4_000
+    );
+    assert.ok(timer, 'the complete progressive page must be acknowledged');
+
+    timer.callback();
+    const recovered = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(recovered.html, /Loading earlier messages/);
+    assert.match(recovered.html, /message-0/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost first progressive acknowledgement', async () => {
+    const sessionId = 'progressive-first-ack-timeout';
+    const interactionIds = Array.from(
+        { length: 30 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const timers = new Map();
+    let nextTimer = 1;
+    const { viewer, panel } = createViewer({
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, { callback, delayMs });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    const timer = Array.from(timers.values()).find(candidate =>
+        candidate.delayMs === 4_000
+    );
+    assert.ok(timer, 'the initial progressive page must be acknowledged');
+
+    timer.callback();
+    const recovered = decodeInitialPublication(panel.webview.html);
+    assert.notEqual(recovered.requestId, partial.requestId);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: recovered.subscriptionGeneration,
+        requestId: recovered.requestId,
+        htmlSignature: recovered.htmlSignature,
+    });
+    assert.match(lastContentPublication(panel).html, /message-0/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 transfers the incomplete-content watchdog across authority suspension', async () => {
+    const sessionId = 'progressive-authority-rollover';
+    const interactionIds = Array.from(
+        { length: 30 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const timers = new Map();
+    let nextTimer = 1;
+    const { viewer, panel } = createViewer({
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, { callback, delayMs });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    await viewer.reconcileAuthority(() => false);
+    const staleFull = lastContentPublication(panel);
+    assert.doesNotMatch(staleFull.html, /Loading earlier messages/);
+    const timer = Array.from(timers.values()).find(candidate =>
+        candidate.delayMs === 4_000
+    );
+    assert.ok(timer, 'the authority-rollover full page must be acknowledged');
+
+    timer.callback();
+    const recovered = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(recovered.html, /Loading earlier messages/);
+    assert.match(recovered.html, /message-0/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps an interaction group intact at the progressive boundary', async () => {
+    const sessionId = 'progressive-group-boundary';
+    const interactionIds = Array.from(
+        { length: 30 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => {
+            const result = page(sessionId, interactionIds[0], 'message', {
+                interactionIds,
+                anchorInteractionId: interactionIds.at(-1),
+            });
+            result.messages.splice(19, 0,
+                {
+                    id: 'input-19:progress',
+                    interactionId: 'input-19',
+                    role: 'progress',
+                    markdown: 'group-progress',
+                },
+                {
+                    id: 'input-19:assistant',
+                    interactionId: 'input-19',
+                    role: 'assistant',
+                    markdown: 'group-answer',
+                }
+            );
+            return result;
+        },
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const recent = decodeInitialPublication(panel.webview.html);
+    assert.match(recent.html, /message-18/);
+    assert.match(recent.html, /group-progress/);
+    assert.match(recent.html, /group-answer/);
+    assert.doesNotMatch(recent.html, /message-17/);
+    viewer.dispose();
+});
+
 function decodeInitialBookmarks(html) {
     const match = html.match(/data-initial-bookmarks="([^"]+)"/);
     assert.ok(match, 'Host document must contain bookmark state');

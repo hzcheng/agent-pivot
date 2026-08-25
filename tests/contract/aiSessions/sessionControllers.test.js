@@ -342,7 +342,7 @@ test('AI-SESSION-QUICK-CREATE-001 quick-create skips every picker, starts the gi
     assert.deepEqual(fixture.effects, [['refresh']]);
 });
 
-test('SESSION-HANDOFF-001 handoff starts a fresh session with a transcript-linked prompt and the source worktree', async () => {
+test('SESSION-HANDOFF-001 SESSION-HANDOFF-002 handoff starts a fresh session with a transcript-linked prompt and the source worktree', async () => {
     const key = {
         repositoryKey: '/work/.git',
         canonicalWorktreePath: '/worktrees/feature-auth',
@@ -382,10 +382,11 @@ test('SESSION-HANDOFF-001 handoff starts a fresh session with a transcript-linke
     assert.match(receivedPrompts[0], /previous Codex chat \("Auth fix"\) \(session s1\)/);
     assert.match(receivedPrompts[0], /\/transcripts\/codex\/s1\.jsonl/);
     assert.match(receivedPrompts[0], /worked in: \/worktrees\/feature-auth/);
-    assert.equal(fixture.requests[0].title, '', 'handoff leaves the title to the new session id');
+    assert.equal(fixture.requests[0].title, 'Auth fix (2)',
+        'the relay chat is named after its source so the lineage stays visible');
 });
 
-test('SESSION-HANDOFF-001 handoff falls back to provider storage guidance without a transcript path', async () => {
+test('SESSION-HANDOFF-001 SESSION-HANDOFF-002 handoff falls back to provider storage guidance without a transcript path', async () => {
     const receivedPrompts = [];
     const fixture = makeQuickCreateController({
         getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([
@@ -410,6 +411,8 @@ test('SESSION-HANDOFF-001 handoff falls back to provider storage guidance withou
     assert.equal(receivedPrompts.length, 1);
     assert.match(receivedPrompts[0], /previous Codex chat \(session s2\)/);
     assert.match(receivedPrompts[0], /provider's session storage/);
+    assert.equal(fixture.requests[0].title, 'Handoff from Codex · s2',
+        'an unnamed source falls back to a provider + short-id label');
 });
 
 test('SESSION-HANDOFF-001 handoff warns and creates nothing when the source chat is gone', async () => {

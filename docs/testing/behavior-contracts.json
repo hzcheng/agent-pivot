@@ -485,6 +485,21 @@
     ]
   },
   {
+    "id": "SESSION-HANDOFF-002",
+    "domain": "session",
+    "title": "A handoff chat is named after its source session with an incrementing generation suffix so the relay lineage stays visible; an unnamed source falls back to a provider and short-id label",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/handoffNaming.test.js",
+      "tests/contract/aiSessions/sessionControllers.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/handoffNaming.ts",
+      "src/aiSessions/creationController.ts"
+    ]
+  },
+  {
     "id": "SESSION-CODEX-PROFILE-CLI-PROBE-001",
     "domain": "session",
     "title": "Codex profile support probing disables the feature with a one-time hint on unsupported CLIs",

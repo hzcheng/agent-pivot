@@ -28,7 +28,12 @@ function loadWebviewModules() {
     }
 }
 
-const { getAiSessionsDiv, getAiSessionCreateDropdown, getAiSessionWorktreeMenu } = loadWebviewModules();
+const {
+    getAiSessionsDiv,
+    getAiSessionContextMenu,
+    getAiSessionCreateDropdown,
+    getAiSessionWorktreeMenu,
+} = loadWebviewModules();
 
 const viewStateScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewAiSessionViewStateScripts.js'),
@@ -141,6 +146,7 @@ async function openQuickCreatePage(t, options = {}) {
                         data-workspace-navigation-identity="navigation-project-b">${secondPanel}</div>
                 </div>
                 <button type="button" id="outside">Outside</button>
+                ${getAiSessionContextMenu()}
                 ${getAiSessionCreateDropdown(firstSurface)}
                 ${getAiSessionWorktreeMenu()}
             </body>
@@ -1221,4 +1227,76 @@ test('AI-SESSION-QUICK-CREATE-001 the dropdown is fully keyboard operable', asyn
         provider: 'kimi',
         currentWorktreeAnchor: true,
     }], 'Escape posts nothing');
+});
+
+test('SESSION-HANDOFF-001 the row Hand off action opens the preset dropdown and posts the handoff message', async t => {
+    const page = await openQuickCreatePage(t);
+    const surface = '[data-open-session-surface][data-id="project-a"]';
+    await page.locator(`${surface} [data-ai-session-tab="all"]`).click();
+    await page.evaluate(() => { window.__postedMessages.length = 0; });
+    const handoff = page.locator(
+        `${surface} .codex-session-row[data-session-id="project-a-codex"] [data-action="handoff-ai-session"]`
+    );
+    const dropdown = page.locator('#aiSessionCreateDropdown');
+    const items = dropdown.locator('[role="menuitem"]');
+
+    assert.equal(await handoff.getAttribute('aria-haspopup'), 'menu');
+    assert.equal(await handoff.getAttribute('aria-expanded'), 'false');
+
+    await handoff.click();
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), true);
+    assert.equal(await handoff.getAttribute('aria-expanded'), 'true');
+
+    // Codex (base), Kimi, Claude: hand the codex chat off to Claude.
+    await items.nth(2).click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'handoff-ai-session',
+        projectId: 'project-a',
+        provider: 'claude',
+        sourceProvider: 'codex',
+        sourceSessionId: 'project-a-codex',
+    }]);
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), false);
+    assert.equal(await handoff.getAttribute('aria-expanded'), 'false');
+
+    // A later ordinary create from the same shared dropdown carries no
+    // handoff context (project-b stays on the CHATS tab, so its arrow is
+    // visible while project-a shows ALL).
+    await page.locator('.project[data-id="project-b"] [data-action="open-ai-session-preset-menu"]').click();
+    await items.nth(1).click();
+    assert.deepEqual((await postedMessages(page)).slice(1), [{
+        type: 'create-ai-session-quick',
+        projectId: 'project-b',
+        provider: 'kimi',
+        currentWorktreeAnchor: true,
+    }], 'handoff context does not leak into the next quick-create');
+});
+
+test('SESSION-HANDOFF-001 the overflow menu Hand off item reuses the row trigger and preset dropdown', async t => {
+    const page = await openQuickCreatePage(t);
+    const surface = '[data-open-session-surface][data-id="project-a"]';
+    await page.locator(`${surface} [data-ai-session-tab="all"]`).click();
+    await page.evaluate(() => { window.__postedMessages.length = 0; });
+    const row = page.locator(`${surface} .codex-session-row[data-session-id="project-a-codex"]`);
+    const dropdown = page.locator('#aiSessionCreateDropdown');
+    const items = dropdown.locator('[role="menuitem"]');
+
+    await row.locator('[data-action="open-ai-session-context-menu"]').click();
+    const contextMenu = page.locator('#aiSessionContextMenu');
+    assert.equal(await contextMenu.evaluate(element => element.classList.contains('visible')), true);
+
+    await contextMenu.locator('[data-action="handoff"]').click();
+    assert.equal(await contextMenu.evaluate(element => element.classList.contains('visible')), false,
+        'the context menu closes before the preset dropdown opens');
+    assert.equal(await dropdown.evaluate(element => element.classList.contains('visible')), true);
+
+    await items.nth(0).click();
+    assert.deepEqual(await postedMessages(page), [{
+        type: 'handoff-ai-session',
+        projectId: 'project-a',
+        provider: 'codex',
+        sourceProvider: 'codex',
+        sourceSessionId: 'project-a-codex',
+        codexProfileBase: true,
+    }]);
 });

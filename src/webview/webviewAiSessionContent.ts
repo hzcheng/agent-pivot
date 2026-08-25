@@ -1198,14 +1198,14 @@ function getCodexSessionRow(
     var attentionIndicator = needsAttention
         ? '<span class="ai-session-attention-indicator" data-tooltip="AI session needs attention" aria-label="AI session needs attention"></span>'
         : '';
-    var pinTitle = pinned ? 'Unpin Session' : 'Pin Session';
     var active = session.active === true;
     var backend = runtime?.backend || 'vscode';
     var attached = runtime?.attached ?? (active && backend === 'vscode');
     var conflict = runtime?.conflict === true;
     var runtimeAttributes = ` data-session-backend="${backend}" data-session-attached="${attached ? 'true' : 'false'}"${runtime?.tmuxLayout ? ` data-tmux-layout="${runtime.tmuxLayout}"` : ''}${runtime?.conflict ? ' data-session-conflict' : ''}${runtime?.stale ? ' data-session-stale' : ''}`;
     var batchCheckbox = `<input type="checkbox" class="ai-session-batch-checkbox" aria-label="Select ${sessionName}"${active ? ' disabled' : ''}>`;
-    var pinAction = `<button type="button" class="codex-session-pin ${pinned ? 'active' : ''}" data-action="toggle-ai-session-pin" data-tooltip="${pinTitle}" aria-label="${pinTitle}">${Icons.pin}</button>`;
+    var handoffTitle = `Hand off ${providerLabel} chat to a new chat`;
+    var handoffAction = `<button type="button" class="codex-session-handoff" data-action="handoff-ai-session" data-tooltip="Hand off to a new chat" aria-label="${handoffTitle}" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown">${Icons.handoff}</button>`;
     var stopAction = active && !conflict
         ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Close ${providerLabel} chat ${sessionName}" data-tooltip="Close Chat">${Icons.remove}</button>`
         : '';
@@ -1280,7 +1280,7 @@ function getCodexSessionRow(
     <span class="codex-session-actions">
         ${stopAction}
         ${!active ? `<button type="button" class="codex-session-view" data-action="view-ai-session-conversation" data-tooltip="View Conversation" aria-label="View conversation for ${providerLabel} session ${sessionName}">${Icons.viewConversation}</button>` : ''}
-        ${pinAction}
+        ${handoffAction}
         ${contextMenuAction}
     </span>
 </div>`;
@@ -1315,10 +1315,9 @@ function getActiveAiSessionRow(
     var attentionIndicator = model.needsAttention
         ? '<span class="ai-session-attention-indicator" data-tooltip="AI session needs attention" aria-label="AI session needs attention"></span>'
         : '';
-    var pinTitle = model.pinned ? 'Unpin Session' : 'Pin Session';
-    var pinAction = model.pending
+    var handoffAction = model.pending
         ? ''
-        : `<button type="button" class="codex-session-pin ${model.pinned ? 'active' : ''}" data-action="toggle-ai-session-pin" data-tooltip="${pinTitle}" aria-label="${pinTitle}">${Icons.pin}</button>`;
+        : `<button type="button" class="codex-session-handoff" data-action="handoff-ai-session" data-tooltip="Hand off to a new chat" aria-label="Hand off ${providerLabel} session ${sessionName} to a new chat" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown">${Icons.handoff}</button>`;
     var conflict = model.conflict === true;
     const contextMenuAction = model.pending
         ? ''
@@ -1401,7 +1400,7 @@ function getActiveAiSessionRow(
                 <span class="codex-session-title-line"><span class="codex-session-name">${sessionName}</span>${statusMarker}${worktreeChip}${legacyScopeBadge}${profileBadge}${rootChip}</span>
             </span>
         </button>
-        <span class="codex-session-actions">${stopAction}${pinAction}${contextMenuAction}</span>
+        <span class="codex-session-actions">${stopAction}${handoffAction}${contextMenuAction}</span>
     </div>`;
 }
 
@@ -1486,6 +1485,9 @@ export function getAiSessionContextMenu() {
 <div id="aiSessionContextMenu" class="custom-context-menu" role="menu" aria-label="AI Session actions">
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="resume">
         Focus / Resume Chat
+    </div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="handoff">
+        Hand off to New Chat…
     </div>
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="rename">
         Rename Chat

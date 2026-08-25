@@ -535,68 +535,103 @@ function initProjectAiSessionControls(options) {
 
         var dropdownAction = target.closest('[data-action="open-ai-session-preset-menu"]');
         if (dropdownAction) {
-            var dropdownMenu = document.getElementById('aiSessionCreateDropdown');
-            if (dropdownMenu) {
-                // Snapshot before closing: a second click on the arrow that
-                // opened the menu toggles it closed.
-                var wasOpenForProject = dropdownMenu.classList.contains('visible')
-                    && dropdownMenu.__originButton === dropdownAction;
-                // Close other menus first (this also resets every arrow's
-                // aria-expanded via closeContextMenus).
-                var contextMenus = window.__agentPivotContextMenus;
-                if (contextMenus && typeof contextMenus.closeContextMenus === 'function') {
-                    contextMenus.closeContextMenus();
-                }
-                if (wasOpenForProject) {
-                    return true;
-                }
-                // Store the projectId on the menu element for menu item handlers
-                dropdownMenu.setAttribute('data-dropdown-project-id', projectId);
-                var dropdownGroup = dropdownAction.closest('.ai-session-worktree-group');
-                var sessionRegion = dropdownAction.closest('[data-ai-session-region]');
-                refreshAiSessionPresetMenu(dropdownMenu, sessionRegion, dropdownAction);
-                dropdownMenu.__context = {
-                    projectId: projectId,
-                    worktreeKey: dropdownGroup
-                        && !dropdownGroup.hasAttribute('data-worktree-anchor')
-                        && dropdownGroup.getAttribute('data-worktree-repository-key')
-                        && dropdownGroup.getAttribute('data-worktree-path')
-                        ? {
-                            repositoryKey: dropdownGroup.getAttribute('data-worktree-repository-key'),
-                            canonicalWorktreePath: dropdownGroup.getAttribute('data-worktree-path'),
-                        }
-                        : null,
-                    currentWorktreeAnchor: !!(dropdownGroup
-                        && dropdownGroup.hasAttribute('data-worktree-anchor')),
-                };
-                dropdownMenu.__originButton = dropdownAction;
-                dropdownAction.setAttribute('aria-expanded', 'true');
-                // Position and show the dropdown below the button
-                var buttonRect = dropdownAction.getBoundingClientRect();
-                dropdownMenu.style.visibility = 'hidden';
-                dropdownMenu.style.left = '0px';
-                dropdownMenu.style.top = '0px';
-                dropdownMenu.classList.add('visible');
-                var menuRect = dropdownMenu.getBoundingClientRect();
-                var viewportPadding = 4;
-                var left = Math.max(viewportPadding, Math.min(
-                    buttonRect.left,
-                    window.innerWidth - menuRect.width - viewportPadding
-                ));
-                var top = buttonRect.bottom + 2;
-                if (top + menuRect.height > window.innerHeight - viewportPadding) {
-                    top = buttonRect.top - menuRect.height - 2;
-                }
-                dropdownMenu.style.left = left + 'px';
-                dropdownMenu.style.top = top + 'px';
-                dropdownMenu.style.visibility = 'visible';
-                var firstMenuItem = dropdownMenu.querySelector('[role="menuitem"]');
-                if (firstMenuItem) {
-                    firstMenuItem.focus();
-                }
+            openAiSessionPresetDropdown(dropdownAction, projectId, null);
+            return true;
+        }
+
+        var handoffAction = target.closest('[data-action="handoff-ai-session"]');
+        if (handoffAction) {
+            var handoffRow = handoffAction.closest('.codex-session-row[data-session-id]');
+            var handoffSessionId = handoffRow && handoffRow.getAttribute('data-session-id');
+            var handoffProvider = handoffRow && handoffRow.getAttribute('data-session-provider');
+            if (handoffSessionId && isAiSessionProvider(handoffProvider)) {
+                openAiSessionPresetDropdown(handoffAction, projectId, {
+                    provider: handoffProvider,
+                    sessionId: handoffSessionId,
+                });
             }
             return true;
         }
+
+    function openAiSessionPresetDropdown(dropdownAction, projectId, handoff) {
+        var dropdownMenu = document.getElementById('aiSessionCreateDropdown');
+        if (!dropdownMenu)
+            return;
+        // Snapshot before closing: a second click on the trigger that opened
+        // the menu toggles it closed.
+        var wasOpenForTrigger = dropdownMenu.classList.contains('visible')
+            && dropdownMenu.__triggerButton === dropdownAction;
+        // Close other menus first (this also resets every arrow's
+        // aria-expanded via closeContextMenus).
+        var contextMenus = window.__agentPivotContextMenus;
+        if (contextMenus && typeof contextMenus.closeContextMenus === 'function') {
+            contextMenus.closeContextMenus();
+        }
+        if (wasOpenForTrigger) {
+            return;
+        }
+        // Store the projectId on the menu element for menu item handlers
+        dropdownMenu.setAttribute('data-dropdown-project-id', projectId);
+        var dropdownGroup = dropdownAction.closest('.ai-session-worktree-group');
+        var sessionRegion = dropdownAction.closest('[data-ai-session-region]');
+        refreshAiSessionPresetMenu(dropdownMenu, sessionRegion, dropdownAction);
+        dropdownMenu.__context = {
+            projectId: projectId,
+            worktreeKey: dropdownGroup
+                && !dropdownGroup.hasAttribute('data-worktree-anchor')
+                && dropdownGroup.getAttribute('data-worktree-repository-key')
+                && dropdownGroup.getAttribute('data-worktree-path')
+                ? {
+                    repositoryKey: dropdownGroup.getAttribute('data-worktree-repository-key'),
+                    canonicalWorktreePath: dropdownGroup.getAttribute('data-worktree-path'),
+                }
+                : null,
+            currentWorktreeAnchor: !!(dropdownGroup
+                && dropdownGroup.hasAttribute('data-worktree-anchor')),
+            handoff: handoff || null,
+        };
+        dropdownMenu.__triggerButton = dropdownAction;
+        // Position and show the dropdown below the trigger. A narrow layout
+        // hides the row handoff button, so anchor at the row's overflow
+        // button instead of opening the menu at the viewport corner. The
+        // origin button doubles as the Escape focus-restore target, so it
+        // must be the visible anchor rather than a hidden trigger.
+        var anchor = dropdownAction;
+        var anchorRect = anchor.getBoundingClientRect();
+        if (!anchorRect.width && !anchorRect.height) {
+            var overflowAction = dropdownAction.closest('.codex-session-row')
+                ?.querySelector('[data-action="open-ai-session-context-menu"]');
+            if (overflowAction) {
+                anchor = overflowAction;
+                anchorRect = anchor.getBoundingClientRect();
+            }
+        }
+        dropdownMenu.__originButton = anchor;
+        if (dropdownAction.hasAttribute('aria-expanded')) {
+            dropdownAction.setAttribute('aria-expanded', 'true');
+        }
+        dropdownMenu.style.visibility = 'hidden';
+        dropdownMenu.style.left = '0px';
+        dropdownMenu.style.top = '0px';
+        dropdownMenu.classList.add('visible');
+        var menuRect = dropdownMenu.getBoundingClientRect();
+        var viewportPadding = 4;
+        var left = Math.max(viewportPadding, Math.min(
+            anchorRect.left,
+            window.innerWidth - menuRect.width - viewportPadding
+        ));
+        var top = anchorRect.bottom + 2;
+        if (top + menuRect.height > window.innerHeight - viewportPadding) {
+            top = anchorRect.top - menuRect.height - 2;
+        }
+        dropdownMenu.style.left = left + 'px';
+        dropdownMenu.style.top = top + 'px';
+        dropdownMenu.style.visibility = 'visible';
+        var firstMenuItem = dropdownMenu.querySelector('[role="menuitem"]');
+        if (firstMenuItem) {
+            firstMenuItem.focus();
+        }
+    }
 
     function refreshAiSessionPresetMenu(menu, sessionRegion, originButton) {
         var profiles = [];

@@ -293,7 +293,8 @@ export interface AiSessionProviderDefinition {
         scope: AiSessionDirectoryScope,
         title: string,
         markerPath: string,
-        launchOptions: AiSessionLaunchOptions
+        launchOptions: AiSessionLaunchOptions,
+        initialPrompt?: string
     ) => AiSessionLaunchSpec;
     buildResumeCommand: (sessionId: string, scope: AiSessionDirectoryScope, markerPath: string) => string;
     buildNewSessionCommand: (scope: AiSessionDirectoryScope, title: string, markerPath: string) => string;

@@ -18,6 +18,7 @@ export interface DashboardMessageHandlers {
     getAiSessionProviderIds?: () => readonly string[];
     createAiSession?: DashboardAiSessionCreateMessageHandler;
     createAiSessionQuick?: DashboardAiSessionCreateMessageHandler;
+    handoffAiSession?: DashboardAiSessionCreateMessageHandler;
     resumeAiSession?: DashboardAiSessionLaunchMessageHandler;
     archiveAiSession?: DashboardAiSessionMessageHandler;
     saveCurrentWorkspace?: DashboardMessageHandler;
@@ -41,6 +42,11 @@ export function createDashboardMessageRouter(handlers: DashboardMessageHandlers)
 
         if (messageType === 'create-ai-session-quick' && handlers.createAiSessionQuick) {
             await handlers.createAiSessionQuick(message);
+            return;
+        }
+
+        if (messageType === 'handoff-ai-session' && handlers.handoffAiSession) {
+            await handlers.handoffAiSession(message);
             return;
         }
 

@@ -5492,7 +5492,8 @@ function runWebviewContentChecks() {
     assert.ok(styles.includes('width: 17px;'));
     assert.ok(styles.includes('height: 17px;'));
     assert.ok(styles.includes('fill: currentColor;'));
-    assert.ok(styles.includes('.codex-session-pin {'));
+    assert.ok(styles.includes('.codex-session-handoff {'));
+    assert.ok(!styles.includes('.codex-session-pin'));
     assert.ok(styles.includes('stroke: currentColor;'));
     assert.ok(styles.includes('opacity: 1;'));
     assert.ok(!styles.includes('opacity: 0.86;'));
@@ -5502,7 +5503,11 @@ function runWebviewContentChecks() {
     assert.ok(webviewIcons.includes('M19.43 12.98'));
     assert.ok(webviewIcons.includes('stroke-linecap="round"'));
     assert.ok(webviewContent.includes('class="codex-session-actions"'));
-    assert.ok(webviewContent.includes('<button type="button" class="codex-session-pin'));
+    // The row action bar carries Hand off; Pin lives in the overflow menu.
+    assert.ok(webviewContent.includes('<button type="button" class="codex-session-handoff'));
+    assert.ok(webviewContent.includes('data-action="handoff-ai-session"'));
+    assert.ok(webviewContent.includes('data-action="pin"'));
+    assert.ok(webviewIcons.includes('export const handoff = `'));
     assert.ok(webviewContent.includes('<button type="button" class="codex-session-archive"'));
     assert.ok(webviewContent.includes('data-action="manage-ai-sessions"'));
     assert.ok(webviewContent.includes('${Icons.manage}'));

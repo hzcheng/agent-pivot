@@ -279,6 +279,22 @@ function initProjectContextMenus(options) {
                     sessionId: contextMenuAiSessionId,
                 });
                 break;
+            case 'handoff': {
+                // The preset dropdown lives in the AI session controls
+                // script; reuse the row's handoff trigger so the menu opens
+                // with the same anchoring and context.
+                var handoffRow = origin && typeof origin.closest === 'function'
+                    ? origin.closest('.codex-session-row[data-session-id]')
+                    : null;
+                var handoffTrigger = handoffRow
+                    && handoffRow.querySelector('[data-action="handoff-ai-session"]');
+                closeContextMenus();
+                if (handoffTrigger) {
+                    handoffTrigger.click();
+                    return;
+                }
+                break;
+            }
             case 'archive':
                 if (contextMenuAiSessionActive) break;
                 window.vscode.postMessage({
@@ -333,6 +349,8 @@ function initProjectContextMenus(options) {
         );
         // The create-dropdown arrows mirror the shared menu's visibility.
         document.querySelectorAll('[data-action="open-ai-session-preset-menu"][aria-expanded="true"]')
+            .forEach(button => button.setAttribute("aria-expanded", "false"));
+        document.querySelectorAll('[data-action="handoff-ai-session"][aria-expanded="true"]')
             .forEach(button => button.setAttribute("aria-expanded", "false"));
         document.querySelectorAll('[data-action="ai-session-worktree-menu"][aria-expanded="true"]')
             .forEach(button => button.setAttribute("aria-expanded", "false"));

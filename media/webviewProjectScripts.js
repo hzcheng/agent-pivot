@@ -393,6 +393,19 @@ function initProjects() {
         if (context && context.projectId && provider) {
             var profile = menuItem.getAttribute('data-profile');
             var useBaseCodexProfile = menuItem.getAttribute('data-codex-profile-base') === 'true';
+            if (context.handoff && context.handoff.sessionId && context.handoff.provider) {
+                window.vscode.postMessage({
+                    type: "handoff-ai-session",
+                    projectId: context.projectId,
+                    provider: provider,
+                    sourceProvider: context.handoff.provider,
+                    sourceSessionId: context.handoff.sessionId,
+                    ...(profile ? { codexProfile: profile } : {}),
+                    ...(useBaseCodexProfile ? { codexProfileBase: true } : {}),
+                });
+                contextMenus.closeContextMenus();
+                return;
+            }
             window.vscode.postMessage({
                 type: "create-ai-session-quick",
                 projectId: context.projectId,

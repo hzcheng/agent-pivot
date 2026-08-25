@@ -476,6 +476,9 @@ export function createSessionControllerComposition(
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions,
         getProvider: getRegisteredAiSessionProvider,
+        getSessionTranscriptPath: (providerId, sessionId) =>
+            getRegisteredAiSessionProvider(providerId)?.service.resolveSessionFilePath?.(sessionId)
+                || null,
         resolveWorkspaceDirectoryScope: (target, providerId, explicitRootId, worktreeKey) =>
             aiSessionCommandController.resolveWorkspaceDirectoryScope(
                 target.workspace, providerId, undefined, explicitRootId, worktreeKey

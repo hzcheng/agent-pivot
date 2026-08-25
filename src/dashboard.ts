@@ -2523,6 +2523,52 @@ async function initializeDashboard(
                 );
             }
         },
+        handoffAiSession: async e => {
+            if (aiSessionCreationController.isCreatingSession()) {
+                void vscode.window.showInformationMessage(
+                    'A chat is already starting. Try again in a moment.');
+                return;
+            }
+            const providerId = e.provider as AiSessionProviderId;
+            const sourceProvider = e.sourceProvider as AiSessionProviderId;
+            const sourceSessionId = e.sourceSessionId;
+            if (!providerId || !isAiSessionProviderId(providerId)
+                || !sourceProvider || !isAiSessionProviderId(sourceProvider)
+                || typeof e.projectId !== 'string'
+                || (e.projectId as string).length < 1 || (e.projectId as string).length > 1024
+                || typeof sourceSessionId !== 'string'
+                || sourceSessionId.length < 1 || sourceSessionId.length > 512) {
+                return;
+            }
+            // Same profile validation as quick-create: the webview may only
+            // select a profile the host just discovered.
+            const requestedProfile = e.codexProfile;
+            const requestedBaseProfile = e.codexProfileBase;
+            if (requestedProfile !== undefined
+                && (providerId !== 'codex'
+                    || typeof requestedProfile !== 'string'
+                    || !listCodexConfigProfiles(process.env, os.homedir(), logError)
+                        .includes(requestedProfile))) {
+                return;
+            }
+            if (requestedBaseProfile !== undefined
+                && (providerId !== 'codex'
+                    || requestedBaseProfile !== true
+                    || requestedProfile !== undefined)) {
+                return;
+            }
+            await aiSessionCreationController.handoffSession(
+                e.projectId as string,
+                sourceProvider,
+                sourceSessionId,
+                providerId,
+                requestedBaseProfile === true
+                    ? { kind: 'base' }
+                    : typeof requestedProfile === 'string'
+                        ? { kind: 'profile', name: requestedProfile }
+                        : undefined,
+            );
+        },
         resumeAiSession: async (e, providerId, rootId) => {
             await aiSessionResumeController.resumeProjectSession(
                 e.projectId as string,

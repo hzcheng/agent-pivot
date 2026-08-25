@@ -177,6 +177,12 @@ function decodeInitialPublication(html) {
         .replace(/&amp;/g, '&'));
 }
 
+function decodeDocumentId(html) {
+    const match = html.match(/data-document-id="([^"]*)"/);
+    assert.ok(match, 'Host document must carry a document identity');
+    return match[1];
+}
+
 // Delta publications omit the HTML string when the rendered content is
 // identical to what the Webview already applied. Content assertions must
 // therefore target the last publication that actually carried HTML.
@@ -1055,13 +1061,20 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 patches only the trailing inter
     await viewer.open(target(sessionId, 'input-3'));
     const initial = decodeInitialPublication(panel.webview.html);
     assert.match(initial.html, /answer part/);
+    // The running document advertises tail-patch support once, at startup,
+    // through its own message rather than a field on the receipt.
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: decodeDocumentId(panel.webview.html),
+        capabilities: ['tail-patch'],
+    });
     await panel.receive({
         type: 'conversation-viewer-applied',
         version: 1,
         subscriptionGeneration: initial.subscriptionGeneration,
         requestId: initial.requestId,
         htmlSignature: initial.htmlSignature,
-        capabilities: ['tail-patch'],
     });
 
     // The streamed growth changes only the trailing interaction: the wire
@@ -1087,7 +1100,6 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 patches only the trailing inter
         subscriptionGeneration: patch.subscriptionGeneration,
         requestId: patch.requestId,
         htmlSignature: patch.htmlSignature,
-        capabilities: ['tail-patch'],
     });
 
     // After the patched receipt, an unchanged refresh omits HTML entirely.
@@ -1106,7 +1118,6 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 patches only the trailing inter
         subscriptionGeneration: idle.subscriptionGeneration,
         requestId: idle.requestId,
         htmlSignature: idle.htmlSignature,
-        capabilities: ['tail-patch'],
     });
 
     // A new interaction changes the prefix: back to a full refresh.
@@ -1172,12 +1183,17 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 delivers full HTML while the pr
     await viewer.open(target(sessionId, 'input-3'));
     const initial = decodeInitialPublication(panel.webview.html);
     await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: decodeDocumentId(panel.webview.html),
+        capabilities: ['tail-patch'],
+    });
+    await panel.receive({
         type: 'conversation-viewer-applied',
         version: 1,
         subscriptionGeneration: initial.subscriptionGeneration,
         requestId: initial.requestId,
         htmlSignature: initial.htmlSignature,
-        capabilities: ['tail-patch'],
     });
 
     tailText = 'answer part two';
@@ -1253,8 +1269,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps full-HTML refreshes for a
 
     await viewer.open(target(sessionId, 'input-3'));
     const initial = decodeInitialPublication(panel.webview.html);
-    // A document rendered by an older script acknowledges without the
-    // capability list.
+    // A document rendered by an older script never posts the capabilities
+    // message, so every refresh keeps the full document on the wire.
     await panel.receive({
         type: 'conversation-viewer-applied',
         version: 1,
@@ -1275,6 +1291,157 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps full-HTML refreshes for a
         'an incapable document keeps receiving full HTML');
     assert.equal(refresh.tailHtml, undefined);
     assert.match(refresh.html, /answer part grows/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 re-locks tail patches behind a document replacement until the fresh script re-posts its capabilities', async () => {
+    const sessionId = 'streaming-tail-rebuild';
+    const interactionIds = ['input-1', 'input-2', 'input-3'];
+    let revision = 1;
+    let tailText = 'answer part';
+    let watchCallback;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, onChange) => {
+            watchCallback = onChange;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, interactionIds, {
+            sourceRevision: `r${revision}`,
+        }),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: `r${revision}`,
+            anchorInteractionId: 'input-3',
+            messages: [
+                ...interactionIds.map(id => ({
+                    id: `${id}:user`,
+                    interactionId: id,
+                    role: 'user',
+                    markdown: `question-${id}`,
+                })),
+                {
+                    id: 'input-3:assistant',
+                    interactionId: 'input-3',
+                    role: 'assistant',
+                    markdown: tailText,
+                },
+            ],
+            interactionStates: interactionIds.map(id => ({
+                interactionId: id,
+                responseState: 'complete',
+            })),
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, 'input-3'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    const firstDocumentId = decodeDocumentId(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: firstDocumentId,
+        capabilities: ['tail-patch'],
+    });
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    tailText = 'answer part grows';
+    revision = 2;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const patch = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(patch.tailInteractionId, 'input-3');
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: patch.subscriptionGeneration,
+        requestId: patch.requestId,
+        htmlSignature: patch.htmlSignature,
+    });
+
+    // A recovery rebuild replaces the document: the outgoing script's
+    // capability advertisement must not leak into the fresh document.
+    await panel.receive({
+        type: 'conversation-viewer-request-sync',
+        version: 1,
+        subscriptionGeneration: patch.subscriptionGeneration,
+        requestId: patch.requestId,
+        htmlSignature: patch.htmlSignature,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId,
+    });
+    const rebuilt = decodeInitialPublication(panel.webview.html);
+    assert.notEqual(rebuilt.requestId, patch.requestId);
+    const rebuiltDocumentId = decodeDocumentId(panel.webview.html);
+    assert.notEqual(rebuiltDocumentId, firstDocumentId);
+
+    // A capabilities advertisement still queued from the replaced document
+    // must not arm patches for its successor.
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: firstDocumentId,
+        capabilities: ['tail-patch'],
+    });
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: rebuilt.subscriptionGeneration,
+        requestId: rebuilt.requestId,
+        htmlSignature: rebuilt.htmlSignature,
+    });
+
+    tailText = 'answer part grows again';
+    revision = 3;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const fullRefresh = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(typeof fullRefresh.html, 'string',
+        'the fresh document keeps full HTML until it re-posts capabilities');
+    assert.equal(fullRefresh.tailHtml, undefined);
+
+    // The fresh script's startup handshake re-arms tail patches.
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: rebuiltDocumentId,
+        capabilities: ['tail-patch'],
+    });
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: fullRefresh.subscriptionGeneration,
+        requestId: fullRefresh.requestId,
+        htmlSignature: fullRefresh.htmlSignature,
+    });
+    tailText = 'answer part grows once more';
+    revision = 4;
+    watchCallback();
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    const rearmed = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(rearmed.tailInteractionId, 'input-3');
+    assert.equal(rearmed.html, undefined);
+    assert.match(rearmed.tailHtml, /answer part grows once more/);
     viewer.dispose();
 });
 

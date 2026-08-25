@@ -399,14 +399,18 @@ export class ConversationViewer implements ConversationViewerApi {
     // The tail split of latestPublication's render: lets a refresh that
     // only changed the trailing interaction group send just that group.
     private latestTailSplit?: ConversationTailSplit;
-    // The running Webview document advertises tail-patch support in its
-    // applied receipts. Documents rendered by older scripts reject the
-    // extended envelope, so they keep receiving full-HTML refreshes.
-    // Document replacements always render the current scripts, so the flag
-    // intentionally survives rebuilds; a delayed receipt from an outgoing
-    // document either stays correlated (same scripts) or is dropped by the
-    // recovery rebuild's fresh request id.
+    // The running Webview document advertises tail-patch support through a
+    // dedicated capabilities message posted at script startup. Documents
+    // rendered by older scripts never post it, so they keep receiving
+    // full-HTML refreshes. The flag is scoped to the document: it survives
+    // in-place target switches but resets on every document replacement,
+    // whose fresh script re-posts its capabilities before any receipt.
     private webviewTailPatchCapable = false;
+    // Monotonic identity of the document most recently rendered for this
+    // panel; the capabilities handshake echoes it back, so only the running
+    // document's advertisement arms delta deliveries.
+    private currentDocumentId = '0';
+    private documentSerial = 0;
     // Set by createPublication and consumed synchronously by
     // deliverPublication; never valid across an await boundary.
     private lastPublicationTailSplit?: ConversationTailSplit;
@@ -1024,7 +1028,6 @@ export class ConversationViewer implements ConversationViewerApi {
         this.changesController?.reset();
         this.latestPublication = undefined;
         this.latestTailSplit = undefined;
-        this.webviewTailPatchCapable = false;
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
@@ -1143,7 +1146,6 @@ export class ConversationViewer implements ConversationViewerApi {
         this.changesController?.reset();
         this.latestPublication = undefined;
         this.latestTailSplit = undefined;
-        this.webviewTailPatchCapable = false;
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
@@ -1171,6 +1173,19 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-focus') {
             this.publishKeyboardFocus(parsed.focused && this.panel.active);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-capabilities') {
+            // Document-scoped handshake, posted once at script startup:
+            // Hosts predating it ignore the unknown type, while their
+            // exact-key receipt whitelist would have rejected this as a
+            // field on the applied receipt. The echoed document identity
+            // keeps a queued advertisement from an outgoing document from
+            // arming patches for its replacement.
+            if (parsed.documentId === this.currentDocumentId) {
+                this.webviewTailPatchCapable = parsed.capabilities
+                    .includes('tail-patch');
+            }
             return;
         }
         if (!this.target) {
@@ -1549,7 +1564,6 @@ export class ConversationViewer implements ConversationViewerApi {
         this.telemetryController.reset();
         this.latestPublication = undefined;
         this.latestTailSplit = undefined;
-        this.webviewTailPatchCapable = false;
         this.cancelProgressiveBackfill();
         this.pendingRestoredAuxiliaryState = undefined;
         this.commentController.reset();
@@ -2368,7 +2382,6 @@ export class ConversationViewer implements ConversationViewerApi {
         this.emitDiagnostic('publish-failure', { updateKind, replaceDocument });
         this.latestPublication = undefined;
         this.latestTailSplit = undefined;
-        this.webviewTailPatchCapable = false;
         panel.webview.html = this.renderDocument(
             undefined,
             'Conversation history unavailable.'
@@ -2469,10 +2482,6 @@ export class ConversationViewer implements ConversationViewerApi {
             || message.htmlSignature !== publication.htmlSignature) {
             return;
         }
-        // A correlated receipt proves which script version is running:
-        // older documents omit the capability and keep full-HTML delivery.
-        this.webviewTailPatchCapable = (message.capabilities ?? [])
-            .includes('tail-patch');
         // The Webview is the authority on which frames it still holds:
         // replace the table with its latest report so evicted frames and
         // document rebuilds stop being offered restores immediately.
@@ -3395,6 +3404,11 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!panel || !target) {
             return '';
         }
+        // A replacement document re-runs the viewer script, which re-posts
+        // its capabilities correlated to this fresh identity; forget what
+        // the outgoing document advertised.
+        this.currentDocumentId = String(++this.documentSerial);
+        this.webviewTailPatchCapable = false;
         return renderConversationViewerDocument({
             panel,
             target,
@@ -3406,6 +3420,7 @@ export class ConversationViewer implements ConversationViewerApi {
             sessionStatusSnapshot: this.sessionStatusController.snapshot,
             sessionStatusRequestId: this.currentRequestId,
             subscriptionGeneration: this.subscriptionGeneration,
+            documentId: this.currentDocumentId,
             initialPage,
             initialStatus,
         });

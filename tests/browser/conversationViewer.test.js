@@ -339,10 +339,12 @@ async function postedMessages(page) {
     return page.evaluate(() => window.__postedMessages);
 }
 
-// Applied acknowledgements are protocol traffic, not user intents.
+// Applied acknowledgements and the startup capabilities handshake are
+// protocol traffic, not user intents.
 async function postedIntents(page) {
     return (await postedMessages(page)).filter(message =>
         message.type !== 'conversation-viewer-applied'
+        && message.type !== 'conversation-viewer-capabilities'
     );
 }
 
@@ -548,7 +550,6 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         requestId: 1,
         htmlSignature: 'sig-delta-1',
         frames: [],
-        capabilities: ['tail-patch'],
     }, {
         type: 'conversation-viewer-applied',
         version: 1,
@@ -556,7 +557,6 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         requestId: 2,
         htmlSignature: 'sig-delta-1',
         frames: [],
-        capabilities: ['tail-patch'],
     }]);
     assert.equal((await postedMessages(page)).some(message =>
         message.type === 'conversation-viewer-request-sync'
@@ -4418,12 +4418,22 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             'hasHtml || !!frame'
         )
         .replace(
-            '            frames: frames,\n'
-                + '            // Advertise wire features this script applies correctly. The\n'
-                + '            // Host must keep full-HTML deliveries for documents rendered by\n'
-                + '            // older scripts, whose page whitelist rejects tail patches.\n'
-                + "            capabilities: ['tail-patch'],\n",
-            '            frames: frames,\n'
+            '    // Advertise wire features this script applies correctly through a\n'
+                + '    // dedicated message rather than a field on the applied receipt: Hosts\n'
+                + '    // older than this script silently ignore unknown message types, but\n'
+                + '    // their exact-key receipt whitelist rejects unknown fields, which would\n'
+                + '    // wedge every acknowledgement (and with it the history backfill). The\n'
+                + '    // echoed document identity binds the advertisement to this document so\n'
+                + '    // a queued message from a replaced document cannot arm patches for its\n'
+                + '    // successor.\n'
+                + '    post({\n'
+                + "        type: 'conversation-viewer-capabilities',\n"
+                + '        version: 1,\n'
+                + "        capabilities: ['tail-patch'],\n"
+                + "        documentId: document.body.getAttribute('data-document-id') || '',\n"
+                + '    });\n'
+                + '    postFocusState();\n',
+            '    postFocusState();\n'
         )
         .replace(
             '        updatePosition(message);\n'
@@ -17114,6 +17124,17 @@ function tailPatchPage(overrides) {
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies a streaming tail patch in place and keeps the prefix untouched', async t => {
     const page = await openViewerPage(t);
+    // The document opens with its capability handshake on a dedicated
+    // message, keeping the applied receipt's envelope byte-compatible with
+    // Hosts whose exact-key whitelist predates tail patches.
+    assert.deepEqual((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-capabilities'
+    ), [{
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        capabilities: ['tail-patch'],
+        documentId: '',
+    }]);
     await sendPage(page, {
         type: 'conversation-viewer-page',
         version: 1,

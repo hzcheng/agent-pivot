@@ -1698,10 +1698,6 @@
             requestId: message.requestId,
             htmlSignature: message.htmlSignature,
             frames: frames,
-            // Advertise wire features this script applies correctly. The
-            // Host must keep full-HTML deliveries for documents rendered by
-            // older scripts, whose page whitelist rejects tail patches.
-            capabilities: ['tail-patch'],
         });
     }
 
@@ -2667,6 +2663,20 @@
     }
     window.addEventListener('focus', postFocusState);
     window.addEventListener('blur', postFocusState);
+    // Advertise wire features this script applies correctly through a
+    // dedicated message rather than a field on the applied receipt: Hosts
+    // older than this script silently ignore unknown message types, but
+    // their exact-key receipt whitelist rejects unknown fields, which would
+    // wedge every acknowledgement (and with it the history backfill). The
+    // echoed document identity binds the advertisement to this document so
+    // a queued message from a replaced document cannot arm patches for its
+    // successor.
+    post({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        capabilities: ['tail-patch'],
+        documentId: document.body.getAttribute('data-document-id') || '',
+    });
     postFocusState();
     window.addEventListener('unload', releaseMermaidObjectUrls);
 

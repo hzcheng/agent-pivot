@@ -304,9 +304,20 @@ export interface ConversationViewerAppliedMessage {
     requestId: number;
     htmlSignature: string;
     frames?: ConversationViewerAppliedFrame[];
-    /** Wire features the running Webview script applies correctly. Absent
-     * on documents rendered by older scripts. */
-    capabilities?: string[];
+}
+
+/** Wire features the running Webview script applies correctly, posted once
+ * at document startup on its own message type: Hosts predating this
+ * message silently ignore unknown types, while their exact-key receipt
+ * whitelist would reject extra fields on the applied receipt. The echoed
+ * documentId binds the advertisement to the document that actually
+ * rendered it, so a queued message from a replaced document cannot arm
+ * delta deliveries for its successor. */
+export interface ConversationViewerCapabilitiesMessage {
+    type: 'conversation-viewer-capabilities';
+    version: 1;
+    documentId: string;
+    capabilities: string[];
 }
 
 /** Correlated receipt for one history backfill chunk. The signature is the
@@ -364,6 +375,7 @@ export type ConversationViewerMessage =
     | ConversationViewerCycleStatusSessionMessage
     | ConversationViewerRequestSyncMessage
     | ConversationViewerAppliedMessage
+    | ConversationViewerCapabilitiesMessage
     | ConversationViewerHistoryChunkAppliedMessage
     | ConversationViewerFocusMessage
     | ConversationViewerOpenSubagentMessage
@@ -624,11 +636,7 @@ export function parseConversationViewerMessage(
             'htmlSignature',
         ];
         if (!hasExactKeys(value, appliedKeys)
-            && !hasExactKeys(value, [...appliedKeys, 'frames'])
-            && !hasExactKeys(value, [...appliedKeys, 'capabilities'])
-            && !hasExactKeys(value, [
-                ...appliedKeys, 'frames', 'capabilities',
-            ])) {
+            && !hasExactKeys(value, [...appliedKeys, 'frames'])) {
             return undefined;
         }
         if (!isPositiveSafeInteger(value.subscriptionGeneration)
@@ -642,15 +650,22 @@ export function parseConversationViewerMessage(
             && !isAppliedFrameInventory(value.frames)) {
             return undefined;
         }
-        if (value.capabilities !== undefined
-            && (!Array.isArray(value.capabilities)
-                || value.capabilities.length > 16
-                || value.capabilities.some((capability: unknown) =>
-                    typeof capability !== 'string'
-                    || capability.length > 64))) {
+        return value as unknown as ConversationViewerAppliedMessage;
+    }
+    if (value.type === 'conversation-viewer-capabilities') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'documentId', 'capabilities',
+        ])
+            || typeof value.documentId !== 'string'
+            || value.documentId.length > 64
+            || !Array.isArray(value.capabilities)
+            || value.capabilities.length > 16
+            || value.capabilities.some((capability: unknown) =>
+                typeof capability !== 'string'
+                || capability.length > 64)) {
             return undefined;
         }
-        return value as unknown as ConversationViewerAppliedMessage;
+        return value as unknown as ConversationViewerCapabilitiesMessage;
     }
     if (value.type === 'conversation-viewer-history-chunk-applied') {
         if (!hasExactKeys(value, [

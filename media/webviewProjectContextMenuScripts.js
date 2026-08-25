@@ -279,6 +279,22 @@ function initProjectContextMenus(options) {
                     sessionId: contextMenuAiSessionId,
                 });
                 break;
+            case 'handoff': {
+                // The preset dropdown lives in the AI session controls
+                // script; reuse the row's handoff trigger so the menu opens
+                // with the same anchoring and context.
+                var handoffRow = origin && typeof origin.closest === 'function'
+                    ? origin.closest('.codex-session-row[data-session-id]')
+                    : null;
+                var handoffTrigger = handoffRow
+                    && handoffRow.querySelector('[data-action="handoff-ai-session"]');
+                closeContextMenus();
+                if (handoffTrigger) {
+                    handoffTrigger.click();
+                    return;
+                }
+                break;
+            }
             case 'archive':
                 if (contextMenuAiSessionActive) break;
                 window.vscode.postMessage({

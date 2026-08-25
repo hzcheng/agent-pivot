@@ -459,6 +459,31 @@
     ]
   },
   {
+    "id": "SESSION-HANDOFF-001",
+    "domain": "session",
+    "title": "A session row's Hand off action opens the provider/profile preset dropdown and starts a fresh chat in the source session's worktree whose first-turn prompt names the source provider, session, and transcript path so the new chat reads the prior context and continues the task",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/handoffPrompt.test.js",
+      "tests/unit/aiSessions/commandBuilders.test.js",
+      "tests/contract/aiSessions/sessionControllers.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/handoffPrompt.ts",
+      "src/aiSessions/creationController.ts",
+      "src/aiSessions/providers.ts",
+      "src/aiSessions/commandBuilders.ts",
+      "src/aiSessions/sessionControllerComposition.ts",
+      "src/dashboard.ts",
+      "src/dashboard/messageRouter.ts",
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "src/webview/webviewProjectScripts.js",
+      "src/webview/webviewProjectContextMenuScripts.js"
+    ]
+  },
+  {
     "id": "SESSION-CODEX-PROFILE-CLI-PROBE-001",
     "domain": "session",
     "title": "Codex profile support probing disables the feature with a one-time hint on unsupported CLIs",

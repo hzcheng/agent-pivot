@@ -154,6 +154,22 @@ test('SESSION-CONVERSATION-COMMENTS-RESUME-001 passes one prompt through each pr
     );
 });
 
+test('SESSION-HANDOFF-001 a handoff prompt becomes the first-turn argv of each provider new session', () => {
+    const prompt = 'You are taking over an in-progress task from a previous Codex chat.';
+    assert.deepEqual(
+        commands.buildCodexNewSessionLaunchSpec(directoryScope, prompt, markerPath, { yolo: false }).args,
+        ['--cd', cwd, prompt]
+    );
+    assert.deepEqual(
+        commands.buildKimiNewSessionLaunchSpec(directoryScope, prompt, markerPath, { yolo: false }).args,
+        ['--work-dir', cwd, '--prompt', prompt]
+    );
+    assert.deepEqual(
+        commands.buildClaudeNewSessionLaunchSpec(directoryScope, null, markerPath, { yolo: false }, prompt).args,
+        [prompt]
+    );
+});
+
 test('SESSION-CODEX-PROFILE-LAUNCH-001 injects -p into Codex New and Resume argv only', () => {
     const withProfile = { yolo: false, codexProfile: 'deepseek' };
     assert.deepEqual(

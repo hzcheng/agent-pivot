@@ -342,6 +342,89 @@ test('AI-SESSION-QUICK-CREATE-001 quick-create skips every picker, starts the gi
     assert.deepEqual(fixture.effects, [['refresh']]);
 });
 
+test('SESSION-HANDOFF-001 handoff starts a fresh session with a transcript-linked prompt and the source worktree', async () => {
+    const key = {
+        repositoryKey: '/work/.git',
+        canonicalWorktreePath: '/worktrees/feature-auth',
+    };
+    const sourceSession = {
+        id: 's1', name: 'Auth fix', provider: 'codex', cwd: '/worktrees/feature-auth',
+        worktreeKey: key,
+    };
+    const receivedPrompts = [];
+    const selections = [];
+    const fixture = makeQuickCreateController({
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([sourceSession]) : null,
+        getSessionTranscriptPath: (providerId, sessionId) => `/transcripts/${providerId}/${sessionId}.jsonl`,
+        selectCreationScopeTarget: async (_workspace, explicitKey) => {
+            selections.push(explicitKey);
+            return { kind: 'worktree', key: explicitKey };
+        },
+        getProvider: providerId => ({
+            label: providerId,
+            terminalNamePrefix: providerId,
+            buildNewSessionLaunchSpec: (_scope, _title, _markerPath, _launchOptions, initialPrompt) => {
+                receivedPrompts.push(initialPrompt);
+                return { executable: providerId, args: ['--new'] };
+            },
+        }),
+    });
+
+    const created = await fixture.controller.handoffSession('p', 'codex', 's1', 'claude');
+
+    assert.equal(created, true);
+    assert.equal(fixture.requests.length, 1);
+    assert.equal(fixture.requests[0].identity.provider, 'claude',
+        'the new chat runs on the selected target provider');
+    assert.deepEqual(selections, [key],
+        'the source session worktree is reused without prompting');
+    assert.equal(receivedPrompts.length, 1);
+    assert.match(receivedPrompts[0], /previous Codex chat \("Auth fix"\) \(session s1\)/);
+    assert.match(receivedPrompts[0], /\/transcripts\/codex\/s1\.jsonl/);
+    assert.match(receivedPrompts[0], /worked in: \/worktrees\/feature-auth/);
+    assert.equal(fixture.requests[0].title, '', 'handoff leaves the title to the new session id');
+});
+
+test('SESSION-HANDOFF-001 handoff falls back to provider storage guidance without a transcript path', async () => {
+    const receivedPrompts = [];
+    const fixture = makeQuickCreateController({
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([
+            { id: 's2', name: '', provider: 'codex', cwd: '/work' },
+        ]) : null,
+        getSessionTranscriptPath: () => null,
+        getProvider: providerId => ({
+            label: providerId,
+            terminalNamePrefix: providerId,
+            buildNewSessionLaunchSpec: (_scope, _title, _markerPath, _launchOptions, initialPrompt) => {
+                receivedPrompts.push(initialPrompt);
+                return { executable: providerId, args: ['--new'] };
+            },
+        }),
+    });
+
+    const created = await fixture.controller.handoffSession('p', 'codex', 's2', 'kimi');
+
+    assert.equal(created, true);
+    assert.equal(fixture.requests.length, 1);
+    assert.equal(fixture.requests[0].identity.provider, 'kimi');
+    assert.equal(receivedPrompts.length, 1);
+    assert.match(receivedPrompts[0], /previous Codex chat \(session s2\)/);
+    assert.match(receivedPrompts[0], /provider's session storage/);
+});
+
+test('SESSION-HANDOFF-001 handoff warns and creates nothing when the source chat is gone', async () => {
+    const fixture = makeQuickCreateController({
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([]) : null,
+    });
+
+    const created = await fixture.controller.handoffSession('p', 'codex', 'missing', 'codex');
+
+    assert.equal(created, false);
+    assert.equal(fixture.requests.length, 0);
+    assert.ok(fixture.effects.some(effect => effect[0] === 'warning'
+        && /not found/i.test(effect[1])));
+});
+
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a session on a retired path persists its claim before side effects', async () => {
     const order = [];
     const discarded = [];

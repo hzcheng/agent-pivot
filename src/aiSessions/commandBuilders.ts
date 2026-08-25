@@ -111,13 +111,14 @@ export function buildClaudeResumeLaunchSpec(sessionId: string, scope: AiSessionD
     };
 }
 
-export function buildClaudeNewSessionLaunchSpec(scope: AiSessionDirectoryScope, title: string = null, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
+export function buildClaudeNewSessionLaunchSpec(scope: AiSessionDirectoryScope, title: string = null, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS, prompt: string = null): AiSessionLaunchSpec {
     return {
         executable: 'claude',
         args: [
             ...buildClaudeAdditionalDirectoryArgs(scope),
             ...yoloArg(launchOptions, '--dangerously-skip-permissions'),
             ...(title ? ['--name', title] : []),
+            ...(prompt ? [prompt] : []),
         ],
         cwd: scope?.primaryCwd || undefined,
         markerPath,

@@ -4,6 +4,7 @@ import type * as vscode from 'vscode';
 
 import type { AiSessionProviderId } from '../models';
 import { sanitizeAiSessionAlias } from './aliasStore';
+import { buildAiSessionHandoffPrompt } from './handoffPrompt';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
@@ -31,6 +32,11 @@ interface AiSessionCreationTarget {
 export interface NewAiSessionFields {
     title: string;
     codexProfileDecision?: SessionProfileDecision;
+    /**
+     * Optional first-turn prompt handed to the new session's CLI launch
+     * (handoff chats use it to point at the source session transcript).
+     */
+    initialPrompt?: string;
 }
 
 export interface AiSessionCreationProvider {
@@ -40,7 +46,8 @@ export interface AiSessionCreationProvider {
         scope: AiSessionDirectoryScope,
         title: string,
         markerPath: string,
-        launchOptions: AiSessionLaunchOptions
+        launchOptions: AiSessionLaunchOptions,
+        initialPrompt?: string
     ) => AiSessionLaunchSpec;
 }
 
@@ -95,6 +102,15 @@ export interface AiSessionCreationControllerCommonOptions {
     getProviderLabel: (providerId: AiSessionProviderId) => string;
     getLaunchOptions: () => AiSessionLaunchOptions;
     getProvider: (providerId: AiSessionProviderId) => AiSessionCreationProvider;
+    /**
+     * Resolves the on-disk transcript path of an existing session, when the
+     * provider service supports it. Handoff chats reference this path so the
+     * new chat can read what the source session did.
+     */
+    getSessionTranscriptPath?: (
+        providerId: AiSessionProviderId,
+        sessionId: string
+    ) => string | null;
     resolveWorkspaceDirectoryScope: (
         target: WorkspaceAiSessionActionTarget,
         providerId: AiSessionProviderId,
@@ -248,6 +264,7 @@ export class AiSessionCreationController {
         codexProfileDecision?: SessionProfileDecision,
         explicitWorktreeKey?: WorktreeKey,
         mainCheckoutOnly: boolean = false,
+        initialPrompt?: string,
     ): Promise<boolean> {
         if (this.creating) {
             return false;
@@ -280,6 +297,7 @@ export class AiSessionCreationController {
             const fields: NewAiSessionFields = {
                 title: '',
                 codexProfileDecision: effectiveProfile,
+                ...(initialPrompt ? { initialPrompt } : {}),
             };
             // The selected worktree, when any, owns directory resolution.
             // Legacy non-Git workspaces continue to use the active editor or
@@ -295,6 +313,54 @@ export class AiSessionCreationController {
         } finally {
             this.creating = false;
         }
+    }
+
+    /**
+     * Handoff: start a fresh chat that takes over an existing session's task.
+     * The new session inherits the source session's worktree scope and gets a
+     * first-turn prompt naming the source provider/session and (when the
+     * provider exposes it) the on-disk transcript path to read.
+     */
+    async handoffSession(
+        projectId: string,
+        sourceProviderId: AiSessionProviderId,
+        sourceSessionId: string,
+        targetProviderId: AiSessionProviderId,
+        codexProfileDecision?: SessionProfileDecision
+    ): Promise<boolean> {
+        if (this.creating
+            || !this.options.isProviderId(sourceProviderId)
+            || !this.options.isProviderId(targetProviderId)
+            || !sourceSessionId) {
+            return false;
+        }
+        const workspace = this.options.getWorkspaceTarget(projectId);
+        if (!workspace) {
+            return false;
+        }
+        const source = (workspace.sessions.sessionsByProvider[sourceProviderId] || [])
+            .find(candidate => candidate.id === sourceSessionId);
+        if (!source) {
+            await this.options.showWarningMessage(
+                'The chat to hand off was not found. Refresh the dashboard and try again.');
+            return false;
+        }
+        const initialPrompt = buildAiSessionHandoffPrompt({
+            sourceProviderLabel: this.options.getProviderLabel(sourceProviderId),
+            sourceSessionId,
+            sourceSessionName: source.name,
+            sourceCwd: source.cwd || source.workDir,
+            transcriptPath: this.options.getSessionTranscriptPath?.(sourceProviderId, sourceSessionId)
+                || null,
+        });
+        return this.createSessionQuick(
+            projectId,
+            targetProviderId,
+            codexProfileDecision,
+            source.worktreeKey,
+            false,
+            initialPrompt
+        );
     }
 
     /**
@@ -454,7 +520,8 @@ export class AiSessionCreationController {
                     mergeCodexProfileLaunchOptions(
                         options.getLaunchOptions(),
                         fields.codexProfileDecision
-                    )
+                    ),
+                    fields.initialPrompt
                 )),
             directoryScope,
         };

@@ -4486,6 +4486,7 @@ body.steward-sidebar {
 
         .codex-session-icon,
         .codex-session-pin,
+        .codex-session-handoff,
         .codex-session-view,
         .codex-session-archive,
         .codex-session-more,
@@ -4600,6 +4601,7 @@ body.steward-sidebar {
         }
 
         .codex-session-pin,
+        .codex-session-handoff,
         .codex-session-view,
         .codex-session-archive,
         .codex-session-more,
@@ -4612,6 +4614,7 @@ body.steward-sidebar {
         }
 
         .codex-session-pin,
+        .codex-session-handoff,
         .codex-session-view,
         .codex-session-archive,
         .codex-session-more,
@@ -4650,6 +4653,25 @@ body.steward-sidebar {
             &.active {
                 color: var(--vscode-focusBorder);
                 background: var(--vscode-list-inactiveSelectionBackground, transparent);
+            }
+        }
+
+        .codex-session-handoff {
+            width: 16px;
+            height: 16px;
+            border-radius: 999px;
+
+            svg {
+                width: 14px;
+                height: 14px;
+                fill: none;
+                stroke: currentColor;
+            }
+
+            &:hover {
+                color: var(--vscode-focusBorder);
+                background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground));
+                transform: scale(1.08);
             }
         }
 
@@ -6256,9 +6278,10 @@ body.steward-sidebar .open-session-surface .ai-session-attention-indicator {
                 }
 
                 // At the supported 170px minimum, a nested tree row cannot
-                // show Close, Pin, More, and a legible title at once. Keep
-                // the destructive and overflow actions; Pin remains in More.
-                .codex-session-pin,
+                // show Close, Hand off, More, and a legible title at once.
+                // Keep the destructive and overflow actions; Hand off remains
+                // in More.
+                .codex-session-handoff,
                 .ai-session-status-marker,
                 .ai-session-runtime-badge {
                     display: none;

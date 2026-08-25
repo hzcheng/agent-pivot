@@ -1344,6 +1344,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preserves cached frames across 
         window.__betaPreviewNode = document.querySelector(
             '[data-message-id="beta-0"]'
         );
+        window.__betaPreviewControl = document.createElement('button');
+        window.__betaPreviewControl.textContent = 'beta action';
+        window.__betaPreviewNode.appendChild(window.__betaPreviewControl);
     });
     await sendPage(page, sessionPage(4, 'session-gamma', 'gamma', 'sig-gamma'));
     await page.evaluate(() => {
@@ -1368,16 +1371,20 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preserves cached frames across 
             .textContent.trim(),
         sameNode: document.querySelector('[data-message-id="beta-0"]')
             === window.__betaPreviewNode,
-    })), { content: 'beta', sameNode: true });
+    })), { content: 'betabeta action', sameNode: true });
 
     // This authoritative gamma page skips over the final beta preview. The
     // preview must be unwound so beta is not stashed under alpha's identity.
     await sendPage(page, sessionPage(9, 'session-gamma', 'gamma', 'sig-gamma'));
     await sendPage(page, sessionPage(10, 'session-beta', 'beta', 'sig-beta'));
-    assert.equal(await page.evaluate(() =>
-        document.querySelector('[data-message-id="beta-0"]')
-            === window.__betaPreviewNode
-    ), true, 'the interrupted beta preview remains a reusable cached frame');
+    assert.deepEqual(await page.evaluate(() => ({
+        sameNode: document.querySelector('[data-message-id="beta-0"]')
+            === window.__betaPreviewNode,
+        controlEnabled: !window.__betaPreviewControl.disabled,
+    })), {
+        sameNode: true,
+        controlEnabled: true,
+    }, 'the interrupted beta preview remains reusable and interactive');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 correlates resyncs to each page that fails', async t => {
@@ -4517,6 +4524,16 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '    // the Host announces a target switch. The eventual page still validates\n'
                 + '    // its token and remains the only authoritative state transition.\n'
                 + '    var previewFrame;\n',
+            ''
+        )
+        .replace(
+            '        // A new notice can supersede a cached preview. Restore that preview\'s\n'
+                + '        // controls before moving its nodes back into the cache; otherwise the\n'
+                + '        // next call overwrites the tracked entries and leaves that frame inert\n'
+                + '        // when it is later restored.\n'
+                + '        if (conversationLoading) {\n'
+                + '            setLoadingInteractivity(false);\n'
+                + '        }\n',
             ''
         )
         .replace(

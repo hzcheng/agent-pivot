@@ -1196,6 +1196,13 @@
             // Stale or same-session notices never dim the live content.
             return true;
         }
+        // A new notice can supersede a cached preview. Restore that preview's
+        // controls before moving its nodes back into the cache; otherwise the
+        // next call overwrites the tracked entries and leaves that frame inert
+        // when it is later restored.
+        if (conversationLoading) {
+            setLoadingInteractivity(false);
+        }
         conversationLoading = true;
         document.body.setAttribute('data-conversation-loading', 'true');
         messages.setAttribute('aria-busy', 'true');

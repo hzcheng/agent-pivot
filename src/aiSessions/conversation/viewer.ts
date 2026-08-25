@@ -428,6 +428,11 @@ export class ConversationViewer implements ConversationViewerApi {
     // the retained-window backfill settled (the oldest retained page still
     // reported earlier history behind its cursor).
     private earlierPageBackfillInFlight = false;
+    // The oldest interaction of a page-boundary walk that made no progress
+    // (its prepended page was evicted by the retention budget). Blocks
+    // further automatic retries for that boundary so an ack-triggered
+    // restart cannot loop forever. Cleared on every target switch.
+    private earlierBackfillStuckAnchor?: string;
     // A partial page remains incomplete until a different full-content page
     // applies. Auxiliary and subagent publications may supersede either
     // phase, so this is bound to the generation instead of one request id.
@@ -923,7 +928,9 @@ export class ConversationViewer implements ConversationViewerApi {
             || this.earlierPageBackfillInFlight
             || !edge
             || edge.isStart
-            || edge.previousCursor === undefined) {
+            || edge.previousCursor === undefined
+            || edge.interactionStates[0]?.interactionId
+                === this.earlierBackfillStuckAnchor) {
             return;
         }
         const anchor = edge.interactionStates[0]?.interactionId;
@@ -953,6 +960,12 @@ export class ConversationViewer implements ConversationViewerApi {
                     const madeProgress = !!next
                         && next.interactionStates[0]?.interactionId
                             !== oldestBefore;
+                    // A prepend evicted by the retention budget made no
+                    // progress: remember this boundary so ack-triggered
+                    // restarts stop retrying it forever.
+                    this.earlierBackfillStuckAnchor = madeProgress
+                        ? undefined
+                        : oldestBefore;
                     if (madeProgress
                         && !next.isStart
                         && next.previousCursor !== undefined) {
@@ -1141,6 +1154,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
         this.pendingRevalidationInteractionId = undefined;
+        this.earlierBackfillStuckAnchor = undefined;
         this.appliedContentSignature = undefined;
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
@@ -1260,6 +1274,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
         this.pendingRevalidationInteractionId = undefined;
+        this.earlierBackfillStuckAnchor = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1674,6 +1689,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.cancelProgressiveBackfill();
         this.pendingRestoredAuxiliaryState = undefined;
         this.pendingRevalidationInteractionId = undefined;
+        this.earlierBackfillStuckAnchor = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();

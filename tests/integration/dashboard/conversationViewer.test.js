@@ -699,6 +699,73 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundar
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 stops the boundary walk when a prepend makes no progress', async () => {
+    const sessionId = 'progressive-boundary-stuck';
+    const interactions = ['input-1', 'input-2'];
+    let beforeRequests = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactions),
+        readPage: async request => {
+            if (request.direction === 'before') {
+                beforeRequests += 1;
+                // A pathological page that reports no new boundary: the
+                // prepended content leaves the oldest interaction unchanged.
+                return {
+                    ...page(sessionId, 'input-2', 'message', {
+                        interactionIds: ['input-2'],
+                        anchorInteractionId: 'input-2',
+                    }),
+                    previousCursor: 'cursor-stuck',
+                    isStart: false,
+                };
+            }
+            return {
+                ...page(sessionId, 'input-2', 'message', {
+                    interactionIds: ['input-2'],
+                    anchorInteractionId: 'input-2',
+                }),
+                previousCursor: 'cursor-stuck',
+                isStart: false,
+            };
+        },
+    });
+
+    await viewer.open(target(sessionId, 'input-2'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    // The first walk fires, makes no progress, and must not loop: its own
+    // publication receipt must not re-arm the same boundary.
+    for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        if (beforeRequests >= 1) break;
+    }
+    const lastPublication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    if (lastPublication) {
+        await panel.receive({
+            type: 'conversation-viewer-applied',
+            version: 1,
+            subscriptionGeneration: lastPublication.subscriptionGeneration,
+            requestId: lastPublication.requestId,
+            htmlSignature: lastPublication.htmlSignature,
+        });
+    }
+    for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(beforeRequests, 1,
+        'a no-progress walk must not be retried on its own receipt');
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost history chunk with a full refresh', async () => {
     const sessionId = 'progressive-chunk-timeout';
     const interactionIds = Array.from(

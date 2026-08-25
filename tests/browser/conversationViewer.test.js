@@ -6591,6 +6591,12 @@ test('CONVERSATION-COMMENTS-DOM-STABILITY-001 keeps the Conversation DOM intact 
             isEnd: true,
         },
     });
+    // The baseline must follow the deferred presentation pass: it appends
+    // the copy-action icons, and under CI load it can land after goto
+    // returns. The correlated applied receipt proves that pass finished.
+    await page.waitForFunction(() => window.__postedMessages.some(
+        message => message.type === 'conversation-viewer-applied'
+    ));
     const baseline = await page.evaluate(() => {
         const root = document.querySelector('[data-conversation-messages]');
         window.__panelStableConversationRoot = root;

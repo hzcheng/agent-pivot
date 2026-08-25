@@ -5492,7 +5492,8 @@ function runWebviewContentChecks() {
     assert.ok(styles.includes('width: 17px;'));
     assert.ok(styles.includes('height: 17px;'));
     assert.ok(styles.includes('fill: currentColor;'));
-    assert.ok(styles.includes('.codex-session-pin {'));
+    assert.ok(styles.includes('.codex-session-handoff {'));
+    assert.ok(!styles.includes('.codex-session-pin'));
     assert.ok(styles.includes('stroke: currentColor;'));
     assert.ok(styles.includes('opacity: 1;'));
     assert.ok(!styles.includes('opacity: 0.86;'));

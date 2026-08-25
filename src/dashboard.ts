@@ -2534,6 +2534,8 @@ async function initializeDashboard(
             const sourceSessionId = e.sourceSessionId;
             if (!providerId || !isAiSessionProviderId(providerId)
                 || !sourceProvider || !isAiSessionProviderId(sourceProvider)
+                || typeof e.projectId !== 'string'
+                || (e.projectId as string).length < 1 || (e.projectId as string).length > 1024
                 || typeof sourceSessionId !== 'string'
                 || sourceSessionId.length < 1 || sourceSessionId.length > 512) {
                 return;

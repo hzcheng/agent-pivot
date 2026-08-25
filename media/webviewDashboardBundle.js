@@ -2283,6 +2283,8 @@ function initProjectContextMenus(options) {
         // The create-dropdown arrows mirror the shared menu's visibility.
         document.querySelectorAll('[data-action="open-ai-session-preset-menu"][aria-expanded="true"]')
             .forEach(button => button.setAttribute("aria-expanded", "false"));
+        document.querySelectorAll('[data-action="handoff-ai-session"][aria-expanded="true"]')
+            .forEach(button => button.setAttribute("aria-expanded", "false"));
         document.querySelectorAll('[data-action="ai-session-worktree-menu"][aria-expanded="true"]')
             .forEach(button => button.setAttribute("aria-expanded", "false"));
         document.querySelectorAll('[data-action="open-ai-session-context-menu"][aria-expanded="true"]')
@@ -4762,7 +4764,7 @@ function initProjectAiSessionControls(options) {
         // Snapshot before closing: a second click on the trigger that opened
         // the menu toggles it closed.
         var wasOpenForTrigger = dropdownMenu.classList.contains('visible')
-            && dropdownMenu.__originButton === dropdownAction;
+            && dropdownMenu.__triggerButton === dropdownAction;
         // Close other menus first (this also resets every arrow's
         // aria-expanded via closeContextMenus).
         var contextMenus = window.__agentPivotContextMenus;
@@ -4792,13 +4794,12 @@ function initProjectAiSessionControls(options) {
                 && dropdownGroup.hasAttribute('data-worktree-anchor')),
             handoff: handoff || null,
         };
-        dropdownMenu.__originButton = dropdownAction;
-        if (dropdownAction.hasAttribute('aria-expanded')) {
-            dropdownAction.setAttribute('aria-expanded', 'true');
-        }
+        dropdownMenu.__triggerButton = dropdownAction;
         // Position and show the dropdown below the trigger. A narrow layout
         // hides the row handoff button, so anchor at the row's overflow
-        // button instead of opening the menu at the viewport corner.
+        // button instead of opening the menu at the viewport corner. The
+        // origin button doubles as the Escape focus-restore target, so it
+        // must be the visible anchor rather than a hidden trigger.
         var anchor = dropdownAction;
         var anchorRect = anchor.getBoundingClientRect();
         if (!anchorRect.width && !anchorRect.height) {
@@ -4808,6 +4809,10 @@ function initProjectAiSessionControls(options) {
                 anchor = overflowAction;
                 anchorRect = anchor.getBoundingClientRect();
             }
+        }
+        dropdownMenu.__originButton = anchor;
+        if (dropdownAction.hasAttribute('aria-expanded')) {
+            dropdownAction.setAttribute('aria-expanded', 'true');
         }
         dropdownMenu.style.visibility = 'hidden';
         dropdownMenu.style.left = '0px';
@@ -7848,8 +7853,6 @@ function initProjects() {
                     sourceSessionId: context.handoff.sessionId,
                     ...(profile ? { codexProfile: profile } : {}),
                     ...(useBaseCodexProfile ? { codexProfileBase: true } : {}),
-                    ...(context.worktreeKey ? { worktreeKey: context.worktreeKey } : {}),
-                    ...(context.currentWorktreeAnchor ? { currentWorktreeAnchor: true } : {}),
                 });
                 contextMenus.closeContextMenus();
                 return;

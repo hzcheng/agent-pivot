@@ -402,8 +402,6 @@ function initProjects() {
                     sourceSessionId: context.handoff.sessionId,
                     ...(profile ? { codexProfile: profile } : {}),
                     ...(useBaseCodexProfile ? { codexProfileBase: true } : {}),
-                    ...(context.worktreeKey ? { worktreeKey: context.worktreeKey } : {}),
-                    ...(context.currentWorktreeAnchor ? { currentWorktreeAnchor: true } : {}),
                 });
                 contextMenus.closeContextMenus();
                 return;

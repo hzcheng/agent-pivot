@@ -467,7 +467,8 @@
     "owners": [
       "tests/unit/aiSessions/handoffPrompt.test.js",
       "tests/unit/aiSessions/commandBuilders.test.js",
-      "tests/contract/aiSessions/sessionControllers.test.js"
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/browser/quickSessionCreate.test.js"
     ],
     "evidence": [
       "src/aiSessions/handoffPrompt.ts",

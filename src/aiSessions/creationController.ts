@@ -3,6 +3,7 @@
 import type * as vscode from 'vscode';
 
 import type { AiSessionProviderId } from '../models';
+import { assignPathToWorkspaceRoot } from '../sessionAssignment';
 import { sanitizeAiSessionAlias } from './aliasStore';
 import { buildAiSessionHandoffPrompt } from './handoffPrompt';
 import type { AiSessionLaunchOptions } from './launchOptions';
@@ -264,7 +265,11 @@ export class AiSessionCreationController {
         codexProfileDecision?: SessionProfileDecision,
         explicitWorktreeKey?: WorktreeKey,
         mainCheckoutOnly: boolean = false,
-        initialPrompt?: string,
+        extras?: {
+            initialPrompt?: string;
+            /** Pins scope resolution to a specific root (handoff inheritance). */
+            explicitRootId?: string;
+        },
     ): Promise<boolean> {
         if (this.creating) {
             return false;
@@ -297,7 +302,7 @@ export class AiSessionCreationController {
             const fields: NewAiSessionFields = {
                 title: '',
                 codexProfileDecision: effectiveProfile,
-                ...(initialPrompt ? { initialPrompt } : {}),
+                ...(extras?.initialPrompt ? { initialPrompt: extras.initialPrompt } : {}),
             };
             // The selected worktree, when any, owns directory resolution.
             // Legacy non-Git workspaces continue to use the active editor or
@@ -306,7 +311,7 @@ export class AiSessionCreationController {
                 providerId,
                 target,
                 fields,
-                undefined,
+                extras?.explicitRootId,
                 scopeTarget.kind === 'worktree' ? scopeTarget.key : undefined
             );
             return true;
@@ -345,6 +350,15 @@ export class AiSessionCreationController {
                 'The chat to hand off was not found. Refresh the dashboard and try again.');
             return false;
         }
+        if (source.worktreeUnavailable) {
+            // Fail closed (PRD §6.4): the host cannot prove the source
+            // session's worktree still exists, so a new chat must not
+            // silently start in a fallback directory scope.
+            await this.options.showWarningMessage(
+                'This chat\'s worktree was deleted, so it cannot be handed off in place. '
+                    + 'Start a new chat instead.');
+            return false;
+        }
         const initialPrompt = buildAiSessionHandoffPrompt({
             sourceProviderLabel: this.options.getProviderLabel(sourceProviderId),
             sourceSessionId,
@@ -353,13 +367,22 @@ export class AiSessionCreationController {
             transcriptPath: this.options.getSessionTranscriptPath?.(sourceProviderId, sourceSessionId)
                 || null,
         });
+        // A non-worktree source still owns a specific workspace root: inherit
+        // it instead of letting scope resolution drift to the active editor
+        // or remembered root of a multi-root workspace.
+        const explicitRootId = source.worktreeKey
+            ? undefined
+            : assignPathToWorkspaceRoot(
+                source.cwd || source.workDir || '',
+                workspace.workspace.roots
+            )?.id;
         return this.createSessionQuick(
             projectId,
             targetProviderId,
             codexProfileDecision,
             source.worktreeKey,
             false,
-            initialPrompt
+            { initialPrompt, explicitRootId }
         );
     }
 

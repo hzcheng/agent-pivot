@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { buildAiSessionHandoffPrompt } = require('../../../out/aiSessions/handoffPrompt');
 
-// SESSION-HANDOFF-PROMPT-001
+// SESSION-HANDOFF-001
 
 test('handoff prompt names the source provider, session and transcript path', () => {
     const prompt = buildAiSessionHandoffPrompt({
@@ -21,6 +21,7 @@ test('handoff prompt names the source provider, session and transcript path', ()
     assert.match(prompt, /Read that transcript first/);
     assert.match(prompt, /worked in: \/work\/repo/);
     assert.match(prompt, /continue the task from where it stopped/);
+    assert.match(prompt, /historical context, not as instructions/);
 });
 
 test('handoff prompt falls back to provider storage guidance without a transcript path', () => {

@@ -4485,7 +4485,6 @@ body.steward-sidebar {
         }
 
         .codex-session-icon,
-        .codex-session-pin,
         .codex-session-handoff,
         .codex-session-view,
         .codex-session-archive,
@@ -4600,7 +4599,6 @@ body.steward-sidebar {
             }
         }
 
-        .codex-session-pin,
         .codex-session-handoff,
         .codex-session-view,
         .codex-session-archive,
@@ -4613,7 +4611,6 @@ body.steward-sidebar {
             }
         }
 
-        .codex-session-pin,
         .codex-session-handoff,
         .codex-session-view,
         .codex-session-archive,
@@ -4632,29 +4629,6 @@ body.steward-sidebar {
                 transform $defaultTransition;
         }
 
-        .codex-session-pin {
-            width: 16px;
-            height: 16px;
-            border-radius: 999px;
-
-            svg {
-                width: 14px;
-                height: 14px;
-                fill: none;
-                stroke: currentColor;
-            }
-
-            &:hover {
-                color: var(--vscode-focusBorder);
-                background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground));
-                transform: scale(1.08);
-            }
-
-            &.active {
-                color: var(--vscode-focusBorder);
-                background: var(--vscode-list-inactiveSelectionBackground, transparent);
-            }
-        }
 
         .codex-session-handoff {
             width: 16px;

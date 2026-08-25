@@ -1205,7 +1205,7 @@ function getCodexSessionRow(
     var runtimeAttributes = ` data-session-backend="${backend}" data-session-attached="${attached ? 'true' : 'false'}"${runtime?.tmuxLayout ? ` data-tmux-layout="${runtime.tmuxLayout}"` : ''}${runtime?.conflict ? ' data-session-conflict' : ''}${runtime?.stale ? ' data-session-stale' : ''}`;
     var batchCheckbox = `<input type="checkbox" class="ai-session-batch-checkbox" aria-label="Select ${sessionName}"${active ? ' disabled' : ''}>`;
     var handoffTitle = `Hand off ${providerLabel} chat to a new chat`;
-    var handoffAction = `<button type="button" class="codex-session-handoff" data-action="handoff-ai-session" data-tooltip="Hand off to a new chat" aria-label="${handoffTitle}">${Icons.handoff}</button>`;
+    var handoffAction = `<button type="button" class="codex-session-handoff" data-action="handoff-ai-session" data-tooltip="Hand off to a new chat" aria-label="${handoffTitle}" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown">${Icons.handoff}</button>`;
     var stopAction = active && !conflict
         ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Close ${providerLabel} chat ${sessionName}" data-tooltip="Close Chat">${Icons.remove}</button>`
         : '';
@@ -1317,7 +1317,7 @@ function getActiveAiSessionRow(
         : '';
     var handoffAction = model.pending
         ? ''
-        : `<button type="button" class="codex-session-handoff" data-action="handoff-ai-session" data-tooltip="Hand off to a new chat" aria-label="Hand off ${providerLabel} session ${sessionName} to a new chat">${Icons.handoff}</button>`;
+        : `<button type="button" class="codex-session-handoff" data-action="handoff-ai-session" data-tooltip="Hand off to a new chat" aria-label="Hand off ${providerLabel} session ${sessionName} to a new chat" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionCreateDropdown">${Icons.handoff}</button>`;
     var conflict = model.conflict === true;
     const contextMenuAction = model.pending
         ? ''

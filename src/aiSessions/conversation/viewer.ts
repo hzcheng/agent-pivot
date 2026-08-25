@@ -420,6 +420,10 @@ export class ConversationViewer implements ConversationViewerApi {
     // Keeping this state on the publication (rather than an unbound timer)
     // makes a target change or user navigation naturally cancel the follow-up.
     private progressivePublication?: ConversationViewerPageMessage;
+    // A revalidation deferred while a progressive backfill holds the
+    // incomplete-content obligation; run once the full-content receipt
+    // closes it. Cleared on every target switch.
+    private pendingRevalidationInteractionId?: string;
     // A partial page remains incomplete until a different full-content page
     // applies. Auxiliary and subagent publications may supersede either
     // phase, so this is bound to the generation instead of one request id.
@@ -852,11 +856,51 @@ export class ConversationViewer implements ConversationViewerApi {
             || this.outlineController.selection !== expectedInteractionId) {
             return;
         }
+        // A progressive page is still backfilling its deferred history: a
+        // revalidation refresh would supersede the partial page before its
+        // receipt, advance the request counter, and silently cancel the
+        // chunked backfill — degrading every large-session open to a full
+        // re-render. The completion publication converges state and the
+        // session watch covers genuine appends, so defer the freshness
+        // check until the incomplete-content obligation closes.
+        if (this.progressiveContentIncomplete?.generation
+            === this.subscriptionGeneration) {
+            this.pendingRevalidationInteractionId = expectedInteractionId;
+            return;
+        }
         await this.loadAuthoritative(
             'refresh',
             false,
             undefined,
             expectedInteractionId
+        );
+    }
+
+    private runPendingRevalidation(): void {
+        const pending = this.pendingRevalidationInteractionId;
+        if (pending === undefined) {
+            return;
+        }
+        if (this.outlineController.selection !== pending) {
+            // A newer selection superseded the deferred freshness check.
+            this.pendingRevalidationInteractionId = undefined;
+            return;
+        }
+        if (this.progressivePublication
+            || this.progressiveContentIncomplete
+            || this.suspended
+            || !this.target
+            || !this.panel) {
+            // The obligation is still open: keep it pending; a later
+            // full-content receipt closes the obligation and reruns this.
+            return;
+        }
+        this.pendingRevalidationInteractionId = undefined;
+        void this.loadAuthoritative(
+            'refresh',
+            false,
+            undefined,
+            pending
         );
     }
 
@@ -1035,6 +1079,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
+        this.pendingRevalidationInteractionId = undefined;
         this.appliedContentSignature = undefined;
         this.publicationRecoveryRebuildRequestId = 0;
         this.publicationRecoveryAttemptRequestId = 0;
@@ -1153,6 +1198,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
         this.pendingRestoredAuxiliaryState = undefined;
+        this.pendingRevalidationInteractionId = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -1566,6 +1612,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.latestTailSplit = undefined;
         this.cancelProgressiveBackfill();
         this.pendingRestoredAuxiliaryState = undefined;
+        this.pendingRevalidationInteractionId = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
         this.bookmarkController.reset();
@@ -2518,6 +2565,7 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         this.publishRestoredAuxiliaryState();
         this.publishDeferredMessages(publication);
+        this.runPendingRevalidation();
     }
 
     private publishDeferredMessages(

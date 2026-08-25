@@ -526,6 +526,101 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 backfills a long history in ack
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 defers post-load revalidation while the backfill is open', async () => {
+    const sessionId = 'progressive-revalidate';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    let outlineReads = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async () => {
+            outlineReads += 1;
+            return outline(sessionId, interactionIds);
+        },
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /Loading earlier messages/);
+
+    // The dashboard's post-load hygiene revalidation arrives before the
+    // partial page's receipt. It must defer: a refresh here would advance
+    // the request counter, orphan the receipt, and cancel the backfill.
+    await viewer.revalidateLatest(interactionIds.at(-1));
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+                && message.updateKind === 'refresh'
+        ).length,
+        0,
+        'revalidation must not supersede an open backfill'
+    );
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: partial.subscriptionGeneration,
+        requestId: partial.requestId,
+        htmlSignature: partial.htmlSignature,
+    });
+
+    const chunkRanges = [[64, 88], [40, 64], [16, 40], [0, 16]];
+    for (const [index, [start, end]] of chunkRanges.entries()) {
+        const sentChunks = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        );
+        assert.equal(sentChunks.length, index + 1,
+            'the partial receipt must anchor the chunked backfill');
+        const chunk = sentChunks.at(-1);
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: chunk.subscriptionGeneration,
+            requestId: chunk.requestId,
+            htmlSignature: chunk.htmlSignature,
+        });
+        assert.equal(chunk.complete, index === chunkRanges.length - 1);
+    }
+
+    const completion = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(completion, 'the completion publication must exist');
+    const readsBeforeCompletion = outlineReads;
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: completion.subscriptionGeneration,
+        requestId: completion.requestId,
+        htmlSignature: completion.htmlSignature,
+    });
+
+    // The obligation is closed; the deferred freshness check runs exactly
+    // once. Content is unchanged, so it settles as a read without a
+    // publication (its retained-revision short-circuit publishes nothing).
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(outlineReads, readsBeforeCompletion + 1,
+        'the deferred revalidation re-reads exactly once after completion');
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+                && message.requestId > completion.requestId
+        ).length,
+        0,
+        'an unchanged revalidation publishes nothing new'
+    );
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers a lost history chunk with a full refresh', async () => {
     const sessionId = 'progressive-chunk-timeout';
     const interactionIds = Array.from(

@@ -40,6 +40,7 @@ import {
     ConversationCacheDiagnostics,
     ConversationError,
     ConversationFileDiff,
+    ConversationHistoryRestartPoint,
     ConversationInteraction,
     ConversationOutline,
     ConversationPage,
@@ -96,6 +97,7 @@ interface ClaudeConversationIndex extends AiSessionDisposable {
     source: OpenConversationSource;
     nextOffset: number;
     interactions: ConversationInteraction[];
+    restartPoints: ConversationHistoryRestartPoint[];
     appendInteractionIndex?: number;
     telemetryModel?: string;
     telemetryContext?: ConversationContextUsage;
@@ -590,6 +592,15 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         };
     }
 
+    /** Provider-owned candidates for the persistent history indexer. */
+    getHistoryRestartPoints(
+        sessionId: string
+    ): ConversationHistoryRestartPoint[] {
+        return this.cache.get(sessionId)?.restartPoints.map(point => ({
+            ...point,
+        })) || [];
+    }
+
     private load(
         sessionId: string,
         signal?: ConversationAbortSignal
@@ -645,6 +656,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         const isSubagentTranscript = Boolean(split.subagentId);
         const previous = this.cache.get(sessionId);
         let interactions: ConversationInteraction[] = [];
+        let restartPoints: ConversationHistoryRestartPoint[] = [];
         let openInteractionIndex: number | undefined;
         let timeoutOpenInteractionIndex: number | undefined;
         let telemetryModel: string | undefined;
@@ -663,6 +675,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 && startOffset === previous.nextOffset;
             if (continuing) {
                 interactions = cloneInteractions(previous.interactions);
+                restartPoints = previous.restartPoints.slice();
                 openInteractionIndex = previous.appendInteractionIndex;
                 telemetryModel = previous.telemetryModel;
                 telemetryContext = previous.telemetryContext;
@@ -778,6 +791,10 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     )) {
                         return;
                     }
+                    restartPoints.push({
+                        offset: record.offset,
+                        interactionId: event.uuid,
+                    });
                     interactions.push({
                         id: event.uuid,
                         timestamp: timestampValue(event.timestamp),
@@ -937,6 +954,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 previous.source = source;
                 previous.nextOffset = result.nextOffset;
                 previous.interactions = interactions;
+                previous.restartPoints = restartPoints;
                 previous.appendInteractionIndex = appendInteractionIndex;
                 previous.telemetryModel = telemetryModel;
                 previous.telemetryContext = telemetryContext;
@@ -952,6 +970,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     source,
                     nextOffset: result.nextOffset,
                     interactions,
+                    restartPoints,
                     appendInteractionIndex,
                     telemetryModel,
                     telemetryContext,

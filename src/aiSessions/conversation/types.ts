@@ -439,6 +439,16 @@ export interface ConversationCacheDiagnostics {
     partial?: boolean;
 }
 
+/**
+ * A provider-proved record boundary from which its reducer can rebuild the
+ * following interactions without inheriting mutable state from earlier JSONL
+ * records. These stay host-local; offsets are never sent to the Webview.
+ */
+export interface ConversationHistoryRestartPoint {
+    offset: number;
+    interactionId: string;
+}
+
 export interface ConversationAbortSignal {
     readonly aborted: boolean;
     onAbort(listener: () => void): AiSessionDisposable;

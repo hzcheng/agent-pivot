@@ -43,6 +43,7 @@ import {
     ConversationCacheDiagnostics,
     ConversationError,
     ConversationFileDiff,
+    ConversationHistoryRestartPoint,
     ConversationInteraction,
     ConversationOutline,
     ConversationPage,
@@ -129,6 +130,7 @@ interface KimiConversationIndex extends AiSessionDisposable {
     source: OpenConversationSource;
     nextOffset: number;
     interactions: ConversationInteraction[];
+    restartPoints: ConversationHistoryRestartPoint[];
     openInteractionIndex?: number;
     telemetryContext?: ConversationContextUsage;
     telemetryPaths: string[];
@@ -617,6 +619,15 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         };
     }
 
+    /** Provider-owned candidates for the persistent history indexer. */
+    getHistoryRestartPoints(
+        sessionId: string
+    ): ConversationHistoryRestartPoint[] {
+        return this.cache.get(sessionId)?.restartPoints.map(point => ({
+            ...point,
+        })) || [];
+    }
+
     private load(
         sessionId: string,
         signal?: ConversationAbortSignal
@@ -674,6 +685,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         }
         const previous = this.cache.get(sessionId);
         let interactions: ConversationInteraction[] = [];
+        let restartPoints: ConversationHistoryRestartPoint[] = [];
         let openInteractionIndex: number | undefined;
         let telemetryContext: ConversationContextUsage | undefined;
         let telemetryPaths: string[] = effectiveCandidate.cwd
@@ -691,6 +703,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 && startOffset === previous.nextOffset;
             if (continuing) {
                 interactions = cloneInteractions(previous.interactions);
+                restartPoints = previous.restartPoints.slice();
                 openInteractionIndex = previous.openInteractionIndex;
                 telemetryContext = previous.telemetryContext;
                 telemetryPaths = previous.telemetryPaths.slice();
@@ -799,6 +812,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         if (interactions.some(interaction => interaction.id === id)) {
                             return;
                         }
+                        restartPoints.push({ offset: record.offset, interactionId: id });
                         interactions.push({
                             id,
                             timestamp: timestampValue(envelope?.timestamp),
@@ -1222,6 +1236,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.source = source;
                 previous.nextOffset = result.nextOffset;
                 previous.interactions = interactions;
+                previous.restartPoints = restartPoints;
                 previous.openInteractionIndex = openInteractionIndex;
                 previous.telemetryContext = telemetryContext;
                 previous.telemetryPaths = telemetryPaths;
@@ -1238,6 +1253,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     source,
                     nextOffset: result.nextOffset,
                     interactions,
+                    restartPoints,
                     openInteractionIndex,
                     telemetryContext,
                     telemetryPaths,

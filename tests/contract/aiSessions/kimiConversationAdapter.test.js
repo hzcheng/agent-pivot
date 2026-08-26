@@ -59,6 +59,19 @@ async function readWholeConversation(adapter) {
     return { outline, page };
 }
 
+async function restartSuffix(t, sourcePath, offset) {
+    const bytes = await fs.promises.readFile(sourcePath);
+    const suffixPath = path.join(path.dirname(sourcePath), 'restart-suffix.jsonl');
+    // JSONL offsets are byte offsets. Newlines preserve each later record's
+    // original offset while remaining harmless malformed blank records.
+    await fs.promises.writeFile(suffixPath, Buffer.concat([
+        Buffer.alloc(offset, 0x0a),
+        bytes.subarray(offset),
+    ]));
+    t.after(() => fs.promises.rm(suffixPath, { force: true }));
+    return suffixPath;
+}
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 Kimi returns one correlated outline and page snapshot', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);
@@ -137,6 +150,27 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi normalizes only visible t
         ]
     );
     assert.equal(new Set(appended.interactions.map(item => item.id)).size, 4);
+});
+
+test('CONVERSATION-HISTORY-RESTART-POINT-001 Kimi restart points replay their interaction suffix from empty state', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    const full = await adapter.readOutline(sessionId);
+    const points = adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(points.length >= 2);
+    const point = points[1];
+    const start = full.interactions.findIndex(item => item.id === point.interactionId);
+    assert.ok(start >= 0);
+
+    const suffixPath = await restartSuffix(t, source.sourcePath, point.offset);
+    const suffixAdapter = createAdapter({
+        providerHome: source.providerHome,
+        sourcePath: suffixPath,
+    });
+    t.after(() => suffixAdapter.dispose());
+    const suffix = await suffixAdapter.readOutline(sessionId);
+    assert.deepEqual(suffix.interactions, full.interactions.slice(start));
 });
 
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi merges streamed text deltas into one block across incremental loads', async t => {

@@ -116,7 +116,7 @@ test('CONVERSATION-HISTORY-RESTART-POINT-001 Claude restart points replay their 
     const adapter = createAdapter(source);
     t.after(() => adapter.dispose());
     const full = await readWholeConversation(adapter);
-    const restartSnapshot = adapter.getHistoryRestartPoints(sessionId);
+    const restartSnapshot = await adapter.getHistoryRestartPoints(sessionId);
     assert.ok(restartSnapshot);
     const { points } = restartSnapshot;
     assert.ok(points.length >= 2);
@@ -201,7 +201,7 @@ test('CONVERSATION-HISTORY-RESTART-POINT-003 Claude seals an unsettled tool call
 
     await adapter.readOutline(sessionId);
     assert.deepEqual(
-        adapter.getHistoryRestartPoints(sessionId).points.map(point => point.interactionId),
+        (await adapter.getHistoryRestartPoints(sessionId)).points.map(point => point.interactionId),
         ['restart-before-tool', 'restart-after-tool']
     );
 });
@@ -212,14 +212,14 @@ test('CONVERSATION-HISTORY-RESTART-POINT-004 Claude keeps restart points across 
     t.after(() => adapter.dispose());
 
     await adapter.readOutline(sessionId);
-    const before = adapter.getHistoryRestartPoints(sessionId);
+    const before = await adapter.getHistoryRestartPoints(sessionId);
     assert.ok(before?.points.length);
     await fs.promises.appendFile(source.sourcePath, `${JSON.stringify({
         type: 'summary',
         summary: 'host-only status record',
     })}\n`);
     await adapter.readOutline(sessionId);
-    const after = adapter.getHistoryRestartPoints(sessionId);
+    const after = await adapter.getHistoryRestartPoints(sessionId);
     assert.ok(after);
     assert.notEqual(after.sourceIdentity, before.sourceIdentity);
     assert.deepEqual(after.points, before.points);
@@ -755,7 +755,7 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-007 changes revision after a same-s
     assert.equal(rebuilt.interactions[0].userPreview, 'Bravo');
     assert.notEqual(rebuilt.sourceRevision, first.sourceRevision);
     assert.deepEqual(
-        adapter.getHistoryRestartPoints(sessionId).points,
+        (await adapter.getHistoryRestartPoints(sessionId)).points,
         [{
             offset: 0,
             interactionId: 'claude-rewritten-next',

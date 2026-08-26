@@ -43,7 +43,6 @@ import {
     ConversationCacheDiagnostics,
     ConversationError,
     ConversationFileDiff,
-    ConversationHistoryRestartPoint,
     ConversationHistoryRestartSnapshot,
     ConversationInteraction,
     ConversationOutline,
@@ -66,7 +65,12 @@ import {
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
-import { appendConversationHistoryRestartPoint } from './historyRestartPoints';
+import {
+    appendConversationHistoryRestartPoint,
+    CachedConversationHistoryRestartPoint,
+    stampConversationHistoryRestartPoints,
+    verifyConversationHistoryRestartPoints,
+} from './historyRestartPoints';
 import type {
     ConversationWorktreeInfo,
     ResolveWorktree,
@@ -132,7 +136,7 @@ interface KimiConversationIndex extends AiSessionDisposable {
     source: OpenConversationSource;
     nextOffset: number;
     interactions: ConversationInteraction[];
-    restartPoints: ConversationHistoryRestartPoint[];
+    restartPoints: CachedConversationHistoryRestartPoint[];
     openInteractionIndex?: number;
     telemetryContext?: ConversationContextUsage;
     telemetryPaths: string[];
@@ -622,17 +626,48 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
     }
 
     /** Provider-owned candidates for the persistent history indexer. */
-    getHistoryRestartPoints(
+    async getHistoryRestartPoints(
         sessionId: string
-    ): ConversationHistoryRestartSnapshot | undefined {
+    ): Promise<ConversationHistoryRestartSnapshot | undefined> {
         const entry = this.cache.get(sessionId);
-        return entry && {
-            sourceIdentity: entry.source.identity,
-            sourceSize: entry.source.size,
-            sourceRevision: `r${entry.revision}`,
-            reducerVersion: 1,
-            points: entry.restartPoints.map(point => ({ ...point })),
-        };
+        const split = splitSubagentSessionId(sessionId);
+        const candidate = entry && (!split.subagentId || isSubagentId(split.subagentId))
+            ? this.options.resolveSource(split.sessionId)
+            : null;
+        if (!entry || !candidate) {
+            return undefined;
+        }
+        const source = await openValidatedConversationSource(split.subagentId
+            ? {
+                providerHome: candidate.providerHome,
+                sourcePath: path.join(path.dirname(candidate.sourcePath), 'subagents', split.subagentId, 'wire.jsonl'),
+                cwd: candidate.cwd,
+            }
+            : candidate);
+        if (!source) {
+            return undefined;
+        }
+        try {
+            if (source.identity !== entry.source.identity) {
+                return undefined;
+            }
+            const points = await verifyConversationHistoryRestartPoints(
+                source,
+                entry.restartPoints
+            );
+            return {
+                sourceIdentity: source.identity,
+                sourceSize: source.size,
+                sourceRevision: `r${entry.revision}`,
+                reducerVersion: 1,
+                points: points.map(point => ({
+                    offset: point.offset,
+                    interactionId: point.interactionId,
+                })),
+            };
+        } finally {
+            await source.handle.close().catch(() => undefined);
+        }
     }
 
     private load(
@@ -708,20 +743,15 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             const continuing = Boolean(previous)
                 && startOffset === previous.nextOffset;
             // `continuing` verifies the old prefix before reducer state is
-            // reused, so its restart points remain valid across an append.
-            // A replacement or truncation fails that proof and starts a new
-            // discovery epoch.
-            let restartPoints: ConversationHistoryRestartPoint[] = continuing
+            // reused. Recheck each sparse point's complete physical record
+            // before promoting it into the new source snapshot, so a middle
+            // rewrite plus append cannot rebind a stale offset.
+            let restartPoints: CachedConversationHistoryRestartPoint[] = continuing
                 ? previous.restartPoints
                 : [];
-            let ownsRestartPoints = !continuing;
             const addRestartPoint = (
-                point: ConversationHistoryRestartPoint
+                point: CachedConversationHistoryRestartPoint
             ): void => {
-                if (!ownsRestartPoints) {
-                    restartPoints = restartPoints.slice();
-                    ownsRestartPoints = true;
-                }
                 appendConversationHistoryRestartPoint(restartPoints, point);
             };
             if (continuing) {
@@ -845,6 +875,8 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             && approvalTracker.size === 0) {
                             addRestartPoint({
                                 offset: record.offset,
+                                recordEndOffset: record.endOffset,
+                                recordDigest: '',
                                 interactionId: id,
                             });
                         }
@@ -1260,6 +1292,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 };
             }
             const partial = continuing ? previous.partial : result.partial;
+            restartPoints = await stampConversationHistoryRestartPoints(
+                source,
+                restartPoints
+            );
             // Publish the in-progress text run so a streaming answer stays
             // visible between loads; the buffer itself stays open for later
             // deltas.

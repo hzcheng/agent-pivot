@@ -157,7 +157,7 @@ test('CONVERSATION-HISTORY-RESTART-POINT-001 Kimi restart points replay their in
     const adapter = createAdapter(source);
     t.after(() => adapter.dispose());
     const full = await readWholeConversation(adapter);
-    const restartSnapshot = adapter.getHistoryRestartPoints(sessionId);
+    const restartSnapshot = await adapter.getHistoryRestartPoints(sessionId);
     assert.ok(restartSnapshot);
     const { points } = restartSnapshot;
     assert.ok(points.length >= 2);
@@ -254,7 +254,7 @@ test('CONVERSATION-HISTORY-RESTART-POINT-003 Kimi seals an unsettled tool call b
     t.after(() => adapter.dispose());
 
     await adapter.readOutline(sessionId);
-    const points = adapter.getHistoryRestartPoints(sessionId).points;
+    const points = (await adapter.getHistoryRestartPoints(sessionId)).points;
     assert.equal(points.length, 2);
     assert.equal(points[0].offset, 0);
     assert.ok(points[1].offset > points[0].offset);
@@ -266,17 +266,64 @@ test('CONVERSATION-HISTORY-RESTART-POINT-004 Kimi keeps restart points across a 
     t.after(() => adapter.dispose());
 
     await adapter.readOutline(sessionId);
-    const before = adapter.getHistoryRestartPoints(sessionId);
+    const before = await adapter.getHistoryRestartPoints(sessionId);
     assert.ok(before?.points.length);
     await fs.promises.appendFile(source.sourcePath, `${JSON.stringify({
         timestamp: 9999,
         message: { type: 'StatusUpdate', payload: {} },
     })}\n`);
     await adapter.readOutline(sessionId);
-    const after = adapter.getHistoryRestartPoints(sessionId);
+    const after = await adapter.getHistoryRestartPoints(sessionId);
     assert.ok(after);
     assert.notEqual(after.sourceIdentity, before.sourceIdentity);
     assert.deepEqual(after.points, before.points);
+});
+
+test('CONVERSATION-HISTORY-RESTART-POINT-005 Kimi drops a rewritten middle-record point before an append promotion', async t => {
+    const source = await createFixture(t);
+    const filler = index => ({
+        timestamp: 1000 + index,
+        message: {
+            type: 'StatusUpdate',
+            payload: { filler: 'x'.repeat(2048) },
+        },
+    });
+    const records = [
+        {
+            timestamp: 1,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'First restart point' },
+            },
+        },
+        ...Array.from({ length: 40 }, (_value, index) => filler(index)),
+        {
+            timestamp: 2,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Rewrite me' },
+            },
+        },
+        ...Array.from({ length: 40 }, (_value, index) => filler(index + 40)),
+    ];
+    const initial = `${records.map(record => JSON.stringify(record)).join('\n')}\n`;
+    assert.ok(Buffer.byteLength(initial) > 128 * 1024);
+    await fs.promises.writeFile(source.sourcePath, initial);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    await adapter.readOutline(sessionId);
+    const before = await adapter.getHistoryRestartPoints(sessionId);
+    assert.equal(before?.points.length, 2);
+    const rewritten = initial.replace('Rewrite me', 'Changed!!!');
+    assert.equal(Buffer.byteLength(rewritten), Buffer.byteLength(initial));
+    await fs.promises.writeFile(source.sourcePath, rewritten);
+    await fs.promises.appendFile(source.sourcePath, `${JSON.stringify(filler(99))}\n`);
+    await adapter.readOutline(sessionId);
+    const after = await adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(after);
+    assert.notEqual(after.sourceIdentity, before.sourceIdentity);
+    assert.deepEqual(after.points, [before.points[0]]);
 });
 
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi merges streamed text deltas into one block across incremental loads', async t => {

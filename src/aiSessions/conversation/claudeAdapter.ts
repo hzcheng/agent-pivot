@@ -40,7 +40,6 @@ import {
     ConversationCacheDiagnostics,
     ConversationError,
     ConversationFileDiff,
-    ConversationHistoryRestartPoint,
     ConversationHistoryRestartSnapshot,
     ConversationInteraction,
     ConversationOutline,
@@ -57,7 +56,12 @@ import {
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
-import { appendConversationHistoryRestartPoint } from './historyRestartPoints';
+import {
+    appendConversationHistoryRestartPoint,
+    CachedConversationHistoryRestartPoint,
+    stampConversationHistoryRestartPoints,
+    verifyConversationHistoryRestartPoints,
+} from './historyRestartPoints';
 import {
     isSubagentId,
     splitSubagentSessionId,
@@ -99,7 +103,7 @@ interface ClaudeConversationIndex extends AiSessionDisposable {
     source: OpenConversationSource;
     nextOffset: number;
     interactions: ConversationInteraction[];
-    restartPoints: ConversationHistoryRestartPoint[];
+    restartPoints: CachedConversationHistoryRestartPoint[];
     appendInteractionIndex?: number;
     telemetryModel?: string;
     telemetryContext?: ConversationContextUsage;
@@ -595,17 +599,50 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
     }
 
     /** Provider-owned candidates for the persistent history indexer. */
-    getHistoryRestartPoints(
+    async getHistoryRestartPoints(
         sessionId: string
-    ): ConversationHistoryRestartSnapshot | undefined {
+    ): Promise<ConversationHistoryRestartSnapshot | undefined> {
         const entry = this.cache.get(sessionId);
-        return entry && {
-            sourceIdentity: entry.source.identity,
-            sourceSize: entry.source.size,
-            sourceRevision: `r${entry.revision}`,
-            reducerVersion: 1,
-            points: entry.restartPoints.map(point => ({ ...point })),
-        };
+        const split = splitSubagentSessionId(sessionId);
+        const candidate = entry && (!split.subagentId || isSubagentId(split.subagentId))
+            ? this.options.resolveSource(split.sessionId)
+            : null;
+        if (!entry || !candidate) {
+            return undefined;
+        }
+        const source = await openValidatedConversationSource(split.subagentId
+            ? {
+                providerHome: candidate.providerHome,
+                sourcePath: path.join(
+                    subagentsRootFor(candidate.sourcePath),
+                    `agent-${split.subagentId}.jsonl`
+                ),
+            }
+            : candidate);
+        if (!source) {
+            return undefined;
+        }
+        try {
+            if (source.identity !== entry.source.identity) {
+                return undefined;
+            }
+            const points = await verifyConversationHistoryRestartPoints(
+                source,
+                entry.restartPoints
+            );
+            return {
+                sourceIdentity: source.identity,
+                sourceSize: source.size,
+                sourceRevision: `r${entry.revision}`,
+                reducerVersion: 1,
+                points: points.map(point => ({
+                    offset: point.offset,
+                    interactionId: point.interactionId,
+                })),
+            };
+        } finally {
+            await source.handle.close().catch(() => undefined);
+        }
     }
 
     private load(
@@ -679,19 +716,15 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             );
             const continuing = Boolean(previous)
                 && startOffset === previous.nextOffset;
-            // See Kimi's equivalent guard. `continuing` verifies the old
-            // prefix before reducer state and sparse candidates are reused.
-            let restartPoints: ConversationHistoryRestartPoint[] = continuing
+            // See Kimi's equivalent guard. A continuation must also prove
+            // each old physical record before its offset joins this source
+            // snapshot.
+            let restartPoints: CachedConversationHistoryRestartPoint[] = continuing
                 ? previous.restartPoints
                 : [];
-            let ownsRestartPoints = !continuing;
             const addRestartPoint = (
-                point: ConversationHistoryRestartPoint
+                point: CachedConversationHistoryRestartPoint
             ): void => {
-                if (!ownsRestartPoints) {
-                    restartPoints = restartPoints.slice();
-                    ownsRestartPoints = true;
-                }
                 appendConversationHistoryRestartPoint(restartPoints, point);
             };
             if (continuing) {
@@ -827,6 +860,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                             <= CONVERSATION_LIMITS.maxHistoryRestartPointIdLength) {
                         addRestartPoint({
                             offset: record.offset,
+                            recordEndOffset: record.endOffset,
+                            recordDigest: '',
                             interactionId: event.uuid,
                         });
                     }
@@ -973,6 +1008,10 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             const appendInteractionIndex = openInteractionIndex;
             finishInteraction();
             const partial = continuing ? previous.partial : result.partial;
+            restartPoints = await stampConversationHistoryRestartPoints(
+                source,
+                restartPoints
+            );
             const changed = !previous
                 || previous.source.identity !== source.identity
                 || previous.source.portableFirstHash

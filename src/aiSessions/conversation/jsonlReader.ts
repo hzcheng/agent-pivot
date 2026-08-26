@@ -23,6 +23,8 @@ export interface ConversationJsonlReadOptions {
 
 export interface ConversationJsonlRecord {
     offset: number;
+    /** Exclusive byte end of this physical JSONL record. */
+    endOffset: number;
     value: unknown;
 }
 
@@ -147,6 +149,7 @@ export async function readConversationJsonl(
         try {
             record = {
                 offset: lineStart,
+                endOffset: readOffset,
                 value: JSON.parse(Buffer.concat(fragments).toString('utf8')),
             };
         } catch (_error) {
@@ -234,6 +237,7 @@ export async function readConversationJsonl(
             try {
                 record = {
                     offset: lineStart,
+                    endOffset: readOffset,
                     value: JSON.parse(Buffer.concat(fragments).toString('utf8')),
                 };
             } catch (_error) {

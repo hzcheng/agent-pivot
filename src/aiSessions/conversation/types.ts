@@ -532,7 +532,7 @@ export interface ConversationProviderAdapter extends AiSessionDisposable {
     /** Host-local sparse restart candidates bound to one source snapshot. */
     getHistoryRestartPoints?(
         sessionId: string
-    ): ConversationHistoryRestartSnapshot | undefined;
+    ): Promise<ConversationHistoryRestartSnapshot | undefined>;
     readSubagents?(
         sessionId: string,
         signal?: ConversationAbortSignal

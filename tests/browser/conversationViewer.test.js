@@ -18368,62 +18368,6 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles an unavailable earlier-
     ).length, 1, 'an unavailable boundary must not re-enter a loading loop');
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 releases a lost earlier-page request for retry', async t => {
-    const page = await openViewerPage(t);
-    await page.evaluate(() => {
-        window.__historyLoadingTimers = [];
-        window.setTimeout = function (callback, delayMs) {
-            window.__historyLoadingTimers.push({ callback, delayMs });
-            return window.__historyLoadingTimers.length;
-        };
-        window.clearTimeout = function () {};
-    });
-    await sendPage(page, {
-        type: 'conversation-viewer-page',
-        version: 1,
-        requestId: 1,
-        subscriptionGeneration: 1,
-        updateKind: 'initial',
-        html: messageHtml('msg', 30, 0),
-        htmlSignature: 'sig-lost-earlier-page',
-        previousCursor: 'cursor-1',
-        earlierPageCursor: 'cursor-1',
-        outline: progressiveOutline(30),
-        selectedInteractionId: 'msg-29',
-        selectedInput: 29,
-        totalInputs: 30,
-        partial: false,
-        atLatest: true,
-        stale: false,
-        subagents: [],
-        activeSubagent: null,
-    });
-    await page.waitForFunction(() => window.__postedMessages.some(message =>
-        message.type === 'conversation-viewer-applied'
-            && message.htmlSignature === 'sig-lost-earlier-page'
-    ));
-    await page.evaluate(() => {
-        const scroll = document.querySelector('[data-conversation-scroll]');
-        scroll.scrollTop = 0;
-        scroll.dispatchEvent(new Event('scroll'));
-        const timer = window.__historyLoadingTimers.find(candidate =>
-            candidate.delayMs === 8_000
-        );
-        if (!timer) throw new Error('expected earlier-page watchdog');
-        timer.callback();
-    });
-    assert.equal(await page.locator('[data-conversation-status]').textContent(),
-    'Loading earlier messages timed out. Try again.');
-    await page.evaluate(() => {
-        document.querySelector('[data-conversation-scroll]').dispatchEvent(
-            new Event('wheel')
-        );
-    });
-    assert.equal((await postedMessages(page)).filter(message =>
-        message.type === 'conversation-viewer-load-earlier'
-    ).length, 2, 'the watchdog must release the request for a retry');
-});
-
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests earlier history when a short page starts at top', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, {

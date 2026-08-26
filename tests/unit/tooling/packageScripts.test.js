@@ -32,9 +32,13 @@ function assertReleaseResidueContract(paths, vscodeIgnore) {
     }
 }
 
-test('TEST-PACKAGE-SCRIPTS-001 test-compile removes stale outputs before building root and attention bridge TypeScript', () => {
+test('TEST-PACKAGE-SCRIPTS-001 test-compile guards dependency use before rebuilding TypeScript', () => {
     assert.equal(
         packageJson.scripts['test-compile'],
+        'npm run worktree:run -- npm run test-compile:inner'
+    );
+    assert.equal(
+        packageJson.scripts['test-compile:inner'],
         'node scripts/clean-test-build.js && node scripts/build-dashboard-webview-bundle.js'
             + ' && tsc -p ./ && npm run attention:bridge:compile'
     );

@@ -15,7 +15,13 @@ making any change.
    git fetch origin main
    git worktree add -b <branch> .worktrees/<topic> origin/main  # once per job
    ```
-   Run `npm ci` inside the worktree before verifying anything — npm
+   Run `npm run worktree:bootstrap` inside the worktree before verifying
+   anything. It validates direct dependency lock entries and build sentinels;
+   when either is missing or stale it runs the required `npm ci
+   --ignore-scripts --allow-scripts=`, avoiding user-level npm script
+   allowlists, and serializes it with other guarded commands in that worktree.
+   Use `npm run worktree:run -- <command>` for a complete verification command
+   so a concurrent install cannot delete its `node_modules` mid-run. npm
    silently resolves binaries from the primary checkout's `node_modules`
    otherwise. Dirty files in the primary checkout are user changes; do not
    revert them. Details: skill `protecting-main-with-worktrees`.
@@ -49,6 +55,9 @@ both).
 
 ## Common commands
 
+- Bootstrap a worktree's dependencies: `npm run worktree:bootstrap`
+- Run any complete verification under the worktree lock:
+  `npm run worktree:run -- <command>`
 - Compile for tests: `npm run test-compile`
 - Dashboard webview checks: `node scripts/run-dashboard-webview-checks.js`
 - Lint: `npm run lint`

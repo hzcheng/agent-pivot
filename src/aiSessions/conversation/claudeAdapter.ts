@@ -36,10 +36,13 @@ import {
 import { synthesizeFragmentDiff } from './diffs';
 import {
     CONVERSATION_LIMITS,
+    ConversationAbortController,
     ConversationAbortSignal,
     ConversationCacheDiagnostics,
     ConversationError,
     ConversationFileDiff,
+    ConversationHistoryIndexSlice,
+    ConversationHistoryIndexSliceRequest,
     ConversationHistoryRestartSnapshot,
     ConversationInteraction,
     ConversationOutline,
@@ -53,6 +56,12 @@ import {
     ConversationTelemetry,
 } from './types';
 import {
+    ConversationHistoryIndex,
+    ConversationHistoryIndexState,
+} from './historyIndex';
+import {
+    digestConversationSourceRange,
+    digestConversationSourceSegment,
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
@@ -71,6 +80,7 @@ import type {
 } from './worktreeResolver';
 
 type TimerHandle = unknown;
+const HISTORY_INDEX_SETTLE_MS = 250;
 
 export interface ClaudeConversationAdapterOptions {
     resolveSource(
@@ -125,6 +135,16 @@ interface LoadedConversation {
     telemetryContext?: ConversationContextUsage;
     telemetryCwd?: string;
     telemetryGitBranch?: string;
+    historySlice?: {
+        nextOffset?: number;
+        restartInteractionId?: string;
+        restartRecordEndOffset?: number;
+        restartRecordDigest?: string;
+        restartSegmentDigest?: string;
+        completeSegmentDigest?: string;
+        complete: boolean;
+        blocked?: boolean;
+    };
 }
 
 function asRecord(value: unknown): Record<string, any> | undefined {
@@ -358,8 +378,95 @@ function settleClaudeQuestion(
     block.outcome = 'answered';
 }
 
+function historyIndexSourceEpoch(source: OpenConversationSource): string {
+    return source.device !== undefined && source.inode !== undefined
+        && source.birthtimeMs !== undefined
+        ? `inode:${source.canonicalPath}:${source.device}:${source.inode}:${source.birthtimeMs}`
+        : `portable:${source.canonicalPath}`;
+}
+
+async function continuesHistoryIndex(
+    source: OpenConversationSource,
+    previous: ConversationHistoryIndexState,
+    signal?: ConversationAbortSignal
+): Promise<boolean> {
+    if (signal?.aborted || source.size < previous.sourceSize
+        || historyIndexSourceEpoch(source) !== previous.sourceEpoch
+        || source.portableFirstHash !== previous.sourceFirstHash
+        || previous.restartInteractionId === undefined
+        || previous.restartRecordEndOffset === undefined
+        || previous.restartRecordDigest === undefined) {
+        return false;
+    }
+    const edgeBytes = Math.min(64 * 1024, previous.sourceSize);
+    const oldLastHash = await digestConversationSourceRange(
+        source,
+        Math.max(0, previous.sourceSize - edgeBytes),
+        previous.sourceSize,
+        signal
+    );
+    if (oldLastHash !== previous.sourceLastHash) {
+        return false;
+    }
+    if (await digestConversationSourceRange(
+        source,
+        previous.restartOffset,
+        previous.restartRecordEndOffset,
+        signal
+    ) !== previous.restartRecordDigest) {
+        return false;
+    }
+    let expectedOffset = 0;
+    for (const segment of previous.prefixSegments) {
+        if (signal?.aborted || segment.startOffset !== expectedOffset
+            || segment.endOffset <= segment.startOffset
+            || await digestConversationSourceSegment(
+                source,
+                segment.startOffset,
+                segment.endOffset,
+                signal
+            ) !== segment.digest) {
+            return false;
+        }
+        expectedOffset = segment.endOffset;
+    }
+    return expectedOffset === (previous.complete
+        ? previous.sourceSize
+        : previous.restartOffset);
+}
+
+/** See the Kimi adapter for why this is a bounded scheduling suppression. */
+async function keepsSaturatedHistoryIndex(
+    source: OpenConversationSource,
+    previous: ConversationHistoryIndexState,
+    signal?: ConversationAbortSignal
+): Promise<boolean> {
+    if (!previous.saturated || signal?.aborted
+        || source.size < previous.sourceSize
+        || historyIndexSourceEpoch(source) !== previous.sourceEpoch
+        || source.portableFirstHash !== previous.sourceFirstHash) {
+        return false;
+    }
+    const edgeBytes = Math.min(64 * 1024, previous.sourceSize);
+    return await digestConversationSourceRange(
+        source,
+        Math.max(0, previous.sourceSize - edgeBytes),
+        previous.sourceSize,
+        signal
+    ) === previous.sourceLastHash;
+}
+
 export class ClaudeConversationAdapter implements ConversationProviderAdapter {
     private readonly cache: ConversationIndexCache<ClaudeConversationIndex>;
+    private readonly historyIndex = new ConversationHistoryIndex();
+    private readonly historyIndexTasks = new Map<string, {
+        controller: ConversationAbortController;
+        sourceRevision: string;
+    }>();
+    private readonly pendingHistoryIndexes = new Map<string, LoadedConversation>();
+    private readonly historyIndexStartTimers = new Map<string, {
+        timer?: TimerHandle;
+    }>();
     private readonly subscriptions = new Map<string, Set<() => void>>();
     private readonly revisionCounters = new Map<string, number>();
     private readonly loadQueues = new Map<string, Promise<void>>();
@@ -376,7 +483,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         preferredInteractionId?: string,
         signal?: ConversationAbortSignal
     ): Promise<ConversationSnapshot> {
-        const loaded = await this.load(sessionId, signal);
+        const loaded = this.withCompletedHistory(sessionId, await this.load(sessionId, signal));
+        this.startHistoryIndex(sessionId, loaded);
         const outline = buildConversationOutline(
             'claude',
             sessionId,
@@ -406,7 +514,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         sessionId: string,
         signal?: ConversationAbortSignal
     ): Promise<ConversationOutline> {
-        const loaded = await this.load(sessionId, signal);
+        const loaded = this.withCompletedHistory(sessionId, await this.load(sessionId, signal));
+        this.startHistoryIndex(sessionId, loaded);
         return buildConversationOutline(
             'claude',
             sessionId,
@@ -420,7 +529,11 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         request: ConversationPageRequest,
         signal?: ConversationAbortSignal
     ): Promise<ConversationPage> {
-        const loaded = await this.load(request.sessionId, signal);
+        const loaded = this.withCompletedHistory(
+            request.sessionId,
+            await this.load(request.sessionId, signal)
+        );
+        this.startHistoryIndex(request.sessionId, loaded);
         return buildConversationPage(
             loaded.interactions,
             { ...request, provider: 'claude' },
@@ -569,6 +682,15 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             return;
         }
         this.disposed = true;
+        this.historyIndexTasks.forEach(task => task.controller.abort());
+        this.historyIndexTasks.clear();
+        this.pendingHistoryIndexes.clear();
+        this.historyIndexStartTimers.forEach(scheduled => {
+            if (scheduled.timer !== undefined) {
+                this.options.clearTimeout(scheduled.timer);
+            }
+        });
+        this.historyIndexStartTimers.clear();
         if (this.invalidationTimer !== undefined) {
             this.options.clearTimeout(this.invalidationTimer);
             this.invalidationTimer = undefined;
@@ -599,14 +721,16 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
 
     /** Provider-owned candidates for the persistent history indexer. */
     async getHistoryRestartPoints(
-        sessionId: string
+        sessionId: string,
+        indexed = this.historyIndex.state(sessionId),
+        signal?: ConversationAbortSignal
     ): Promise<ConversationHistoryRestartSnapshot | undefined> {
         const entry = this.cache.get(sessionId);
         const split = splitSubagentSessionId(sessionId);
         const candidate = entry && (!split.subagentId || isSubagentId(split.subagentId))
             ? this.options.resolveSource(split.sessionId)
             : null;
-        if (!entry || !candidate) {
+        if (!entry || !candidate || signal?.aborted) {
             return undefined;
         }
         const source = await openValidatedConversationSource(split.subagentId
@@ -625,15 +749,32 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             if (source.identity !== entry.source.identity) {
                 return undefined;
             }
+            if (indexed && await keepsSaturatedHistoryIndex(source, indexed, signal)) {
+                return undefined;
+            }
             const points = await verifyConversationHistoryRestartPoints(
                 source,
-                entry.restartPoints
+                entry.restartPoints,
+                signal
             );
-            return {
+            const continuationOf = indexed
+                && await continuesHistoryIndex(source, indexed, signal)
+                ? {
+                    sourceIdentity: indexed.sourceIdentity,
+                    sourceSize: indexed.sourceSize,
+                    sourceRevision: indexed.sourceRevision,
+                    reducerVersion: indexed.reducerVersion,
+                }
+                : undefined;
+            return signal?.aborted ? undefined : {
                 sourceIdentity: source.identity,
                 sourceSize: source.size,
                 sourceRevision: `r${entry.revision}`,
                 reducerVersion: 1,
+                sourceEpoch: historyIndexSourceEpoch(source),
+                sourceFirstHash: source.portableFirstHash || '',
+                sourceLastHash: source.portableLastHash || '',
+                ...(continuationOf ? { continuationOf } : {}),
                 points: points.map(point => ({
                     offset: point.offset,
                     interactionId: point.interactionId,
@@ -642,6 +783,194 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         } finally {
             await source.handle.close().catch(() => undefined);
         }
+    }
+
+    async readHistoryIndexSlice(
+        sessionId: string,
+        request: ConversationHistoryIndexSliceRequest,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationHistoryIndexSlice | undefined> {
+        try {
+            // This replay owns only staged reducer state. Do not let it sit
+            // in front of authoritative foreground reads in loadQueues.
+            const loaded = await this.loadExclusive(sessionId, signal, request);
+            if (!loaded.historySlice) {
+                return undefined;
+            }
+            return {
+                sourceIdentity: request.sourceIdentity,
+                sourceSize: request.sourceSize,
+                sourceRevision: request.sourceRevision,
+                reducerVersion: request.reducerVersion,
+                startOffset: request.startOffset,
+                ...(loaded.historySlice.nextOffset === undefined ? {} : {
+                    nextOffset: loaded.historySlice.nextOffset,
+                }),
+                ...(loaded.historySlice.restartInteractionId === undefined ? {} : {
+                    restartInteractionId: loaded.historySlice.restartInteractionId,
+                }),
+                ...(loaded.historySlice.restartRecordEndOffset === undefined ? {} : {
+                    restartRecordEndOffset: loaded.historySlice.restartRecordEndOffset,
+                }),
+                ...(loaded.historySlice.restartRecordDigest === undefined ? {} : {
+                    restartRecordDigest: loaded.historySlice.restartRecordDigest,
+                }),
+                ...(loaded.historySlice.restartSegmentDigest === undefined ? {} : {
+                    restartSegmentDigest: loaded.historySlice.restartSegmentDigest,
+                }),
+                ...(loaded.historySlice.completeSegmentDigest === undefined ? {} : {
+                    completeSegmentDigest: loaded.historySlice.completeSegmentDigest,
+                }),
+                interactions: cloneInteractions(loaded.interactions),
+                complete: loaded.historySlice.complete,
+                ...(loaded.historySlice.blocked ? { blocked: true } : {}),
+            };
+        } catch (error) {
+            if (error instanceof ConversationError
+                && error.code === 'staleRevision') {
+                return undefined;
+            }
+            throw error;
+        }
+    }
+
+    private withCompletedHistory(
+        sessionId: string,
+        loaded: LoadedConversation
+    ): LoadedConversation {
+        const interactions = this.historyIndex.completedInteractions(
+            sessionId,
+            loaded.sourceRevision
+        );
+        if (!interactions) {
+            return loaded;
+        }
+        // The completed index is an independent, continuous paging source.
+        // Never join it to the 64 MiB foreground tail: their seam is not a
+        // page boundary and can be either a gap or a duplicate.
+        return {
+            ...loaded,
+            interactions,
+            partial: false,
+        };
+    }
+
+    private startHistoryIndex(
+        sessionId: string,
+        loaded: LoadedConversation,
+        settled = false
+    ): void {
+        if (this.disposed) {
+            return;
+        }
+        const indexed = this.historyIndex.status(sessionId);
+        if (indexed?.saturated && indexed.sourceRevision === loaded.sourceRevision) {
+            return;
+        }
+        const running = this.historyIndexTasks.get(sessionId);
+        if (!loaded.partial) {
+            this.pendingHistoryIndexes.delete(sessionId);
+            const scheduled = this.historyIndexStartTimers.get(sessionId);
+            if (scheduled?.timer !== undefined) {
+                this.options.clearTimeout(scheduled.timer);
+            }
+            this.historyIndexStartTimers.delete(sessionId);
+            running?.controller.abort();
+            return;
+        }
+        if (running) {
+            if (running.sourceRevision !== loaded.sourceRevision) {
+                this.pendingHistoryIndexes.set(sessionId, loaded);
+                running.controller.abort();
+            }
+            return;
+        }
+        if (!settled) {
+            this.scheduleHistoryIndex(sessionId, loaded);
+            return;
+        }
+        // Indexing is explicitly low priority. The most recently viewed
+        // session wins; never let A→B→C create three concurrent 4 MiB scans.
+        this.historyIndexTasks.forEach((task, activeSessionId) => {
+            if (activeSessionId !== sessionId) {
+                task.controller.abort();
+                this.pendingHistoryIndexes.delete(activeSessionId);
+                const scheduled = this.historyIndexStartTimers.get(activeSessionId);
+                if (scheduled?.timer !== undefined) {
+                    this.options.clearTimeout(scheduled.timer);
+                }
+                this.historyIndexStartTimers.delete(activeSessionId);
+            }
+        });
+        const controller = new ConversationAbortController();
+        this.historyIndexTasks.set(sessionId, {
+            controller,
+            sourceRevision: loaded.sourceRevision,
+        });
+        void (async () => {
+            try {
+                const source = await this.getHistoryRestartPoints(
+                    sessionId,
+                    this.historyIndex.state(sessionId),
+                    controller.signal
+                );
+                if (!source || controller.signal.aborted) {
+                    return;
+                }
+                for (;;) {
+                    const state = await this.historyIndex.advance(
+                        sessionId,
+                        source,
+                        request => this.readHistoryIndexSlice(
+                            sessionId,
+                            request,
+                            controller.signal
+                        ),
+                        controller.signal
+                    );
+                    if (!state || controller.signal.aborted || state.complete
+                        || state.saturated || state.blocked) {
+                        if (state?.complete && !controller.signal.aborted) {
+                            Array.from(this.subscriptions.get(sessionId) || [])
+                                .forEach(callback => callback());
+                        }
+                        return;
+                    }
+                    await new Promise<void>(resolve => setImmediate(resolve));
+                }
+            } finally {
+                if (this.historyIndexTasks.get(sessionId)?.controller === controller) {
+                    this.historyIndexTasks.delete(sessionId);
+                    const pending = this.pendingHistoryIndexes.get(sessionId);
+                    this.pendingHistoryIndexes.delete(sessionId);
+                    if (pending) {
+                        this.startHistoryIndex(sessionId, pending);
+                    }
+                }
+            }
+        })().catch(() => undefined);
+    }
+
+    /** Coalesce streaming appends before revalidating a potentially large prefix. */
+    private scheduleHistoryIndex(sessionId: string, loaded: LoadedConversation): void {
+        this.pendingHistoryIndexes.set(sessionId, loaded);
+        const previous = this.historyIndexStartTimers.get(sessionId);
+        if (previous?.timer !== undefined) {
+            this.options.clearTimeout(previous.timer);
+        }
+        const scheduled: { timer?: TimerHandle } = {};
+        this.historyIndexStartTimers.set(sessionId, scheduled);
+        scheduled.timer = this.options.setTimeout(() => {
+            if (this.historyIndexStartTimers.get(sessionId) !== scheduled) {
+                return;
+            }
+            this.historyIndexStartTimers.delete(sessionId);
+            const pending = this.pendingHistoryIndexes.get(sessionId);
+            this.pendingHistoryIndexes.delete(sessionId);
+            if (pending) {
+                this.startHistoryIndex(sessionId, pending, true);
+            }
+        }, HISTORY_INDEX_SETTLE_MS);
     }
 
     private load(
@@ -668,7 +997,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
 
     private async loadExclusive(
         sessionId: string,
-        signal?: ConversationAbortSignal
+        signal?: ConversationAbortSignal,
+        historySlice?: ConversationHistoryIndexSliceRequest
     ): Promise<LoadedConversation> {
         if (this.disposed) {
             throw new ConversationError('unavailable', 'missingSource');
@@ -698,6 +1028,17 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         }
         const isSubagentTranscript = Boolean(split.subagentId);
         const previous = this.cache.get(sessionId);
+        if (historySlice && (!previous
+            || historySlice.reducerVersion !== 1
+            || historySlice.sourceIdentity !== source.identity
+            || historySlice.sourceSize !== source.size
+            || historySlice.sourceRevision !== `r${previous.revision}`
+            || !Number.isSafeInteger(historySlice.startOffset)
+            || historySlice.startOffset < 0
+            || historySlice.startOffset >= source.size)) {
+            await source.handle.close().catch(() => undefined);
+            throw new ConversationError('staleRevision');
+        }
         let interactions: ConversationInteraction[] = [];
         let openInteractionIndex: number | undefined;
         let timeoutOpenInteractionIndex: number | undefined;
@@ -706,21 +1047,38 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         let telemetryCwd: string | undefined;
         let telemetryGitBranch: string | undefined;
         try {
-            const startOffset = await getConversationReadStart(
-                source,
-                previous && {
-                    source: previous.source,
-                    nextOffset: previous.nextOffset,
-                }
-            );
+            const startOffset = historySlice
+                ? historySlice.startOffset
+                : await getConversationReadStart(
+                    source,
+                    previous && {
+                        source: previous.source,
+                        nextOffset: previous.nextOffset,
+                    }
+                );
             const continuing = Boolean(previous)
-                && startOffset === previous.nextOffset;
+                && !historySlice && startOffset === previous.nextOffset;
             // See Kimi's equivalent guard. A continuation must also prove
             // each old physical record before its offset joins this source
             // snapshot.
             let restartPoints: CachedConversationHistoryRestartPoint[] = continuing
                 ? previous.restartPoints
                 : [];
+            let historyBoundary: {
+                offset: number;
+                interactionCount: number;
+                interactionId: string;
+                recordEndOffset: number;
+                recordDigest: string;
+                segmentDigest: string;
+            } | undefined;
+            const historySliceEndOffset = historySlice
+                ? Math.min(
+                    source.size,
+                    historySlice.startOffset
+                        + CONVERSATION_LIMITS.historyIndexSliceBytes
+                )
+                : 0;
             let ownsRestartPoints = !continuing;
             const addRestartPoint = (
                 point: CachedConversationHistoryRestartPoint
@@ -730,6 +1088,18 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     ownsRestartPoints = true;
                 }
                 appendConversationHistoryRestartPoint(restartPoints, point);
+                if (historySlice
+                    && point.offset > historySlice.startOffset
+                    && interactions.length > 0) {
+                    historyBoundary = {
+                        offset: point.offset,
+                        interactionCount: interactions.length,
+                        interactionId: point.interactionId,
+                        recordEndOffset: point.recordEndOffset,
+                        recordDigest: point.recordDigest,
+                        segmentDigest: point.prefixDigest,
+                    };
+                }
             };
             if (continuing) {
                 interactions = cloneInteractions(previous.interactions);
@@ -765,7 +1135,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     interactions[openInteractionIndex].completedAt = value;
                 }
             };
-            const normalizeRecord = (record: ConversationJsonlRecord): void => {
+            const normalizeRecord = (record: ConversationJsonlRecord): boolean | void => {
                 const event = asRecord(record.value);
                 // Subagent transcripts consist entirely of sidechain records;
                 // the sidechain filter only applies to the main conversation.
@@ -864,8 +1234,9 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                             <= CONVERSATION_LIMITS.maxHistoryRestartPointIdLength) {
                         addRestartPoint({
                             offset: record.offset,
-                            recordEndOffset: record.endOffset,
-                            recordDigest: record.recordDigest,
+                            recordEndOffset: record.proofEndOffset,
+                            recordDigest: record.proofDigest,
+                            prefixDigest: record.prefixDigest,
                             interactionId: event.uuid,
                         });
                     }
@@ -974,12 +1345,24 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                         });
                     }
                 }
+                return Boolean(historySlice && historyBoundary
+                    && record.endOffset >= historySliceEndOffset);
             };
 
             let result;
             try {
                 result = await readConversationJsonl(source, {
                     startOffset,
+                    ...(historySlice ? {
+                        endOffset: Math.min(
+                            source.size,
+                            // Target a 4 MiB segment, but permit one bounded
+                            // 4 MiB extension to reach a reducer-safe turn.
+                            startOffset
+                                + CONVERSATION_LIMITS.historyIndexSliceBytes * 2
+                        ),
+                        collectRecords: false,
+                    } : {}),
                     signal,
                     now: this.options.now,
                     onRecord: normalizeRecord,
@@ -1007,6 +1390,56 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     telemetryContext,
                     telemetryCwd,
                     telemetryGitBranch,
+                };
+            }
+            if (historySlice) {
+                if (historyBoundary) {
+                    return {
+                        interactions: interactions.slice(
+                            0,
+                            historyBoundary.interactionCount
+                        ),
+                        sourceRevision: historySlice.sourceRevision,
+                        partial: false,
+                        telemetryModel,
+                        telemetryContext,
+                        telemetryCwd,
+                        telemetryGitBranch,
+                        historySlice: {
+                            nextOffset: historyBoundary.offset,
+                            restartInteractionId: historyBoundary.interactionId,
+                            restartRecordEndOffset: historyBoundary.recordEndOffset,
+                            restartRecordDigest: historyBoundary.recordDigest,
+                            restartSegmentDigest: historyBoundary.segmentDigest,
+                            complete: false,
+                        },
+                    };
+                }
+                if (result.nextOffset < source.size) {
+                    return {
+                        interactions: [],
+                        sourceRevision: historySlice.sourceRevision,
+                        partial: false,
+                        telemetryModel,
+                        telemetryContext,
+                        telemetryCwd,
+                        telemetryGitBranch,
+                        historySlice: { complete: false, blocked: true },
+                    };
+                }
+                finishInteraction();
+                return {
+                    interactions,
+                    sourceRevision: historySlice.sourceRevision,
+                    partial: false,
+                    telemetryModel,
+                    telemetryContext,
+                    telemetryCwd,
+                    telemetryGitBranch,
+                    historySlice: {
+                        complete: result.nextOffset >= source.size,
+                        completeSegmentDigest: result.consumedDigest,
+                    },
                 };
             }
             const appendInteractionIndex = openInteractionIndex;

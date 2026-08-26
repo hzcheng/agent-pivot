@@ -1,6 +1,10 @@
 'use strict';
 
-import { CONVERSATION_LIMITS, ConversationHistoryRestartPoint } from './types';
+import {
+    CONVERSATION_LIMITS,
+    ConversationAbortSignal,
+    ConversationHistoryRestartPoint,
+} from './types';
 import { digestConversationSourceRange, OpenConversationSource } from './source';
 
 /** Adapter-cache-only proof data; the provider API deliberately omits it. */
@@ -8,6 +12,8 @@ export interface CachedConversationHistoryRestartPoint
     extends ConversationHistoryRestartPoint {
     recordEndOffset: number;
     recordDigest: string;
+    /** Digest of this scan's bytes before the restart record. */
+    prefixDigest: string;
 }
 
 /** Retains only the recent in-memory discovery window; durable sparse points
@@ -33,14 +39,19 @@ export function appendConversationHistoryRestartPoint<
  * the continuation source. Each point is independently restart-safe. */
 export async function verifyConversationHistoryRestartPoints(
     source: OpenConversationSource,
-    points: CachedConversationHistoryRestartPoint[]
+    points: CachedConversationHistoryRestartPoint[],
+    signal?: ConversationAbortSignal
 ): Promise<CachedConversationHistoryRestartPoint[]> {
     const verified: CachedConversationHistoryRestartPoint[] = [];
     for (const point of points) {
+        if (signal?.aborted) {
+            return [];
+        }
         const digest = await digestConversationSourceRange(
             source,
             point.offset,
-            point.recordEndOffset
+            point.recordEndOffset,
+            signal
         );
         if (digest === point.recordDigest) {
             verified.push(point);

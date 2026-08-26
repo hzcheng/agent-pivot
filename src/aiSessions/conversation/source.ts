@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { AiSessionConversationSourceCandidate } from '../types';
+import type { ConversationAbortSignal } from './types';
 
 const NO_FOLLOW_FLAG =
     (fs.constants as Record<string, number>).O_NOFOLLOW || 0;
@@ -44,7 +45,8 @@ async function hashRange(
 export async function digestConversationSourceRange(
     source: OpenConversationSource,
     startOffset: number,
-    endOffset: number
+    endOffset: number,
+    signal?: ConversationAbortSignal
 ): Promise<string | undefined> {
     if (!Number.isSafeInteger(startOffset) || !Number.isSafeInteger(endOffset)
         || startOffset < 0 || endOffset <= startOffset
@@ -52,10 +54,49 @@ export async function digestConversationSourceRange(
         || endOffset - startOffset > CONVERSATION_RECORD_PROOF_MAX_BYTES) {
         return undefined;
     }
-    return hashRange(source.handle, startOffset, endOffset - startOffset);
+    if (signal?.aborted) {
+        return undefined;
+    }
+    const digest = await hashRange(source.handle, startOffset, endOffset - startOffset);
+    return signal?.aborted ? undefined : digest;
+}
+
+/** Hashes one bounded background-index segment without allocating it whole. */
+export async function digestConversationSourceSegment(
+    source: OpenConversationSource,
+    startOffset: number,
+    endOffset: number,
+    signal?: ConversationAbortSignal
+): Promise<string | undefined> {
+    if (!Number.isSafeInteger(startOffset) || !Number.isSafeInteger(endOffset)
+        || startOffset < 0 || endOffset <= startOffset
+        || endOffset > source.size
+        || endOffset - startOffset > CONVERSATION_HISTORY_SEGMENT_PROOF_MAX_BYTES) {
+        return undefined;
+    }
+    const hash = createHash('sha256');
+    const buffer = Buffer.alloc(64 * 1024);
+    let offset = startOffset;
+    while (offset < endOffset) {
+        if (signal?.aborted) {
+            return undefined;
+        }
+        const length = Math.min(buffer.length, endOffset - offset);
+        const result = await source.handle.read(buffer, 0, length, offset);
+        if (signal?.aborted || result.bytesRead <= 0) {
+            return undefined;
+        }
+        hash.update(buffer.subarray(0, result.bytesRead));
+        offset += result.bytesRead;
+    }
+    return hash.digest('hex');
 }
 
 const CONVERSATION_RECORD_PROOF_MAX_BYTES = 1024 * 1024 + 1;
+// A 4 MiB requested slice may complete the physical line straddling its
+// boundary. JSONL rejects lines over 1 MiB, so 8 MiB is a hard ceiling with
+// room for format evolution while keeping verification bounded.
+const CONVERSATION_HISTORY_SEGMENT_PROOF_MAX_BYTES = 10 * 1024 * 1024;
 
 function hasStableFileIdentity(stat: fs.Stats): boolean {
     return Number.isFinite(stat.dev) && stat.dev > 0

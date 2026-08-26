@@ -197,6 +197,133 @@ test('CONVERSATION-HISTORY-RESTART-POINT-001 Kimi restart points replay their in
     }
 });
 
+test('CONVERSATION-HISTORY-INDEX-SLICE-001 Kimi advances immutable history slices only between proven restart points', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    const full = await readWholeConversation(adapter);
+    const snapshot = await adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(snapshot);
+
+    const interactionIds = [];
+    let startOffset = 0;
+    for (;;) {
+        const slice = await adapter.readHistoryIndexSlice(sessionId, {
+            ...snapshot,
+            startOffset,
+        });
+        assert.ok(slice);
+        interactionIds.push(...slice.interactions.map(item => item.id));
+        if (slice.complete) {
+            assert.equal(slice.nextOffset, undefined);
+            break;
+        }
+        assert.ok(Number.isSafeInteger(slice.nextOffset));
+        assert.ok(slice.nextOffset > startOffset);
+        startOffset = slice.nextOffset;
+    }
+    assert.deepEqual(interactionIds, full.outline.interactions.map(item => item.id));
+    assert.deepEqual(
+        (await adapter.readOutline(sessionId)).interactions,
+        full.outline.interactions,
+        'background replay must not mutate the foreground cache'
+    );
+    await fs.promises.appendFile(source.sourcePath, '\n');
+    assert.equal(await adapter.readHistoryIndexSlice(sessionId, {
+        ...snapshot,
+        startOffset: 0,
+    }), undefined, 'a changed source snapshot must reject a late slice');
+});
+
+test('CONVERSATION-HISTORY-INDEX-SLICE-003 Kimi proves a multi-slice prefix from the parsed bytes', async t => {
+    const source = await createFixture(t);
+    const filler = index => ({
+        timestamp: index,
+        message: { type: 'StatusUpdate', payload: { text: 'x'.repeat(4096) } },
+    });
+    await fs.promises.writeFile(source.sourcePath, [
+        { timestamp: 1, message: { type: 'TurnBegin', payload: { user_input: 'first' } } },
+        ...Array.from({ length: 1_100 }, (_value, index) => filler(index)),
+        { timestamp: 2, message: { type: 'TurnBegin', payload: { user_input: 'second' } } },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    await adapter.readOutline(sessionId);
+    const snapshot = await adapter.getHistoryRestartPoints(sessionId);
+    const first = await adapter.readHistoryIndexSlice(sessionId, {
+        ...snapshot,
+        startOffset: 0,
+    });
+    assert.equal(first.complete, false);
+    assert.ok(first.restartRecordEndOffset > first.nextOffset, JSON.stringify(first));
+    assert.ok(first.restartRecordDigest);
+    assert.ok(first.restartSegmentDigest);
+    const second = await adapter.readHistoryIndexSlice(sessionId, {
+        ...snapshot,
+        startOffset: first.nextOffset,
+    });
+    assert.equal(second.complete, true);
+    assert.deepEqual(
+        [...first.interactions, ...second.interactions].map(item => item.userMarkdown),
+        ['first', 'second']
+    );
+    // Exercise the real low-priority scheduler as well as the slice protocol:
+    // a completed index must replace the bounded foreground source atomically.
+    adapter.startHistoryIndex(sessionId, {
+        interactions: [],
+        sourceRevision: (await adapter.readOutline(sessionId)).sourceRevision,
+        partial: true,
+        telemetryPaths: [],
+    }, true);
+    for (let attempt = 0; attempt < 40; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+        if (adapter.historyIndex.state(sessionId)?.complete) {
+            break;
+        }
+    }
+    assert.equal(adapter.historyIndex.state(sessionId)?.complete, true,
+        JSON.stringify(adapter.historyIndex.state(sessionId)));
+    assert.deepEqual((await adapter.readOutline(sessionId)).interactions
+        .map(item => item.userPreview), ['first', 'second']);
+    await fs.promises.appendFile(source.sourcePath, '\n');
+    await adapter.readOutline(sessionId);
+    assert.ok((await adapter.getHistoryRestartPoints(
+        sessionId,
+        adapter.historyIndex.state(sessionId)
+    ))?.continuationOf, 'a complete final proof must continue after an append');
+});
+
+test('CONVERSATION-HISTORY-INDEX-SLICE-002 Kimi preserves an active EOF interaction while indexing', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Still working' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ContentPart',
+                payload: { type: 'text', text: 'Partial answer' },
+            },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    await adapter.readOutline(sessionId);
+    const snapshot = await adapter.getHistoryRestartPoints(sessionId);
+    const slice = await adapter.readHistoryIndexSlice(sessionId, {
+        ...snapshot,
+        startOffset: 0,
+    });
+    assert.equal(slice.complete, true);
+    assert.equal(slice.interactions.at(-1).responseState, 'inProgress');
+    assert.deepEqual(slice.interactions.at(-1).assistantMarkdown, ['Partial answer']);
+});
+
 test('CONVERSATION-HISTORY-RESTART-POINT-003 Kimi seals an unsettled tool call before a later turn', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [

@@ -82,6 +82,31 @@ test('SESSION-AI-SESSION-CONVERSATION-JSONL-002 keeps byte offsets across UTF-8 
     await source.handle.close();
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-020 proves newline delimiters with the same bytes consumed by the reducer', async t => {
+    const firstLine = '{"kind":"first"}\n';
+    const secondLine = '{"kind":"second"}';
+    const fixture = await createJsonlFixture(t, [firstLine, secondLine]);
+    const source = await fixture.open();
+    try {
+        const result = await reader.readConversationJsonl(source, { startOffset: 0 });
+        const [first, second] = result.records;
+        assert.equal(first.endOffset, Buffer.byteLength(firstLine) - 1);
+        assert.equal(first.proofEndOffset, Buffer.byteLength(firstLine));
+        assert.equal(first.recordDigest, crypto.createHash('sha256')
+            .update(firstLine.slice(0, -1)).digest('hex'));
+        assert.equal(first.proofDigest, crypto.createHash('sha256')
+            .update(firstLine).digest('hex'));
+        assert.equal(first.prefixDigest, crypto.createHash('sha256').digest('hex'));
+        assert.equal(second.proofEndOffset, source.size);
+        assert.equal(second.proofDigest, crypto.createHash('sha256')
+            .update(secondLine).digest('hex'));
+        assert.equal(second.prefixDigest, crypto.createHash('sha256')
+            .update(firstLine).digest('hex'));
+    } finally {
+        await source.handle.close();
+    }
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-JSONL-003 uses the exact 64 MiB boundary and discards only a bounded-start partial line', async t => {
     const fixture = await createJsonlFixture(t, ['x'.repeat(CONVERSATION_LIMITS.maxSourceBytes)]);
     const exact = await fixture.open();
@@ -237,6 +262,31 @@ test('SESSION-AI-SESSION-CONVERSATION-JSONL-008 reports valid records to an inte
             [Buffer.byteLength('{"kind":"first"}\nmalformed\n'), 'second'],
         ]);
         assert.equal(result.malformedLines, 1);
+    } finally {
+        await source.handle.close();
+    }
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-009 stops only after the requested complete record', async t => {
+    const fixture = await createJsonlFixture(t, [
+        '{"kind":"first"}\n',
+        '{"kind":"second"}\n',
+        '{"kind":"third"}\n',
+    ]);
+    const source = await fixture.open();
+    try {
+        const result = await reader.readConversationJsonl(source, {
+            startOffset: 0,
+            onRecord(record) {
+                return record.value.kind === 'second';
+            },
+        });
+        assert.deepEqual(result.records.map(record => record.value.kind), [
+            'first', 'second',
+        ]);
+        assert.equal(result.nextOffset, Buffer.byteLength(
+            '{"kind":"first"}\n{"kind":"second"}\n'
+        ));
     } finally {
         await source.handle.close();
     }

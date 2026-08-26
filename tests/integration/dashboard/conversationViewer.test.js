@@ -725,6 +725,309 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundar
     viewer.dispose();
 });
 
+test('CONVERSATION-HISTORY-PAGING-001 prepends an indexed page older than the outline window', async () => {
+    const sessionId = 'indexed-history-boundary';
+    const olderInteractions = ['input-1', 'input-2'];
+    const recentInteractions = ['input-2001', 'input-2002'];
+    let onChange;
+    let responseState = 'inProgress';
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        // The outline deliberately retains only the most recent window. The
+        // older page is valid via its opaque cursor but must not become the
+        // selected outline item merely because it was prepended.
+        readOutline: async () => outline(sessionId, recentInteractions, {
+            totalInteractions: 2_002,
+            partial: true,
+            responseStates: { 'input-2002': responseState },
+        }),
+        readPage: async request => request.direction === 'before'
+            ? page(sessionId, 'input-1', 'message', {
+                interactionIds: olderInteractions,
+                anchorInteractionId: 'input-1',
+            })
+            : {
+                ...page(sessionId, 'input-2002', 'message', {
+                    interactionIds: recentInteractions,
+                    anchorInteractionId: 'input-2002',
+                    responseStates: { 'input-2002': responseState },
+                }),
+                previousCursor: 'indexed-cursor',
+                isStart: false,
+            },
+    });
+
+    await viewer.open(target(sessionId, 'input-2002'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        const latest = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).at(-1);
+        if (latest?.html?.includes('data-message-id="input-1:user"')) {
+            break;
+        }
+    }
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.match(publication.html, /data-message-id="input-1:user"/);
+    assert.equal(publication.selectedInteractionId, 'input-2002');
+    // A same-revision lifecycle refresh must not rebuild retained pages only
+    // from the bounded outline and erase the older cursor-authorized page.
+    responseState = 'complete';
+    onChange();
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        const latest = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).at(-1);
+        if (latest?.interactionStates?.some(state =>
+            state.interactionId === 'input-2002'
+                && state.responseState === 'complete')) {
+            break;
+        }
+    }
+    const refreshed = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.match(refreshed.html, /data-message-id="input-1:user"/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-HISTORY-PAGING-002 advances the outline revision after a stale earlier-page retry', async () => {
+    const requests = [];
+    let revision = 'r1';
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-2001', 'input-2002'],
+            { sourceRevision: revision, totalInteractions: 2_002, partial: true }
+        ),
+        readPage: async request => {
+            requests.push(request);
+            if (request.direction === 'before' && request.expectedRevision === 'r1') {
+                revision = 'r2';
+                throw new ConversationError('staleRevision');
+            }
+            return request.direction === 'before'
+                ? page(request.sessionId, 'input-1', 'older', {
+                    interactionIds: ['input-1'],
+                    sourceRevision: request.expectedRevision,
+                })
+                : {
+                    ...page(request.sessionId, 'input-2002', 'recent', {
+                        interactionIds: ['input-2001', 'input-2002'],
+                        sourceRevision: request.expectedRevision,
+                    }),
+                    previousCursor: 'older-cursor',
+                    isStart: false,
+                };
+        },
+    });
+    await viewer.open(target('history-stale', 'input-2002'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        if (panel.postedMessages.some(message =>
+            message.type === 'conversation-viewer-load-earlier-result'
+                && message.requestId === 1 && message.outcome === 'busy')) {
+            break;
+        }
+    }
+    assert.equal(viewer.outlineController.snapshot.sourceRevision, 'r2');
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        if (requests.some(request => request.direction === 'before'
+            && request.expectedRevision === 'r2')) {
+            break;
+        }
+    }
+    assert.ok(requests.some(request => request.direction === 'before'
+        && request.expectedRevision === 'r2'),
+    `a stale around fallback must leave the boundary retryable: ${JSON.stringify(requests)}`);
+    viewer.dispose();
+});
+
+test('CONVERSATION-HISTORY-PAGING-003 refreshes the page boundary after history indexing completes', async () => {
+    const sessionId = 'indexed-history-complete';
+    let indexed = false;
+    let onChange;
+    let beforeRequests = 0;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, ['input-2001', 'input-2002'], {
+            sourceRevision: 'r1',
+            totalInteractions: indexed ? 2_002 : 2,
+            partial: !indexed,
+        }),
+        readPage: async request => {
+            if (request.direction === 'before') {
+                beforeRequests += 1;
+                return page(sessionId, 'input-1', 'older', {
+                    interactionIds: ['input-1'],
+                    sourceRevision: 'r1',
+                });
+            }
+            return {
+                ...page(sessionId, 'input-2002', 'recent', {
+                    interactionIds: ['input-2001', 'input-2002'],
+                    anchorInteractionId: 'input-2002',
+                    sourceRevision: 'r1',
+                }),
+                ...(indexed ? { previousCursor: 'complete-history-cursor' } : {}),
+                isStart: !indexed,
+            };
+        },
+    });
+    await viewer.open(target(sessionId, 'input-2002'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+    indexed = true;
+    onChange();
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        const latest = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).at(-1);
+        if (latest?.totalInteractions === 2_002) {
+            break;
+        }
+    }
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    for (let attempt = 0; attempt < 20 && !beforeRequests; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(beforeRequests, 1,
+        `the completed index must refresh the cursor-authorized page boundary: ${JSON.stringify(panel.postedMessages)}`);
+    viewer.dispose();
+});
+
+test('CONVERSATION-HISTORY-PAGING-004 keeps an outer cursor when a refresh only overlaps its page', async () => {
+    const sessionId = 'history-partial-edge-refresh';
+    let responseState = 'inProgress';
+    let onChange;
+    let beforeRequests = 0;
+    const { viewer, panel } = createViewer({
+        watch: (_provider, _sessionId, callback) => {
+            onChange = callback;
+            return { dispose() {} };
+        },
+        readOutline: async () => outline(sessionId, ['input-1', 'input-2', 'input-3'], {
+            sourceRevision: 'r1',
+            responseStates: { 'input-2': responseState },
+        }),
+        readPage: async request => {
+            if (request.direction === 'before') {
+                beforeRequests += 1;
+                return page(sessionId, 'input-0', 'older', {
+                    interactionIds: ['input-0'],
+                    sourceRevision: 'r1',
+                });
+            }
+            return responseState === 'inProgress'
+                ? page(sessionId, 'input-1', 'initial', {
+                    interactionIds: ['input-1', 'input-2'],
+                    anchorInteractionId: 'input-2',
+                    sourceRevision: 'r1',
+                    responseStates: { 'input-2': responseState },
+                })
+                : {
+                    ...page(sessionId, 'input-2', 'refresh', {
+                        interactionIds: ['input-2', 'input-3'],
+                        anchorInteractionId: 'input-2',
+                        sourceRevision: 'r1',
+                        responseStates: { 'input-2': responseState },
+                    }),
+                    previousCursor: 'input-2-boundary',
+                    isStart: false,
+                };
+        },
+    });
+    await viewer.open(target(sessionId, 'input-2'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+    responseState = 'complete';
+    onChange();
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        if (panel.postedMessages.some(message =>
+            message.type === 'conversation-viewer-page'
+                && message.outline?.some(item => item.interactionId === 'input-3'))) {
+            break;
+        }
+    }
+    const refreshed = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(refreshed.previousCursor, '');
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(beforeRequests, 0,
+        'an interior cursor must not be promoted to the oldest retained boundary');
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles a stalled earlier-page read', async () => {
     const sessionId = 'progressive-boundary-timeout';
     const interactionIds = ['input-1', 'input-2'];

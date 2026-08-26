@@ -17,7 +17,8 @@ export interface ConversationJsonlReadOptions {
     resumeDiscard?: 'partial' | 'oversized';
     signal?: ConversationAbortSignal;
     now?: () => number;
-    onRecord?: (record: ConversationJsonlRecord) => void;
+    /** Return true only after a complete physical record to stop this slice. */
+    onRecord?: (record: ConversationJsonlRecord) => boolean | void;
     /** Background indexers normally consume onRecord and need no duplicate array. */
     collectRecords?: boolean;
 }
@@ -28,6 +29,11 @@ export interface ConversationJsonlRecord {
     endOffset: number;
     /** SHA-256 of the exact physical JSONL bytes parsed for this record. */
     recordDigest: string;
+    /** Includes the trailing LF when the record was newline-terminated. */
+    proofEndOffset: number;
+    proofDigest: string;
+    /** SHA-256 of bytes from this read's start through this record's start. */
+    prefixDigest: string;
     value: unknown;
 }
 
@@ -37,6 +43,8 @@ export interface ConversationJsonlReadResult {
     malformedLines: number;
     oversizedLines: number;
     partial: boolean;
+    /** SHA-256 of every byte consumed by this invocation. */
+    consumedDigest: string;
     /** Pass this to the next bounded slice until the physical line ends. */
     resumeDiscard?: 'partial' | 'oversized';
 }
@@ -103,8 +111,11 @@ export async function readConversationJsonl(
     let oversized = false;
     let initialPartial = initialDiscard !== undefined;
     let discardKind = initialDiscard;
+    let stopped = false;
     const fragments: Buffer[] = [];
     let bytesSinceYield = 0;
+    const prefixHash = createHash('sha256');
+    let lineStartPrefixDigest = prefixHash.copy().digest('hex');
 
     const checkAbort = (): void => {
         if (normalizedOptions.signal?.aborted) {
@@ -116,6 +127,7 @@ export async function readConversationJsonl(
         lineBytes = 0;
         oversized = false;
         fragments.length = 0;
+        lineStartPrefixDigest = prefixHash.copy().digest('hex');
     };
     const appendLineBytes = (fragment: Buffer): void => {
         if (!fragment.length || oversized) {
@@ -155,6 +167,10 @@ export async function readConversationJsonl(
                 offset: lineStart,
                 endOffset: readOffset - 1,
                 recordDigest: createHash('sha256').update(rawRecord).digest('hex'),
+                proofEndOffset: readOffset,
+                proofDigest: createHash('sha256')
+                    .update(rawRecord).update('\n').digest('hex'),
+                prefixDigest: lineStartPrefixDigest,
                 value: JSON.parse(rawRecord.toString('utf8')),
             };
         } catch (_error) {
@@ -165,15 +181,15 @@ export async function readConversationJsonl(
         if (collectRecords) {
             records.push(record);
         }
-        normalizedOptions.onRecord?.(record);
+        stopped = normalizedOptions.onRecord?.(record) === true;
         resetLine(readOffset);
     };
 
     // A valid record may straddle the requested boundary.  Finish at most one
     // such record (bounded by maxLineBytes); when it proves oversized, return
     // a resumable discard cursor instead of repeatedly rewinding to its start.
-    while (readOffset < endOffset
-        || (readOffset < source.size && lineBytes > 0 && !oversized)) {
+    while (!stopped && (readOffset < endOffset
+        || (readOffset < source.size && lineBytes > 0 && !oversized))) {
         checkAbort();
         checkDeadline();
         const extendingPastBoundary = readOffset >= endOffset;
@@ -199,22 +215,26 @@ export async function readConversationJsonl(
             ? rawChunk
             : rawChunk.subarray(0, boundaryNewline + 1);
         let chunkIndex = 0;
-        while (chunkIndex < chunk.length) {
+        while (!stopped && chunkIndex < chunk.length) {
             const newlineIndex = chunk.indexOf(0x0a, chunkIndex);
             if (newlineIndex < 0) {
+                const rawLineFragment = chunk.subarray(chunkIndex);
                 if (!initialPartial) {
-                    appendLineBytes(chunk.subarray(chunkIndex));
+                    appendLineBytes(rawLineFragment);
                 }
+                prefixHash.update(rawLineFragment);
                 break;
             }
+            const rawLineFragment = chunk.subarray(chunkIndex, newlineIndex + 1);
             if (!initialPartial) {
                 appendLineBytes(chunk.subarray(chunkIndex, newlineIndex));
             }
+            prefixHash.update(rawLineFragment);
             readOffset += newlineIndex + 1 - chunkIndex;
             finishLine();
             chunkIndex = newlineIndex + 1;
         }
-        if (chunkIndex < chunk.length) {
+        if (!stopped && chunkIndex < chunk.length) {
             readOffset += chunk.length - chunkIndex;
         } else if (chunkIndex === chunk.length) {
             // The last byte was a newline and has already advanced readOffset.
@@ -228,7 +248,7 @@ export async function readConversationJsonl(
             bytesSinceYield = 0;
         }
     }
-    if (!initialPartial && lineBytes && readOffset === source.size) {
+    if (!stopped && !initialPartial && lineBytes && readOffset === source.size) {
         if (oversized) {
             // EOF is only the current source snapshot boundary. A bounded
             // caller keeps a resumable discard cursor for a later append.
@@ -245,6 +265,9 @@ export async function readConversationJsonl(
                     offset: lineStart,
                     endOffset: readOffset,
                     recordDigest: createHash('sha256').update(rawRecord).digest('hex'),
+                    proofEndOffset: readOffset,
+                    proofDigest: createHash('sha256').update(rawRecord).digest('hex'),
+                    prefixDigest: lineStartPrefixDigest,
                     value: JSON.parse(rawRecord.toString('utf8')),
                 };
             } catch (_error) {
@@ -269,6 +292,7 @@ export async function readConversationJsonl(
         malformedLines,
         oversizedLines,
         partial: startOffset > 0,
+        consumedDigest: prefixHash.copy().digest('hex'),
         ...((initialPartial || oversized) && normalizedOptions.endOffset !== undefined
             ? { resumeDiscard: initialPartial ? discardKind : 'oversized' }
             : {}),

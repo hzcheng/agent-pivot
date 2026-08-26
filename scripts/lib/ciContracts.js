@@ -99,18 +99,18 @@ function validateJob(
         `${jobId} must run ${expectedGate}`);
 }
 
-function validateChromiumInstall(job) {
+function validateChromiumInstall(job, jobId) {
     assert.equal(findStep(job, step => isMapping(step) && typeof step.run === 'string'
         && (step.run.includes('playwright install-deps') || step.run.includes('--with-deps'))),
     undefined,
-    'quality-linux must not run redundant apt-backed Playwright dependency installs');
+    `${jobId} must not run redundant apt-backed Playwright dependency installs`);
 
     const browserInstall = findStep(job,
         step => isMapping(step) && step.name === 'Install pinned Chromium headless shell');
     assert.ok(browserInstall,
-        'quality-linux must define the pinned Chromium headless shell install step');
+        `${jobId} must define the pinned Chromium headless shell install step`);
     assert.equal(browserInstall.shell, 'bash',
-        'quality-linux Chromium install step must use bash');
+        `${jobId} Chromium install step must use bash`);
     assert.equal(browserInstall.run, [
         'set -euo pipefail',
         'for attempt in 1 2 3; do',
@@ -122,7 +122,7 @@ function validateChromiumInstall(job) {
         'exit 1',
         '',
     ].join('\n'),
-    'quality-linux must install only the Chromium headless shell with three bounded retries');
+    `${jobId} must install only the Chromium headless shell with three bounded retries`);
 }
 
 function validatePrMetadataPreflight(jobs) {
@@ -165,8 +165,71 @@ function validateStaticPreflight(jobs) {
     assert.equal(findStep(job, step => isMapping(step)
         && step.uses === 'actions/setup-node@v4'), undefined,
     'static-preflight must not wait for dependency setup');
-    assert.deepEqual(jobs['quality-linux'].needs, ['pr-metadata', 'static-preflight'],
-        'quality-linux must wait for both fast preflight jobs');
+}
+
+const LINUX_SHARD_JOBS = ['linux-core', 'linux-browser', 'linux-safety', 'linux-release'];
+
+function validateLinuxShardJobs(jobs) {
+    for (const jobId of LINUX_SHARD_JOBS) {
+        validateJob(
+            jobs,
+            jobId,
+            'ubuntu-latest',
+            `npm run test:ci:linux:${jobId.replace('linux-', '')}`,
+            [],
+            jobId === 'linux-core',
+            10
+        );
+        assert.deepEqual(jobs[jobId].needs, ['pr-metadata', 'static-preflight'],
+            `${jobId} must wait for both fast preflight jobs`);
+        if (jobId === 'linux-core') {
+            const gate = findStep(jobs[jobId],
+                step => isMapping(step) && step.run === 'npm run test:ci:linux:core');
+            assert.ok(isMapping(gate.env)
+                && gate.env.COVERAGE_DIFF_BASE === '${{ github.event.pull_request.base.sha }}',
+            'linux-core must diff changed-line coverage against the PR base');
+        }
+    }
+    // Only the browser shard may pay for the Chromium download; the other
+    // shards never touch Playwright.
+    for (const jobId of LINUX_SHARD_JOBS) {
+        const playwrightStep = findStep(jobs[jobId], step => isMapping(step)
+            && typeof step.run === 'string' && step.run.includes('playwright install'));
+        if (jobId === 'linux-browser') {
+            continue;
+        }
+        assert.equal(playwrightStep, undefined,
+            `${jobId} must not install Playwright browsers`);
+    }
+    validateChromiumInstall(jobs['linux-browser'], 'linux-browser');
+}
+
+function validateLinuxAggregateJob(jobs) {
+    const job = jobs['quality-linux'];
+    assert.ok(isMapping(job), 'GitHub verification workflow must define quality-linux');
+    assert.equal(job.name, 'quality-linux',
+        'quality-linux must keep its stable required check name');
+    assert.equal(job['runs-on'], 'ubuntu-latest', 'quality-linux must use ubuntu-latest');
+    assert.equal(job['timeout-minutes'], 2, 'quality-linux aggregation must stay cheap');
+    assert.deepEqual(job.needs, LINUX_SHARD_JOBS,
+        'quality-linux must aggregate exactly the four Linux shards');
+    // A job skipped because a failed `needs` entry reports success to branch
+    // protection, so the aggregate must always run and fail explicitly.
+    assert.equal(job.if, 'always()',
+        'quality-linux must run even when a Linux shard failed');
+    assert.ok(findStep(job, step => isMapping(step) && step.uses === 'actions/checkout@v4'),
+        'quality-linux must checkout the shard aggregation script');
+    const aggregate = findStep(job, step => isMapping(step)
+        && step.run === 'node scripts/check-ci-shard-results.js');
+    assert.ok(aggregate, 'quality-linux must aggregate shard results explicitly');
+    assert.ok(isMapping(aggregate.env)
+        && aggregate.env.NEEDS_JSON === '${{ toJSON(needs) }}',
+    'quality-linux must read every shard result from the needs context');
+    assert.equal(findStep(job, step => isMapping(step) && step.run === 'npm ci'), undefined,
+        'quality-linux aggregation must not install dependencies');
+    assert.equal(findStep(job, step => isMapping(step)
+        && step.uses === 'actions/setup-node@v4'), undefined,
+    'quality-linux aggregation must not wait for dependency setup');
 }
 
 function validateVerifyWorkflow(verifyWorkflow) {
@@ -183,16 +246,8 @@ function validateVerifyWorkflow(verifyWorkflow) {
     assert.ok(isMapping(workflow.jobs), 'GitHub verification workflow jobs must be a mapping');
     validatePrMetadataPreflight(workflow.jobs);
     validateStaticPreflight(workflow.jobs);
-    validateJob(
-        workflow.jobs,
-        'quality-linux',
-        'ubuntu-latest',
-        'npm run test:ci:linux',
-        [],
-        true,
-        15
-    );
-    validateChromiumInstall(workflow.jobs['quality-linux']);
+    validateLinuxShardJobs(workflow.jobs);
+    validateLinuxAggregateJob(workflow.jobs);
     validateJob(workflow.jobs, 'platform-windows', 'windows-latest', 'npm run test:ci:windows');
     validateJob(workflow.jobs, 'tmux-smoke-linux', 'ubuntu-latest',
         'npm run test:tmux:smoke', ['sudo apt-get install -y tmux']);
@@ -334,6 +389,34 @@ function includesShellCommand(script, command) {
         && script.split(/&&|;/).map(part => part.trim()).includes(command);
 }
 
+function shellCommands(script) {
+    return typeof script === 'string'
+        ? script.split(/&&|;/).map(part => part.trim()).filter(Boolean)
+        : [];
+}
+
+// The serial test:ci:linux chain is the source of truth for local runs; the
+// four CI shards must partition it exactly so a newly added gate cannot ride
+// only on the serial chain and silently drop out of CI.
+function validateLinuxShardScripts(scripts) {
+    assert.equal(typeof scripts['test:ci:linux'], 'string',
+        'package scripts must define test:ci:linux');
+    const expected = shellCommands(scripts['test:ci:linux'])
+        .filter(command => command !== 'npm run test-compile');
+    const combined = [];
+    for (const shardId of ['core', 'browser', 'safety', 'release']) {
+        const name = `test:ci:linux:${shardId}`;
+        const commands = shellCommands(scripts[name]);
+        assert.ok(commands.length > 0, `package scripts must define ${name}`);
+        assert.equal(commands[0], 'npm run test-compile',
+            `${name} must compile before running its checks`);
+        combined.push(...commands);
+    }
+    const actual = combined.filter(command => command !== 'npm run test-compile');
+    assert.deepEqual([...actual].sort(), [...expected].sort(),
+        'the four Linux shards must partition test:ci:linux exactly');
+}
+
 function validateSafetyScripts(scripts) {
     const safetyScript = scripts['test:safety'];
     const safetyRunScript = scripts['test:safety:run'];
@@ -373,9 +456,11 @@ function validateQualityGateScripts(scripts) {
         'deterministic suites must not fall back to single-file execution');
     assert.match(scripts['test:browser:run'], /--test-concurrency=2\b/u,
         'browser test files must use bounded concurrency');
+    validateLinuxShardScripts(scripts);
 }
 
 module.exports = {
+    validateLinuxShardScripts,
     validateQualityGateScripts,
     validateReleaseWorkflow,
     validateSafetyScripts,

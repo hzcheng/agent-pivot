@@ -6,6 +6,7 @@ const path = require('node:path');
 const test = require('node:test');
 const yaml = require('js-yaml');
 const {
+    validateLinuxShardScripts,
     validateQualityGateScripts,
     validateReleaseWorkflow,
     validateSafetyScripts,
@@ -68,8 +69,8 @@ test('RELEASE-VSIX-PACKAGING-001 accepts the unquoted GitHub Actions on key', ()
 });
 
 test('RELEASE-VSIX-PACKAGING-001 requires PR metadata validation before dependency installation', () => {
-    const noPreflightWorkflow = verifyWorkflow.replace(/\n  pr-metadata:[\s\S]*?\n  quality-linux:/,
-        '\n  quality-linux:');
+    const noPreflightWorkflow = verifyWorkflow.replace(/\n  pr-metadata:[\s\S]*?\n  static-preflight:/,
+        '\n  static-preflight:');
     assert.throws(
         () => validateVerifyWorkflow(noPreflightWorkflow),
         /must define pr-metadata/
@@ -78,8 +79,8 @@ test('RELEASE-VSIX-PACKAGING-001 requires PR metadata validation before dependen
 
 test('RELEASE-VSIX-PACKAGING-001 requires static repository checks before dependency installation', () => {
     const noStaticPreflightWorkflow = verifyWorkflow.replace(
-        /\n  static-preflight:[\s\S]*?\n  quality-linux:/,
-        '\n  quality-linux:'
+        /\n  static-preflight:[\s\S]*?\n  linux-core:/,
+        '\n  linux-core:'
     );
     assert.throws(
         () => validateVerifyWorkflow(noStaticPreflightWorkflow),
@@ -147,29 +148,29 @@ test('RELEASE-VSIX-PACKAGING-001 rejects workflow requirements that appear only 
 
 test('RELEASE-VSIX-PACKAGING-001 rejects a Linux gate assigned to the Windows runner', () => {
     const wrongRunnerWorkflow = verifyWorkflow.replace(
-        '  quality-linux:\n    name: quality-linux\n    needs: [pr-metadata, static-preflight]\n    runs-on: ubuntu-latest',
-        '  quality-linux:\n    name: quality-linux\n    needs: [pr-metadata, static-preflight]\n    runs-on: windows-latest'
+        '  linux-core:\n    name: linux-core\n    needs: [pr-metadata, static-preflight]\n    runs-on: ubuntu-latest',
+        '  linux-core:\n    name: linux-core\n    needs: [pr-metadata, static-preflight]\n    runs-on: windows-latest'
     );
 
     assert.throws(
         () => validateVerifyWorkflow(wrongRunnerWorkflow),
-        /quality-linux must use ubuntu-latest/
+        /linux-core must use ubuntu-latest/
     );
 });
 
-test('ARCH-MAIN-CAPABILITY-COVERAGE-001 requires full Git history in the Linux quality job', () => {
+test('ARCH-MAIN-CAPABILITY-COVERAGE-001 requires full Git history in the Linux core shard', () => {
     const shallowCheckoutWorkflow = verifyWorkflow.replace(
-        '        with:\n          fetch-depth: 0\n',
-        ''
+        '        with:\n          # check-changed-coverage diffs against the PR base.\n          fetch-depth: 0\n',
+        '        with:\n          fetch-depth: 1\n'
     );
 
     assert.throws(
         () => validateVerifyWorkflow(shallowCheckoutWorkflow),
-        /quality-linux checkout step must fetch full history/
+        /linux-core checkout step must fetch full history/
     );
 });
 
-test('ARCH-CI-QUALITY-GATE-001 requires pinned Chromium in the Linux quality job', () => {
+test('ARCH-CI-QUALITY-GATE-001 requires pinned Chromium in the Linux browser shard', () => {
     const missingChromiumWorkflow = verifyWorkflow.replace(
         '            if timeout --kill-after=10s 120s npx playwright install --only-shell chromium; then',
         '            if npx playwright --version; then'
@@ -177,7 +178,7 @@ test('ARCH-CI-QUALITY-GATE-001 requires pinned Chromium in the Linux quality job
 
     assert.throws(
         () => validateVerifyWorkflow(missingChromiumWorkflow),
-        /quality-linux must install only the Chromium headless shell with three bounded retries/
+        /linux-browser must install only the Chromium headless shell with three bounded retries/
     );
 });
 
@@ -193,7 +194,7 @@ test('ARCH-CI-QUALITY-GATE-001 rejects Chromium installs without three attempts'
 
     assert.throws(
         () => validateVerifyWorkflow(oneAttemptWorkflow),
-        /quality-linux must install only the Chromium headless shell with three bounded retries/
+        /linux-browser must install only the Chromium headless shell with three bounded retries/
     );
 });
 
@@ -205,7 +206,7 @@ test('ARCH-CI-QUALITY-GATE-001 rejects Chromium installs without a hard timeout'
 
     assert.throws(
         () => validateVerifyWorkflow(unboundedWorkflow),
-        /quality-linux must install only the Chromium headless shell with three bounded retries/
+        /linux-browser must install only the Chromium headless shell with three bounded retries/
     );
 });
 
@@ -219,14 +220,16 @@ test('ARCH-CI-QUALITY-GATE-001 rejects redundant apt font downloads on the hoste
 
     assert.throws(
         () => validateVerifyWorkflow(aptBackedWorkflow),
-        /quality-linux must not run redundant apt-backed Playwright dependency installs/
+        /linux-browser must not run redundant apt-backed Playwright dependency installs/
     );
 });
 
 test('RELEASE-VSIX-PACKAGING-001 requires npm caching in the Windows job itself', () => {
-    const cacheMatches = [...verifyWorkflow.matchAll(/          cache: npm/g)];
-    assert.ok(cacheMatches.length >= 2);
-    const windowsCache = cacheMatches[1];
+    const windowsJobStart = verifyWorkflow.indexOf('\n  platform-windows:');
+    assert.ok(windowsJobStart > 0, 'verify.yml must define platform-windows');
+    const windowsCache = [...verifyWorkflow.matchAll(/          cache: npm/g)]
+        .find(match => match.index > windowsJobStart);
+    assert.ok(windowsCache, 'platform-windows must cache npm');
     const missingWindowsCacheWorkflow =
         verifyWorkflow.slice(0, windowsCache.index)
         + verifyWorkflow.slice(windowsCache.index + windowsCache[0].length);
@@ -235,6 +238,87 @@ test('RELEASE-VSIX-PACKAGING-001 requires npm caching in the Windows job itself'
         () => validateVerifyWorkflow(missingWindowsCacheWorkflow),
         /platform-windows setup-node step must cache npm/
     );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 keeps quality-linux as the always-running shard aggregate', () => {
+    assert.throws(
+        () => validateVerifyWorkflow(verifyWorkflow.replace('    if: always()\n', '')),
+        /quality-linux must run even when a Linux shard failed/
+    );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 aggregates exactly the four Linux shards into quality-linux', () => {
+    assert.throws(
+        () => validateVerifyWorkflow(verifyWorkflow.replace(
+            '    needs: [linux-core, linux-browser, linux-safety, linux-release]\n',
+            '    needs: [linux-core, linux-browser, linux-safety]\n'
+        )),
+        /quality-linux must aggregate exactly the four Linux shards/
+    );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 keeps the quality-linux aggregate free of dependency setup', () => {
+    const heavyweightAggregateWorkflow = verifyWorkflow.replace(
+        '      - name: Aggregate Linux shard results\n',
+        '      - name: Install dependencies\n        run: npm ci\n      - name: Aggregate Linux shard results\n'
+    );
+    assert.throws(
+        () => validateVerifyWorkflow(heavyweightAggregateWorkflow),
+        /quality-linux aggregation must not install dependencies/
+    );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 keeps Playwright installs exclusive to the Linux browser shard', () => {
+    const coreWithChromiumWorkflow = verifyWorkflow.replace(
+        '      - name: Run Linux core shard (compile, lint, coverage)\n',
+        '      - name: Install Chromium\n        run: npx playwright install chromium\n'
+            + '      - name: Run Linux core shard (compile, lint, coverage)\n'
+    );
+    assert.throws(
+        () => validateVerifyWorkflow(coreWithChromiumWorkflow),
+        /linux-core must not install Playwright browsers/
+    );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 requires every Linux shard to wait for the fast preflights', () => {
+    const eagerShardWorkflow = verifyWorkflow.replace(
+        '  linux-safety:\n    name: linux-safety\n    needs: [pr-metadata, static-preflight]\n',
+        '  linux-safety:\n    name: linux-safety\n'
+    );
+    assert.throws(
+        () => validateVerifyWorkflow(eagerShardWorkflow),
+        /linux-safety must wait for both fast preflight jobs/
+    );
+});
+
+test('ARCH-CI-QUALITY-GATE-001 the four Linux shards partition the serial Linux gate exactly', () => {
+    assert.doesNotThrow(() => validateLinuxShardScripts(packageScripts));
+
+    const shardMissingLint = {
+        ...packageScripts,
+        'test:ci:linux:core': packageScripts['test:ci:linux:core']
+            .replace(' && npm run lint:ci', ''),
+    };
+    assert.throws(() => validateLinuxShardScripts(shardMissingLint),
+        /the four Linux shards must partition test:ci:linux exactly/);
+
+    const serialOnlyGate = {
+        ...packageScripts,
+        'test:ci:linux': `${packageScripts['test:ci:linux']} && node scripts/check-pr-body.js`,
+    };
+    assert.throws(() => validateLinuxShardScripts(serialOnlyGate),
+        /the four Linux shards must partition test:ci:linux exactly/);
+
+    const shardWithoutCompile = {
+        ...packageScripts,
+        'test:ci:linux:browser': packageScripts['test:ci:linux:browser']
+            .replace('npm run test-compile && ', ''),
+    };
+    assert.throws(() => validateLinuxShardScripts(shardWithoutCompile),
+        /test:ci:linux:browser must compile before running its checks/);
+
+    assert.throws(() => validateLinuxShardScripts({ 'test:ci:linux': 'npm run test-compile' }),
+        /package scripts must define test:ci:linux:core/);
 });
 
 test('RUNTIME-TMUX-SMOKE-HARNESS-SAFETY-001 RELEASE-VSIX-PACKAGING-001 requires developer and release gates to keep their public runners', () => {

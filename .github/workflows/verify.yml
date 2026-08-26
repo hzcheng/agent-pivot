@@ -49,16 +49,42 @@ jobs:
           node scripts/run-performance-architecture-baseline-checks.js
           node scripts/run-release-notes-checks.js
 
-  quality-linux:
-    name: quality-linux
+  # The serial `npm run test:ci:linux` gate is sharded onto four runners so
+  # wall-clock time approaches the slowest shard instead of the sum. Do not
+  # run these checks concurrently inside one runner: test-compile cleans
+  # out/, release packaging cleans its own output, and coverage/performance
+  # runs fight over CPU.
+  linux-core:
+    name: linux-core
     needs: [pr-metadata, static-preflight]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # check-changed-coverage diffs against the PR base.
           fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run Linux core shard (compile, lint, coverage)
+        run: npm run test:ci:linux:core
+        env:
+          COVERAGE_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
+
+  linux-browser:
+    name: linux-browser
+    needs: [pr-metadata, static-preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -77,10 +103,63 @@ jobs:
             echo "::warning::Chromium install attempt ${attempt} failed"
           done
           exit 1
-      - name: Run Linux quality gate
-        run: npm run test:ci:linux
+      - name: Run Linux browser shard (browser, dashboard, performance)
+        run: npm run test:ci:linux:browser
+
+  linux-safety:
+    name: linux-safety
+    needs: [pr-metadata, static-preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run Linux safety shard (remote sources, safety, architecture)
+        run: npm run test:ci:linux:safety
+
+  linux-release:
+    name: linux-release
+    needs: [pr-metadata, static-preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run Linux release shard (brand, release notes, packaging)
+        run: npm run test:ci:linux:release
+
+  # Required-check aggregate: branch protection keeps pointing at
+  # quality-linux. It must run even when a shard failed — a job skipped by a
+  # failed `needs` entry reports success to branch protection — and then fail
+  # explicitly on any non-success shard result.
+  quality-linux:
+    name: quality-linux
+    needs: [linux-core, linux-browser, linux-safety, linux-release]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Aggregate Linux shard results
+        run: node scripts/check-ci-shard-results.js
         env:
-          COVERAGE_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+
   platform-windows:
     name: platform-windows
     runs-on: windows-latest

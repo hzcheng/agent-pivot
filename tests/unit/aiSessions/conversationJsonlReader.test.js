@@ -347,6 +347,57 @@ test('SESSION-AI-SESSION-CONVERSATION-JSONL-013 accepts one valid final JSON rec
     assert.equal(result.nextOffset, source.size);
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-014 commits bounded scans only at physical-line boundaries', async t => {
+    const firstLine = '{"kind":"first"}\n';
+    const secondLine = '{"kind":"second","text":"crosses the boundary"}\n';
+    const fixture = await createJsonlFixture(t, [
+        firstLine,
+        secondLine,
+        '{"kind":"third"}\n',
+    ]);
+    const source = await fixture.open();
+    try {
+        const first = await reader.readConversationJsonl(source, {
+            startOffset: 0,
+            endOffset: Buffer.byteLength(firstLine) + 8,
+        });
+        assert.deepEqual(first.records.map(record => record.value.kind), ['first']);
+        assert.equal(first.nextOffset, Buffer.byteLength(firstLine));
+
+        const second = await reader.readConversationJsonl(source, {
+            startOffset: first.nextOffset,
+        });
+        assert.deepEqual(second.records.map(record => record.value.kind), ['second', 'third']);
+        assert.equal(second.nextOffset, source.size);
+    } finally {
+        await source.handle.close();
+    }
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-015 supports callback-only bounded scans', async t => {
+    const fixture = await createJsonlFixture(t, [
+        '{"kind":"first"}\n',
+        '{"kind":"second"}\n',
+    ]);
+    const source = await fixture.open();
+    const seen = [];
+    try {
+        const result = await reader.readConversationJsonl(source, {
+            startOffset: 0,
+            endOffset: source.size,
+            collectRecords: false,
+            onRecord(record) {
+                seen.push(record.value.kind);
+            },
+        });
+        assert.deepEqual(result.records, []);
+        assert.deepEqual(seen, ['first', 'second']);
+        assert.equal(result.nextOffset, source.size);
+    } finally {
+        await source.handle.close();
+    }
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-JSONL-009 bounds inactive indexes while retaining viewed entries', () => {
     let now = 0;
     const disposed = [];

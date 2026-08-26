@@ -6,9 +6,17 @@ import { isConversationSourceContinuation, OpenConversationSource } from './sour
 
 export interface ConversationJsonlReadOptions {
     startOffset?: number;
+    /**
+     * Exclusive byte boundary for a resumable background scan.  A record that
+     * crosses this boundary is intentionally retained for the next slice so
+     * reducer state is only advanced at a physical-line boundary.
+     */
+    endOffset?: number;
     signal?: ConversationAbortSignal;
     now?: () => number;
     onRecord?: (record: ConversationJsonlRecord) => void;
+    /** Background indexers normally consume onRecord and need no duplicate array. */
+    collectRecords?: boolean;
 }
 
 export interface ConversationJsonlRecord {
@@ -66,7 +74,12 @@ export async function readConversationJsonl(
     const startOffset = requestedStart === undefined
         ? Math.max(0, source.size - CONVERSATION_LIMITS.maxSourceBytes)
         : requestedStart;
+    const requestedEnd = checkedStartOffset(source.size, normalizedOptions.endOffset);
+    const endOffset = requestedEnd === undefined || requestedEnd < startOffset
+        ? source.size
+        : requestedEnd;
     const discardInitialPartialLine = requestedStart === undefined && startOffset > 0;
+    const collectRecords = normalizedOptions.collectRecords !== false;
     const records: ConversationJsonlRecord[] = [];
     let malformedLines = 0;
     let oversizedLines = 0;
@@ -127,15 +140,20 @@ export async function readConversationJsonl(
             resetLine(readOffset);
             return;
         }
-        records.push(record);
+        if (collectRecords) {
+            records.push(record);
+        }
         normalizedOptions.onRecord?.(record);
         resetLine(readOffset);
     };
 
-    while (readOffset < source.size) {
+    while (readOffset < endOffset) {
         checkAbort();
         checkDeadline();
-        const length = Math.min(CONVERSATION_LIMITS.readChunkBytes, source.size - readOffset);
+        const length = Math.min(
+            CONVERSATION_LIMITS.readChunkBytes,
+            endOffset - readOffset
+        );
         const buffer = Buffer.alloc(length);
         const result = await source.handle.read(buffer, 0, length, readOffset);
         checkDeadline();
@@ -173,7 +191,7 @@ export async function readConversationJsonl(
             bytesSinceYield = 0;
         }
     }
-    if (!initialPartial && lineBytes) {
+    if (!initialPartial && lineBytes && endOffset === source.size) {
         if (oversized) {
             oversizedLines += 1;
         } else {
@@ -188,10 +206,16 @@ export async function readConversationJsonl(
                 record = undefined;
             }
             if (record) {
-                records.push(record);
+                if (collectRecords) {
+                    records.push(record);
+                }
                 normalizedOptions.onRecord?.(record);
             }
         }
+    } else if (!initialPartial && lineBytes) {
+        // This is a bounded scan, not EOF.  Do not parse or report a partial
+        // physical line: the next slice starts at this exact line boundary.
+        readOffset = lineStart;
     }
     return {
         records,

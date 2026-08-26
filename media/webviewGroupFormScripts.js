@@ -21,6 +21,15 @@ function initWorktreeGroupForm(options) {
     // slot; renderForm prefers it over the live DOM read (which can only see
     // document.body once the old slot is gone).
     var replacementFocusByProject = new Map();
+    // IME composition (CJK input): while a composition is active the preedit
+    // string lives inside the focused input, so ANY form rebuild — a preview
+    // response re-render or an authoritative surface replacement — detaches
+    // that input and aborts the composition (the candidate window dies and
+    // focus restore cannot resurrect it). Renders defer to compositionend,
+    // and the message dispatcher queues authoritative updates via
+    // onCompositionEnd.
+    var composition = { active: false, projectId: '' };
+    var compositionEndListeners = [];
 
     function nextRequestId(prefix) {
         nextRequestSerial = nextRequestSerial >= Number.MAX_SAFE_INTEGER
@@ -53,6 +62,8 @@ function initWorktreeGroupForm(options) {
                 confirming: false,
                 confirmRequestId: '',
                 formError: '',
+                renderDeferred: false,
+                pendingClose: null,
                 pendingFocusGroupId: '',
                 pendingMemberRequests: {},
                 derive: null,
@@ -146,9 +157,16 @@ function initWorktreeGroupForm(options) {
         if (!state || !state.open) {
             return;
         }
+        if (composition.active && composition.projectId === projectId) {
+            // Tearing the form down now would detach the composing input
+            // and abort the IME session; close when the composition ends.
+            state.pendingClose = !!keepInput;
+            return;
+        }
         state.open = false;
         state.bootstrapping = false;
         state.confirming = false;
+        state.pendingClose = null;
         state.previewDirty = false;
         if (state.previewTimer) {
             clearTimeout(state.previewTimer);
@@ -271,7 +289,7 @@ function initWorktreeGroupForm(options) {
 
     function sendPreviewRequest(projectId) {
         var state = getState(projectId);
-        if (!state || !state.open) {
+        if (!state || !state.open || composition.active) {
             return;
         }
         var requestId = nextRequestId('group-preview');
@@ -347,6 +365,7 @@ function initWorktreeGroupForm(options) {
     function confirmForm(projectId, availableOnly) {
         var state = getState(projectId);
         if (!state || !state.open || state.confirming || state.previewDirty
+            || composition.active
             || !state.preview || state.preview.formError || !state.previewId) {
             return;
         }
@@ -774,6 +793,16 @@ function initWorktreeGroupForm(options) {
         if (!slot) {
             return;
         }
+        // Never rebuild mid-composition: detaching the input that owns the
+        // IME preedit aborts the composition. The deferred render flushes
+        // on compositionend.
+        if (state && state.open && composition.projectId === projectId) {
+            state.renderDeferred = true;
+            return;
+        }
+        if (state) {
+            state.renderDeferred = false;
+        }
         if (!state || !state.open) {
             replacementFocusByProject.delete(projectId);
             slot.hidden = true;
@@ -992,6 +1021,13 @@ function initWorktreeGroupForm(options) {
             return true;
         }
         state.name = nameInput.value;
+        if (composition.active) {
+            // The preedit text is not a committed name yet: previewing it
+            // would race the compositionend commit, and the preview
+            // response's re-render would abort the composition. The
+            // compositionend handler syncs the actions row.
+            return true;
+        }
         schedulePreview(projectId);
         return true;
     }
@@ -1043,6 +1079,12 @@ function initWorktreeGroupForm(options) {
         var form = event.target && event.target.closest
             ? event.target.closest('[data-worktree-group-form]') : null;
         if (!form) {
+            return false;
+        }
+        // Keystrokes owned by an in-progress IME composition (candidate
+        // navigation, Enter committing the candidate, Esc cancelling the
+        // preedit) must not drive form actions.
+        if (event.isComposing || composition.active) {
             return false;
         }
         var projectId = form.getAttribute('data-project-id');
@@ -1104,12 +1146,102 @@ function initWorktreeGroupForm(options) {
         onKeydown(event);
     });
 
+    function compositionFormProjectId(target) {
+        if (!target || !target.closest
+            || !(target.hasAttribute('data-group-form-name')
+                || target.hasAttribute('data-group-form-base-filter'))) {
+            return '';
+        }
+        var form = target.closest('[data-worktree-group-form]');
+        return form ? form.getAttribute('data-project-id') || '' : '';
+    }
+
+    document.addEventListener('compositionstart', function (event) {
+        var projectId = compositionFormProjectId(event.target);
+        if (!projectId) {
+            return;
+        }
+        composition.active = true;
+        composition.projectId = projectId;
+        var state = getState(projectId);
+        if (!state || !state.open) {
+            return;
+        }
+        // A preview debounced before the composition began must not send
+        // preedit text, and its in-flight response must not be accepted.
+        // previewDirty keeps confirm blocked until the committed text has
+        // been previewed.
+        if (state.previewTimer) {
+            clearTimeout(state.previewTimer);
+            state.previewTimer = 0;
+        }
+        state.previewRequestId = '';
+        state.previewDirty = true;
+        syncActionsDom(projectId);
+    });
+
+    document.addEventListener('compositionend', function (event) {
+        var projectId = compositionFormProjectId(event.target)
+            || composition.projectId;
+        if (!projectId || !composition.active) {
+            return;
+        }
+        composition.active = false;
+        composition.projectId = '';
+        var state = getState(projectId);
+        if (state && state.open) {
+            var isFilter = !!(event.target && event.target.hasAttribute
+                && event.target.hasAttribute('data-group-form-base-filter'));
+            if (isFilter) {
+                if (state.baseDropdown) {
+                    state.baseDropdown.filter = event.target.value;
+                }
+            } else if (event.target && event.target.hasAttribute
+                && event.target.hasAttribute('data-group-form-name')) {
+                state.name = event.target.value;
+            }
+            if (state.pendingClose !== null) {
+                // A close deferred while composing (e.g. the created
+                // settlement) lands now that no input can be aborted.
+                var keepInput = state.pendingClose;
+                state.pendingClose = null;
+                closeForm(projectId, keepInput);
+                reconcileDom();
+            } else {
+                if (state.renderDeferred) {
+                    state.renderDeferred = false;
+                    renderForm(projectId);
+                }
+                if (!isFilter || state.previewDirty) {
+                    // The preedit is now committed text: preview the real
+                    // name. Filtering branches needs no new preview, but a
+                    // preview dirtied mid-composition must be refreshed or
+                    // confirm stays blocked.
+                    schedulePreview(projectId);
+                }
+            }
+        }
+        // Release the authoritative host updates queued while composing;
+        // their replacements can no longer abort a composition.
+        compositionEndListeners.slice().forEach(function (listener) {
+            listener();
+        });
+    });
+
     return {
         openForm: openForm,
         closeForm: closeForm,
         isOpen: function (projectId) {
             var state = getState(projectId);
             return !!state && state.open;
+        },
+        isComposing: function () {
+            return composition.active;
+        },
+        onCompositionEnd: function (listener) {
+            if (typeof listener === 'function') {
+                compositionEndListeners.push(listener);
+            }
         },
         onClick: onClick,
         reconcileDom: reconcileDom,

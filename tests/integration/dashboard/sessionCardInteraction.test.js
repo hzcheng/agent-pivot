@@ -75,18 +75,14 @@ test('WEBVIEW-AI-SESSION-CARD-ACTIVATION-001 maps card bodies and the primary ac
 
     assert.deepEqual(
         normalizeRealmValue(getAiSessionCardActivation(createTarget(active), 'project-a').message),
-        [{
-            type: 'focus-ai-session-terminal',
-            projectId: 'project-a',
-            provider: 'codex',
-            sessionId: 'active-session',
-        }, {
+        {
             type: 'open-active-ai-session-conversation',
-            version: 1,
+            version: 2,
             projectId: 'project-a',
             provider: 'codex',
             sessionId: 'active-session',
-        }]
+            focusTerminal: true,
+        }
     );
     assert.deepEqual(
         normalizeRealmValue(getAiSessionCardActivation(createTarget(inactive), 'project-a').message),
@@ -109,18 +105,14 @@ test('WEBVIEW-AI-SESSION-CARD-ACTIVATION-001 maps card bodies and the primary ac
         normalizeRealmValue(
             getAiSessionCardActivation(createTarget(active, { primary: true }), 'project-a').message
         ),
-        [{
-            type: 'focus-ai-session-terminal',
-            projectId: 'project-a',
-            provider: 'codex',
-            sessionId: 'active-session',
-        }, {
+        {
             type: 'open-active-ai-session-conversation',
-            version: 1,
+            version: 2,
             projectId: 'project-a',
             provider: 'codex',
             sessionId: 'active-session',
-        }]
+            focusTerminal: true,
+        }
     );
 });
 
@@ -165,18 +157,14 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 opens the conversation for every acti
         createTarget(nonFocused),
         'project-a'
     );
-    assert.deepEqual(normalizeRealmValue(nonFocusedActivation.message), [{
-        type: 'focus-ai-session-terminal',
-        projectId: 'project-a',
-        provider: 'kimi',
-        sessionId: 'non-focused-session',
-    }, {
+    assert.deepEqual(normalizeRealmValue(nonFocusedActivation.message), {
         type: 'open-active-ai-session-conversation',
-        version: 1,
+        version: 2,
         projectId: 'project-a',
         provider: 'kimi',
         sessionId: 'non-focused-session',
-    }]);
+        focusTerminal: true,
+    });
 
     const pendingActivation = getAiSessionCardActivation(
         createTarget(pending, { primary: true }),

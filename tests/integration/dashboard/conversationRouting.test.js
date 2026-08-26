@@ -327,6 +327,7 @@ function createDashboardConversationHarness(options = {}) {
                 createViewer: () => {
                     let disposed = false;
                     return {
+                        isOpen: () => false,
                         open: async target => {
                             viewerTargets.push(target);
                         },

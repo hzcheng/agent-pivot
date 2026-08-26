@@ -392,6 +392,11 @@
     // speculation resumes it instead of incorrectly making the old document
     // interactive while its Host transition is still pending.
     var preflightLoadingRestore;
+    // Telemetry belongs to the authoritative subscription and can therefore
+    // describe a different provider/model than a cached preview. Mask only
+    // those target-specific values while keeping the surrounding toolbar
+    // (position, comments, and controls) stable and usable for reading.
+    var preflightTelemetryPresentation;
     // Detached conversation frames keyed by session: switching back to a
     // session whose content token is unchanged reattaches the already-built
     // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
@@ -1261,8 +1266,10 @@
                     framePreview: document.body.getAttribute(
                         'data-conversation-frame-preview'
                     ) === 'true',
+                    telemetryMasked: !!preflightTelemetryPresentation,
                 };
             }
+            hideTelemetryForPreflight();
         } else if (loadingPreflight) {
             if (message.subscriptionGeneration < loadingGeneration) {
                 // A still-running older Host load must not displace a newer
@@ -1359,6 +1366,9 @@
                 document.body.removeAttribute('data-conversation-frame-preview');
             }
             status.textContent = 'Loading conversation…';
+            if (!restore.telemetryMasked) {
+                restoreTelemetryAfterPreflight();
+            }
             return;
         }
         clearConversationLoading();
@@ -1375,12 +1385,54 @@
         loadingStatusText = undefined;
         loadingPreflight = false;
         preflightLoadingRestore = undefined;
+        restoreTelemetryAfterPreflight();
         document.body.removeAttribute('data-conversation-loading');
         document.body.removeAttribute('data-conversation-frame-preview');
         document.body.removeAttribute('aria-busy');
         document.body.removeAttribute('aria-disabled');
         messages.removeAttribute('aria-busy');
         // The applied page recomputes the status line right below.
+    }
+
+    function hideTelemetryForPreflight() {
+        if (preflightTelemetryPresentation) {
+            return;
+        }
+        preflightTelemetryPresentation = [
+            telemetryProvider,
+            telemetryModel,
+            telemetryContext,
+            telemetryLimits,
+        ].filter(function (element) {
+            return !!element;
+        }).map(function (element) {
+            var presentation = {
+                element: element,
+                ariaHidden: element.getAttribute('aria-hidden'),
+                visibility: element.style.visibility,
+            };
+            element.style.visibility = 'hidden';
+            element.setAttribute('aria-hidden', 'true');
+            return presentation;
+        });
+    }
+
+    function restoreTelemetryAfterPreflight() {
+        if (!preflightTelemetryPresentation) {
+            return;
+        }
+        preflightTelemetryPresentation.forEach(function (presentation) {
+            presentation.element.style.visibility = presentation.visibility;
+            if (presentation.ariaHidden === null) {
+                presentation.element.removeAttribute('aria-hidden');
+            } else {
+                presentation.element.setAttribute(
+                    'aria-hidden',
+                    presentation.ariaHidden
+                );
+            }
+        });
+        preflightTelemetryPresentation = undefined;
     }
 
     function applySessionGeneration(message) {
@@ -1783,6 +1835,114 @@
             + '\u0001' + target.sessionId;
     }
 
+    // A detached transcript frame is only visually credible when it brings
+    // its identity with it. Before this, a cache-hit preflight replaced beta's
+    // messages while leaving alpha's title/workspace/task in the sticky
+    // header until the slower authoritative page arrived. That mismatch made
+    // an otherwise instant handoff still feel stalled.
+    function captureFramePresentation() {
+        return {
+            displayName: conversationDisplayName
+                ? conversationDisplayName.textContent
+                : undefined,
+            workspaceName: conversationWorkspaceName
+                ? conversationWorkspaceName.textContent
+                : undefined,
+            taskName: conversationTaskName
+                ? conversationTaskName.textContent
+                : undefined,
+            taskNameHidden: conversationTaskName
+                ? conversationTaskName.hidden
+                : undefined,
+            taskSeparatorHidden: conversationTaskSeparator
+                ? conversationTaskSeparator.hidden
+                : undefined,
+            positionText: position ? position.textContent : undefined,
+            positionTitle: position ? position.getAttribute('title') : undefined,
+            positionAriaLabel: position
+                ? position.getAttribute('aria-label')
+                : undefined,
+            positionTooltip: position
+                ? position.getAttribute('data-tooltip')
+                : undefined,
+            previousDisabled: previous ? previous.disabled : undefined,
+            nextDisabled: next ? next.disabled : undefined,
+            latestDisabled: latest ? latest.disabled : undefined,
+            workingHidden: working ? working.hidden : undefined,
+        };
+    }
+
+    function restoreOptionalAttribute(element, name, value) {
+        if (!element) {
+            return;
+        }
+        if (typeof value === 'string') {
+            element.setAttribute(name, value);
+        } else {
+            element.removeAttribute(name);
+        }
+    }
+
+    function restoreFramePresentation(frame) {
+        var presentation = frame && frame.presentation;
+        if (!presentation) {
+            return;
+        }
+        if (conversationDisplayName
+            && typeof presentation.displayName === 'string') {
+            conversationDisplayName.textContent = presentation.displayName;
+        }
+        if (conversationWorkspaceName
+            && typeof presentation.workspaceName === 'string') {
+            conversationWorkspaceName.textContent = presentation.workspaceName;
+        }
+        if (conversationTaskName) {
+            if (typeof presentation.taskName === 'string') {
+                conversationTaskName.textContent = presentation.taskName;
+            }
+            if (typeof presentation.taskNameHidden === 'boolean') {
+                conversationTaskName.hidden = presentation.taskNameHidden;
+            }
+        }
+        if (conversationTaskSeparator
+            && typeof presentation.taskSeparatorHidden === 'boolean') {
+            conversationTaskSeparator.hidden = presentation.taskSeparatorHidden;
+        }
+        if (position && typeof presentation.positionText === 'string') {
+            var value = position.querySelector(
+                '[data-conversation-position-value]'
+            );
+            if (value) {
+                value.textContent = presentation.positionText;
+            } else {
+                position.textContent = presentation.positionText;
+            }
+            restoreOptionalAttribute(position, 'title', presentation.positionTitle);
+            restoreOptionalAttribute(
+                position,
+                'aria-label',
+                presentation.positionAriaLabel
+            );
+            restoreOptionalAttribute(
+                position,
+                'data-tooltip',
+                presentation.positionTooltip
+            );
+        }
+        if (previous && typeof presentation.previousDisabled === 'boolean') {
+            previous.disabled = presentation.previousDisabled;
+        }
+        if (next && typeof presentation.nextDisabled === 'boolean') {
+            next.disabled = presentation.nextDisabled;
+        }
+        if (latest && typeof presentation.latestDisabled === 'boolean') {
+            latest.disabled = presentation.latestDisabled;
+        }
+        if (working && typeof presentation.workingHidden === 'boolean') {
+            working.hidden = presentation.workingHidden;
+        }
+    }
+
     // Stash the live conversation as a detached frame before a session
     // switch resets the viewer state. Only a fully applied page is
     // stashable; the content token is what makes the frame trustworthy.
@@ -1832,6 +1992,7 @@
             scrollTop: scrollTop,
             anchor: anchor,
             followingEnd: followingEnd,
+            presentation: captureFramePresentation(),
             selectedInteractionId: restoreTarget
                 ? restoreTarget.interactionId
                 : undefined,
@@ -1868,6 +2029,7 @@
         if (outgoing) {
             // A rapid B -> C handoff arrived while B was only a preview.
             // Put the actual A document back before stashing it under A.
+            restoreFramePresentation(outgoing);
             messages.replaceChildren.apply(messages, outgoing.nodes);
         }
         frameCache.set(previewFrame.key, previewFrame.frame);
@@ -1900,6 +2062,10 @@
             return false;
         }
         previewFrame = { key: key, frame: frame };
+        // A preflight is visual only. Its cached transcript/header may be
+        // shown immediately, but the live cursors and reconciliation maps
+        // remain owned by the authoritative session until its page applies.
+        restoreFramePresentation(frame);
         messages.replaceChildren.apply(messages, frame.nodes);
         if (frame.followingEnd) {
             reconcileController.scrollToEnd();
@@ -1939,6 +2105,7 @@
         state.messageIds = frame.messageIds;
         state.messageSignatures = frame.messageSignatures;
         state.worklogExpanded = frame.worklogExpanded;
+        restoreFramePresentation(frame);
     }
 
     function acknowledgePage(message) {

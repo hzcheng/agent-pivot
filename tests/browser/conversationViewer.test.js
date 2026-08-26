@@ -18368,6 +18368,59 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles an unavailable earlier-
     ).length, 1, 'an unavailable boundary must not re-enter a loading loop');
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 releases an unanswered earlier-page request for retry', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 30, 0),
+        htmlSignature: 'sig-unanswered-earlier-page',
+        previousCursor: 'cursor-1',
+        earlierPageCursor: 'cursor-1',
+        outline: progressiveOutline(30),
+        selectedInteractionId: 'msg-29',
+        selectedInput: 29,
+        totalInputs: 30,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-unanswered-earlier-page'
+    ));
+    await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.scrollTop = 0;
+        scroll.dispatchEvent(new Event('scroll'));
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ));
+
+    // This deliberately uses the real Webview timer. Replacing window's
+    // global timers changes unrelated presentation scheduling and cannot
+    // prove that a user-visible request is actually released.
+    await page.waitForFunction(() => document.querySelector(
+        '[data-conversation-status]'
+    ).textContent === 'Loading earlier messages timed out. Try again.', {
+        timeout: 10_000,
+    });
+    await page.evaluate(() => {
+        document.querySelector('[data-conversation-scroll]').dispatchEvent(
+            new Event('wheel')
+        );
+    });
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ).length, 2, 'the timeout must release the request for a retry');
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests earlier history when a short page starts at top', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, {

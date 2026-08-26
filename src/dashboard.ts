@@ -2112,11 +2112,11 @@ async function initializeDashboard(
             conversationSessionRebindRestoreTask,
         ])
     ));
-    const focusAiSessionAndFollowConversation = (target: {
+    const focusAiSessionAndNavigateConversation = (target: {
         projectId: string;
         provider: AiSessionProviderId;
         sessionId: string;
-    }): Promise<void> => {
+    }, openWhenClosed: boolean): Promise<void> => {
         const intent = beginConversationNavigationIntent();
         return sessionNavigationCoordinator.enqueueLatest(async () => {
         const startedAt = Date.now();
@@ -2140,14 +2140,20 @@ async function initializeDashboard(
             if (focused && intent === conversationNavigationIntent) {
                 const conversationStartedAt = Date.now();
                 try {
-                    await conversationCapability.followActiveConversation(target);
+                    if (openWhenClosed) {
+                        await conversationCapability.openLatestActiveConversation(target);
+                    } else {
+                        await conversationCapability.followActiveConversation(target);
+                    }
                 } catch (error) {
                     conversationMs = Date.now() - conversationStartedAt;
                     outcome = 'conversation-error';
                     throw error;
                 }
                 conversationMs = Date.now() - conversationStartedAt;
-                outcome = 'conversation-followed';
+                outcome = openWhenClosed
+                    ? 'conversation-opened'
+                    : 'conversation-followed';
             } else if (focused) {
                 outcome = 'superseded';
             } else {
@@ -2167,19 +2173,39 @@ async function initializeDashboard(
         }
         });
     };
+    const focusAiSessionAndFollowConversation = (target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): Promise<void> => focusAiSessionAndNavigateConversation(target, false);
+    const focusAiSessionAndOpenConversation = (target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): Promise<void> => focusAiSessionAndNavigateConversation(target, true);
     const conversationHandlers = {
         'open-active-ai-session-conversation': async (e: Record<string, unknown>) => {
-            if (e.version !== 1
+            const focusTerminal = e.version === 2 && e.focusTerminal === true;
+            if ((e.version !== 1 && !focusTerminal)
                 || (e.provider !== 'codex' && e.provider !== 'kimi' && e.provider !== 'claude')
                 || typeof e.projectId !== 'string' || !e.projectId.trim()
                 || typeof e.sessionId !== 'string' || !e.sessionId.trim()) {
                 return;
             }
-            await openAiSessionConversationWithFeedback({
+            const target: {
+                projectId: string;
+                provider: AiSessionProviderId;
+                sessionId: string;
+            } = {
                 projectId: e.projectId,
                 provider: e.provider,
                 sessionId: e.sessionId,
-            });
+            };
+            if (focusTerminal) {
+                await focusAiSessionAndOpenConversation(target);
+                return;
+            }
+            await openAiSessionConversationWithFeedback(target);
         },
     };
     const projectHandlers = createProjectMessageHandlers({

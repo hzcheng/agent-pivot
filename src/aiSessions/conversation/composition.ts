@@ -502,34 +502,126 @@ function createAvailableConversationCapability(
     ): Promise<boolean> => queueFocus(() => {
         viewer.focus();
     }, isCurrent);
+    const followOpenConversation = async (
+        target: ConversationSessionOpenTarget,
+        reveal: boolean,
+        showFollowFailure: boolean
+    ): Promise<FollowActiveConversationResult> => {
+        if (!viewer.isOpen()) {
+            return 'closed';
+        }
+        const intent = beginViewerIntent();
+        const currentTarget = viewer.getCurrentTarget();
+        if (currentTarget
+            && hasSameConversationSession(currentTarget, target)) {
+            // This is a new navigation intent, even though it resolves to
+            // the already-authoritative session. Let the Viewer cancel a
+            // pending preflight for another session, then keep the retained
+            // document without waiting for or parsing a second snapshot.
+            viewer.previewSession?.(target);
+            terminalAuthority.confirmedTarget =
+                cloneConversationViewerTarget(currentTarget);
+            if (reveal) {
+                viewer.focus();
+            }
+            return 'opened';
+        }
+        const preview = viewer.previewSession?.(target);
+        let followedSuccessfully = false;
+        try {
+            const resolution = await resolveLatestConversationTarget(
+                options,
+                coordinator,
+                target,
+                undefined,
+                undefined,
+                snapshotWarmup,
+                intent.signal
+            );
+            if (!intent.isCurrent()) {
+                return 'superseded';
+            }
+            if (resolution.result !== 'opened') {
+                if (showFollowFailure) {
+                    reportFollowFailure(
+                        options.onDiagnostic,
+                        target.provider,
+                        resolution.result,
+                        resolution.diagnostic
+                    );
+                    viewer.showNotice(
+                        conversationFollowNoticeText(resolution.result)
+                    );
+                }
+                return resolution.result;
+            }
+            if (!viewer.isOpen()) {
+                return 'closed';
+            }
+            const follow = viewer.follow(
+                resolution.viewerTarget,
+                resolution.snapshot
+            );
+            snapshotWarmup?.prepareAfterTargetSet(
+                resolution.viewerTarget,
+                viewer
+            );
+            const followed = await follow;
+            if (followed) {
+                snapshotWarmup?.afterLoad(
+                    resolution.viewerTarget,
+                    resolution.prefetchedSnapshot === true,
+                    viewer
+                );
+                const current = viewer.getCurrentTarget();
+                terminalAuthority.confirmedTarget =
+                    cloneConversationViewerTarget(
+                        current
+                            && hasSameConversationSession(
+                                current,
+                                resolution.viewerTarget
+                            )
+                            ? current
+                            : resolution.viewerTarget
+                    );
+                followedSuccessfully = true;
+                if (reveal) {
+                    viewer.focus();
+                }
+            }
+            return followed ? 'opened' : 'closed';
+        } finally {
+            if (!followedSuccessfully) {
+                preview?.dispose();
+            }
+        }
+    };
+    const openConversation = async (
+        target: ConversationSessionOpenTarget
+    ): Promise<OpenLatestConversationResult> => {
+        if (viewer.isOpen() && viewer.getCurrentTarget()) {
+            const result = await followOpenConversation(target, true, false);
+            return result === 'closed' ? 'superseded' : result;
+        }
+        const intent = beginViewerIntent();
+        return openLatestConversation(
+            options,
+            coordinator,
+            viewer,
+            target,
+            intent.isCurrent,
+            snapshotWarmup,
+            intent.signal
+        );
+    };
     return {
         viewer,
         availability: 'available',
-        openLatestConversation: target => {
-            const intent = beginViewerIntent();
-            return openLatestConversation(
-                options,
-                coordinator,
-                viewer,
-                target,
-                intent.isCurrent,
-                snapshotWarmup,
-                intent.signal
-            );
-        },
+        openLatestConversation: target => openConversation(target),
         async openLatestActiveConversation(
             target: ConversationSessionOpenTarget
         ): Promise<OpenLatestConversationResult> {
-            const intent = beginViewerIntent();
-            const result = await openLatestConversation(
-                options,
-                coordinator,
-                viewer,
-                target,
-                intent.isCurrent,
-                snapshotWarmup,
-                intent.signal
-            );
+            const result = await openConversation(target);
             if (result === 'opened') {
                 const currentTarget = viewer.getCurrentTarget();
                 if (currentTarget
@@ -543,87 +635,7 @@ function createAvailableConversationCapability(
         async followActiveConversation(
             target: ConversationSessionOpenTarget
         ): Promise<FollowActiveConversationResult> {
-            if (!viewer.isOpen()) {
-                return 'closed';
-            }
-            const intent = beginViewerIntent();
-            const currentTarget = viewer.getCurrentTarget();
-            if (currentTarget
-                && hasSameConversationSession(currentTarget, target)) {
-                // This is a new navigation intent, even though it resolves to
-                // the already-authoritative session. Let the Viewer cancel a
-                // pending preflight for another session, then keep the
-                // retained document without waiting for or parsing a second
-                // snapshot.
-                viewer.previewSession?.(target);
-                terminalAuthority.confirmedTarget =
-                    cloneConversationViewerTarget(currentTarget);
-                return 'opened';
-            }
-            const preview = viewer.previewSession?.(target);
-            let followedSuccessfully = false;
-            try {
-                const resolution = await resolveLatestConversationTarget(
-                    options,
-                    coordinator,
-                    target,
-                    undefined,
-                    undefined,
-                    snapshotWarmup,
-                    intent.signal
-                );
-                if (!intent.isCurrent()) {
-                    return 'superseded';
-                }
-                if (resolution.result !== 'opened') {
-                    reportFollowFailure(
-                        options.onDiagnostic,
-                        target.provider,
-                        resolution.result,
-                        resolution.diagnostic
-                    );
-                    viewer.showNotice(
-                        conversationFollowNoticeText(resolution.result)
-                    );
-                    return resolution.result;
-                }
-                if (!viewer.isOpen()) {
-                    return 'closed';
-                }
-                const follow = viewer.follow(
-                    resolution.viewerTarget,
-                    resolution.snapshot
-                );
-                snapshotWarmup?.prepareAfterTargetSet(
-                    resolution.viewerTarget,
-                    viewer
-                );
-                const followed = await follow;
-                if (followed) {
-                    snapshotWarmup?.afterLoad(
-                        resolution.viewerTarget,
-                        resolution.prefetchedSnapshot === true,
-                        viewer
-                    );
-                    const currentTarget = viewer.getCurrentTarget();
-                    terminalAuthority.confirmedTarget =
-                        cloneConversationViewerTarget(
-                            currentTarget
-                                && hasSameConversationSession(
-                                    currentTarget,
-                                    resolution.viewerTarget
-                                )
-                                ? currentTarget
-                                : resolution.viewerTarget
-                        );
-                    followedSuccessfully = true;
-                }
-                return followed ? 'opened' : 'closed';
-            } finally {
-                if (!followedSuccessfully) {
-                    preview?.dispose();
-                }
-            }
+            return followOpenConversation(target, false, true);
         },
         async followAdjacentActiveConversation(
             direction: ConversationSessionSwitchDirection

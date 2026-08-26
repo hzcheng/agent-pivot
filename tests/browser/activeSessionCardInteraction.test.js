@@ -2816,18 +2816,14 @@ test('ACTIVE-SESSION-CONVERSATION-OPEN-001 a single click focuses and opens an a
     ]);
 
     await row(page, 'kimi', 'session-b').locator('.ai-session-primary-action').click();
-    assert.deepEqual((await postedMessages(page)).slice(-2), [{
-        type: 'focus-ai-session-terminal',
-        projectId: 'project-a',
-        provider: 'kimi',
-        sessionId: 'session-b',
-    }, {
+    assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'open-active-ai-session-conversation',
-        version: 1,
+        version: 2,
         projectId: 'project-a',
         provider: 'kimi',
         sessionId: 'session-b',
-    }], 'a single click focuses the terminal and opens the conversation');
+        focusTerminal: true,
+    }, 'a single click sends one atomic terminal-and-Conversation navigation request');
 
     await row(page, 'codex', 'session-a').locator('.ai-session-primary-action').click();
     assert.deepEqual((await postedMessages(page)).at(-1), {

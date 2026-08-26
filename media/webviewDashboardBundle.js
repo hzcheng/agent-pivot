@@ -7523,28 +7523,20 @@ function getAiSessionCardActivation(target, projectId) {
             };
         }
         // A single click on an active-but-unfocused card both brings its
-        // terminal to the front and opens the conversation: the previous
-        // two-step (focus first, open on the next click) left users who
-        // closed the panel wondering why nothing opened. The focus message
-        // comes first so the terminal is visible before the panel reveals.
+        // terminal to the front and opens the conversation. Keep this as one
+        // correlated host transaction: two independent messages could race
+        // and the trailing open needlessly replace the Conversation document.
         return {
             handled: true,
             sessionRow: activationSessionRow,
-            message: [
-                {
-                    type: 'focus-ai-session-terminal',
-                    projectId: projectId,
-                    provider: provider,
-                    sessionId: sessionId,
-                },
-                {
-                    type: 'open-active-ai-session-conversation',
-                    version: 1,
-                    projectId: projectId,
-                    provider: provider,
-                    sessionId: sessionId,
-                },
-            ],
+            message: {
+                type: 'open-active-ai-session-conversation',
+                version: 2,
+                projectId: projectId,
+                provider: provider,
+                sessionId: sessionId,
+                focusTerminal: true,
+            },
         };
     }
     return {

@@ -1199,18 +1199,30 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
 
     await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-a1'));
 
-    // A speculative cache miss leaves the outgoing conversation alone. The
-    // ordinary loading notice still owns the visual state once the Host has
-    // resolved the target, so uncached sessions do not feel slower.
+    // A speculative cache miss keeps the outgoing conversation in place, but
+    // immediately exposes the same reversible loading state as a cache hit.
+    // Terminal focus may still fail, in which case the Host cancels it.
     await sendPage(page, loadingNotice(3, 'session-beta', true));
+    assert.deepEqual(await loadingState(), {
+        status: 'Loading conversation…', loading: 'true', preview: null,
+        ariaBusy: 'true', ariaDisabled: 'true', busy: 'true', content: 'alpha',
+    });
+
+    await sendPage(page, {
+        type: 'conversation-viewer-loading-cancel',
+        version: 1,
+        subscriptionGeneration: 3,
+        target: {
+            projectId: 'project-1', provider: 'codex', sessionId: 'session-beta',
+        },
+    });
     assert.deepEqual(await loadingState(), {
         status: '', loading: null, preview: null, ariaBusy: null,
         ariaDisabled: null, busy: null, content: 'alpha',
-    });
+    }, 'an uncached cancelled preflight must restore the interactive alpha frame');
 
-    // The Host reuses the panel for a different session: the outgoing
-    // content stays visible under a lightweight loading state until the
-    // incoming session's first publication lands.
+    // The authoritative application reuses the existing loading state until
+    // the incoming session's first publication lands.
     await sendPage(page, loadingNotice(3, 'session-beta'));
     assert.deepEqual(await loadingState(), {
         status: 'Loading conversation…',
@@ -1251,6 +1263,34 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
         busy: null,
         content: 'beta',
     });
+
+    // A newer preflight can overlay an older authoritative page that is
+    // still in flight. That old page must neither clear the newer loading
+    // state nor evict its cached frame; cancelling the newer intent resumes
+    // the original authoritative loading state.
+    await sendPage(page, loadingNotice(4, 'session-gamma'));
+    await sendPage(page, loadingNotice(5, 'session-alpha', true));
+    await sendPage(page, {
+        ...sessionPage(4, 'session-gamma', 'gamma', 'sig-g1'),
+        stale: true,
+    });
+    assert.deepEqual(await loadingState(), {
+        status: 'Loading conversation…', loading: 'true', preview: 'true',
+        ariaBusy: 'true', ariaDisabled: 'true', busy: 'true', content: 'alpha',
+    }, 'an older page cannot erase a newer cached preflight');
+    await sendPage(page, {
+        type: 'conversation-viewer-loading-cancel',
+        version: 1,
+        subscriptionGeneration: 5,
+        target: {
+            projectId: 'project-1', provider: 'codex', sessionId: 'session-alpha',
+        },
+    });
+    assert.deepEqual(await loadingState(), {
+        status: 'Conversation history may be out of date.',
+        loading: null, preview: null,
+        ariaBusy: null, ariaDisabled: null, busy: null, content: 'gamma',
+    }, 'cancelling the overlay reveals the now-complete authoritative page interactively');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session before its Host page returns', async t => {
@@ -4831,7 +4871,13 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '    // document if that speculative read is superseded or fails.\n'
                 + '    var loadingTarget;\n'
                 + '    var loadingGeneration = 0;\n'
-                + '    var loadingStatusText;\n',
+                + '    var loadingStatusText;\n'
+                + '    var loadingPreflight = false;\n'
+                + '    // A speculative target can temporarily cover an already-authoritative\n'
+                + '    // load. Keep the underlying load presentation so cancelling the\n'
+                + '    // speculation resumes it instead of incorrectly making the old document\n'
+                + '    // interactive while its Host transition is still pending.\n'
+                + '    var preflightLoadingRestore;\n',
             "    var conversationLoading = false;\n"
         )
         .replace(
@@ -4848,7 +4894,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '            provider: message.target.provider,\n'
                 + '            sessionId: message.target.sessionId,\n'
                 + '        };\n'
-                + '        loadingGeneration = message.subscriptionGeneration;\n',
+                + '        loadingGeneration = message.subscriptionGeneration;\n'
+                + '        loadingPreflight = message.preflight === true;\n',
             '        conversationLoading = true;\n'
         )
         .replace(
@@ -4862,13 +4909,32 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '                && previewFrame.key === preflightKey;\n'
                 + '            if (!preflightKey || (!alreadyPreviewed\n'
                 + '                && !frameCache.has(preflightKey))) {\n'
-                + '                // Do not make a cache miss look slower than it did before\n'
-                + '                // preflight existed. If this supersedes a prior hit, return\n'
-                + '                // that detached frame before keeping the outgoing document\n'
-                + '                // readable while the new Host read proceeds.\n'
-                + '                restoreCancelledPreflight();\n'
+                + '                // A cache miss cannot replace the document, but it must still\n'
+                + '                // make the click visible immediately. Keep the outgoing\n'
+                + '                // content in place under the same reversible loading state\n'
+                + '                // used for a committed target; cancellation restores it.\n'
+                + '                if (loadingPreflight) {\n'
+                + '                    restoreCancelledPreflight();\n'
+                + '                }\n'
+                + '            }\n'
+                + '            if (!loadingPreflight && conversationLoading) {\n'
+                + '                preflightLoadingRestore = {\n'
+                + '                    target: loadingTarget && Object.assign({}, loadingTarget),\n'
+                + '                    generation: loadingGeneration,\n'
+                + '                    statusText: loadingStatusText,\n'
+                + "                    framePreview: document.body.getAttribute(\n"
+                + "                        'data-conversation-frame-preview'\n"
+                + "                    ) === 'true',\n"
+                + '                };\n'
+                + '            }\n'
+                + '        } else if (loadingPreflight) {\n'
+                + '            if (message.subscriptionGeneration < loadingGeneration) {\n'
+                + '                // A still-running older Host load must not displace a newer\n'
+                + '                // optimistic target before its terminal focus resolves.\n'
                 + '                return true;\n'
                 + '            }\n'
+                + '            returnPreviewFrameToCache();\n'
+                + '            preflightLoadingRestore = undefined;\n'
                 + '        }\n',
             ''
         )
@@ -4880,8 +4946,39 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             '        conversationLoading = false;\n'
                 + '        loadingTarget = undefined;\n'
                 + '        loadingGeneration = 0;\n'
-                + '        loadingStatusText = undefined;\n',
+                + '        loadingStatusText = undefined;\n'
+                + '        loadingPreflight = false;\n'
+                + '        preflightLoadingRestore = undefined;\n',
             '        conversationLoading = false;\n'
+        )
+        .replace(
+            '        var retainsNewerPreflight = loadingPreflight\n'
+                + '            && loadingGeneration > message.subscriptionGeneration;\n'
+                + '        if (!retainsNewerPreflight) {\n'
+                + '            clearConversationLoading();\n'
+                + '        } else {\n'
+                + '            // The older authoritative page is now complete beneath the\n'
+                + '            // preview. If the preview is cancelled later, reveal that stable\n'
+                + '            // page interactively rather than resurrecting its old spinner.\n'
+                + '            preflightLoadingRestore = undefined;\n'
+                + '        }\n',
+            '        clearConversationLoading();\n'
+        )
+        .replace(
+            '        if (retainsNewerPreflight && loadingTarget) {\n'
+                + '            // The covered authoritative page has recomputed its own status.\n'
+                + '            // Keep that text for a later preview cancellation instead of\n'
+                + '            // restoring a warning that belonged to the outgoing session.\n'
+                + '            loadingStatusText = status.textContent;\n'
+                + '            var preservedPreviewHit = previewCachedFrame(loadingTarget);\n'
+                + '            if (preservedPreviewHit) {\n'
+                + "                document.body.setAttribute('data-conversation-frame-preview', 'true');\n"
+                + '            } else {\n'
+                + "                document.body.removeAttribute('data-conversation-frame-preview');\n"
+                + '            }\n'
+                + "            status.textContent = 'Loading conversation…';\n"
+                + '        }\n',
+            ''
         )
         .replace(
             '        if (applyFollowNotice(event.data)) return;\n'
@@ -7130,7 +7227,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScriptWithoutAuxiliarySnapshots),
-        '12480eccea0518e9e134be1bd485460986570da5c7c5de9c46b3c89f0f281ab5',
+        '557834a9b3cc2135ace599b6968061ae5b9c5969055a65549f4993ac7e1c91a1',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(

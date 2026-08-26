@@ -509,6 +509,15 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
         file: 'src/dashboard.ts',
+        expectedDetail: 'Dashboard Chat-row intent must preserve the prior reversible preview until its replacement prepare starts',
+        mutate: source => source.replace(
+            'preservePreparedPreview: true,',
+            'preservePreparedPreview: false,',
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard.ts',
         expectedDetail: 'Dashboard Chat-row clicks must prepare once, then commit only through the shared latest-intent navigation transaction',
         mutate: source => source.replace(
             'conversationCapability.prepareActiveConversation(target, openWhenClosed)',
@@ -546,6 +555,15 @@ for (const mutation of [
         ).replace(
             'if (!conversationApplied) {\n                preparedConversation.cancel();\n            }\n',
             '',
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/aiSessions/conversation/composition.ts',
+        expectedDetail: 'Conversation preparation reversible Viewer preflight must exist exactly once',
+        mutate: source => source.replace(
+            '? viewer.previewSession?.(target)\n            : undefined;',
+            '? undefined\n            : undefined;',
         ),
     },
     {

@@ -353,6 +353,33 @@ function initProjects() {
     // window.__agentPivotWorktreeGroupRename).
     window.__agentPivotWorktreeGroupForm = worktreeGroupForm;
 
+    // Authoritative replacements detach the creation form's name input; an
+    // in-progress IME composition in that input would be aborted. While
+    // composing, queue the latest update per message type and replay them
+    // when the composition ends.
+    var deferredCompositionHostUpdates = [];
+
+    function queueDeferredCompositionHostUpdate(message) {
+        for (var index = 0; index < deferredCompositionHostUpdates.length; index++) {
+            if (deferredCompositionHostUpdates[index].type === message.type) {
+                deferredCompositionHostUpdates[index] = message;
+                return;
+            }
+        }
+        deferredCompositionHostUpdates.push(message);
+    }
+
+    worktreeGroupForm.onCompositionEnd(function () {
+        if (!deferredCompositionHostUpdates.length) {
+            return;
+        }
+        var pending = deferredCompositionHostUpdates;
+        deferredCompositionHostUpdates = [];
+        for (var index = 0; index < pending.length; index++) {
+            onWindowMessage({ data: pending[index] });
+        }
+    });
+
     function applyValidatedAiSessionPresentationState(message) {
         if (!aiSessionPresentationStateStore.adopt(message)) return;
         aiSessionPresentationDom.apply(message);
@@ -581,6 +608,12 @@ function initProjects() {
 
     function onWindowMessage(e) {
         var message = e && e.data;
+        if (message && (message.type === 'open-workspaces-updated'
+            || message.type === 'ai-sessions-updated')
+            && worktreeGroupForm.isComposing()) {
+            queueDeferredCompositionHostUpdate(message);
+            return;
+        }
         if (message && message.type === 'open-tab-layout-notice-dismissed') {
             var isNoticeSettlement = message.version === 1
                 && (message.outcome === 'dismissed' || message.outcome === 'failed')

@@ -772,6 +772,158 @@ test('WORKTREE-GROUPS-CREATE-UI-001 typing keeps focus and caret through authori
         'the caret survives the open-workspaces replacement');
 });
 
+test('WORKTREE-GROUPS-CREATE-UI-001 IME composition defers previews and re-renders until compositionend', async t => {
+    // Regression: typing a CJK name kept an in-flight IME composition in the
+    // name input; every debounced preview response rebuilt the form and
+    // detached that input, aborting the composition (candidate window died).
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page);
+
+    const input = page.locator('[data-group-form-name]');
+    await input.evaluate(element => element.focus());
+    await page.keyboard.type('Fix');
+    await page.waitForTimeout(350);
+    const previewRequest = (await postedMessages(page))
+        .filter(message => message.type === 'preview-worktree-group').at(-1);
+    assert.ok(previewRequest, 'a preview request was sent for the committed text');
+
+    // Start an IME composition: the preedit lives in the input but is not
+    // committed yet.
+    await input.evaluate(element => {
+        element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+        element.value = 'Fix ni';
+        element.dispatchEvent(new InputEvent('input', {
+            bubbles: true, isComposing: true,
+            inputType: 'insertCompositionText', data: 'ni',
+        }));
+    });
+    await page.waitForTimeout(400);
+    assert.equal((await postedMessages(page))
+        .some(message => message.type === 'preview-worktree-group'
+            && message.displayName === 'Fix ni'), false,
+        'preedit text is never sent for preview');
+
+    // A preview response arriving mid-composition must not rebuild the form.
+    await page.evaluate(() => {
+        window.__composingNameInput = document.querySelector('[data-group-form-name]');
+    });
+    await postHostMessage(page, {
+        type: 'worktree-group-preview',
+        version: 1,
+        requestId: previewRequest.requestId,
+        projectId: 'project-a',
+        previewId: 'preview-host-1',
+        slug: 'fix',
+        members: okMembers(),
+    });
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-group-form-name]') === window.__composingNameInput), true,
+        'a preview response mid-composition does not detach the composing input');
+    assert.equal(await input.inputValue(), 'Fix ni',
+        'the preedit text survives the deferred re-render');
+
+    // Commit the composition (value updates before compositionend, as in
+    // Chromium) and finish with the real trailing input event.
+    await input.evaluate(element => {
+        element.value = 'Fix 你';
+        element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '你' }));
+        element.dispatchEvent(new InputEvent('input', {
+            bubbles: true, isComposing: false, inputType: 'insertText', data: '你',
+        }));
+    });
+    assert.match(await page.locator('.ai-session-group-form-plan').textContent(),
+        /\/alpha\/\.worktrees\/fix-login/,
+        'the deferred render flushed on compositionend');
+    await page.waitForTimeout(350);
+    const committedPreview = (await postedMessages(page))
+        .filter(message => message.type === 'preview-worktree-group').at(-1);
+    assert.equal(committedPreview.displayName, 'Fix 你',
+        'the committed composition text is previewed');
+    assert.equal(await page.locator('[data-group-form-name]').inputValue(), 'Fix 你');
+});
+
+test('WORKTREE-GROUPS-CREATE-UI-001 authoritative replacements wait for the IME composition to end', async t => {
+    // Regression: ai-sessions-updated / open-workspaces-updated replace the
+    // subtree hosting the form slot; applying them mid-composition detached
+    // the composing input and aborted the IME session.
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page);
+
+    const input = page.locator('[data-group-form-name]');
+    await input.evaluate(element => element.focus());
+    await page.keyboard.type('Fix');
+    await input.evaluate(element => {
+        element.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+        element.value = 'Fix ni';
+        element.dispatchEvent(new InputEvent('input', {
+            bubbles: true, isComposing: true,
+            inputType: 'insertCompositionText', data: 'ni',
+        }));
+    });
+    await page.evaluate(() => {
+        window.__composingNameInput = document.querySelector('[data-group-form-name]');
+    });
+
+    await postHostMessage(page, {
+        type: 'ai-sessions-updated',
+        version: 3,
+        sequence: 1,
+        projectionRevision: 1,
+        generatedAt: '2026-08-17T00:00:00.000Z',
+        currentWorkspaceCount: 1,
+        html: currentGroupHtml(),
+        searchCatalog: {
+            version: 3, sessions: [], worktrees: [], openWorkspaces: [],
+            savedProjects: [], todos: [],
+        },
+        presentation: presentationMessage(1),
+    });
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-group-form-name]') === window.__composingNameInput), true,
+        'the ai-sessions replacement is deferred while composing');
+
+    await postHostMessage(page, {
+        type: 'open-workspaces-updated',
+        version: 4,
+        semanticRevision: 'form-composition-1',
+        projectionRevision: 2,
+        windowRowCount: 1,
+        currentWindowRowCount: 1,
+        navigationWindowRowCount: 0,
+        currentDetailCount: 1,
+        otherWindowsStatus: 'ready',
+        html: openWindowSwitcherHtml() + currentGroupHtml(),
+        searchCatalog: {
+            version: 3, sessions: [], worktrees: [],
+            openWorkspaces: [{ identity: 'project-a' }], savedProjects: [], todos: [],
+        },
+        presentation: presentationMessage(2),
+    });
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('[data-group-form-name]') === window.__composingNameInput), true,
+        'the open-workspaces replacement is deferred while composing');
+    assert.equal(await input.inputValue(), 'Fix ni',
+        'the preedit text survives both deferred replacements');
+
+    await input.evaluate(element => {
+        element.value = 'Fix 你好';
+        element.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '你好' }));
+        element.dispatchEvent(new InputEvent('input', {
+            bubbles: true, isComposing: false, inputType: 'insertText', data: '你好',
+        }));
+    });
+    await page.waitForFunction(() =>
+        document.querySelector('[data-group-form-name]')
+        && document.querySelector('[data-group-form-name]') !== window.__composingNameInput,
+        'the queued replacements replay once the composition ends');
+    assert.equal(await page.locator('[data-group-form-name]').inputValue(), 'Fix 你好',
+        'the replayed replacements keep the committed name');
+    assert.equal(await page.evaluate(() =>
+        document.activeElement
+        && document.activeElement.hasAttribute('data-group-form-name')), true,
+        'the name input is focused again after the replayed replacements');
+});
+
 test('WORKTREE-GROUPS-CREATE-UI-001 the form survives external DOM replacement and its slot scrolls', async t => {
     const page = await openFormPage(t);
     await openBootstrappedForm(page);

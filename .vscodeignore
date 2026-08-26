@@ -9,6 +9,7 @@ AGENTS.md
 .ci/**
 .superpowers/**
 .worktree/**
+.worktrees/**
 docs/**
 docs/superpowers/**
 tests/**

@@ -56,6 +56,7 @@ import {
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
+import { appendConversationHistoryRestartPoint } from './historyRestartPoints';
 import {
     isSubagentId,
     splitSubagentSessionId,
@@ -791,7 +792,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     )) {
                         return;
                     }
-                    restartPoints.push({
+                    appendConversationHistoryRestartPoint(restartPoints, {
                         offset: record.offset,
                         interactionId: event.uuid,
                     });

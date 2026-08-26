@@ -65,6 +65,7 @@ import {
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
+import { appendConversationHistoryRestartPoint } from './historyRestartPoints';
 import type {
     ConversationWorktreeInfo,
     ResolveWorktree,
@@ -812,7 +813,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         if (interactions.some(interaction => interaction.id === id)) {
                             return;
                         }
-                        restartPoints.push({ offset: record.offset, interactionId: id });
+                        appendConversationHistoryRestartPoint(restartPoints, {
+                            offset: record.offset,
+                            interactionId: id,
+                        });
                         interactions.push({
                             id,
                             timestamp: timestampValue(envelope?.timestamp),

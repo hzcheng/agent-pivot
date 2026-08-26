@@ -39,6 +39,7 @@ import {
 } from './kimiAdapter';
 import {
     ConversationAbortController,
+    ConversationAbortSignal,
     ConversationError,
     ConversationProviderAdapter,
     ConversationSnapshot,
@@ -407,6 +408,31 @@ function createAvailableConversationCapability(
         },
         isCurrent
     );
+    let viewerIntentGeneration = 0;
+    let viewerIntentAbortController: ConversationAbortController | undefined;
+    let disposed = false;
+    const beginViewerIntent = (): {
+        isCurrent: () => boolean;
+        signal: ConversationAbortSignal;
+    } => {
+        const intentGeneration = ++viewerIntentGeneration;
+        const previousAbortController = viewerIntentAbortController;
+        const abortController = new ConversationAbortController();
+        viewerIntentAbortController = abortController;
+        // Provider reads can be substantially more expensive than applying a
+        // cached frame. Do not merely ignore an obsolete completion: release
+        // the provider/Host work as soon as a newer switch wins.
+        previousAbortController?.abort();
+        return {
+            isCurrent: () => !disposed
+                && intentGeneration === viewerIntentGeneration
+                && viewerIntentAbortController === abortController,
+            signal: abortController.signal,
+        };
+    };
+    const terminalAuthority: {
+        confirmedTarget?: ConversationViewerTarget;
+    } = {};
     const viewer = ownership.own(factories.createViewer({
         createPanel: options.createPanel,
         readSnapshot: typeof coordinator.readSnapshot === 'function'
@@ -447,17 +473,18 @@ function createAvailableConversationCapability(
             }
             : undefined,
         followAdjacentConversation: (direction, currentTarget) => {
-            const intentGeneration = ++viewerIntentGeneration;
+            const intent = beginViewerIntent();
             return followAdjacentConversation(
                 options,
                 coordinator,
                 viewer,
                 direction,
                 currentTarget,
-                () => intentGeneration === viewerIntentGeneration,
+                intent.isCurrent,
                 queueTerminalFocus,
                 terminalAuthority,
-                snapshotWarmup
+                snapshotWarmup,
+                intent.signal
             );
         },
         setKeyboardFocus: options.setConversationFocusContext,
@@ -475,36 +502,33 @@ function createAvailableConversationCapability(
     ): Promise<boolean> => queueFocus(() => {
         viewer.focus();
     }, isCurrent);
-    const terminalAuthority: {
-        confirmedTarget?: ConversationViewerTarget;
-    } = {};
-    let viewerIntentGeneration = 0;
-    let disposed = false;
     return {
         viewer,
         availability: 'available',
         openLatestConversation: target => {
-            const intentGeneration = ++viewerIntentGeneration;
+            const intent = beginViewerIntent();
             return openLatestConversation(
                 options,
                 coordinator,
                 viewer,
                 target,
-                () => intentGeneration === viewerIntentGeneration,
-                snapshotWarmup
+                intent.isCurrent,
+                snapshotWarmup,
+                intent.signal
             );
         },
         async openLatestActiveConversation(
             target: ConversationSessionOpenTarget
         ): Promise<OpenLatestConversationResult> {
-            const intentGeneration = ++viewerIntentGeneration;
+            const intent = beginViewerIntent();
             const result = await openLatestConversation(
                 options,
                 coordinator,
                 viewer,
                 target,
-                () => intentGeneration === viewerIntentGeneration,
-                snapshotWarmup
+                intent.isCurrent,
+                snapshotWarmup,
+                intent.signal
             );
             if (result === 'opened') {
                 const currentTarget = viewer.getCurrentTarget();
@@ -522,7 +546,7 @@ function createAvailableConversationCapability(
             if (!viewer.isOpen()) {
                 return 'closed';
             }
-            const intentGeneration = ++viewerIntentGeneration;
+            const intent = beginViewerIntent();
             const preview = viewer.previewSession?.(target);
             let followedSuccessfully = false;
             try {
@@ -532,9 +556,10 @@ function createAvailableConversationCapability(
                     target,
                     undefined,
                     undefined,
-                    snapshotWarmup
+                    snapshotWarmup,
+                    intent.signal
                 );
-                if (intentGeneration !== viewerIntentGeneration) {
+                if (!intent.isCurrent()) {
                     return 'superseded';
                 }
                 if (resolution.result !== 'opened') {
@@ -594,9 +619,8 @@ function createAvailableConversationCapability(
             if (!currentTarget) {
                 return viewer.isOpen() ? 'inactive' : 'closed';
             }
-            const intentGeneration = ++viewerIntentGeneration;
-            const isCurrent = () =>
-                intentGeneration === viewerIntentGeneration;
+            const intent = beginViewerIntent();
+            const isCurrent = intent.isCurrent;
             try {
                 return await followAdjacentConversation(
                     options,
@@ -607,7 +631,8 @@ function createAvailableConversationCapability(
                     isCurrent,
                     queueTerminalFocus,
                     terminalAuthority,
-                    snapshotWarmup
+                    snapshotWarmup,
+                    intent.signal
                 );
             } finally {
                 // A terminal focus from an older Webview switch may already
@@ -629,7 +654,7 @@ function createAvailableConversationCapability(
                 panel.dispose();
                 return;
             }
-            const intentGeneration = ++viewerIntentGeneration;
+            const intent = beginViewerIntent();
             const reboundTarget = options.resolveReboundTarget?.(savedTarget)
                 || savedTarget;
             const reboundRootChanged = reboundTarget.projectId
@@ -642,9 +667,10 @@ function createAvailableConversationCapability(
                 reboundTarget,
                 savedTarget.interactionId,
                 reboundRootChanged ? undefined : savedTarget.subagentId,
-                snapshotWarmup
+                snapshotWarmup,
+                intent.signal
             );
-            if (disposed || intentGeneration !== viewerIntentGeneration
+            if (!intent.isCurrent()
                 || !resolution.viewerTarget) {
                 panel.dispose();
                 return;
@@ -720,6 +746,8 @@ function createAvailableConversationCapability(
             }
             disposed = true;
             viewerIntentGeneration += 1;
+            viewerIntentAbortController?.abort();
+            viewerIntentAbortController = undefined;
             ownership.dispose();
         },
     };
@@ -798,7 +826,8 @@ async function openLatestConversation(
     viewer: ConversationViewerApi,
     target: ConversationSessionOpenTarget,
     isCurrent: () => boolean,
-    snapshotWarmup?: ConversationSnapshotWarmup
+    snapshotWarmup?: ConversationSnapshotWarmup,
+    signal?: ConversationAbortSignal
 ): Promise<OpenLatestConversationResult> {
     const preview = viewer.previewSession?.(target);
     let opened = false;
@@ -809,7 +838,8 @@ async function openLatestConversation(
             target,
             undefined,
             undefined,
-            snapshotWarmup
+            snapshotWarmup,
+            signal
         );
         if (resolution.result === 'unavailable' && isCurrent()) {
             resolution = await resolveLatestConversationTarget(
@@ -818,7 +848,8 @@ async function openLatestConversation(
                 target,
                 undefined,
                 undefined,
-                snapshotWarmup
+                snapshotWarmup,
+                signal
             );
         }
         if (!isCurrent()) {
@@ -862,6 +893,43 @@ type LatestConversationTargetResolution =
         diagnostic?: Partial<SanitizedConversationDiagnostic>;
     };
 
+function awaitAbortableRead<T>(
+    read: Promise<T>,
+    signal?: ConversationAbortSignal
+): Promise<T> {
+    if (!signal) {
+        return read;
+    }
+    if (signal.aborted) {
+        return Promise.reject(new Error('Conversation navigation was superseded'));
+    }
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let abortSubscription: AiSessionDisposable | undefined;
+        const settle = (operation: () => void): void => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            abortSubscription?.dispose();
+            operation();
+        };
+        abortSubscription = signal.onAbort(() => settle(() => {
+            reject(new Error('Conversation navigation was superseded'));
+        }));
+        void Promise.resolve(read).then(
+            result => settle(() => {
+                if (signal.aborted) {
+                    reject(new Error('Conversation navigation was superseded'));
+                    return;
+                }
+                resolve(result);
+            }),
+            error => settle(() => reject(error))
+        );
+    });
+}
+
 async function followAdjacentConversation(
     options: ConversationCapabilityOptions,
     coordinator: ConversationCoordinator,
@@ -876,7 +944,8 @@ async function followAdjacentConversation(
     terminalAuthority?: {
         confirmedTarget?: ConversationViewerTarget;
     },
-    snapshotWarmup?: ConversationSnapshotWarmup
+    snapshotWarmup?: ConversationSnapshotWarmup,
+    signal?: ConversationAbortSignal
 ): Promise<FollowAdjacentConversationResult> {
     if (!viewer.isOpen()) {
         return 'closed';
@@ -932,7 +1001,8 @@ async function followAdjacentConversation(
             target,
             undefined,
             undefined,
-            snapshotWarmup
+            snapshotWarmup,
+            signal
         );
         if (!isCurrent()) {
             return 'superseded';
@@ -1355,8 +1425,12 @@ async function resolveLatestConversationTarget(
     target: ConversationSessionOpenTarget,
     preferredInteractionId?: string,
     subagentId?: string,
-    snapshotWarmup?: ConversationSnapshotWarmup
+    snapshotWarmup?: ConversationSnapshotWarmup,
+    signal?: ConversationAbortSignal
 ): Promise<LatestConversationTargetResolution> {
+    if (signal?.aborted) {
+        return { result: 'unavailable' };
+    }
     const authoritativeTarget = resolveExactTarget(options, target);
     if (!authoritativeTarget) {
         return {
@@ -1374,15 +1448,22 @@ async function resolveLatestConversationTarget(
     if (subagentId) {
         let subagents;
         try {
-            subagents = await coordinator.readSubagents(
-                target.provider,
-                target.sessionId
+            subagents = await awaitAbortableRead(
+                coordinator.readSubagents(
+                    target.provider,
+                    target.sessionId,
+                    signal
+                ),
+                signal
             );
         } catch (_error) {
             return {
                 result: 'unavailable',
                 diagnostic: conversationFollowDiagnosticBase(target),
             };
+        }
+        if (!subagents || signal?.aborted) {
+            return { result: 'unavailable' };
         }
         const authoritativeSubagent = subagents.find(entry =>
             entry.id === subagentId
@@ -1411,8 +1492,11 @@ async function resolveLatestConversationTarget(
             ? snapshotWarmup?.take(target.provider, effectiveSessionId)
             : undefined;
         const resolvedWarmSnapshot = warmSnapshot
-            ? await warmSnapshot
+            ? await awaitAbortableRead(warmSnapshot, signal)
             : undefined;
+        if (signal?.aborted) {
+            return { result: 'unavailable' };
+        }
         if (warmSnapshot && !resolvedWarmSnapshot
             && snapshotWarmup?.isDisposed()) {
             return {
@@ -1435,19 +1519,26 @@ async function resolveLatestConversationTarget(
             resolvedWarmSnapshot && !usableWarmSnapshot
         );
         prefetchedSnapshot = Boolean(usableWarmSnapshot);
-        snapshot = usableWarmSnapshot || (
-            typeof coordinator.readSnapshot === 'function'
-            ? await coordinator.readSnapshot(
-                target.provider,
-                effectiveSessionId,
-                preferredInteractionId
-            )
-            : {
-                outline: await coordinator.readOutline(
-                    target.provider,
-                    effectiveSessionId
-                ),
-            });
+        const resolvedSnapshot = usableWarmSnapshot
+            || await awaitAbortableRead(
+                typeof coordinator.readSnapshot === 'function'
+                    ? coordinator.readSnapshot(
+                        target.provider,
+                        effectiveSessionId,
+                        preferredInteractionId,
+                        signal
+                    )
+                    : coordinator.readOutline(
+                        target.provider,
+                        effectiveSessionId,
+                        signal
+                    ).then(outline => ({ outline })),
+                signal
+            );
+        if (!resolvedSnapshot || signal?.aborted) {
+            return { result: 'unavailable' };
+        }
+        snapshot = resolvedSnapshot;
     } catch (_error) {
         return {
             result: 'unavailable',

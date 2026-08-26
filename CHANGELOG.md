@@ -11,9 +11,8 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 - Make return switches between recently viewed AI Conversations show the
   cached transcript before a new provider snapshot is resolved, while keeping
   uncached loads on their established path.
-- Retain the `Next Active Chat in This Window` and `Next Attention Chat in
-  This Window` commands and the Conversation Session status order: Attention,
-  Running, then Idle.
+- Retain the `Next Active Chat in This Window` and `Next Attention Chat in This Window`
+  commands and the Conversation Session status order: Attention, Running, then Idle.
 
 ### Fixed
 

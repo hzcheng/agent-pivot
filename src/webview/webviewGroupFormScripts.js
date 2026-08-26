@@ -11,6 +11,7 @@
  */
 function initWorktreeGroupForm(options) {
     options = options || {};
+    var MAX_RENDERED_BASE_OPTIONS = 100;
     var getCurrentWorkspaceDiv = options.findCurrentWorkspaceDiv;
 
     var PREVIEW_DEBOUNCE_MS = 300;
@@ -78,6 +79,19 @@ function initWorktreeGroupForm(options) {
         return value.indexOf('refs/remotes/') === 0
             ? value.slice('refs/remotes/'.length)
             : value;
+    }
+
+    function baseRefLabel(ref) {
+        var name = shortRefName(ref);
+        return String(ref || '').indexOf('refs/remotes/') === 0
+            ? name + ' (remote)' : name;
+    }
+
+    function matchingBaseRefs(refs, filter) {
+        var query = String(filter || '').toLowerCase();
+        return refs.filter(function (ref) {
+            return baseRefLabel(ref).toLowerCase().indexOf(query) >= 0;
+        });
     }
 
     function baseRefsFor(repository) {
@@ -505,6 +519,7 @@ function initWorktreeGroupForm(options) {
             case 'preview-stale': return 'The setup configuration changed; the preview has been refreshed — review and confirm again.';
             case 'workspace-unavailable': return 'The workspace is unavailable.';
             case 'manifest-unavailable': return 'The workspace changed during creation; try again.';
+            case 'base-ref-unavailable': return 'The selected base branch is no longer available; choose another branch and try again.';
             case 'store-full': return 'Too many worktree groups; remove some first.';
             default: return 'Creation failed: ' + (code || 'unexpected error');
         }
@@ -589,7 +604,7 @@ function initWorktreeGroupForm(options) {
     }
 
     // Searchable base-branch combobox (PRD §6.1): a text input filters the
-    // local branch list; ArrowUp/Down + Enter choose, Esc closes.
+    // local and fetched remote branch list; ArrowUp/Down + Enter choose, Esc closes.
     function baseComboboxHtml(state, key, repository, refs, selectedRef, checked, preflightId) {
         var label = repository.label;
         var open = state.baseDropdown && state.baseDropdown.repositoryKey === key;
@@ -597,26 +612,33 @@ function initWorktreeGroupForm(options) {
             return '<button type="button" class="ai-session-group-form-base"'
                 + ' data-group-form-base="' + escapeHtml(key) + '"'
                 + ' role="combobox" aria-expanded="false"'
-                + ' aria-label="Base branch for ' + escapeHtml(label) + '"'
+                + ' aria-label="Base branch for ' + escapeHtml(label) + ': '
+                    + escapeHtml(baseRefLabel(selectedRef)) + '"'
+                + ' data-tooltip="' + escapeHtml(baseRefLabel(selectedRef)) + '"'
                 + (preflightId
                     ? ' aria-invalid="true" aria-errormessage="' + preflightId + '"'
                         + ' aria-describedby="' + preflightId + '"'
                     : '')
                 + (checked ? '' : ' disabled') + '>'
-                + escapeHtml(shortRefName(selectedRef)) + ' \u25be</button>';
+                + escapeHtml(baseRefLabel(selectedRef)) + ' \u25be</button>';
         }
         var filter = state.baseDropdown.filter || '';
-        var filtered = refs.filter(function (ref) {
-            return shortRefName(ref).toLowerCase().indexOf(filter.toLowerCase()) >= 0;
-        });
+        var matching = matchingBaseRefs(refs, filter);
+        var filtered = matching.slice(0, MAX_RENDERED_BASE_OPTIONS);
         var activeIndex = Math.min(state.baseDropdown.activeIndex, filtered.length - 1);
         var optionsHtml = filtered.map(function (ref, position) {
             return '<li role="option" id="group-form-base-option-' + position + '"'
                 + ' data-group-form-base-option="' + escapeHtml(ref) + '"'
                 + ' aria-selected="' + (ref === selectedRef) + '"'
                 + (position === activeIndex ? ' data-active' : '') + '>'
-                + escapeHtml(shortRefName(ref)) + '</li>';
+                + escapeHtml(baseRefLabel(ref)) + '</li>';
         }).join('');
+        if (matching.length > filtered.length) {
+            optionsHtml += '<li class="ai-session-group-form-base-limit"'
+                + ' role="option" aria-disabled="true">Showing the first '
+                + MAX_RENDERED_BASE_OPTIONS + ' of ' + matching.length
+                + ' matches; refine your search.</li>';
+        }
         return '<span class="ai-session-group-form-base-combobox">'
             + '<input type="text" class="ai-session-group-form-base-filter"'
             + ' data-group-form-base-filter="' + escapeHtml(key) + '"'
@@ -814,6 +836,8 @@ function initWorktreeGroupForm(options) {
                 ? '<div class="ai-session-group-form-error" id="group-form-error" role="alert">'
                     + escapeHtml(describeFormError(state.formError)) + '</div>'
                 : '')
+            + '<div class="ai-session-group-form-remote-hint" role="note">'
+                + 'Remote branches reflect your last fetch; creating does not fetch.</div>'
             + selectionTools
             + '<div class="ai-session-group-form-members">' + membersHtml + '</div>'
             + '<div class="ai-session-group-form-actions">' + actionsHtml(state) + '</div>'
@@ -1037,10 +1061,8 @@ function initWorktreeGroupForm(options) {
                     return candidate.repositoryKey === dropdown.repositoryKey;
                 });
                 var refs = repository ? baseRefsFor(repository) : [];
-                var filtered = refs.filter(function (ref) {
-                    return shortRefName(ref).toLowerCase()
-                        .indexOf((dropdown.filter || '').toLowerCase()) >= 0;
-                });
+                var filtered = matchingBaseRefs(refs, dropdown.filter)
+                    .slice(0, MAX_RENDERED_BASE_OPTIONS);
                 if (event.key === 'Enter') {
                     var chosen = filtered[Math.min(dropdown.activeIndex, filtered.length - 1)];
                     if (chosen) {

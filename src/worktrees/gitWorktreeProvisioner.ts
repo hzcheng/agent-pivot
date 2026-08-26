@@ -177,7 +177,7 @@ export class GitWorktreeProvisioner {
             return [];
         }
         const result = await this.runGit(commandCwd, [
-            '-C', commandCwd, 'for-each-ref', '--format=%(refname:strip=2)',
+            '-C', commandCwd, 'for-each-ref', '--format=%(refname:strip=2)%00%(symref)',
             'refs/remotes',
         ]);
         if (result.exitCode !== 0) {
@@ -185,10 +185,18 @@ export class GitWorktreeProvisioner {
         }
         const branches = result.stdout
             .split('\n')
-            .map(line => line.trim())
-            // origin/HEAD is Git's symbolic remote default, not a branch a
-            // user can intentionally select as their task baseline.
-            .filter(line => line && !/^[^/]+\/HEAD$/u.test(line) && isSafeBranchName(line));
+            .map(line => {
+                const [branch, symbolicRef] = line.split('\0', 2);
+                return {
+                    branch: (branch || '').trim(),
+                    symbolicRef: (symbolicRef || '').trim(),
+                };
+            })
+            // Symbolic refs are remote defaults (for example origin/HEAD),
+            // not selectable task baselines. Checking symref also supports
+            // remote names containing slashes.
+            .filter(entry => entry.branch && !entry.symbolicRef && isSafeBranchName(entry.branch))
+            .map(entry => entry.branch);
         return Array.from(new Set(branches))
             .sort((left, right) => left.localeCompare(right));
     }
@@ -298,6 +306,7 @@ export class GitWorktreeProvisioner {
             || !isSafeAbsolutePath(plan.repositoryKey)
             || !isSafeBranchName(plan.branchName)
             || !isSafeRevision(plan.baseRef)
+            || (plan.baseline && !isBaselineCommitSha(plan.baseline.commitSha))
             || path.relative(plan.commandCwd, plan.worktreePath) === '') {
             throw new GitWorktreeProvisioningError('invalid-plan');
         }
@@ -306,7 +315,7 @@ export class GitWorktreeProvisioner {
         ]);
         const baseValidation = await this.runGit(plan.commandCwd, [
             '-C', plan.commandCwd, 'rev-parse', '--verify', '--quiet',
-            `${plan.baseRef}^{commit}`,
+            `${plan.baseline?.commitSha || plan.baseRef}^{commit}`,
         ]);
         const commonDir = await this.runGit(plan.commandCwd, [
             '-C', plan.commandCwd, 'rev-parse', '--path-format=absolute', '--git-common-dir',

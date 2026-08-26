@@ -69,25 +69,44 @@ test('WORKTREE-PROVISIONING-GIT-001 creates and reconciles a real linked worktre
 
 test('WORKTREE-PROVISIONING-GIT-001 lists fetched remote branches and creates from their frozen commit', async t => {
     const fixture = await repositoryFixture(t);
-    const head = git(fixture.repositoryPath, ['rev-parse', 'HEAD']);
-    git(fixture.repositoryPath, ['update-ref', 'refs/remotes/origin/release/1.0', head]);
-    git(fixture.repositoryPath, ['update-ref', 'refs/remotes/upstream/feature/search', head]);
+    const mainHead = git(fixture.repositoryPath, ['rev-parse', 'HEAD']);
+    git(fixture.repositoryPath, ['checkout', '-b', 'remote-release']);
+    await fs.promises.writeFile(path.join(fixture.repositoryPath, 'REMOTE_BASE.md'), 'remote\n');
+    git(fixture.repositoryPath, ['add', 'REMOTE_BASE.md']);
+    git(fixture.repositoryPath, ['commit', '-m', 'remote release base']);
+    const remoteHead = git(fixture.repositoryPath, ['rev-parse', 'HEAD']);
+    git(fixture.repositoryPath, ['checkout', 'main']);
+    git(fixture.repositoryPath, ['update-ref', 'refs/remotes/origin/release/1.0', remoteHead]);
+    git(fixture.repositoryPath, ['update-ref', 'refs/remotes/upstream/feature/search', mainHead]);
     git(fixture.repositoryPath, [
         'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/release/1.0',
+    ]);
+    git(fixture.repositoryPath, [
+        'symbolic-ref', 'refs/remotes/team/origin/HEAD', 'refs/remotes/origin/release/1.0',
     ]);
     const provisioner = new GitWorktreeProvisioner();
 
     assert.deepEqual(await provisioner.listRemoteBranches(fixture.repositoryPath), [
         'origin/release/1.0', 'upstream/feature/search',
-    ], 'symbolic remote HEAD is not an actionable task baseline');
+    ], 'symbolic remote aliases are not actionable task baselines');
+
+    git(fixture.repositoryPath, ['symbolic-ref', '--delete', 'refs/remotes/origin/HEAD']);
+    git(fixture.repositoryPath, ['update-ref', 'refs/remotes/origin/HEAD', remoteHead]);
+    assert.ok((await provisioner.listRemoteBranches(fixture.repositoryPath)).includes('origin/HEAD'),
+        'a direct remote-tracking ref is retained even when its short name ends in HEAD');
 
     const plan = {
         ...planFor(fixture, 'from-origin-release'),
         baseRef: 'refs/remotes/origin/release/1.0',
     };
+    plan.baseline = await provisioner.resolveBaseCommit(plan.commandCwd, plan.baseRef);
+    assert.ok(plan.baseline, 'the selected remote ref freezes to a commit before creation');
+    git(fixture.repositoryPath, ['update-ref', '-d', 'refs/remotes/origin/release/1.0']);
     const key = await provisioner.createWorktree(plan, () => false);
-    assert.equal(git(key.canonicalWorktreePath, ['rev-parse', 'HEAD']), head,
-        'the new local branch starts at the selected fetched remote commit');
+    assert.equal(git(key.canonicalWorktreePath, ['rev-parse', 'HEAD']), remoteHead,
+        'the new local branch starts at the selected remote commit after its ref is pruned');
+    assert.notEqual(remoteHead, mainHead,
+        'the assertion would fail if creation silently fell back to main');
 });
 
 test('WORKTREE-PROVISIONING-GIT-001 names an unborn base ref instead of a bare invalid plan', async t => {

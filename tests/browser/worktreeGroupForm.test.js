@@ -54,7 +54,7 @@ function surface(overrides) {
     });
 }
 
-function repositoryOptions() {
+function repositoryOptions(alphaOverrides) {
     return [
         {
             repositoryKey: '/alpha/.git', label: 'alpha',
@@ -63,6 +63,7 @@ function repositoryOptions() {
             remoteBranches: ['origin/feature/remote-base'],
             defaultChecked: true,
             setupCommand: ['npm', 'ci'],
+            ...(alphaOverrides || {}),
         },
         {
             repositoryKey: '/beta/.git', label: 'beta',
@@ -176,7 +177,7 @@ async function postHostMessage(page, message) {
     }, message);
 }
 
-async function openBootstrappedForm(page) {
+async function openBootstrappedForm(page, options) {
     await page.locator('.ai-session-worktree-anchor .ai-session-worktree-more')
         .evaluate(button => button.click());
     await page.locator('#aiSessionWorktreeMenu [data-action="worktree-new"]')
@@ -189,7 +190,7 @@ async function openBootstrappedForm(page) {
         type: 'worktree-group-form-state',
         version: 1,
         projectId: 'project-a',
-        repositories: repositoryOptions(),
+        repositories: options || repositoryOptions(),
     });
 }
 
@@ -449,11 +450,11 @@ test('WORKTREE-GROUPS-CREATE-UI-001 confirm failures render human text and the f
         version: 1,
         requestId: confirmRequest.requestId,
         status: 'failed',
-        errorCode: 'invalid-members',
+        errorCode: 'base-ref-unavailable',
     });
     const error = page.locator('.ai-session-group-form-error');
-    assert.match(await error.textContent(), /no longer valid/,
-        'the form never shows a raw error code');
+    assert.match(await error.textContent(), /base branch is no longer available/,
+        'a vanished remote base is described without exposing its raw error code');
     assert.equal(await page.locator('[data-worktree-group-form]').count(), 1,
         'a failed creation keeps the form open for correction');
 
@@ -523,7 +524,7 @@ test('WORKTREE-GROUPS-CREATE-UI-001 the base combobox offers remote branches and
     await filter.evaluate(input => input.focus());
     await page.keyboard.type('origin/feature');
     const options = page.locator('[data-group-form-base-option]');
-    assert.deepEqual(await options.allTextContents(), ['origin/feature/remote-base'],
+    assert.deepEqual(await options.allTextContents(), ['origin/feature/remote-base (remote)'],
         'a fetched remote branch is searchable alongside local base branches');
 
     await page.keyboard.press('Enter');
@@ -534,7 +535,38 @@ test('WORKTREE-GROUPS-CREATE-UI-001 the base combobox offers remote branches and
         repositoryKey: '/alpha/.git', baseRef: 'refs/remotes/origin/feature/remote-base',
     }], 'remote selection preserves the fully-qualified ref for Host validation');
     assert.equal(await page.locator('[data-group-form-base="/alpha/.git"]').textContent(),
-        'origin/feature/remote-base \u25be'.replace('\\u25be', '\u25be'));
+        'origin/feature/remote-base (remote) \u25be'.replace('\\u25be', '\u25be'));
+});
+
+test('WORKTREE-GROUPS-CREATE-UI-001 distinguishes local and remote base branches and bounds remote results', async t => {
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page, repositoryOptions({
+        localBranches: ['main', 'origin/feature/remote-base'],
+        remoteBranches: Array.from({ length: 120 }, (_value, index) =>
+            index === 0 ? 'origin/feature/remote-base' : `origin/archive/${index}`),
+    }));
+
+    const form = page.locator('[data-worktree-group-form]');
+    assert.match(await form.locator('.ai-session-group-form-remote-hint').textContent(),
+        /last fetch/i, 'the form explains that remote choices are fetched snapshots');
+    await page.locator('[data-group-form-base="/alpha/.git"]')
+        .evaluate(button => button.click());
+    const filter = page.locator('[data-group-form-base-filter]');
+    await filter.evaluate(input => input.focus());
+    await page.keyboard.type('origin/feature');
+    const collisionOptions = page.locator('[data-group-form-base-option]');
+    assert.deepEqual(await collisionOptions.allTextContents(), [
+        'origin/feature/remote-base', 'origin/feature/remote-base (remote)',
+    ], 'matching local and remote refs carry distinct source labels');
+
+    await filter.evaluate(input => {
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    assert.equal(await page.locator('[data-group-form-base-option]').count(), 100,
+        'opening a repository with many remote refs renders a bounded result set');
+    assert.match(await form.locator('.ai-session-group-form-base-limit').textContent(),
+        /Showing the first 100/i);
 });
 
 test('WORKTREE-GROUPS-CREATE-UI-001 the form stays usable at the 170px minimum width', async t => {

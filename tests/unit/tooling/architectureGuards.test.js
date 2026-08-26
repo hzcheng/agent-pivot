@@ -500,10 +500,28 @@ for (const mutation of [
     {
         id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
         file: 'src/dashboard.ts',
-        expectedDetail: 'Dashboard Chat-row clicks must use the shared latest-intent navigation transaction',
+        expectedDetail: 'Dashboard Chat-row clicks must prepare once, then commit only through the shared latest-intent navigation transaction',
         mutate: source => source.replace(
             'return sessionNavigationCoordinator.enqueueLatest(async () => {',
             'return (async () => {',
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'Dashboard Chat-row clicks must prepare once, then commit only through the shared latest-intent navigation transaction',
+        mutate: source => source.replace(
+            'conversationCapability.prepareActiveConversation(target, openWhenClosed)',
+            'conversationCapability.openLatestActiveConversation(target)',
+        ),
+    },
+    {
+        id: 'ARCH-AI-SESSION-NAVIGATION-OWNERSHIP-001',
+        file: 'src/dashboard.ts',
+        expectedDetail: 'Dashboard Chat-row clicks must prepare once, then commit only through the shared latest-intent navigation transaction',
+        mutate: source => source.replace(
+            'await preparedConversation.apply();',
+            'await conversationCapability.followActiveConversation(target);',
         ),
     },
     {

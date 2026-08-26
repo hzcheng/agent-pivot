@@ -61,6 +61,19 @@ function loadConversationComposition() {
     }
 }
 
+function loadDashboardModule() {
+    const previousLoad = Module._load;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') return {};
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        return require('../../../out/dashboard');
+    } finally {
+        Module._load = previousLoad;
+    }
+}
+
 const {
     createConversationCapability,
 } = loadConversationComposition();
@@ -966,6 +979,134 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 releases an obsolete Viewer wai
     harness.capability.dispose();
 });
 
+test('CONVERSATION-SWITCH-LATENCY-002 starts a prepared snapshot before terminal focus releases its Viewer apply', async () => {
+    const delayedSnapshot = deferred();
+    const delayedFocus = deferred();
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        readSnapshot: () => delayedSnapshot.promise,
+    });
+    const prepared = harness.capability.prepareActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }, true);
+    const navigation = (async () => {
+        await delayedFocus.promise;
+        return prepared.apply();
+    })();
+
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('codex:session-a'),
+        'the prepared foreground snapshot to start while terminal focus is pending'
+    );
+    assert.deepEqual(harness.viewerTargets, [],
+        'a prepared snapshot must not mutate the Viewer before terminal focus succeeds');
+
+    delayedFocus.resolve();
+    delayedSnapshot.resolve({
+        outline: makeOutline('codex', 'session-a', ['input-a']),
+        page: makePage('codex', 'session-a', 'input-a'),
+    });
+    assert.equal(await navigation, 'opened');
+    assert.equal(harness.viewerTargets.length, 1,
+        'the resolved snapshot applies only after the queued terminal focus completes');
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-SWITCH-LATENCY-002 avoids a snapshot when a closed Viewer will not open', async () => {
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: false,
+    });
+    const prepared = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    }, false);
+
+    assert.equal(await prepared.apply(), 'closed');
+    assert.equal(harness.snapshotReads, 0,
+        'a terminal-only row focus must not spend provider work on a closed Viewer');
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-SWITCH-LATENCY-002 cancels a prepared snapshot when terminal focus cannot proceed', async () => {
+    const slowSnapshot = deferred();
+    let readAborted = false;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        readSnapshot: (_provider, _sessionId, _preferredInteractionId, signal) => {
+            signal.onAbort(() => { readAborted = true; });
+            return slowSnapshot.promise;
+        },
+    });
+    const prepared = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    }, true);
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('codex:session-a'),
+        'the prepared snapshot to start before terminal focus'
+    );
+
+    prepared.cancel();
+    assert.equal(readAborted, true,
+        'a rejected terminal focus must abort its uncommitted provider read');
+    assert.equal(await prepared.apply(), 'superseded');
+    slowSnapshot.resolve({
+        outline: makeOutline('codex', 'session-a', ['input-a']),
+        page: makePage('codex', 'session-a', 'input-a'),
+    });
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-SWITCH-LATENCY-002 lets only the newest prepared target apply', async () => {
+    const slowSnapshot = deferred();
+    let staleReadAborted = false;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`,
+            provider,
+            sessionId,
+            name: sessionId,
+        }),
+        readSnapshot: (provider, sessionId, _preferredInteractionId, signal) => {
+            if (sessionId === 'session-a') {
+                signal.onAbort(() => { staleReadAborted = true; });
+                return slowSnapshot.promise;
+            }
+            return {
+                outline: makeOutline(provider, sessionId, ['input-b']),
+                page: makePage(provider, sessionId, 'input-b'),
+            };
+        },
+    });
+    const stale = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    }, true);
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('codex:session-a'),
+        'the first prepared snapshot to start'
+    );
+    const latest = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'kimi', sessionId: 'session-b',
+    }, true);
+
+    assert.equal(await stale.apply(), 'superseded');
+    assert.equal(staleReadAborted, true,
+        'a newer prepared target must abort the stale provider read immediately');
+    assert.equal(await latest.apply(), 'opened');
+    assert.deepEqual(harness.viewerTargets.map(target => target.sessionId), ['session-b']);
+    slowSnapshot.resolve({
+        outline: makeOutline('codex', 'session-a', ['input-a']),
+        page: makePage('codex', 'session-a', 'input-a'),
+    });
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 releases a claimed warmup as soon as its navigation is cancelled', async () => {
     const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
         key: `${provider}:claimed-cancel-${index}`,
@@ -1518,6 +1659,8 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 follows the latest interaction only
 });
 
 test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus to the shared Conversation-aware navigation path', () => {
+    assert.equal(typeof loadDashboardModule().activate, 'function',
+        'the Dashboard entrypoint must load before its row-navigation contract is inspected');
     const handlersSource = fs.readFileSync(
         path.join(__dirname, '../../../src/dashboard/messageHandlers.ts'),
         'utf8'
@@ -1539,8 +1682,11 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus
     assert.match(navigationPath[0], /focusActive\(/);
     assert.match(
         navigationPath[0],
-        /if \(openWhenClosed\) \{[\s\S]*openLatestActiveConversation\([\s\S]*?followActiveConversation\(/
+        /prepareActiveConversation\(target, openWhenClosed\)/,
+        'the shared row path must start the snapshot transaction itself'
     );
+    assert.match(navigationPath[0], /await preparedConversation\.apply\(\)/,
+        'only the queued, focused transaction may commit a prepared snapshot');
     assert.match(
         dashboardSource,
         /const focusTerminal = e\.version === 2 && e\.focusTerminal === true;[\s\S]*focusAiSessionAndOpenConversation\(target\)/
@@ -1556,13 +1702,22 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus
     const enqueueStart = navigationPath[0].indexOf(
         'sessionNavigationCoordinator.enqueueLatest('
     );
+    const preparedStart = navigationPath[0].indexOf(
+        'conversationCapability.prepareActiveConversation(target, openWhenClosed)'
+    );
     assert.ok(intentStart >= 0,
         'a row click must create a navigation intent in its own execution path');
     assert.ok(enqueueStart >= 0,
         'a row click must use the shared terminal-focus queue');
+    assert.ok(preparedStart >= 0,
+        'a row click must start a snapshot transaction in its own execution path');
     assert.ok(
         intentStart < enqueueStart,
         'a row click must cancel the old read before it joins the shared queue'
+    );
+    assert.ok(
+        preparedStart < enqueueStart,
+        'a row click must begin snapshot resolution before terminal focus enters the queue'
     );
 });
 

@@ -1807,14 +1807,18 @@ const guards = {
             ).length !== 1
             || callArguments(
                 dashboardClickNavigator.initializer,
-                'conversationCapability.followActiveConversation',
+                'conversationCapability.prepareActiveConversation',
             ).length !== 1
             || callArguments(
                 dashboardClickNavigator.initializer,
-                'conversationCapability.openLatestActiveConversation',
+                'preparedConversation.apply',
+            ).length !== 1
+            || callArguments(
+                dashboardClickNavigator.initializer,
+                'preparedConversation.cancel',
             ).length !== 1) {
             fail(this.id, risk,
-                'Dashboard Chat-row clicks must use the shared latest-intent navigation transaction');
+                'Dashboard Chat-row clicks must prepare once, then commit only through the shared latest-intent navigation transaction');
         }
     },
 

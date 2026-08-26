@@ -86,6 +86,16 @@ export type FollowActiveConversationResult =
 export type FollowAdjacentConversationResult =
     FollowActiveConversationResult | 'inactive' | 'noAdjacentSession';
 
+/**
+ * An already-started, but not yet Viewer-applicable, Conversation target.
+ * Dashboard navigation starts this while terminal focus is queued, then
+ * commits it only after that focus succeeds for the same user intent.
+ */
+export interface PreparedActiveConversationNavigation {
+    apply(): Promise<FollowActiveConversationResult>;
+    cancel(): void;
+}
+
 export interface ConversationCapability {
     viewer: ConversationViewerApi;
     availability: 'available' | 'unavailable';
@@ -95,6 +105,10 @@ export interface ConversationCapability {
      * the terminal-focus queue.
      */
     cancelPendingNavigation(): void;
+    prepareActiveConversation(
+        target: ConversationSessionOpenTarget,
+        openWhenClosed: boolean
+    ): PreparedActiveConversationNavigation;
     openLatestConversation(
         target: ConversationSessionOpenTarget
     ): Promise<OpenLatestConversationResult>;
@@ -508,15 +522,21 @@ function createAvailableConversationCapability(
     ): Promise<boolean> => queueFocus(() => {
         viewer.focus();
     }, isCurrent);
+    type PreparedViewerIntent = {
+        isCurrent(): boolean;
+        signal: ConversationAbortSignal;
+        resolution?: Promise<LatestConversationTargetResolution>;
+    };
     const followOpenConversation = async (
         target: ConversationSessionOpenTarget,
         reveal: boolean,
-        showFollowFailure: boolean
+        showFollowFailure: boolean,
+        preparedIntent?: PreparedViewerIntent
     ): Promise<FollowActiveConversationResult> => {
         if (!viewer.isOpen()) {
             return 'closed';
         }
-        const intent = beginViewerIntent();
+        const intent: PreparedViewerIntent = preparedIntent || beginViewerIntent();
         const currentTarget = viewer.getCurrentTarget();
         if (currentTarget
             && hasSameConversationSession(currentTarget, target)) {
@@ -535,15 +555,16 @@ function createAvailableConversationCapability(
         const preview = viewer.previewSession?.(target);
         let followedSuccessfully = false;
         try {
-            const resolution = await resolveLatestConversationTarget(
-                options,
-                coordinator,
-                target,
-                undefined,
-                undefined,
-                snapshotWarmup,
-                intent.signal
-            );
+            const resolution = await (intent.resolution
+                || resolveLatestConversationTarget(
+                    options,
+                    coordinator,
+                    target,
+                    undefined,
+                    undefined,
+                    snapshotWarmup,
+                    intent.signal
+                ));
             if (!intent.isCurrent()) {
                 return 'superseded';
             }
@@ -658,6 +679,72 @@ function createAvailableConversationCapability(
             intent.signal
         );
     };
+    const prepareActiveConversation = (
+        target: ConversationSessionOpenTarget,
+        openWhenClosed: boolean
+    ): PreparedActiveConversationNavigation => {
+        const intent = beginViewerIntent();
+        const currentTarget = viewer.getCurrentTarget();
+        const shouldResolve = openWhenClosed || viewer.isOpen();
+        const resolution = shouldResolve && !(viewer.isOpen() && currentTarget
+            && hasSameConversationSession(currentTarget, target))
+            ? resolveLatestConversationTarget(
+                options,
+                coordinator,
+                target,
+                undefined,
+                undefined,
+                snapshotWarmup,
+                intent.signal
+            )
+            : undefined;
+        // A failed terminal focus never calls apply(). Keep the rejected
+        // provider result observed in that case while retaining the original
+        // promise for a successful focus to consume.
+        void resolution?.catch(() => undefined);
+        let applied = false;
+        const cancel = (): void => {
+            // A stale queued focus task must not cancel the newer target that
+            // replaced it while it was waiting for terminal serialization.
+            if (intent.isCurrent()) {
+                beginViewerIntent();
+            }
+        };
+        return {
+            cancel,
+            async apply(): Promise<FollowActiveConversationResult> {
+                if (applied || !intent.isCurrent()) {
+                    return 'superseded';
+                }
+                applied = true;
+                const preparedIntent: PreparedViewerIntent = {
+                    ...intent,
+                    resolution,
+                };
+                if (viewer.isOpen()) {
+                    return followOpenConversation(
+                        target,
+                        openWhenClosed,
+                        !openWhenClosed,
+                        preparedIntent
+                    );
+                }
+                if (!openWhenClosed) {
+                    return 'closed';
+                }
+                return openLatestConversation(
+                    options,
+                    coordinator,
+                    viewer,
+                    target,
+                    intent.isCurrent,
+                    snapshotWarmup,
+                    intent.signal,
+                    resolution
+                );
+            },
+        };
+    };
     return {
         viewer,
         availability: 'available',
@@ -666,6 +753,7 @@ function createAvailableConversationCapability(
                 beginViewerIntent();
             }
         },
+        prepareActiveConversation,
         openLatestConversation: target => openConversation(target),
         async openLatestActiveConversation(
             target: ConversationSessionOpenTarget
@@ -863,6 +951,12 @@ function createUnavailableConversationCapability(): ConversationCapability {
         viewer,
         availability: 'unavailable',
         cancelPendingNavigation(): void {},
+        prepareActiveConversation(): PreparedActiveConversationNavigation {
+            return {
+                apply: async () => 'unavailable',
+                cancel() {},
+            };
+        },
         async openLatestConversation(): Promise<OpenLatestConversationResult> {
             return 'unavailable';
         },
@@ -902,20 +996,22 @@ async function openLatestConversation(
     target: ConversationSessionOpenTarget,
     isCurrent: () => boolean,
     snapshotWarmup?: ConversationSnapshotWarmup,
-    signal?: ConversationAbortSignal
+    signal?: ConversationAbortSignal,
+    preparedResolution?: Promise<LatestConversationTargetResolution>
 ): Promise<OpenLatestConversationResult> {
     const preview = viewer.previewSession?.(target);
     let opened = false;
     try {
-        let resolution = await resolveLatestConversationTarget(
-            options,
-            coordinator,
-            target,
-            undefined,
-            undefined,
-            snapshotWarmup,
-            signal
-        );
+        let resolution = await (preparedResolution
+            || resolveLatestConversationTarget(
+                options,
+                coordinator,
+                target,
+                undefined,
+                undefined,
+                snapshotWarmup,
+                signal
+            ));
         if (resolution.result === 'unavailable' && isCurrent()) {
             resolution = await resolveLatestConversationTarget(
                 options,

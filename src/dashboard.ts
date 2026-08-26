@@ -2125,11 +2125,17 @@ async function initializeDashboard(
         sessionId: string;
     }, openWhenClosed: boolean): Promise<void> => {
         const intent = beginConversationNavigationIntent();
+        // Resolve the provider snapshot immediately. Terminal focus must stay
+        // serialized, but it is independent of the read and should not make
+        // a slow focus plus a slow snapshot feel like two consecutive waits.
+        const preparedConversation =
+            conversationCapability.prepareActiveConversation(target, openWhenClosed);
         return sessionNavigationCoordinator.enqueueLatest(async () => {
         const startedAt = Date.now();
         let focusMs = 0;
         let conversationMs = 0;
         let outcome = 'focus-failed';
+        let conversationApplied = false;
         try {
             const focusStartedAt = Date.now();
             let focused: boolean;
@@ -2147,11 +2153,8 @@ async function initializeDashboard(
             if (focused && intent === conversationNavigationIntent) {
                 const conversationStartedAt = Date.now();
                 try {
-                    if (openWhenClosed) {
-                        await conversationCapability.openLatestActiveConversation(target);
-                    } else {
-                        await conversationCapability.followActiveConversation(target);
-                    }
+                    conversationApplied = true;
+                    await preparedConversation.apply();
                 } catch (error) {
                     conversationMs = Date.now() - conversationStartedAt;
                     outcome = 'conversation-error';
@@ -2169,6 +2172,9 @@ async function initializeDashboard(
                 );
             }
         } finally {
+            if (!conversationApplied) {
+                preparedConversation.cancel();
+            }
             logAiSessionDiagnostic({
                 event: 'session-navigation-latency',
                 source: 'dashboard-row',

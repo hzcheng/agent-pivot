@@ -360,9 +360,20 @@ function initProjects() {
     var deferredCompositionHostUpdates = [];
 
     function queueDeferredCompositionHostUpdate(message) {
+        // Keep only the newest envelope per message type; the host does not
+        // resend dropped updates (delivery, not the rendered ack, completes
+        // its send), so discarding anything but a superseded same-type
+        // message would leave the surface permanently stale.
         for (var index = 0; index < deferredCompositionHostUpdates.length; index++) {
             if (deferredCompositionHostUpdates[index].type === message.type) {
-                deferredCompositionHostUpdates[index] = message;
+                var queued = deferredCompositionHostUpdates[index];
+                var queuedRevision = typeof queued.projectionRevision === 'number'
+                    ? queued.projectionRevision : 0;
+                var messageRevision = typeof message.projectionRevision === 'number'
+                    ? message.projectionRevision : 0;
+                if (messageRevision >= queuedRevision) {
+                    deferredCompositionHostUpdates[index] = message;
+                }
                 return;
             }
         }
@@ -375,8 +386,27 @@ function initProjects() {
         }
         var pending = deferredCompositionHostUpdates;
         deferredCompositionHostUpdates = [];
+        // Replay oldest-first: ai-sessions-updated replaces only the current
+        // surface while open-workspaces-updated replaces the whole wrapper,
+        // so a newer current-surface update must land after an older
+        // whole-wrapper one.
+        pending.sort(function (a, b) {
+            var aRevision = typeof a.projectionRevision === 'number'
+                ? a.projectionRevision : 0;
+            var bRevision = typeof b.projectionRevision === 'number'
+                ? b.projectionRevision : 0;
+            return aRevision - bRevision;
+        });
         for (var index = 0; index < pending.length; index++) {
-            onWindowMessage({ data: pending[index] });
+            try {
+                onWindowMessage({ data: pending[index] });
+            } catch (error) {
+                // One poisoned envelope must not drop the rest of the queue.
+                // (console is absent in the dashboard VM checks.)
+                if (typeof console !== 'undefined' && console.error) {
+                    console.error('Failed to replay a deferred host update.', error);
+                }
+            }
         }
     });
 

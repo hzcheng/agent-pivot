@@ -3162,6 +3162,7 @@ function initWorktreeGroupForm(options) {
                 confirmRequestId: '',
                 formError: '',
                 renderDeferred: false,
+                pendingClose: null,
                 pendingFocusGroupId: '',
                 pendingMemberRequests: {},
                 derive: null,
@@ -3255,9 +3256,16 @@ function initWorktreeGroupForm(options) {
         if (!state || !state.open) {
             return;
         }
+        if (composition.active && composition.projectId === projectId) {
+            // Tearing the form down now would detach the composing input
+            // and abort the IME session; close when the composition ends.
+            state.pendingClose = !!keepInput;
+            return;
+        }
         state.open = false;
         state.bootstrapping = false;
         state.confirming = false;
+        state.pendingClose = null;
         state.previewDirty = false;
         if (state.previewTimer) {
             clearTimeout(state.previewTimer);
@@ -3380,7 +3388,7 @@ function initWorktreeGroupForm(options) {
 
     function sendPreviewRequest(projectId) {
         var state = getState(projectId);
-        if (!state || !state.open) {
+        if (!state || !state.open || composition.active) {
             return;
         }
         var requestId = nextRequestId('group-preview');
@@ -4175,7 +4183,7 @@ function initWorktreeGroupForm(options) {
         // Keystrokes owned by an in-progress IME composition (candidate
         // navigation, Enter committing the candidate, Esc cancelling the
         // preedit) must not drive form actions.
-        if (event.isComposing) {
+        if (event.isComposing || composition.active) {
             return false;
         }
         var projectId = form.getAttribute('data-project-id');
@@ -4249,10 +4257,26 @@ function initWorktreeGroupForm(options) {
 
     document.addEventListener('compositionstart', function (event) {
         var projectId = compositionFormProjectId(event.target);
-        if (projectId) {
-            composition.active = true;
-            composition.projectId = projectId;
+        if (!projectId) {
+            return;
         }
+        composition.active = true;
+        composition.projectId = projectId;
+        var state = getState(projectId);
+        if (!state || !state.open) {
+            return;
+        }
+        // A preview debounced before the composition began must not send
+        // preedit text, and its in-flight response must not be accepted.
+        // previewDirty keeps confirm blocked until the committed text has
+        // been previewed.
+        if (state.previewTimer) {
+            clearTimeout(state.previewTimer);
+            state.previewTimer = 0;
+        }
+        state.previewRequestId = '';
+        state.previewDirty = true;
+        syncActionsDom(projectId);
     });
 
     document.addEventListener('compositionend', function (event) {
@@ -4265,16 +4289,36 @@ function initWorktreeGroupForm(options) {
         composition.projectId = '';
         var state = getState(projectId);
         if (state && state.open) {
-            if (event.target && event.target.hasAttribute
+            var isFilter = !!(event.target && event.target.hasAttribute
+                && event.target.hasAttribute('data-group-form-base-filter'));
+            if (isFilter) {
+                if (state.baseDropdown) {
+                    state.baseDropdown.filter = event.target.value;
+                }
+            } else if (event.target && event.target.hasAttribute
                 && event.target.hasAttribute('data-group-form-name')) {
                 state.name = event.target.value;
             }
-            if (state.renderDeferred) {
-                state.renderDeferred = false;
-                renderForm(projectId);
+            if (state.pendingClose !== null) {
+                // A close deferred while composing (e.g. the created
+                // settlement) lands now that no input can be aborted.
+                var keepInput = state.pendingClose;
+                state.pendingClose = null;
+                closeForm(projectId, keepInput);
+                reconcileDom();
+            } else {
+                if (state.renderDeferred) {
+                    state.renderDeferred = false;
+                    renderForm(projectId);
+                }
+                if (!isFilter || state.previewDirty) {
+                    // The preedit is now committed text: preview the real
+                    // name. Filtering branches needs no new preview, but a
+                    // preview dirtied mid-composition must be refreshed or
+                    // confirm stays blocked.
+                    schedulePreview(projectId);
+                }
             }
-            // The preedit is now committed text: preview the real name.
-            schedulePreview(projectId);
         }
         // Release the authoritative host updates queued while composing;
         // their replacements can no longer abort a composition.
@@ -7938,9 +7982,20 @@ function initProjects() {
     var deferredCompositionHostUpdates = [];
 
     function queueDeferredCompositionHostUpdate(message) {
+        // Keep only the newest envelope per message type; the host does not
+        // resend dropped updates (delivery, not the rendered ack, completes
+        // its send), so discarding anything but a superseded same-type
+        // message would leave the surface permanently stale.
         for (var index = 0; index < deferredCompositionHostUpdates.length; index++) {
             if (deferredCompositionHostUpdates[index].type === message.type) {
-                deferredCompositionHostUpdates[index] = message;
+                var queued = deferredCompositionHostUpdates[index];
+                var queuedRevision = typeof queued.projectionRevision === 'number'
+                    ? queued.projectionRevision : 0;
+                var messageRevision = typeof message.projectionRevision === 'number'
+                    ? message.projectionRevision : 0;
+                if (messageRevision >= queuedRevision) {
+                    deferredCompositionHostUpdates[index] = message;
+                }
                 return;
             }
         }
@@ -7953,8 +8008,27 @@ function initProjects() {
         }
         var pending = deferredCompositionHostUpdates;
         deferredCompositionHostUpdates = [];
+        // Replay oldest-first: ai-sessions-updated replaces only the current
+        // surface while open-workspaces-updated replaces the whole wrapper,
+        // so a newer current-surface update must land after an older
+        // whole-wrapper one.
+        pending.sort(function (a, b) {
+            var aRevision = typeof a.projectionRevision === 'number'
+                ? a.projectionRevision : 0;
+            var bRevision = typeof b.projectionRevision === 'number'
+                ? b.projectionRevision : 0;
+            return aRevision - bRevision;
+        });
         for (var index = 0; index < pending.length; index++) {
-            onWindowMessage({ data: pending[index] });
+            try {
+                onWindowMessage({ data: pending[index] });
+            } catch (error) {
+                // One poisoned envelope must not drop the rest of the queue.
+                // (console is absent in the dashboard VM checks.)
+                if (typeof console !== 'undefined' && console.error) {
+                    console.error('Failed to replay a deferred host update.', error);
+                }
+            }
         }
     });
 

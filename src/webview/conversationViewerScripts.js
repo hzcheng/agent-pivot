@@ -380,6 +380,12 @@
     // same session remain independently recoverable.
     var resyncRequestedPublicationKey = '';
     var conversationLoading = false;
+    // A cache preview can begin before the Host has resolved a fresh
+    // outline. Keep enough identity to return to the still-authoritative
+    // document if that speculative read is superseded or fails.
+    var loadingTarget;
+    var loadingGeneration = 0;
+    var loadingStatusText;
     // Detached conversation frames keyed by session: switching back to a
     // session whose content token is unchanged reattaches the already-built
     // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
@@ -1138,6 +1144,7 @@
         if (message.version !== 1
             || !Number.isSafeInteger(message.subscriptionGeneration)
             || message.subscriptionGeneration < 1
+            || (message.preflight !== undefined && message.preflight !== true)
             || !validCommentTarget({
                 projectId: message.target && message.target.projectId,
                 provider: message.target && message.target.provider,
@@ -1153,7 +1160,30 @@
             // Stale or same-session notices never dim the live content.
             return true;
         }
+        if (message.preflight === true) {
+            var preflightKey = frameSessionKey(message.target);
+            var alreadyPreviewed = previewFrame
+                && previewFrame.key === preflightKey;
+            if (!preflightKey || (!alreadyPreviewed
+                && !frameCache.has(preflightKey))) {
+                // Do not make a cache miss look slower than it did before
+                // preflight existed. If this supersedes a prior hit, return
+                // that detached frame before keeping the outgoing document
+                // readable while the new Host read proceeds.
+                restoreCancelledPreflight();
+                return true;
+            }
+        }
+        if (!conversationLoading) {
+            loadingStatusText = status.textContent;
+        }
         conversationLoading = true;
+        loadingTarget = {
+            projectId: message.target.projectId,
+            provider: message.target.provider,
+            sessionId: message.target.sessionId,
+        };
+        loadingGeneration = message.subscriptionGeneration;
         document.body.setAttribute('data-conversation-loading', 'true');
         document.body.setAttribute('aria-busy', 'true');
         document.body.setAttribute('aria-disabled', 'true');
@@ -1180,11 +1210,50 @@
         return true;
     }
 
+    function applyLoadingCancel(message) {
+        if (!message || typeof message !== 'object'
+            || message.type !== 'conversation-viewer-loading-cancel') {
+            return false;
+        }
+        if (message.version !== 1
+            || !Number.isSafeInteger(message.subscriptionGeneration)
+            || message.subscriptionGeneration < 1
+            || !validCommentTarget({
+                projectId: message.target && message.target.projectId,
+                provider: message.target && message.target.provider,
+                sessionId: message.target && message.target.sessionId,
+            })) {
+            return true;
+        }
+        if (!conversationLoading || !loadingTarget
+            || loadingGeneration !== message.subscriptionGeneration
+            || loadingTarget.projectId !== message.target.projectId
+            || loadingTarget.provider !== message.target.provider
+            || loadingTarget.sessionId !== message.target.sessionId) {
+            return true;
+        }
+        restoreCancelledPreflight();
+        return true;
+    }
+
+    function restoreCancelledPreflight() {
+        if (!conversationLoading) {
+            return;
+        }
+        var restoreStatusText = loadingStatusText;
+        returnPreviewFrameToCache();
+        clearConversationLoading();
+        status.textContent = restoreStatusText || '';
+    }
+
     function clearConversationLoading() {
         if (!conversationLoading) {
             return;
         }
         conversationLoading = false;
+        loadingTarget = undefined;
+        loadingGeneration = 0;
+        loadingStatusText = undefined;
         document.body.removeAttribute('data-conversation-loading');
         document.body.removeAttribute('data-conversation-frame-preview');
         document.body.removeAttribute('aria-busy');
@@ -2844,6 +2913,7 @@
         if (changesController && changesController.apply(event.data)) return;
         if (applySessionStatusMessage(event.data)) return;
         if (applyFollowNotice(event.data)) return;
+        if (applyLoadingCancel(event.data)) return;
         if (applyLoadingNotice(event.data)) return;
         if (applyEarlierPageResult(event.data)) return;
         if (applyHistoryChunk(event.data)) return;
@@ -2876,7 +2946,7 @@
     post({
         type: 'conversation-viewer-capabilities',
         version: 1,
-        capabilities: ['tail-patch'],
+        capabilities: ['tail-patch', 'frame-preflight'],
         documentId: document.body.getAttribute('data-document-id') || '',
     });
     postFocusState();

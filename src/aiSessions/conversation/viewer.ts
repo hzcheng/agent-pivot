@@ -215,6 +215,17 @@ export interface ConversationViewerApi extends AiSessionDisposable {
         ConversationViewerTarget,
         'projectId' | 'provider' | 'sessionId'
     > | undefined;
+    /**
+     * Shows a cached conversation frame while the Host resolves the target's
+     * authoritative snapshot. The returned handle is cancelled when that
+     * speculative intent cannot become the active target.
+     */
+    previewSession?(
+        target: Pick<
+            ConversationViewerTarget,
+            'projectId' | 'provider' | 'sessionId'
+        >
+    ): AiSessionDisposable | undefined;
     open(
         target: ConversationViewerTarget,
         snapshot?: ConversationSnapshot
@@ -393,6 +404,13 @@ export class ConversationViewer implements ConversationViewerApi {
     private subagents: ConversationSubagentEntry[] = [];
     private mainInteractionId?: string;
     private subscriptionGeneration = 0;
+    // A root-session intent can be known before its outline/snapshot has
+    // resolved. Keep its cosmetic preview separate from the authoritative
+    // target/generation so a slow provider read never delays a cache hit.
+    private preflightPreview?: {
+        target: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>;
+        subscriptionGeneration: number;
+    };
     // The target can change before its first authoritative document is
     // applied. This is set only for a reused panel, where an outgoing
     // Webview document could still have queued an action.
@@ -411,6 +429,10 @@ export class ConversationViewer implements ConversationViewerApi {
     // in-place target switches but resets on every document replacement,
     // whose fresh script re-posts its capabilities before any receipt.
     private webviewTailPatchCapable = false;
+    // Preflight is a reversible, Host-to-Webview cosmetic protocol. Unlike a
+    // normal loading notice it must never reach an older retained document,
+    // which would not understand the cancellation message.
+    private webviewFramePreflightCapable = false;
     // Monotonic identity of the document most recently rendered for this
     // panel; the capabilities handshake echoes it back, so only the running
     // document's advertisement arms delta deliveries.
@@ -645,6 +667,52 @@ export class ConversationViewer implements ConversationViewerApi {
         };
     }
 
+    previewSession(
+        target: Pick<
+            ConversationViewerTarget,
+            'projectId' | 'provider' | 'sessionId'
+        >
+    ): AiSessionDisposable | undefined {
+        const panel = this.panel;
+        const current = this.target;
+        if (!panel || !current) {
+            return undefined;
+        }
+        if (hasSameConversationSessionTarget(current, target)) {
+            // A quick reversal is itself a newer intent. Restore the
+            // authoritative current document now rather than leaving the
+            // prior target's preview on screen until this root re-resolves.
+            if (this.preflightPreview) {
+                this.cancelPreflightPreview(this.preflightPreview);
+            }
+            return undefined;
+        }
+        if (this.suspended || !this.webviewFramePreflightCapable) {
+            return undefined;
+        }
+        const preview = {
+            target: {
+                projectId: target.projectId,
+                provider: target.provider,
+                sessionId: target.sessionId,
+            },
+            subscriptionGeneration: this.subscriptionGeneration + 1,
+        };
+        // A newer intent naturally supersedes an older preview. Do not send a
+        // cancel for it: the Webview can move one detached cached frame to the
+        // next without a visible return-to-the-outgoing-document flicker.
+        this.preflightPreview = preview;
+        this.postLoadingNotice(
+            panel,
+            preview.target,
+            preview.subscriptionGeneration,
+            true
+        );
+        return {
+            dispose: () => this.cancelPreflightPreview(preview),
+        };
+    }
+
     async open(
         target: ConversationViewerTarget,
         snapshot?: ConversationSnapshot
@@ -797,6 +865,16 @@ export class ConversationViewer implements ConversationViewerApi {
         const followedPanel = reveal ? undefined : this.panel;
         const previousTarget = this.target;
         const generation = this.replaceTarget(target);
+        const preflightPreview = this.preflightPreview;
+        this.preflightPreview = undefined;
+        if (preflightPreview
+            && (preflightPreview.subscriptionGeneration !== generation
+                || !hasSameConversationSessionTarget(
+                    preflightPreview.target,
+                    target
+                ))) {
+            this.postLoadingCancel(preflightPreview);
+        }
         const activeTarget = this.target;
         if (!activeTarget) {
             return false;
@@ -1369,6 +1447,7 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 
     private clear(_restoreTarget: ConversationViewerTarget | undefined): void {
+        this.preflightPreview = undefined;
         this.authoritativeLoadInFlight = undefined;
         this.authoritativeRefreshPending = false;
         this.authoritativeLatestRefreshPending = undefined;
@@ -1436,6 +1515,8 @@ export class ConversationViewer implements ConversationViewerApi {
             if (parsed.documentId === this.currentDocumentId) {
                 this.webviewTailPatchCapable = parsed.capabilities
                     .includes('tail-patch');
+                this.webviewFramePreflightCapable = parsed.capabilities
+                    .includes('frame-preflight');
             }
             return;
         }
@@ -3306,8 +3387,12 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private postLoadingNotice(
         panel: vscode.WebviewPanel,
-        target: ConversationViewerTarget,
-        generation: number
+        target: Pick<
+            ConversationViewerTarget,
+            'projectId' | 'provider' | 'sessionId'
+        >,
+        generation: number,
+        preflight = false
     ): void {
         // The notice is cosmetic and must never delay the load. The Webview
         // makes all outgoing controls inert; Host-side transition gating
@@ -3322,6 +3407,38 @@ export class ConversationViewer implements ConversationViewerApi {
                     provider: target.provider,
                     sessionId: target.sessionId,
                 },
+                ...(preflight ? { preflight: true } : {}),
+            })).catch(() => undefined);
+        } catch (_error) {
+            // Best-effort visual state only.
+        }
+    }
+
+    private cancelPreflightPreview(preview: {
+        target: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>;
+        subscriptionGeneration: number;
+    }): void {
+        if (this.preflightPreview !== preview) {
+            return;
+        }
+        this.preflightPreview = undefined;
+        this.postLoadingCancel(preview);
+    }
+
+    private postLoadingCancel(preview: {
+        target: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>;
+        subscriptionGeneration: number;
+    }): void {
+        const panel = this.panel;
+        if (!panel) {
+            return;
+        }
+        try {
+            void Promise.resolve(panel.webview.postMessage({
+                type: 'conversation-viewer-loading-cancel',
+                version: 1,
+                subscriptionGeneration: preview.subscriptionGeneration,
+                target: preview.target,
             })).catch(() => undefined);
         } catch (_error) {
             // Best-effort visual state only.
@@ -3725,6 +3842,7 @@ export class ConversationViewer implements ConversationViewerApi {
         // the outgoing document advertised.
         this.currentDocumentId = String(++this.documentSerial);
         this.webviewTailPatchCapable = false;
+        this.webviewFramePreflightCapable = false;
         return renderConversationViewerDocument({
             panel,
             target,
@@ -3749,6 +3867,15 @@ export class ConversationViewer implements ConversationViewerApi {
             return false;
         }
     }
+}
+
+function hasSameConversationSessionTarget(
+    left: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>,
+    right: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+): boolean {
+    return left.projectId === right.projectId
+        && left.provider === right.provider
+        && left.sessionId === right.sessionId;
 }
 
 function sameSubagents(

@@ -1173,7 +1173,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
         projectComments: { revision: 0, comments: [] },
         bookmarks: { revision: 0, interactionIds: [] },
     });
-    const loadingNotice = (generation, sessionId) => ({
+    const loadingNotice = (generation, sessionId, preflight = false) => ({
         type: 'conversation-viewer-loading',
         version: 1,
         subscriptionGeneration: generation,
@@ -1182,6 +1182,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
             provider: 'codex',
             sessionId,
         },
+        ...(preflight ? { preflight: true } : {}),
     });
     const loadingState = () => page.evaluate(() => ({
         status: document.querySelector('[data-conversation-status]')
@@ -1197,6 +1198,15 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
     }));
 
     await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-a1'));
+
+    // A speculative cache miss leaves the outgoing conversation alone. The
+    // ordinary loading notice still owns the visual state once the Host has
+    // resolved the target, so uncached sessions do not feel slower.
+    await sendPage(page, loadingNotice(3, 'session-beta', true));
+    assert.deepEqual(await loadingState(), {
+        status: '', loading: null, preview: null, ariaBusy: null,
+        ariaDisabled: null, busy: null, content: 'alpha',
+    });
 
     // The Host reuses the panel for a different session: the outgoing
     // content stays visible under a lightweight loading state until the
@@ -1273,11 +1283,12 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         projectComments: { revision: 0, comments: [] },
         bookmarks: { revision: 0, interactionIds: [] },
     });
-    const loadingNotice = (generation, sessionId) => ({
+    const loadingNotice = (generation, sessionId, preflight = false) => ({
         type: 'conversation-viewer-loading',
         version: 1,
         subscriptionGeneration: generation,
         target: { projectId: 'project-1', provider: 'codex', sessionId },
+        ...(preflight ? { preflight: true } : {}),
     });
 
     await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-alpha'));
@@ -1297,7 +1308,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
     // switch. The following loading notice must reattach beta immediately,
     // before any Host page for generation five is delivered.
     await sendPage(page, sessionPage(4, 'session-alpha', 'alpha', 'sig-alpha'));
-    await sendPage(page, loadingNotice(5, 'session-beta'));
+    await sendPage(page, loadingNotice(5, 'session-beta', true));
     await page.evaluate(() =>
         document.querySelector('[data-preview-control]').click()
     );
@@ -1363,6 +1374,26 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         version: 1,
         focused: true,
     }, 'focus lifecycle remains live while action controls are gated');
+
+    // A snapshot/outline read can fail or be superseded after the cache has
+    // already made the intended target visible. Its cancellation must restore
+    // the still-authoritative alpha frame instead of leaving a read-only beta
+    // preview stranded indefinitely.
+    await sendPage(page, {
+        type: 'conversation-viewer-loading-cancel',
+        version: 1,
+        subscriptionGeneration: 5,
+        target: { projectId: 'project-1', provider: 'codex', sessionId: 'session-beta' },
+    });
+    assert.deepEqual(await page.evaluate(() => ({
+        content: document.querySelector('[data-conversation-messages]')
+            .textContent.trim(),
+        loading: document.body.getAttribute('data-conversation-loading'),
+        preview: document.body.getAttribute('data-conversation-frame-preview'),
+        ariaBusy: document.body.getAttribute('aria-busy'),
+    })), {
+        content: 'alpha', loading: null, preview: null, ariaBusy: null,
+    }, 'a cancelled preflight restores the previous interactive conversation');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preserves cached frames across rapid preview handoffs', async t => {
@@ -4654,6 +4685,76 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Normalize the speculative preflight/cancel protocol back to the
+        // previous cache-preview script. Older Webviews safely ignore these
+        // outbound Host notices, but their historical fixture must remain
+        // byte-for-byte identical.
+        .replace(
+            "    var conversationLoading = false;\n"
+                + '    // A cache preview can begin before the Host has resolved a fresh\n'
+                + '    // outline. Keep enough identity to return to the still-authoritative\n'
+                + '    // document if that speculative read is superseded or fails.\n'
+                + '    var loadingTarget;\n'
+                + '    var loadingGeneration = 0;\n'
+                + '    var loadingStatusText;\n',
+            "    var conversationLoading = false;\n"
+        )
+        .replace(
+            "        capabilities: ['tail-patch', 'frame-preflight'],\n",
+            "        capabilities: ['tail-patch'],\n"
+        )
+        .replace(
+            '        if (!conversationLoading) {\n'
+                + '            loadingStatusText = status.textContent;\n'
+                + '        }\n'
+                + '        conversationLoading = true;\n'
+                + '        loadingTarget = {\n'
+                + '            projectId: message.target.projectId,\n'
+                + '            provider: message.target.provider,\n'
+                + '            sessionId: message.target.sessionId,\n'
+                + '        };\n'
+                + '        loadingGeneration = message.subscriptionGeneration;\n',
+            '        conversationLoading = true;\n'
+        )
+        .replace(
+            '            || (message.preflight !== undefined && message.preflight !== true)\n',
+            ''
+        )
+        .replace(
+            '        if (message.preflight === true) {\n'
+                + '            var preflightKey = frameSessionKey(message.target);\n'
+                + '            var alreadyPreviewed = previewFrame\n'
+                + '                && previewFrame.key === preflightKey;\n'
+                + '            if (!preflightKey || (!alreadyPreviewed\n'
+                + '                && !frameCache.has(preflightKey))) {\n'
+                + '                // Do not make a cache miss look slower than it did before\n'
+                + '                // preflight existed. If this supersedes a prior hit, return\n'
+                + '                // that detached frame before keeping the outgoing document\n'
+                + '                // readable while the new Host read proceeds.\n'
+                + '                restoreCancelledPreflight();\n'
+                + '                return true;\n'
+                + '            }\n'
+                + '        }\n',
+            ''
+        )
+        .replace(
+            /\n    function applyLoadingCancel\(message\) \{[\s\S]*?\n    \}\n\n    function restoreCancelledPreflight\(\) \{[\s\S]*?\n    \}\n(?=\n    function clearConversationLoading)/,
+            ''
+        )
+        .replace(
+            '        conversationLoading = false;\n'
+                + '        loadingTarget = undefined;\n'
+                + '        loadingGeneration = 0;\n'
+                + '        loadingStatusText = undefined;\n',
+            '        conversationLoading = false;\n'
+        )
+        .replace(
+            '        if (applyFollowNotice(event.data)) return;\n'
+                + '        if (applyLoadingCancel(event.data)) return;\n'
+                + '        if (applyLoadingNotice(event.data)) return;\n',
+            '        if (applyFollowNotice(event.data)) return;\n'
+                + '        if (applyLoadingNotice(event.data)) return;\n'
+        )
         // Normalize the cache-preview presentation fast path back to the
         // preceding script before stepping through historical fixtures.
         .replace(

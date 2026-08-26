@@ -145,6 +145,8 @@ function createHarness(options = {}) {
     const followedViewerTargets = [];
     const restoredViewerTargets = [];
     const viewerNotices = [];
+    const previewedViewerTargets = [];
+    const cancelledViewerPreviews = [];
     let viewerFocuses = 0;
     let capturedViewerOptions;
     let outlineReads = 0;
@@ -265,6 +267,21 @@ function createHarness(options = {}) {
                     }
                     : undefined,
                 getFocusedSessionTarget: () => options.focusedViewerTarget,
+                ...(options.previewSession ? {
+                    previewSession: target => {
+                        previewedViewerTargets.push(target);
+                        const preview = options.previewSession(target);
+                        if (!preview) {
+                            return undefined;
+                        }
+                        return {
+                            dispose() {
+                                cancelledViewerPreviews.push(target);
+                                preview.dispose?.();
+                            },
+                        };
+                    },
+                } : {}),
                 open: async (target, snapshot) => {
                     viewerTargets.push(target);
                     viewerSnapshots.push(snapshot);
@@ -331,6 +348,12 @@ function createHarness(options = {}) {
         },
         get viewerFocuses() {
             return viewerFocuses;
+        },
+        get previewedViewerTargets() {
+            return [...previewedViewerTargets];
+        },
+        get cancelledViewerPreviews() {
+            return [...cancelledViewerPreviews];
         },
     };
 }
@@ -1191,6 +1214,50 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest Session follow inte
         harness.followedViewerTargets.map(target => target.sessionId),
         ['session-b']
     );
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached target before its slow outline resolves and cancels only the stale intent', async () => {
+    const slowOutline = deferred();
+    const harness = createHarness({
+        viewerOpen: true,
+        previewSession: () => ({ dispose() {} }),
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`,
+            provider,
+            sessionId,
+            name: sessionId,
+        }),
+        readOutline: (provider, sessionId) => sessionId === 'session-b'
+            ? slowOutline.promise
+            : makeOutline(provider, sessionId, ['input-c']),
+    });
+    const slowFollow = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
+    });
+    await waitFor(
+        () => harness.previewedViewerTargets.length === 1,
+        'the preflight cached-frame preview'
+    );
+    assert.deepEqual(harness.previewedViewerTargets, [{
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    }], 'the visual handoff begins before the slow authoritative read');
+
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-c',
+    }), 'opened');
+    assert.deepEqual(harness.cancelledViewerPreviews, [],
+        'the newer intent remains previewed while its authoritative page opens');
+
+    slowOutline.resolve(makeOutline('codex', 'session-b', ['input-b']));
+    assert.equal(await slowFollow, 'superseded');
+    assert.deepEqual(harness.cancelledViewerPreviews, [{
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    }], 'a late stale result can only cancel its own preview');
     harness.capability.dispose();
 });
 

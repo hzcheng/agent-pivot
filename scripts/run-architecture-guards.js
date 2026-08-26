@@ -1792,7 +1792,7 @@ const guards = {
         }
         const dashboardClickNavigator = findVariable(
             dashboard,
-            'focusAiSessionAndFollowConversation',
+            'focusAiSessionAndNavigateConversation',
             this.id,
             risk,
         );
@@ -1808,6 +1808,10 @@ const guards = {
             || callArguments(
                 dashboardClickNavigator.initializer,
                 'conversationCapability.followActiveConversation',
+            ).length !== 1
+            || callArguments(
+                dashboardClickNavigator.initializer,
+                'conversationCapability.openLatestActiveConversation',
             ).length !== 1) {
             fail(this.id, risk,
                 'Dashboard Chat-row clicks must use the shared latest-intent navigation transaction');

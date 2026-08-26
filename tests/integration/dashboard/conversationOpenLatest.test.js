@@ -379,6 +379,68 @@ test('CONVERSATION-OPEN-LATEST-001 opens the latest interaction of the resolved 
     capability.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 retains an already open Conversation for the same session', async () => {
+    const currentTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        workspaceName: '',
+        sessionId: 'session-a',
+        interactionId: 'input-b',
+        expectedRevision: 'r1',
+        displayName: 'Focused session',
+        duplicateDisplayName: false,
+    };
+    const harness = createHarness({
+        viewerOpen: true,
+        initialViewerTarget: currentTarget,
+        readOutline: () => {
+            throw new Error('the retained Conversation must not resolve another outline');
+        },
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    }), 'opened');
+    assert.equal(harness.outlineReads, 0);
+    assert.deepEqual(harness.viewerTargets, []);
+    assert.deepEqual(harness.followedViewerTargets, []);
+    assert.equal(harness.viewerFocuses, 1,
+        'an explicit open still reveals the retained Conversation editor');
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 follows an open Conversation instead of replacing its document', async () => {
+    const harness = createHarness({
+        viewerOpen: true,
+        initialViewerTarget: {
+            projectId: 'project-a',
+            provider: 'codex',
+            workspaceName: '',
+            sessionId: 'session-a',
+            interactionId: 'input-a',
+            expectedRevision: 'r1',
+            displayName: 'Focused session',
+            duplicateDisplayName: false,
+        },
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`,
+            provider,
+            sessionId,
+            name: sessionId,
+        }),
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a', provider: 'kimi', sessionId: 'session-b',
+    }), 'opened');
+    assert.equal(harness.viewerTargets.length, 0,
+        'an open viewer must not receive a document-replacing open');
+    assert.equal(harness.followedViewerTargets.length, 1);
+    assert.equal(harness.followedViewerTargets[0].sessionId, 'session-b');
+    assert.equal(harness.viewerFocuses, 1);
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 forwards the aggregate Viewer timing sink and monotonic clock', () => {
     const onViewerTiming = () => undefined;
     const harness = createHarness({
@@ -1162,13 +1224,17 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus
         'utf8'
     );
     const navigationPath = dashboardSource.match(
-        /const focusAiSessionAndFollowConversation[\s\S]*?\n\s*};\n\s*const conversationHandlers/
+        /const focusAiSessionAndNavigateConversation[\s\S]*?\n\s*};\n\s*const focusAiSessionAndFollowConversation/
     );
     assert.ok(navigationPath, 'shared Active Session navigation path must remain inspectable');
     assert.match(navigationPath[0], /focusActive\(/);
     assert.match(
         navigationPath[0],
-        /if \(focused(?: && [^)]+)?\) \{[\s\S]*followActiveConversation\(/
+        /if \(openWhenClosed\) \{[\s\S]*openLatestActiveConversation\([\s\S]*?followActiveConversation\(/
+    );
+    assert.match(
+        dashboardSource,
+        /const focusTerminal = e\.version === 2 && e\.focusTerminal === true;[\s\S]*focusAiSessionAndOpenConversation\(target\)/
     );
 });
 

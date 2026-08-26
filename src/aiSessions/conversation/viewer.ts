@@ -1543,13 +1543,24 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-frame-cache-preview') {
             const target = this.target;
-            if (target
+            const authoritativeMatch = target
                 && parsed.subscriptionGeneration === this.subscriptionGeneration
                 && parsed.projectId === target.projectId
                 && parsed.provider === target.provider
-                && parsed.sessionId === target.sessionId) {
+                && parsed.sessionId === target.sessionId;
+            const preflight = this.preflightPreview;
+            const preflightMatch = preflight
+                && parsed.subscriptionGeneration === preflight.subscriptionGeneration
+                && parsed.projectId === preflight.target.projectId
+                && parsed.provider === preflight.target.provider
+                && parsed.sessionId === preflight.target.sessionId;
+            if (authoritativeMatch || preflightMatch) {
                 this.emitDiagnostic('frame-cache-preview', {
                     outcome: parsed.outcome,
+                    ...(preflightMatch ? {
+                        preflightSessionId: parsed.sessionId,
+                        preflightProvider: parsed.provider,
+                    } : {}),
                 });
             }
             return;

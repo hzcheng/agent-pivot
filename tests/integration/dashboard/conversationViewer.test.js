@@ -2508,6 +2508,52 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preflights a cached frame befor
     viewer.dispose();
 });
 
+test('CONVERSATION-SWITCH-LATENCY-002 records a preflight cache outcome before terminal focus commits Viewer authority', async () => {
+    const diagnostics = [];
+    const { viewer, panel } = createViewer({
+        onDiagnostic: event => diagnostics.push(event),
+    });
+    await viewer.open(target('session-a'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: decodeDocumentId(panel.webview.html),
+        capabilities: ['tail-patch', 'frame-preflight'],
+    });
+    viewer.previewSession({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-frame-cache-preview',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration + 1,
+        outcome: 'hit',
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    });
+    assert.ok(diagnostics.some(event =>
+        event.reason === 'frame-cache-preview'
+            && event.preflightSessionId === 'session-b'
+            && event.outcome === 'hit'
+    ), 'a slow terminal focus must not hide its preflight cache outcome');
+
+    viewer.previewSession({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-c',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-frame-cache-preview',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration + 1,
+        outcome: 'miss',
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    });
+    assert.equal(diagnostics.filter(event =>
+        event.reason === 'frame-cache-preview'
+            && event.preflightSessionId === 'session-b'
+    ).length, 1, 'a superseded preflight must reject B\'s late cache outcome');
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records document timing after a message-delivery fallback', async () => {
     let now = 100;
     const timings = [];

@@ -1751,13 +1751,15 @@ async function initializeDashboard(
         }),
     });
     let conversationNavigationIntent = 0;
-    const beginConversationNavigationIntent = (): number => {
+    const beginConversationNavigationIntent = (options?: {
+        preservePreparedPreview?: boolean;
+    }): number => {
         conversationNavigationIntent += 1;
         // The coordinator can discard queued target switches, but a slow
         // foreground provider read has already left that queue. Cancel it at
         // the moment the newer user intent arrives so it cannot hold the
         // latest target behind its full read timeout.
-        conversationCapability?.cancelPendingNavigation();
+        conversationCapability?.cancelPendingNavigation(options);
         return conversationNavigationIntent;
     };
     conversationCapability = ownResource(() => createConversationCapability({
@@ -2124,7 +2126,12 @@ async function initializeDashboard(
         provider: AiSessionProviderId;
         sessionId: string;
     }, openWhenClosed: boolean): Promise<void> => {
-        const intent = beginConversationNavigationIntent();
+        const intent = beginConversationNavigationIntent({
+            // The following prepare call synchronously hands this reversible
+            // frame to the next row target. Keep it alive across that tiny
+            // gap so rapid clicks never flash back to the old conversation.
+            preservePreparedPreview: true,
+        });
         // Resolve the provider snapshot immediately. Terminal focus must stay
         // serialized, but it is independent of the read and should not make
         // a slow focus plus a slow snapshot feel like two consecutive waits.

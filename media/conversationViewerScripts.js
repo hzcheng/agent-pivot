@@ -386,6 +386,12 @@
     var loadingTarget;
     var loadingGeneration = 0;
     var loadingStatusText;
+    var loadingPreflight = false;
+    // A speculative target can temporarily cover an already-authoritative
+    // load. Keep the underlying load presentation so cancelling the
+    // speculation resumes it instead of incorrectly making the old document
+    // interactive while its Host transition is still pending.
+    var preflightLoadingRestore;
     // Detached conversation frames keyed by session: switching back to a
     // session whose content token is unchanged reattaches the already-built
     // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
@@ -1239,13 +1245,32 @@
                 && previewFrame.key === preflightKey;
             if (!preflightKey || (!alreadyPreviewed
                 && !frameCache.has(preflightKey))) {
-                // Do not make a cache miss look slower than it did before
-                // preflight existed. If this supersedes a prior hit, return
-                // that detached frame before keeping the outgoing document
-                // readable while the new Host read proceeds.
-                restoreCancelledPreflight();
+                // A cache miss cannot replace the document, but it must still
+                // make the click visible immediately. Keep the outgoing
+                // content in place under the same reversible loading state
+                // used for a committed target; cancellation restores it.
+                if (loadingPreflight) {
+                    restoreCancelledPreflight();
+                }
+            }
+            if (!loadingPreflight && conversationLoading) {
+                preflightLoadingRestore = {
+                    target: loadingTarget && Object.assign({}, loadingTarget),
+                    generation: loadingGeneration,
+                    statusText: loadingStatusText,
+                    framePreview: document.body.getAttribute(
+                        'data-conversation-frame-preview'
+                    ) === 'true',
+                };
+            }
+        } else if (loadingPreflight) {
+            if (message.subscriptionGeneration < loadingGeneration) {
+                // A still-running older Host load must not displace a newer
+                // optimistic target before its terminal focus resolves.
                 return true;
             }
+            returnPreviewFrameToCache();
+            preflightLoadingRestore = undefined;
         }
         if (!conversationLoading) {
             loadingStatusText = status.textContent;
@@ -1257,6 +1282,7 @@
             sessionId: message.target.sessionId,
         };
         loadingGeneration = message.subscriptionGeneration;
+        loadingPreflight = message.preflight === true;
         document.body.setAttribute('data-conversation-loading', 'true');
         document.body.setAttribute('aria-busy', 'true');
         document.body.setAttribute('aria-disabled', 'true');
@@ -1315,6 +1341,26 @@
         }
         var restoreStatusText = loadingStatusText;
         returnPreviewFrameToCache();
+        var restore = loadingPreflight ? preflightLoadingRestore : undefined;
+        if (restore && restore.target) {
+            conversationLoading = true;
+            loadingTarget = restore.target;
+            loadingGeneration = restore.generation;
+            loadingStatusText = restore.statusText;
+            loadingPreflight = false;
+            preflightLoadingRestore = undefined;
+            document.body.setAttribute('data-conversation-loading', 'true');
+            document.body.setAttribute('aria-busy', 'true');
+            document.body.setAttribute('aria-disabled', 'true');
+            messages.setAttribute('aria-busy', 'true');
+            if (restore.framePreview) {
+                document.body.setAttribute('data-conversation-frame-preview', 'true');
+            } else {
+                document.body.removeAttribute('data-conversation-frame-preview');
+            }
+            status.textContent = 'Loading conversation…';
+            return;
+        }
         clearConversationLoading();
         status.textContent = restoreStatusText || '';
     }
@@ -1327,6 +1373,8 @@
         loadingTarget = undefined;
         loadingGeneration = 0;
         loadingStatusText = undefined;
+        loadingPreflight = false;
+        preflightLoadingRestore = undefined;
         document.body.removeAttribute('data-conversation-loading');
         document.body.removeAttribute('data-conversation-frame-preview');
         document.body.removeAttribute('aria-busy');
@@ -2094,7 +2142,16 @@
         }
         state.atLatest = message.atLatest;
         state.initialized = true;
-        clearConversationLoading();
+        var retainsNewerPreflight = loadingPreflight
+            && loadingGeneration > message.subscriptionGeneration;
+        if (!retainsNewerPreflight) {
+            clearConversationLoading();
+        } else {
+            // The older authoritative page is now complete beneath the
+            // preview. If the preview is cancelled later, reveal that stable
+            // page interactively rather than resurrecting its old spinner.
+            preflightLoadingRestore = undefined;
+        }
         var nextRestoreTarget = Object.assign({}, restoreTarget || {}, {
             interactionId: message.selectedInteractionId,
         });
@@ -2154,6 +2211,19 @@
         }
         baseTranscriptStatus = statusMessages.join(' ');
         updateTranscriptStatus();
+        if (retainsNewerPreflight && loadingTarget) {
+            // The covered authoritative page has recomputed its own status.
+            // Keep that text for a later preview cancellation instead of
+            // restoring a warning that belonged to the outgoing session.
+            loadingStatusText = status.textContent;
+            var preservedPreviewHit = previewCachedFrame(loadingTarget);
+            if (preservedPreviewHit) {
+                document.body.setAttribute('data-conversation-frame-preview', 'true');
+            } else {
+                document.body.removeAttribute('data-conversation-frame-preview');
+            }
+            status.textContent = 'Loading conversation…';
+        }
         scheduleDeferredMessagesWatchdog();
 
         var selectedMessages = Array.prototype.filter.call(

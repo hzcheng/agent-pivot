@@ -1820,6 +1820,23 @@ const guards = {
             fail(this.id, risk,
                 'Dashboard Chat-row clicks must prepare once, then commit only through the shared latest-intent navigation transaction');
         }
+        const rowIntentCalls = callArguments(
+            dashboardClickNavigator.initializer,
+            'beginConversationNavigationIntent',
+        );
+        const rowIntentOptions = rowIntentCalls.length === 1
+            ? rowIntentCalls[0][0]
+            : undefined;
+        const preservePreview = rowIntentOptions
+            && ts.isObjectLiteralExpression(rowIntentOptions)
+            ? rowIntentOptions.properties.find(property =>
+                property.name?.getText(dashboard) === 'preservePreparedPreview')
+            : undefined;
+        if (!preservePreview || !ts.isPropertyAssignment(preservePreview)
+            || preservePreview.initializer.kind !== ts.SyntaxKind.TrueKeyword) {
+            fail(this.id, risk,
+                'Dashboard Chat-row intent must preserve the prior reversible preview until its replacement prepare starts');
+        }
         const focusCall = uniqueAstNode(
             dashboardClickNavigator.initializer,
             node => ts.isCallExpression(node)
@@ -1881,6 +1898,43 @@ const guards = {
         if (!cancelGuardedByUncommittedFinally) {
             fail(this.id, risk,
                 'Dashboard Chat-row prepared Viewer cancel must remain in the uncommitted finally branch');
+        }
+        const composition = parseTypescript(
+            root,
+            'src/aiSessions/conversation/composition.ts',
+            this.id,
+            risk,
+        );
+        const preparedNavigation = findVariable(
+            composition,
+            'prepareActiveConversation',
+            this.id,
+            risk,
+        );
+        if (!preparedNavigation.initializer) {
+            fail(this.id, risk,
+                'Conversation preparation must retain an initializer');
+        }
+        const preparedPreview = uniqueAstNode(
+            preparedNavigation.initializer,
+            node => ts.isCallExpression(node)
+                && node.expression.getText(composition) === 'viewer.previewSession',
+            this.id,
+            risk,
+            'Conversation preparation reversible Viewer preflight',
+        );
+        const preparedApplyMethod = uniqueAstNode(
+            preparedNavigation.initializer,
+            node => ts.isMethodDeclaration(node)
+                && node.name.getText(composition) === 'apply',
+            this.id,
+            risk,
+            'Conversation preparation apply method',
+        );
+        if (preparedPreview.getStart(composition)
+            >= preparedApplyMethod.getStart(composition)) {
+            fail(this.id, risk,
+                'Conversation preparation must start its reversible Viewer preflight before terminal focus can call apply');
         }
     },
 

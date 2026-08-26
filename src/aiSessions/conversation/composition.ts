@@ -104,7 +104,9 @@ export interface ConversationCapability {
      * user-visible navigation intent wins, before that later intent reaches
      * the terminal-focus queue.
      */
-    cancelPendingNavigation(): void;
+    cancelPendingNavigation(options?: {
+        preservePreparedPreview?: boolean;
+    }): void;
     prepareActiveConversation(
         target: ConversationSessionOpenTarget,
         openWhenClosed: boolean
@@ -430,6 +432,11 @@ function createAvailableConversationCapability(
     );
     let viewerIntentGeneration = 0;
     let viewerIntentAbortController: ConversationAbortController | undefined;
+    // A Dashboard row can start a reversible Renderer preflight before its
+    // terminal focus is admitted. Unlike an authoritative Viewer load, this
+    // handle is always safe to cancel for a non-Conversation intent (for
+    // example a worktree switch) without leaving the panel loading.
+    let pendingPreparedPreview: AiSessionDisposable | undefined;
     let disposed = false;
     const beginViewerIntent = (): {
         isCurrent: () => boolean;
@@ -690,6 +697,39 @@ function createAvailableConversationCapability(
     ): PreparedActiveConversationNavigation => {
         const intent = beginViewerIntent();
         const currentTarget = viewer.getCurrentTarget();
+        // This is deliberately non-authoritative: previewSession only posts
+        // the reversible loading/cache-frame protocol. It lets a click feel
+        // immediate while terminal focus and the authoritative read run in
+        // parallel below. follow/open still own the eventual Viewer target.
+        const shouldPreflight = viewer.isOpen()
+            && !(currentTarget && hasSameConversationSession(
+                currentTarget,
+                target
+            ));
+        // Let Viewer hand one preview directly to the next. It retains a
+        // cached frame through rapid B → C clicks without a momentary return
+        // to the old authoritative document. A same-target or unavailable
+        // preflight instead restores the old document immediately.
+        if (!shouldPreflight) {
+            pendingPreparedPreview?.dispose();
+            pendingPreparedPreview = undefined;
+        }
+        const preparedPreview = shouldPreflight
+            ? viewer.previewSession?.(target)
+            : undefined;
+        if (preparedPreview) {
+            pendingPreparedPreview = preparedPreview;
+        } else if (shouldPreflight) {
+            pendingPreparedPreview?.dispose();
+            pendingPreparedPreview = undefined;
+        }
+        const releasePreparedPreview = (): void => {
+            if (pendingPreparedPreview !== preparedPreview) {
+                return;
+            }
+            pendingPreparedPreview = undefined;
+            preparedPreview?.dispose();
+        };
         const shouldResolve = openWhenClosed || viewer.isOpen();
         const resolution = shouldResolve && !(viewer.isOpen() && currentTarget
             && hasSameConversationSession(currentTarget, target))
@@ -709,6 +749,7 @@ function createAvailableConversationCapability(
         void resolution?.catch(() => undefined);
         let applied = false;
         const cancel = (): void => {
+            releasePreparedPreview();
             // A stale queued focus task must not cancel the newer target that
             // replaced it while it was waiting for terminal serialization.
             if (intent.isCurrent()) {
@@ -726,14 +767,6 @@ function createAvailableConversationCapability(
                     cancel();
                     return 'closed';
                 }
-                const currentTarget = viewer.getCurrentTarget();
-                const preparedPreview = viewer.isOpen()
-                    && !(currentTarget && hasSameConversationSession(
-                        currentTarget,
-                        target
-                    ))
-                    ? viewer.previewSession?.(target)
-                    : undefined;
                 let previewTransferred = false;
                 try {
                     let resolutionForApply = resolution;
@@ -767,6 +800,12 @@ function createAvailableConversationCapability(
                         preview: preparedPreview,
                     };
                     if (viewer.isOpen()) {
+                        // Viewer.loadTarget adopts the matching preflight
+                        // synchronously. From this point a generic navigation
+                        // intent must not cancel the authoritative load.
+                        if (pendingPreparedPreview === preparedPreview) {
+                            pendingPreparedPreview = undefined;
+                        }
                         previewTransferred = true;
                         return followOpenConversation(
                             target,
@@ -811,8 +850,15 @@ function createAvailableConversationCapability(
     return {
         viewer,
         availability: 'available',
-        cancelPendingNavigation: () => {
+        cancelPendingNavigation: navigationOptions => {
             if (!disposed) {
+                // Only release an uncommitted visual preflight. Do not abort
+                // the Viewer itself here: a worktree-only intent may have no
+                // replacement Conversation transaction to settle it.
+                if (!navigationOptions?.preservePreparedPreview) {
+                    pendingPreparedPreview?.dispose();
+                    pendingPreparedPreview = undefined;
+                }
                 beginViewerIntent();
             }
         },
@@ -973,6 +1019,8 @@ function createAvailableConversationCapability(
             viewerIntentGeneration += 1;
             viewerIntentAbortController?.abort();
             viewerIntentAbortController = undefined;
+            pendingPreparedPreview?.dispose();
+            pendingPreparedPreview = undefined;
             ownership.dispose();
         },
     };

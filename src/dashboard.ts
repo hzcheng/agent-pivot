@@ -3159,6 +3159,7 @@ async function initializeDashboard(
         },
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
+        onNavigationIntent: () => beginConversationNavigationIntent(),
     });
     // The first paint happens after bootstrap settles (see the post-ready
     // startup timer below); earlier reads of the card projection are unsafe.

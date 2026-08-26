@@ -50,24 +50,3 @@ export async function verifyConversationHistoryRestartPoints(
 }
 
 /** Captures raw-record proofs only after the current source scan succeeded. */
-export async function stampConversationHistoryRestartPoints(
-    source: OpenConversationSource,
-    points: CachedConversationHistoryRestartPoint[]
-): Promise<CachedConversationHistoryRestartPoint[]> {
-    const stamped: CachedConversationHistoryRestartPoint[] = [];
-    for (const point of points) {
-        if (point.recordDigest) {
-            stamped.push(point);
-            continue;
-        }
-        const digest = await digestConversationSourceRange(
-            source,
-            point.offset,
-            point.recordEndOffset
-        );
-        if (digest) {
-            stamped.push({ ...point, recordDigest: digest });
-        }
-    }
-    return stamped;
-}

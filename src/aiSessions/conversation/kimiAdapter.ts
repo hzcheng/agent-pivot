@@ -68,7 +68,6 @@ import {
 import {
     appendConversationHistoryRestartPoint,
     CachedConversationHistoryRestartPoint,
-    stampConversationHistoryRestartPoints,
     verifyConversationHistoryRestartPoints,
 } from './historyRestartPoints';
 import type {
@@ -749,9 +748,14 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             let restartPoints: CachedConversationHistoryRestartPoint[] = continuing
                 ? previous.restartPoints
                 : [];
+            let ownsRestartPoints = !continuing;
             const addRestartPoint = (
                 point: CachedConversationHistoryRestartPoint
             ): void => {
+                if (!ownsRestartPoints) {
+                    restartPoints = restartPoints.slice();
+                    ownsRestartPoints = true;
+                }
                 appendConversationHistoryRestartPoint(restartPoints, point);
             };
             if (continuing) {
@@ -876,7 +880,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             addRestartPoint({
                                 offset: record.offset,
                                 recordEndOffset: record.endOffset,
-                                recordDigest: '',
+                                recordDigest: record.recordDigest,
                                 interactionId: id,
                             });
                         }
@@ -1292,10 +1296,6 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 };
             }
             const partial = continuing ? previous.partial : result.partial;
-            restartPoints = await stampConversationHistoryRestartPoints(
-                source,
-                restartPoints
-            );
             // Publish the in-progress text run so a streaming answer stays
             // visible between loads; the buffer itself stays open for later
             // deltas.

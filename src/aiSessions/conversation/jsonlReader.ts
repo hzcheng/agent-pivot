@@ -1,5 +1,6 @@
 'use strict';
 
+import { createHash } from 'crypto';
 import type { AiSessionDisposable } from '../types';
 import { CONVERSATION_LIMITS, ConversationAbortError, ConversationAbortSignal, ConversationError } from './types';
 import { isConversationSourceContinuation, OpenConversationSource } from './source';
@@ -23,8 +24,10 @@ export interface ConversationJsonlReadOptions {
 
 export interface ConversationJsonlRecord {
     offset: number;
-    /** Exclusive byte end of this physical JSONL record. */
+    /** Exclusive byte end of the JSON payload (the trailing newline is excluded). */
     endOffset: number;
+    /** SHA-256 of the exact physical JSONL bytes parsed for this record. */
+    recordDigest: string;
     value: unknown;
 }
 
@@ -147,10 +150,12 @@ export async function readConversationJsonl(
         }
         let record: ConversationJsonlRecord;
         try {
+            const rawRecord = Buffer.concat(fragments);
             record = {
                 offset: lineStart,
-                endOffset: readOffset,
-                value: JSON.parse(Buffer.concat(fragments).toString('utf8')),
+                endOffset: readOffset - 1,
+                recordDigest: createHash('sha256').update(rawRecord).digest('hex'),
+                value: JSON.parse(rawRecord.toString('utf8')),
             };
         } catch (_error) {
             malformedLines += 1;
@@ -235,10 +240,12 @@ export async function readConversationJsonl(
         } else {
             let record: ConversationJsonlRecord;
             try {
+                const rawRecord = Buffer.concat(fragments);
                 record = {
                     offset: lineStart,
                     endOffset: readOffset,
-                    value: JSON.parse(Buffer.concat(fragments).toString('utf8')),
+                    recordDigest: createHash('sha256').update(rawRecord).digest('hex'),
+                    value: JSON.parse(rawRecord.toString('utf8')),
                 };
             } catch (_error) {
                 readOffset = lineStart;

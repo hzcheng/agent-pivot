@@ -59,7 +59,6 @@ import {
 import {
     appendConversationHistoryRestartPoint,
     CachedConversationHistoryRestartPoint,
-    stampConversationHistoryRestartPoints,
     verifyConversationHistoryRestartPoints,
 } from './historyRestartPoints';
 import {
@@ -722,9 +721,14 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             let restartPoints: CachedConversationHistoryRestartPoint[] = continuing
                 ? previous.restartPoints
                 : [];
+            let ownsRestartPoints = !continuing;
             const addRestartPoint = (
                 point: CachedConversationHistoryRestartPoint
             ): void => {
+                if (!ownsRestartPoints) {
+                    restartPoints = restartPoints.slice();
+                    ownsRestartPoints = true;
+                }
                 appendConversationHistoryRestartPoint(restartPoints, point);
             };
             if (continuing) {
@@ -861,7 +865,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                         addRestartPoint({
                             offset: record.offset,
                             recordEndOffset: record.endOffset,
-                            recordDigest: '',
+                            recordDigest: record.recordDigest,
                             interactionId: event.uuid,
                         });
                     }
@@ -1008,10 +1012,6 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             const appendInteractionIndex = openInteractionIndex;
             finishInteraction();
             const partial = continuing ? previous.partial : result.partial;
-            restartPoints = await stampConversationHistoryRestartPoints(
-                source,
-                restartPoints
-            );
             const changed = !previous
                 || previous.source.identity !== source.identity
                 || previous.source.portableFirstHash

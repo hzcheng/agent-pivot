@@ -183,13 +183,13 @@ function createHarness(options = {}) {
                 };
             },
         } : {}),
-        async readOutline(sessionId) {
+        async readOutline(sessionId, signal) {
             outlineReads += 1;
             if (options.requireSnapshot) {
                 throw new Error('initial Conversation load must use one snapshot');
             }
             if (options.readOutline) {
-                return options.readOutline(provider, sessionId);
+                return options.readOutline(provider, sessionId, signal);
             }
             if (options.readOutlineError) {
                 throw options.readOutlineError;
@@ -1208,7 +1208,52 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 lets the newest Session follow inte
         provider: 'codex',
         sessionId: 'session-b',
     }), 'opened');
+    assert.equal(await first, 'superseded',
+        'an ignored provider cancellation cannot keep the stale intent pending');
     slowOutline.resolve(makeOutline('codex', 'session-a', ['input-a']));
+    assert.deepEqual(
+        harness.followedViewerTargets.map(target => target.sessionId),
+        ['session-b']
+    );
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 aborts a superseded provider read before following the newest Session', async () => {
+    let abortedReads = 0;
+    const harness = createHarness({
+        viewerOpen: true,
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`,
+            provider,
+            sessionId,
+            name: sessionId,
+        }),
+        readOutline: (provider, sessionId, signal) => {
+            if (sessionId !== 'session-a') {
+                return makeOutline(provider, sessionId, ['input-b']);
+            }
+            return new Promise((_resolve, reject) => {
+                signal.onAbort(() => {
+                    abortedReads += 1;
+                    reject(new Error('superseded provider read'));
+                });
+            });
+        },
+    });
+    const first = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
+    }), 'opened');
+    assert.equal(abortedReads, 1,
+        'the stale provider read is aborted instead of competing in background');
     assert.equal(await first, 'superseded');
     assert.deepEqual(
         harness.followedViewerTargets.map(target => target.sessionId),
@@ -1250,14 +1295,15 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached target before
         provider: 'codex',
         sessionId: 'session-c',
     }), 'opened');
-    assert.deepEqual(harness.cancelledViewerPreviews, [],
-        'the newer intent remains previewed while its authoritative page opens');
+    assert.deepEqual(harness.cancelledViewerPreviews, [{
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    }], 'the newer intent immediately removes the obsolete preview');
 
     slowOutline.resolve(makeOutline('codex', 'session-b', ['input-b']));
     assert.equal(await slowFollow, 'superseded');
     assert.deepEqual(harness.cancelledViewerPreviews, [{
         projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
-    }], 'a late stale result can only cancel its own preview');
+    }], 'a late stale result cannot disturb the newest preview');
     harness.capability.dispose();
 });
 

@@ -59,6 +59,19 @@ async function readWholeConversation(adapter) {
     return { outline, page };
 }
 
+async function restartSuffix(t, sourcePath, offset) {
+    const bytes = await fs.promises.readFile(sourcePath);
+    const suffixPath = path.join(path.dirname(sourcePath), 'restart-suffix.jsonl');
+    // JSONL offsets are byte offsets. Newlines preserve each later record's
+    // original offset while remaining harmless malformed blank records.
+    await fs.promises.writeFile(suffixPath, Buffer.concat([
+        Buffer.alloc(offset, 0x0a),
+        bytes.subarray(offset),
+    ]));
+    t.after(() => fs.promises.rm(suffixPath, { force: true }));
+    return suffixPath;
+}
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 Kimi returns one correlated outline and page snapshot', async t => {
     const source = await createFixture(t);
     const adapter = createAdapter(source);
@@ -137,6 +150,180 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi normalizes only visible t
         ]
     );
     assert.equal(new Set(appended.interactions.map(item => item.id)).size, 4);
+});
+
+test('CONVERSATION-HISTORY-RESTART-POINT-001 Kimi restart points replay their interaction suffix from empty state', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    const full = await readWholeConversation(adapter);
+    const restartSnapshot = await adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(restartSnapshot);
+    const { points } = restartSnapshot;
+    assert.ok(points.length >= 2);
+    for (const point of points) {
+        const start = full.outline.interactions.findIndex(
+            item => item.id === point.interactionId
+        );
+        assert.ok(start >= 0);
+        const suffixPath = await restartSuffix(t, source.sourcePath, point.offset);
+        const suffixAdapter = createAdapter({
+            providerHome: source.providerHome,
+            sourcePath: suffixPath,
+        });
+        t.after(() => suffixAdapter.dispose());
+        const suffix = await readWholeConversation(suffixAdapter);
+        const suffixInteractionIds = new Set(
+            full.outline.interactions.slice(start).map(item => item.id)
+        );
+        assert.deepEqual(
+            suffix.outline.interactions,
+            full.outline.interactions.slice(start)
+        );
+        assert.deepEqual(
+            {
+                messages: suffix.page.messages,
+                interactionStates: suffix.page.interactionStates,
+            },
+            {
+                messages: full.page.messages.filter(message =>
+                    suffixInteractionIds.has(message.interactionId)
+                ),
+                interactionStates: full.page.interactionStates.filter(state =>
+                    suffixInteractionIds.has(state.interactionId)
+                ),
+            }
+        );
+    }
+});
+
+test('CONVERSATION-HISTORY-RESTART-POINT-003 Kimi seals an unsettled tool call before a later turn', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Start the tool call' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'pending-tool',
+                    function: { name: 'Shell', arguments: '{"command":"pwd"}' },
+                },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'pending-question',
+                    function: {
+                        name: 'AskUserQuestion',
+                        arguments: JSON.stringify({
+                            questions: [{ question: 'Continue?' }],
+                        }),
+                    },
+                },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ApprovalRequest',
+                payload: {
+                    id: 'pending-approval',
+                    tool_call_id: 'pending-tool',
+                },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Must replay from before the tool' },
+            },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    await adapter.readOutline(sessionId);
+    const points = (await adapter.getHistoryRestartPoints(sessionId)).points;
+    assert.equal(points.length, 2);
+    assert.equal(points[0].offset, 0);
+    assert.ok(points[1].offset > points[0].offset);
+});
+
+test('CONVERSATION-HISTORY-RESTART-POINT-004 Kimi keeps restart points across a verified non-turn append', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    await adapter.readOutline(sessionId);
+    const before = await adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(before?.points.length);
+    await fs.promises.appendFile(source.sourcePath, `${JSON.stringify({
+        timestamp: 9999,
+        message: { type: 'StatusUpdate', payload: {} },
+    })}\n`);
+    await adapter.readOutline(sessionId);
+    const after = await adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(after);
+    assert.notEqual(after.sourceIdentity, before.sourceIdentity);
+    assert.deepEqual(after.points, before.points);
+});
+
+test('CONVERSATION-HISTORY-RESTART-POINT-005 Kimi drops a rewritten middle-record point before an append promotion', async t => {
+    const source = await createFixture(t);
+    const filler = index => ({
+        timestamp: 1000 + index,
+        message: {
+            type: 'StatusUpdate',
+            payload: { filler: 'x'.repeat(2048) },
+        },
+    });
+    const records = [
+        {
+            timestamp: 1,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'First restart point' },
+            },
+        },
+        ...Array.from({ length: 40 }, (_value, index) => filler(index)),
+        {
+            timestamp: 2,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Rewrite me' },
+            },
+        },
+        ...Array.from({ length: 40 }, (_value, index) => filler(index + 40)),
+    ];
+    const initial = `${records.map(record => JSON.stringify(record)).join('\n')}\n`;
+    assert.ok(Buffer.byteLength(initial) > 128 * 1024);
+    await fs.promises.writeFile(source.sourcePath, initial);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    await adapter.readOutline(sessionId);
+    const before = await adapter.getHistoryRestartPoints(sessionId);
+    assert.equal(before?.points.length, 2);
+    const rewritten = initial.replace('Rewrite me', 'Changed!!!');
+    assert.equal(Buffer.byteLength(rewritten), Buffer.byteLength(initial));
+    await fs.promises.writeFile(source.sourcePath, rewritten);
+    await fs.promises.appendFile(source.sourcePath, `${JSON.stringify(filler(99))}\n`);
+    await adapter.readOutline(sessionId);
+    const after = await adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(after);
+    assert.notEqual(after.sourceIdentity, before.sourceIdentity);
+    assert.deepEqual(after.points, [before.points[0]]);
 });
 
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi merges streamed text deltas into one block across incremental loads', async t => {

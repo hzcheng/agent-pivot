@@ -125,6 +125,50 @@ function validateChromiumInstall(job) {
     'quality-linux must install only the Chromium headless shell with three bounded retries');
 }
 
+function validatePrMetadataPreflight(jobs) {
+    const job = jobs['pr-metadata'];
+    assert.ok(isMapping(job), 'GitHub verification workflow must define pr-metadata');
+    assert.equal(job.name, 'pr-metadata', 'pr-metadata must expose a stable check name');
+    assert.equal(job['runs-on'], 'ubuntu-latest', 'pr-metadata must use ubuntu-latest');
+    assert.equal(job['timeout-minutes'], 2, 'pr-metadata must have a short timeout');
+    assert.ok(findStep(job, step => isMapping(step) && step.uses === 'actions/checkout@v4'),
+        'pr-metadata must checkout the PR head');
+    assert.equal(findStep(job, step => isMapping(step)
+        && step.name === 'Check PR body conventions')?.run,
+    'node scripts/check-pr-body.js',
+    'pr-metadata must run the PR body validator directly');
+    assert.equal(findStep(job, step => isMapping(step) && step.run === 'npm ci'), undefined,
+        'pr-metadata must run before dependency installation');
+}
+
+function validateStaticPreflight(jobs) {
+    const job = jobs['static-preflight'];
+    assert.ok(isMapping(job), 'GitHub verification workflow must define static-preflight');
+    assert.equal(job.name, 'static-preflight', 'static-preflight must expose a stable check name');
+    assert.equal(job['runs-on'], 'ubuntu-latest', 'static-preflight must use ubuntu-latest');
+    assert.equal(job['timeout-minutes'], 3, 'static-preflight must have a short timeout');
+    assert.ok(findStep(job, step => isMapping(step) && step.uses === 'actions/checkout@v4'),
+        'static-preflight must checkout the PR head');
+    const command = findStep(job, step => isMapping(step)
+        && step.name === 'Run static repository preflight')?.run;
+    assert.equal(command, [
+        'node scripts/check-brand-identity.js',
+        'node scripts/check-behavior-contracts.js',
+        'node --test tests/unit/tooling/conversationReleaseJourneys.test.js',
+        'node scripts/check-conversation-release-journeys.js',
+        'node scripts/run-performance-architecture-baseline-checks.js',
+        'node scripts/run-release-notes-checks.js',
+        '',
+    ].join('\n'), 'static-preflight must run only checkout-safe repository checks');
+    assert.equal(findStep(job, step => isMapping(step) && step.run === 'npm ci'), undefined,
+        'static-preflight must run before dependency installation');
+    assert.equal(findStep(job, step => isMapping(step)
+        && step.uses === 'actions/setup-node@v4'), undefined,
+    'static-preflight must not wait for dependency setup');
+    assert.deepEqual(jobs['quality-linux'].needs, ['pr-metadata', 'static-preflight'],
+        'quality-linux must wait for both fast preflight jobs');
+}
+
 function validateVerifyWorkflow(verifyWorkflow) {
     const workflow = parseVerifyWorkflow(verifyWorkflow);
     validateTriggers(workflow);
@@ -137,6 +181,8 @@ function validateVerifyWorkflow(verifyWorkflow) {
     assert.equal(workflow.concurrency['cancel-in-progress'], true,
         'GitHub verification workflow must cancel in-progress runs');
     assert.ok(isMapping(workflow.jobs), 'GitHub verification workflow jobs must be a mapping');
+    validatePrMetadataPreflight(workflow.jobs);
+    validateStaticPreflight(workflow.jobs);
     validateJob(
         workflow.jobs,
         'quality-linux',

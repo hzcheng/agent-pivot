@@ -12,6 +12,7 @@ import type {
 export const CONVERSATION_LIMITS = Object.freeze({
     previewGraphemes: 160,
     maxOutlineInteractions: 2_000,
+    maxHistoryRestartPointIdLength: 256,
     maxPageInteractions: 20,
     maxPageBytes: 512 * 1024,
     maxSourceBytes: 64 * 1024 * 1024,
@@ -439,6 +440,26 @@ export interface ConversationCacheDiagnostics {
     partial?: boolean;
 }
 
+/**
+ * A provider-proved record boundary from which its reducer can rebuild the
+ * following interactions without inheriting mutable state from earlier JSONL
+ * records. These stay host-local; offsets are never sent to the Webview.
+ */
+export interface ConversationHistoryRestartPoint {
+    offset: number;
+    interactionId: string;
+}
+
+/** Sparse candidates atomically bound to the source snapshot that produced
+ * them. Consumers must not carry offsets across a different identity. */
+export interface ConversationHistoryRestartSnapshot {
+    sourceIdentity: string;
+    sourceSize: number;
+    sourceRevision: string;
+    reducerVersion: 1;
+    points: ConversationHistoryRestartPoint[];
+}
+
 export interface ConversationAbortSignal {
     readonly aborted: boolean;
     onAbort(listener: () => void): AiSessionDisposable;
@@ -508,6 +529,10 @@ export interface ConversationProviderAdapter extends AiSessionDisposable {
         request: ConversationPageRequest,
         signal?: ConversationAbortSignal
     ): Promise<ConversationPage>;
+    /** Host-local sparse restart candidates bound to one source snapshot. */
+    getHistoryRestartPoints?(
+        sessionId: string
+    ): Promise<ConversationHistoryRestartSnapshot | undefined>;
     readSubagents?(
         sessionId: string,
         signal?: ConversationAbortSignal

@@ -19,8 +19,39 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pr-metadata:
+    name: pr-metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check PR body conventions
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-pr-body.js
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+  static-preflight:
+    name: static-preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run static repository preflight
+        run: |
+          node scripts/check-brand-identity.js
+          node scripts/check-behavior-contracts.js
+          node --test tests/unit/tooling/conversationReleaseJourneys.test.js
+          node scripts/check-conversation-release-journeys.js
+          node scripts/run-performance-architecture-baseline-checks.js
+          node scripts/run-release-notes-checks.js
+
   quality-linux:
     name: quality-linux
+    needs: [pr-metadata, static-preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -50,13 +81,6 @@ jobs:
         run: npm run test:ci:linux
         env:
           COVERAGE_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
-      - name: Check PR body conventions
-        if: github.event_name == 'pull_request'
-        run: node scripts/check-pr-body.js
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-
   platform-windows:
     name: platform-windows
     runs-on: windows-latest

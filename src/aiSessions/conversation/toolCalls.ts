@@ -21,6 +21,15 @@ interface ToolCallInteraction {
 export class ToolCallTracker {
     private readonly pending = new Map<string, ConversationToolCall>();
 
+    hasPending(): boolean {
+        return this.pending.size > 0;
+    }
+
+    /** A provider-proved terminal boundary makes older pairings orphaned. */
+    discardPending(): void {
+        this.pending.clear();
+    }
+
     begin(
         interaction: ToolCallInteraction,
         key: string | undefined,

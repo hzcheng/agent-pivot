@@ -40,6 +40,7 @@ import {
     ConversationCacheDiagnostics,
     ConversationError,
     ConversationFileDiff,
+    ConversationHistoryRestartSnapshot,
     ConversationInteraction,
     ConversationOutline,
     ConversationPage,
@@ -55,6 +56,11 @@ import {
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
+import {
+    appendConversationHistoryRestartPoint,
+    CachedConversationHistoryRestartPoint,
+    verifyConversationHistoryRestartPoints,
+} from './historyRestartPoints';
 import {
     isSubagentId,
     splitSubagentSessionId,
@@ -96,6 +102,7 @@ interface ClaudeConversationIndex extends AiSessionDisposable {
     source: OpenConversationSource;
     nextOffset: number;
     interactions: ConversationInteraction[];
+    restartPoints: CachedConversationHistoryRestartPoint[];
     appendInteractionIndex?: number;
     telemetryModel?: string;
     telemetryContext?: ConversationContextUsage;
@@ -590,6 +597,53 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         };
     }
 
+    /** Provider-owned candidates for the persistent history indexer. */
+    async getHistoryRestartPoints(
+        sessionId: string
+    ): Promise<ConversationHistoryRestartSnapshot | undefined> {
+        const entry = this.cache.get(sessionId);
+        const split = splitSubagentSessionId(sessionId);
+        const candidate = entry && (!split.subagentId || isSubagentId(split.subagentId))
+            ? this.options.resolveSource(split.sessionId)
+            : null;
+        if (!entry || !candidate) {
+            return undefined;
+        }
+        const source = await openValidatedConversationSource(split.subagentId
+            ? {
+                providerHome: candidate.providerHome,
+                sourcePath: path.join(
+                    subagentsRootFor(candidate.sourcePath),
+                    `agent-${split.subagentId}.jsonl`
+                ),
+            }
+            : candidate);
+        if (!source) {
+            return undefined;
+        }
+        try {
+            if (source.identity !== entry.source.identity) {
+                return undefined;
+            }
+            const points = await verifyConversationHistoryRestartPoints(
+                source,
+                entry.restartPoints
+            );
+            return {
+                sourceIdentity: source.identity,
+                sourceSize: source.size,
+                sourceRevision: `r${entry.revision}`,
+                reducerVersion: 1,
+                points: points.map(point => ({
+                    offset: point.offset,
+                    interactionId: point.interactionId,
+                })),
+            };
+        } finally {
+            await source.handle.close().catch(() => undefined);
+        }
+    }
+
     private load(
         sessionId: string,
         signal?: ConversationAbortSignal
@@ -661,6 +715,22 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             );
             const continuing = Boolean(previous)
                 && startOffset === previous.nextOffset;
+            // See Kimi's equivalent guard. A continuation must also prove
+            // each old physical record before its offset joins this source
+            // snapshot.
+            let restartPoints: CachedConversationHistoryRestartPoint[] = continuing
+                ? previous.restartPoints
+                : [];
+            let ownsRestartPoints = !continuing;
+            const addRestartPoint = (
+                point: CachedConversationHistoryRestartPoint
+            ): void => {
+                if (!ownsRestartPoints) {
+                    restartPoints = restartPoints.slice();
+                    ownsRestartPoints = true;
+                }
+                appendConversationHistoryRestartPoint(restartPoints, point);
+            };
             if (continuing) {
                 interactions = cloneInteractions(previous.interactions);
                 openInteractionIndex = previous.appendInteractionIndex;
@@ -728,6 +798,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     && isUserInterrupt(message.content)) {
                     finishInteraction('interrupted');
                     timeoutOpenInteractionIndex = undefined;
+                    toolTracker.discardPending();
+                    questionTracker.clear();
                 } else if (event.type === 'user'
                     && message?.role === 'user'
                     && openInteractionIndex !== undefined
@@ -750,6 +822,9 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                                 : undefined;
                         if (questionBlock) {
                             settleClaudeQuestion(questionBlock, text);
+                            if (typeof block.tool_use_id === 'string') {
+                                questionTracker.delete(block.tool_use_id);
+                            }
                         } else {
                             toolTracker.finish(block.tool_use_id, text);
                         }
@@ -773,10 +848,26 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     }
                     finishInteraction();
                     timeoutOpenInteractionIndex = undefined;
+                    // A new visible user record seals the former turn. Any
+                    // still-unpaired tool/question is orphaned rather than a
+                    // dependency of this replay boundary.
+                    toolTracker.discardPending();
+                    questionTracker.clear();
                     if (interactions.some(
                         interaction => interaction.id === event.uuid
                     )) {
                         return;
+                    }
+                    if (!toolTracker.hasPending()
+                        && questionTracker.size === 0
+                        && event.uuid.length
+                            <= CONVERSATION_LIMITS.maxHistoryRestartPointIdLength) {
+                        addRestartPoint({
+                            offset: record.offset,
+                            recordEndOffset: record.endOffset,
+                            recordDigest: record.recordDigest,
+                            interactionId: event.uuid,
+                        });
                     }
                     interactions.push({
                         id: event.uuid,
@@ -937,6 +1028,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                 previous.source = source;
                 previous.nextOffset = result.nextOffset;
                 previous.interactions = interactions;
+                previous.restartPoints = restartPoints;
                 previous.appendInteractionIndex = appendInteractionIndex;
                 previous.telemetryModel = telemetryModel;
                 previous.telemetryContext = telemetryContext;
@@ -952,6 +1044,7 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     source,
                     nextOffset: result.nextOffset,
                     interactions,
+                    restartPoints,
                     appendInteractionIndex,
                     telemetryModel,
                     telemetryContext,

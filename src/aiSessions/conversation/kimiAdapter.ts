@@ -43,6 +43,7 @@ import {
     ConversationCacheDiagnostics,
     ConversationError,
     ConversationFileDiff,
+    ConversationHistoryRestartSnapshot,
     ConversationInteraction,
     ConversationOutline,
     ConversationPage,
@@ -64,6 +65,11 @@ import {
     openValidatedConversationSource,
     OpenConversationSource,
 } from './source';
+import {
+    appendConversationHistoryRestartPoint,
+    CachedConversationHistoryRestartPoint,
+    verifyConversationHistoryRestartPoints,
+} from './historyRestartPoints';
 import type {
     ConversationWorktreeInfo,
     ResolveWorktree,
@@ -129,6 +135,7 @@ interface KimiConversationIndex extends AiSessionDisposable {
     source: OpenConversationSource;
     nextOffset: number;
     interactions: ConversationInteraction[];
+    restartPoints: CachedConversationHistoryRestartPoint[];
     openInteractionIndex?: number;
     telemetryContext?: ConversationContextUsage;
     telemetryPaths: string[];
@@ -617,6 +624,51 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         };
     }
 
+    /** Provider-owned candidates for the persistent history indexer. */
+    async getHistoryRestartPoints(
+        sessionId: string
+    ): Promise<ConversationHistoryRestartSnapshot | undefined> {
+        const entry = this.cache.get(sessionId);
+        const split = splitSubagentSessionId(sessionId);
+        const candidate = entry && (!split.subagentId || isSubagentId(split.subagentId))
+            ? this.options.resolveSource(split.sessionId)
+            : null;
+        if (!entry || !candidate) {
+            return undefined;
+        }
+        const source = await openValidatedConversationSource(split.subagentId
+            ? {
+                providerHome: candidate.providerHome,
+                sourcePath: path.join(path.dirname(candidate.sourcePath), 'subagents', split.subagentId, 'wire.jsonl'),
+                cwd: candidate.cwd,
+            }
+            : candidate);
+        if (!source) {
+            return undefined;
+        }
+        try {
+            if (source.identity !== entry.source.identity) {
+                return undefined;
+            }
+            const points = await verifyConversationHistoryRestartPoints(
+                source,
+                entry.restartPoints
+            );
+            return {
+                sourceIdentity: source.identity,
+                sourceSize: source.size,
+                sourceRevision: `r${entry.revision}`,
+                reducerVersion: 1,
+                points: points.map(point => ({
+                    offset: point.offset,
+                    interactionId: point.interactionId,
+                })),
+            };
+        } finally {
+            await source.handle.close().catch(() => undefined);
+        }
+    }
+
     private load(
         sessionId: string,
         signal?: ConversationAbortSignal
@@ -689,6 +741,23 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             );
             const continuing = Boolean(previous)
                 && startOffset === previous.nextOffset;
+            // `continuing` verifies the old prefix before reducer state is
+            // reused. Recheck each sparse point's complete physical record
+            // before promoting it into the new source snapshot, so a middle
+            // rewrite plus append cannot rebind a stale offset.
+            let restartPoints: CachedConversationHistoryRestartPoint[] = continuing
+                ? previous.restartPoints
+                : [];
+            let ownsRestartPoints = !continuing;
+            const addRestartPoint = (
+                point: CachedConversationHistoryRestartPoint
+            ): void => {
+                if (!ownsRestartPoints) {
+                    restartPoints = restartPoints.slice();
+                    ownsRestartPoints = true;
+                }
+                appendConversationHistoryRestartPoint(restartPoints, point);
+            };
             if (continuing) {
                 interactions = cloneInteractions(previous.interactions);
                 openInteractionIndex = previous.openInteractionIndex;
@@ -791,6 +860,12 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                                 'interrupted';
                             openInteractionIndex = undefined;
                         }
+                        // A following TurnBegin seals the former interaction.
+                        // Its late tool/question/approval results can no
+                        // longer affect this replay boundary.
+                        toolTracker.discardPending();
+                        questionTracker.clear();
+                        approvalTracker.clear();
                         const id = interactionId(
                             sessionId,
                             record.offset,
@@ -798,6 +873,16 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         );
                         if (interactions.some(interaction => interaction.id === id)) {
                             return;
+                        }
+                        if (!toolTracker.hasPending()
+                            && questionTracker.size === 0
+                            && approvalTracker.size === 0) {
+                            addRestartPoint({
+                                offset: record.offset,
+                                recordEndOffset: record.endOffset,
+                                recordDigest: record.recordDigest,
+                                interactionId: id,
+                            });
                         }
                         interactions.push({
                             id,
@@ -1018,6 +1103,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             `Approval: ${response}${feedback}`
                         );
                     }
+                    if (requestId) {
+                        approvalTracker.delete(requestId);
+                    }
                 } else if (event.type === 'StatusUpdate') {
                     const payload = asRecord(event.payload);
                     const usedTokens = Number(payload?.context_tokens);
@@ -1135,6 +1223,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         : undefined;
                     if (questionBlock) {
                         applyKimiQuestionSettlement(questionBlock, output);
+                        if (toolCallId) {
+                            questionTracker.delete(toolCallId);
+                        }
                     } else {
                         toolTracker.finish(payload?.tool_call_id, output);
                     }
@@ -1146,6 +1237,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     || event.type === 'TurnInterrupted') {
                     stampActivity(envelope);
                     finishInteraction('interrupted');
+                    toolTracker.discardPending();
+                    questionTracker.clear();
+                    approvalTracker.clear();
                 }
             };
             const finishInteraction = (
@@ -1222,6 +1316,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 previous.source = source;
                 previous.nextOffset = result.nextOffset;
                 previous.interactions = interactions;
+                previous.restartPoints = restartPoints;
                 previous.openInteractionIndex = openInteractionIndex;
                 previous.telemetryContext = telemetryContext;
                 previous.telemetryPaths = telemetryPaths;
@@ -1238,6 +1333,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     source,
                     nextOffset: result.nextOffset,
                     interactions,
+                    restartPoints,
                     openInteractionIndex,
                     telemetryContext,
                     telemetryPaths,

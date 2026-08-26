@@ -40,6 +40,23 @@ async function hashRange(
         .digest('hex');
 }
 
+/** Hashes an already validated physical JSONL record range. */
+export async function digestConversationSourceRange(
+    source: OpenConversationSource,
+    startOffset: number,
+    endOffset: number
+): Promise<string | undefined> {
+    if (!Number.isSafeInteger(startOffset) || !Number.isSafeInteger(endOffset)
+        || startOffset < 0 || endOffset <= startOffset
+        || endOffset > source.size
+        || endOffset - startOffset > CONVERSATION_RECORD_PROOF_MAX_BYTES) {
+        return undefined;
+    }
+    return hashRange(source.handle, startOffset, endOffset - startOffset);
+}
+
+const CONVERSATION_RECORD_PROOF_MAX_BYTES = 1024 * 1024 + 1;
+
 function hasStableFileIdentity(stat: fs.Stats): boolean {
     return Number.isFinite(stat.dev) && stat.dev > 0
         && Number.isFinite(stat.ino) && stat.ino > 0

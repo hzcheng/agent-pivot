@@ -4685,6 +4685,141 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // The current script carries independent Webview-side history
+        // watchdogs. The adjacent generation predates them; remove every
+        // coupled state transition before asserting the frozen fixture.
+        .replace(
+            "        var messagesToShow = [];\n"
+                + "        var deferredMessages = messages.querySelector(\n"
+                + "            '.conversation-deferred-messages'\n"
+                + "        );\n"
+                + '        [\n'
+                + '            baseTranscriptStatus,\n'
+                + '            deferredMessages\n'
+                + "                ? deferredMessages.getAttribute(\n"
+                + "                    'data-history-backfill-stalled'\n"
+                + "                ) === 'true'\n"
+                + '                    ? deferredMessages.textContent.trim()\n'
+                + "                    : 'Loading earlier messages.'\n"
+                + "                : '',\n"
+                + '            state.earlierPageStatus,\n',
+            "        var messagesToShow = [];\n"
+                + '        [\n'
+                + '            baseTranscriptStatus,\n'
+                + "            messages.querySelector('.conversation-deferred-messages')\n"
+                + "                ? 'Loading earlier messages.'\n"
+                + "                : '',\n"
+                + '            state.earlierPageStatus,\n'
+        )
+        .replace(
+            "\n    // The Host has its own correlated delivery watchdog, but a Webview can\n"
+                + "    // still be left with a visible spinner when that lifecycle is interrupted\n"
+                + "    // (for example during a renderer restart or a delayed extension-host\n"
+                + "    // message). Keep the current transcript readable and turn the spinner\n"
+                + "    // into an honest, recoverable status instead of claiming perpetual\n"
+                + "    // progress. A later chunk or page naturally re-arms or clears it.\n"
+                + "    var deferredMessagesWatchdog;\n"
+                + "    var deferredMessagesWatchdogToken = 0;\n"
+                + "    var historyLoadWatchdog;\n"
+                + "    var historyLoadWatchdogToken = 0;\n"
+                + "    var HISTORY_LOADING_STALL_TIMEOUT_MS = 8_000;\n\n"
+                + "    function clearDeferredMessagesWatchdog() {\n"
+                + "        deferredMessagesWatchdogToken += 1;\n"
+                + "        if (deferredMessagesWatchdog !== undefined) {\n"
+                + "            window.clearTimeout(deferredMessagesWatchdog);\n"
+                + "            deferredMessagesWatchdog = undefined;\n"
+                + "        }\n"
+                + "    }\n\n"
+                + "    function scheduleDeferredMessagesWatchdog() {\n"
+                + "        clearDeferredMessagesWatchdog();\n"
+                + "        var placeholder = messages.querySelector(\n"
+                + "            '.conversation-deferred-messages'\n"
+                + "        );\n"
+                + "        if (!placeholder) {\n"
+                + "            return;\n"
+                + "        }\n"
+                + "        var token = ++deferredMessagesWatchdogToken;\n"
+                + "        deferredMessagesWatchdog = window.setTimeout(function () {\n"
+                + "            if (token !== deferredMessagesWatchdogToken\n"
+                + "                || !placeholder.isConnected\n"
+                + "                || !messages.contains(placeholder)) {\n"
+                + "                return;\n"
+                + "            }\n"
+                + "            placeholder.textContent =\n"
+                + "                'Earlier messages are taking longer than expected.';\n"
+                + "            placeholder.setAttribute('data-history-backfill-stalled', 'true');\n"
+                + "            updateTranscriptStatus();\n"
+                + "        }, HISTORY_LOADING_STALL_TIMEOUT_MS);\n"
+                + "    }\n\n"
+                + "    function clearHistoryLoadWatchdog() {\n"
+                + "        historyLoadWatchdogToken += 1;\n"
+                + "        if (historyLoadWatchdog !== undefined) {\n"
+                + "            window.clearTimeout(historyLoadWatchdog);\n"
+                + "            historyLoadWatchdog = undefined;\n"
+                + "        }\n"
+                + "    }\n\n"
+                + "    function scheduleHistoryLoadWatchdog(requestId) {\n"
+                + "        clearHistoryLoadWatchdog();\n"
+                + "        var token = ++historyLoadWatchdogToken;\n"
+                + "        historyLoadWatchdog = window.setTimeout(function () {\n"
+                + "            if (token !== historyLoadWatchdogToken\n"
+                + "                || state.earlierPageRequestId !== requestId) {\n"
+                + "                return;\n"
+                + "            }\n"
+                + "            state.earlierPageRequested = false;\n"
+                + "            state.earlierPageRequestId = undefined;\n"
+                + "            state.earlierPageStatus =\n"
+                + "                'Loading earlier messages timed out. Try again.';\n"
+                + "            updateTranscriptStatus();\n"
+                + "        }, HISTORY_LOADING_STALL_TIMEOUT_MS);\n"
+                + "    }\n",
+            ''
+        )
+        .replace(
+            "        state.earlierPageStatus = '';\n"
+                + '        clearHistoryLoadWatchdog();\n',
+            "        state.earlierPageStatus = '';\n"
+        )
+        .replace(
+            '        baseTranscriptStatus = statusMessages.join(\' \');\n'
+                + '        updateTranscriptStatus();\n'
+                + '        scheduleDeferredMessagesWatchdog();\n',
+            '        baseTranscriptStatus = statusMessages.join(\' \');\n'
+                + '        updateTranscriptStatus();\n'
+        )
+        .replace(
+            '        if (message.complete) {\n'
+                + '            placeholder.remove();\n'
+                + '            clearDeferredMessagesWatchdog();\n'
+                + '        } else {\n'
+                + '            placeholder.textContent = \'Loading earlier messages…\';\n'
+                + "            placeholder.removeAttribute('data-history-backfill-stalled');\n"
+                + '            scheduleDeferredMessagesWatchdog();\n'
+                + '        }\n',
+            '        if (message.complete) {\n'
+                + '            placeholder.remove();\n'
+                + '        }\n'
+        )
+        .replace(
+            '        reconcileController.trackEnd();\n'
+                + '        updateTranscriptStatus();\n',
+            '        reconcileController.trackEnd();\n'
+                + '        if (message.complete) {\n'
+                + '            updateTranscriptStatus();\n'
+                + '        }\n'
+        )
+        .replace(
+            '        state.earlierPageRequestId = undefined;\n'
+                + '        clearHistoryLoadWatchdog();\n'
+                + "        state.earlierPageStatus = message.outcome === 'stalled'\n",
+            '        state.earlierPageRequestId = undefined;\n'
+                + "        state.earlierPageStatus = message.outcome === 'stalled'\n"
+        )
+        .replace(
+            "        state.earlierPageStatus = 'Loading earlier messages.';\n"
+                + '        scheduleHistoryLoadWatchdog(state.earlierPageRequestId);\n',
+            "        state.earlierPageStatus = 'Loading earlier messages.';\n"
+        )
         // Normalize the speculative preflight/cancel protocol back to the
         // previous cache-preview script. Older Webviews safely ignore these
         // outbound Host notices, but their historical fixture must remain
@@ -17871,6 +18006,58 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 applies history chunks in place
         '[data-conversation-messages] [data-message-id]').count(), 12);
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 clears a stalled progressive loading notice', async t => {
+    const page = await openViewerPage(t);
+    await page.evaluate(() => {
+        window.__historyLoadingTimers = [];
+        window.setTimeout = function (callback, delayMs) {
+            window.__historyLoadingTimers.push({ callback, delayMs });
+            return window.__historyLoadingTimers.length;
+        };
+        window.clearTimeout = function () {};
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: '<section class="conversation-deferred-messages">'
+            + 'Loading earlier messages…</section>'
+            + messageHtml('msg', 4, 8),
+        htmlSignature: 'sig-partial-stalled',
+        outline: progressiveOutline(12),
+        selectedInteractionId: 'msg-11',
+        selectedInput: 11,
+        totalInputs: 12,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-partial-stalled'
+    ));
+    await page.evaluate(() => {
+        const timer = window.__historyLoadingTimers.find(candidate =>
+            candidate.delayMs === 8_000
+        );
+        if (!timer) throw new Error('expected history loading watchdog');
+        timer.callback();
+    });
+    assert.equal(await page.locator(
+        '.conversation-deferred-messages').textContent(),
+    'Earlier messages are taking longer than expected.');
+    assert.equal(await page.locator(
+        '[data-conversation-status]').textContent(),
+    'Earlier messages are taking longer than expected.');
+    assert.equal(await page.locator(
+        '.conversation-deferred-messages'
+    ).getAttribute('data-history-backfill-stalled'), 'true');
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 ignores a history chunk after a full page superseded the partial one', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, {
@@ -18179,6 +18366,59 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles an unavailable earlier-
     assert.equal((await postedMessages(page)).filter(message =>
         message.type === 'conversation-viewer-load-earlier'
     ).length, 1, 'an unavailable boundary must not re-enter a loading loop');
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 releases an unanswered earlier-page request for retry', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 30, 0),
+        htmlSignature: 'sig-unanswered-earlier-page',
+        previousCursor: 'cursor-1',
+        earlierPageCursor: 'cursor-1',
+        outline: progressiveOutline(30),
+        selectedInteractionId: 'msg-29',
+        selectedInput: 29,
+        totalInputs: 30,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-unanswered-earlier-page'
+    ));
+    await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.scrollTop = 0;
+        scroll.dispatchEvent(new Event('scroll'));
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ));
+
+    // This deliberately uses the real Webview timer. Replacing window's
+    // global timers changes unrelated presentation scheduling and cannot
+    // prove that a user-visible request is actually released.
+    await page.waitForFunction(() => document.querySelector(
+        '[data-conversation-status]'
+    ).textContent === 'Loading earlier messages timed out. Try again.', {
+        timeout: 10_000,
+    });
+    await page.evaluate(() => {
+        document.querySelector('[data-conversation-scroll]').dispatchEvent(
+            new Event('wheel')
+        );
+    });
+    assert.equal((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-load-earlier'
+    ).length, 2, 'the timeout must release the request for a retry');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests earlier history when a short page starts at top', async t => {

@@ -430,10 +430,17 @@
     var baseTranscriptStatus = '';
     function updateTranscriptStatus() {
         var messagesToShow = [];
+        var deferredMessages = messages.querySelector(
+            '.conversation-deferred-messages'
+        );
         [
             baseTranscriptStatus,
-            messages.querySelector('.conversation-deferred-messages')
-                ? 'Loading earlier messages.'
+            deferredMessages
+                ? deferredMessages.getAttribute(
+                    'data-history-backfill-stalled'
+                ) === 'true'
+                    ? deferredMessages.textContent.trim()
+                    : 'Loading earlier messages.'
                 : '',
             state.earlierPageStatus,
         ].forEach(function (text) {
@@ -442,6 +449,72 @@
             }
         });
         status.textContent = messagesToShow.join(' ');
+    }
+
+    // The Host has its own correlated delivery watchdog, but a Webview can
+    // still be left with a visible spinner when that lifecycle is interrupted
+    // (for example during a renderer restart or a delayed extension-host
+    // message). Keep the current transcript readable and turn the spinner
+    // into an honest, recoverable status instead of claiming perpetual
+    // progress. A later chunk or page naturally re-arms or clears it.
+    var deferredMessagesWatchdog;
+    var deferredMessagesWatchdogToken = 0;
+    var historyLoadWatchdog;
+    var historyLoadWatchdogToken = 0;
+    var HISTORY_LOADING_STALL_TIMEOUT_MS = 8_000;
+
+    function clearDeferredMessagesWatchdog() {
+        deferredMessagesWatchdogToken += 1;
+        if (deferredMessagesWatchdog !== undefined) {
+            window.clearTimeout(deferredMessagesWatchdog);
+            deferredMessagesWatchdog = undefined;
+        }
+    }
+
+    function scheduleDeferredMessagesWatchdog() {
+        clearDeferredMessagesWatchdog();
+        var placeholder = messages.querySelector(
+            '.conversation-deferred-messages'
+        );
+        if (!placeholder) {
+            return;
+        }
+        var token = ++deferredMessagesWatchdogToken;
+        deferredMessagesWatchdog = window.setTimeout(function () {
+            if (token !== deferredMessagesWatchdogToken
+                || !placeholder.isConnected
+                || !messages.contains(placeholder)) {
+                return;
+            }
+            placeholder.textContent =
+                'Earlier messages are taking longer than expected.';
+            placeholder.setAttribute('data-history-backfill-stalled', 'true');
+            updateTranscriptStatus();
+        }, HISTORY_LOADING_STALL_TIMEOUT_MS);
+    }
+
+    function clearHistoryLoadWatchdog() {
+        historyLoadWatchdogToken += 1;
+        if (historyLoadWatchdog !== undefined) {
+            window.clearTimeout(historyLoadWatchdog);
+            historyLoadWatchdog = undefined;
+        }
+    }
+
+    function scheduleHistoryLoadWatchdog(requestId) {
+        clearHistoryLoadWatchdog();
+        var token = ++historyLoadWatchdogToken;
+        historyLoadWatchdog = window.setTimeout(function () {
+            if (token !== historyLoadWatchdogToken
+                || state.earlierPageRequestId !== requestId) {
+                return;
+            }
+            state.earlierPageRequested = false;
+            state.earlierPageRequestId = undefined;
+            state.earlierPageStatus =
+                'Loading earlier messages timed out. Try again.';
+            updateTranscriptStatus();
+        }, HISTORY_LOADING_STALL_TIMEOUT_MS);
     }
     var readingAnchorController =
         window.__agentPivotConversation.readingAnchor.create({
@@ -2004,6 +2077,7 @@
         state.earlierPageRequested = false;
         state.earlierPageRequestId = undefined;
         state.earlierPageStatus = '';
+        clearHistoryLoadWatchdog();
         // A content-first Host load delivers restored side state later in a
         // same-generation, HTML-free refresh. These snapshots are still
         // authoritative and must update without resetting the transcript.
@@ -2080,6 +2154,7 @@
         }
         baseTranscriptStatus = statusMessages.join(' ');
         updateTranscriptStatus();
+        scheduleDeferredMessagesWatchdog();
 
         var selectedMessages = Array.prototype.filter.call(
             messages.querySelectorAll('[data-interaction-id]'),
@@ -2270,6 +2345,11 @@
         placeholder.after(template.content);
         if (message.complete) {
             placeholder.remove();
+            clearDeferredMessagesWatchdog();
+        } else {
+            placeholder.textContent = 'Loading earlier messages…';
+            placeholder.removeAttribute('data-history-backfill-stalled');
+            scheduleDeferredMessagesWatchdog();
         }
         var addedIds = [];
         inserted.forEach(function (candidate) {
@@ -2300,9 +2380,7 @@
             scroll.scrollTop = previousScrollTop + heightDelta;
         }
         reconcileController.trackEnd();
-        if (message.complete) {
-            updateTranscriptStatus();
-        }
+        updateTranscriptStatus();
         // Acknowledge before the deferred decoration pass: the Host paces
         // the next slice on this receipt, and the decoration is idempotent.
         post({
@@ -2495,6 +2573,7 @@
         }
         state.earlierPageRequested = false;
         state.earlierPageRequestId = undefined;
+        clearHistoryLoadWatchdog();
         state.earlierPageStatus = message.outcome === 'stalled'
             ? 'Earlier messages could not be loaded.'
             : message.outcome === 'timed-out'
@@ -2577,6 +2656,7 @@
         state.earlierPageRequested = true;
         state.earlierPageRequestId = ++state.nextEarlierPageRequestId;
         state.earlierPageStatus = 'Loading earlier messages.';
+        scheduleHistoryLoadWatchdog(state.earlierPageRequestId);
         updateTranscriptStatus();
         post({
             type: 'conversation-viewer-load-earlier',

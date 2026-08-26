@@ -155,7 +155,7 @@ function npmExecutable(platform = process.platform) {
     return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
-function runCommand(command, args, repositoryRoot, environment, spawnSync = childProcess.spawnSync, platform) {
+function runCommand(command, args, repositoryRoot, environment, spawnSync = childProcess.spawnSync, platform = process.platform) {
     const result = spawnSync(command === 'npm' ? npmExecutable(platform) : command, args, {
         cwd: repositoryRoot,
         env: environment,

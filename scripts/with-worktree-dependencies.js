@@ -240,11 +240,12 @@ function runWithWorktreeDependencies(argv, options = {}) {
     }
 }
 
-function main(argv = process.argv.slice(2)) {
+function main(argv = process.argv.slice(2), options = {}) {
+    const logger = options.logger || console;
     try {
-        return runWithWorktreeDependencies(argv);
+        return runWithWorktreeDependencies(argv, options);
     } catch (error) {
-        console.error(`Worktree dependency guard failed: ${error.message}`);
+        logger.error(`Worktree dependency guard failed: ${error.message}`);
         return 1;
     }
 }
@@ -262,9 +263,12 @@ module.exports = {
     directDependenciesArePresent,
     installationEnvironment,
     lockOwnerIsAlive,
+    main,
     npmExecutable,
     packageMapsMatch,
     parseArguments,
+    processIsAlive,
     resolveGitDirectory,
+    runCommand,
     runWithWorktreeDependencies,
 };

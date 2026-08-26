@@ -89,6 +89,12 @@ export type FollowAdjacentConversationResult =
 export interface ConversationCapability {
     viewer: ConversationViewerApi;
     availability: 'available' | 'unavailable';
+    /**
+     * Cancels an in-flight foreground resolution as soon as a newer
+     * user-visible navigation intent wins, before that later intent reaches
+     * the terminal-focus queue.
+     */
+    cancelPendingNavigation(): void;
     openLatestConversation(
         target: ConversationSessionOpenTarget
     ): Promise<OpenLatestConversationResult>;
@@ -566,13 +572,51 @@ function createAvailableConversationCapability(
                 resolution.viewerTarget,
                 viewer
             );
-            const followed = await follow;
-            if (followed) {
+            let viewerLoadRecorded = false;
+            const recordViewerLoad = (followed: boolean): void => {
+                if (viewerLoadRecorded || !followed) {
+                    return;
+                }
+                const current = viewer.getCurrentTarget?.();
+                if (current && !hasSameConversationSession(
+                    current,
+                    resolution.viewerTarget
+                )) {
+                    return;
+                }
+                viewerLoadRecorded = true;
                 snapshotWarmup?.afterLoad(
                     resolution.viewerTarget,
                     resolution.prefetchedSnapshot === true,
                     viewer
                 );
+            };
+            // The caller's wait is supersedable, but the Viewer operation is
+            // deliberately allowed to finish when no replacement target ever
+            // arrives. Keep warm-snapshot revalidation attached to that
+            // underlying operation so a late successful application does not
+            // leave the retained snapshot permanently stale.
+            void follow.then(recordViewerLoad, () => undefined);
+            let followed: boolean;
+            try {
+                // A Viewer delivery can wait on the Webview while the next
+                // Dashboard target already has a newer intent. Release the
+                // terminal-focus queue now, but leave Viewer-owned work
+                // alone: the successor might fail to focus or might be a
+                // worktree-only switch, in which case the current Viewer
+                // load must still settle normally.
+                followed = await awaitAbortableRead(follow, intent.signal);
+            } catch (error) {
+                if (!intent.isCurrent()) {
+                    return 'superseded';
+                }
+                throw error;
+            }
+            if (!intent.isCurrent()) {
+                return 'superseded';
+            }
+            if (followed) {
+                recordViewerLoad(followed);
                 const current = viewer.getCurrentTarget();
                 terminalAuthority.confirmedTarget =
                     cloneConversationViewerTarget(
@@ -617,6 +661,11 @@ function createAvailableConversationCapability(
     return {
         viewer,
         availability: 'available',
+        cancelPendingNavigation: () => {
+            if (!disposed) {
+                beginViewerIntent();
+            }
+        },
         openLatestConversation: target => openConversation(target),
         async openLatestActiveConversation(
             target: ConversationSessionOpenTarget
@@ -813,6 +862,7 @@ function createUnavailableConversationCapability(): ConversationCapability {
     return {
         viewer,
         availability: 'unavailable',
+        cancelPendingNavigation(): void {},
         async openLatestConversation(): Promise<OpenLatestConversationResult> {
             return 'unavailable';
         },
@@ -888,12 +938,42 @@ async function openLatestConversation(
             resolution.snapshot
         );
         snapshotWarmup?.prepareAfterTargetSet(resolution.viewerTarget, viewer);
-        await opening;
-        snapshotWarmup?.afterLoad(
-            resolution.viewerTarget,
-            resolution.prefetchedSnapshot === true,
-            viewer
-        );
+        let viewerLoadRecorded = false;
+        const recordViewerLoad = (): void => {
+            if (viewerLoadRecorded) {
+                return;
+            }
+            const current = viewer.getCurrentTarget?.();
+            if (current && !hasSameConversationSession(
+                current,
+                resolution.viewerTarget
+            )) {
+                return;
+            }
+            viewerLoadRecorded = true;
+            snapshotWarmup?.afterLoad(
+                resolution.viewerTarget,
+                resolution.prefetchedSnapshot === true,
+                viewer
+            );
+        };
+        // See followOpenConversation: revalidation belongs to the Viewer
+        // operation, not solely to this supersedable caller's wait.
+        void opening.then(recordViewerLoad, () => undefined);
+        try {
+            // See followOpenConversation: supersede only this caller's wait,
+            // never a Viewer operation that could remain the active target.
+            await awaitAbortableRead(opening, signal);
+        } catch (error) {
+            if (!isCurrent()) {
+                return 'superseded';
+            }
+            throw error;
+        }
+        if (!isCurrent()) {
+            return 'superseded';
+        }
+        recordViewerLoad();
         opened = true;
         return 'opened';
     } finally {
@@ -1130,10 +1210,14 @@ function hasSameConversationSession(
 
 const CONVERSATION_SNAPSHOT_WARM_TTL_MS = 5_000;
 const CONVERSATION_SNAPSHOT_WARM_LIMIT = 4;
+// A speculative read is useful only when it is already almost complete. A
+// foreground switch must otherwise start its own abortable read promptly.
+const CONVERSATION_SNAPSHOT_WARM_CLAIM_BUDGET_MS = 120;
 
 interface WarmConversationSnapshot {
     completedAt?: number;
     claimed: boolean;
+    claimGeneration: number;
     abortController: ConversationAbortController;
     promise: Promise<ConversationSnapshot | undefined>;
     timeout?: ReturnType<typeof setTimeout>;
@@ -1167,8 +1251,12 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
 
     take(
         provider: AiSessionProviderId,
-        sessionId: string
+        sessionId: string,
+        signal?: ConversationAbortSignal
     ): Promise<ConversationSnapshot | undefined> | undefined {
+        if (signal?.aborted) {
+            return Promise.resolve(undefined);
+        }
         const key = getWarmSnapshotKey(provider, sessionId);
         const entry = this.snapshots.get(key);
         if (!entry) {
@@ -1186,7 +1274,16 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
             this.snapshots.delete(key);
             entry.cancel();
         }
-        return entry.promise;
+        if (entry.completedAt !== undefined) {
+            return entry.promise;
+        }
+        entry.claimGeneration += 1;
+        return this.claimWithinBudget(
+            key,
+            entry,
+            entry.claimGeneration,
+            signal
+        );
     }
 
     isDisposed(): boolean {
@@ -1387,6 +1484,7 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
         entry = {
             abortController,
             claimed: false,
+            claimGeneration: 0,
             promise,
             cancel: () => {
                 clearEntryTimeout();
@@ -1408,6 +1506,71 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
             snapshot => settle(snapshot, false),
             () => settle(undefined, false)
         );
+    }
+
+    private claimWithinBudget(
+        key: string,
+        entry: WarmConversationSnapshot,
+        claimGeneration: number,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationSnapshot | undefined> {
+        return new Promise(resolve => {
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            let abortSubscription: AiSessionDisposable | undefined;
+            const settle = (snapshot: ConversationSnapshot | undefined): void => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                if (timer !== undefined) {
+                    this.options.clearTimer(timer);
+                    timer = undefined;
+                }
+                abortSubscription?.dispose();
+                abortSubscription = undefined;
+                resolve(snapshot);
+            };
+            let budgetFiredSynchronously = false;
+            const budget = this.options.setTimer(() => {
+                budgetFiredSynchronously = true;
+                if (entry.claimGeneration !== claimGeneration) {
+                    settle(undefined);
+                    return;
+                }
+                if (this.snapshots.get(key) === entry) {
+                    this.snapshots.delete(key);
+                }
+                // Release the speculative provider work before the
+                // authoritative foreground read starts. Adapters receive the
+                // abort signal and can give the new target priority.
+                entry.cancel();
+                settle(undefined);
+            }, CONVERSATION_SNAPSHOT_WARM_CLAIM_BUDGET_MS);
+            if (!budgetFiredSynchronously) {
+                timer = budget;
+            }
+            if (signal) {
+                abortSubscription = signal.onAbort(() => {
+                    settle(undefined);
+                    // Queue handoff is itself asynchronous: a rapid repeat
+                    // of this target cannot reclaim until the current queue
+                    // task unwinds. Give that successor one event-loop turn
+                    // to claim the shared warmup. A different target still
+                    // releases it far ahead of the 120ms foreground budget.
+                    this.schedule(() => {
+                        if (entry.claimGeneration !== claimGeneration) {
+                            return;
+                        }
+                        if (this.snapshots.get(key) === entry) {
+                            this.snapshots.delete(key);
+                        }
+                        entry.cancel();
+                    });
+                });
+            }
+            void entry.promise.then(snapshot => settle(snapshot));
+        });
     }
 
     private schedule(operation: () => void | PromiseLike<void>): void {
@@ -1514,7 +1677,7 @@ async function resolveLatestConversationTarget(
     try {
         const warmSnapshot = preferredInteractionId === undefined
             && subagentId === undefined
-            ? snapshotWarmup?.take(target.provider, effectiveSessionId)
+            ? snapshotWarmup?.take(target.provider, effectiveSessionId, signal)
             : undefined;
         const resolvedWarmSnapshot = warmSnapshot
             ? await awaitAbortableRead(warmSnapshot, signal)

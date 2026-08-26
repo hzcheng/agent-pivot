@@ -1704,6 +1704,7 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         if (parsed.type === 'conversation-viewer-cycle-status-session') {
+            this.options.onNavigationIntent?.();
             const currentTarget = this.target;
             await this.options.cycleLocalSessionStatus?.(
                 parsed.kind,

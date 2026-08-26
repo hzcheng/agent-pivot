@@ -16,6 +16,14 @@ const idleKey = {
     canonicalWorktreePath: '/managed/idle',
 };
 
+function deferred() {
+    let resolve;
+    const promise = new Promise(resolvePromise => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
+}
+
 function workspaceTarget() {
     return {
         cardId: 'workspace-card',
@@ -101,6 +109,34 @@ test('WORKTREE-QUICK-SWITCH-001 focuses active sessions, resumes ended sessions,
         ['resume', 'workspace-card', 'codex', 'ended'],
         ['reveal', 'navigation-1', attentionKey],
     ]);
+});
+
+test('WORKTREE-QUICK-SWITCH-001 emits a navigation intent only after a picker selection commits', async () => {
+    let picked;
+    let intents = 0;
+    const focused = deferred();
+    const handler = createWorktreeOrSessionSwitchHandler({
+        getWorkspaceTarget: workspaceTarget,
+        showPick: async items => picked === 'cancel' ? undefined : items[1],
+        focusSession: async () => focused.promise,
+        resumeSession: async () => undefined,
+        revealWorktree: async () => undefined,
+        showInformationMessage: () => undefined,
+        showWarningMessage: () => undefined,
+        onNavigationIntent: () => { intents += 1; },
+    });
+
+    picked = 'cancel';
+    await handler();
+    assert.equal(intents, 0, 'opening or cancelling the picker is not a switch');
+
+    picked = 'active';
+    const switching = handler();
+    await Promise.resolve();
+    assert.equal(intents, 1,
+        'a committed session selection must cancel an older conversation read before terminal focus settles');
+    focused.resolve(true);
+    await switching;
 });
 
 test('WORKTREE-QUICK-SWITCH-001 excludes bare worktrees and keeps branchless linked worktrees addressable', () => {

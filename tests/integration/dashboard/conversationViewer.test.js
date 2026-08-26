@@ -2286,6 +2286,7 @@ function createViewer(options = {}) {
         readTelemetry: options.readTelemetry,
         readSessionStatus: options.readSessionStatus,
         cycleLocalSessionStatus: options.cycleLocalSessionStatus,
+        onNavigationIntent: options.onNavigationIntent,
         acknowledgeSessionAttention: options.acknowledgeSessionAttention,
         switchAdjacentWindow: options.switchAdjacentWindow,
         watch: options.watch || ((_provider, sessionId) => ({
@@ -3002,22 +3003,32 @@ test('OPEN-WINDOW-CYCLE-RAILS-001 routes window rail clicks to the window cycle'
 
 test('CONVERSATION-SESSION-STATUS-001 routes status button clicks to the local session cycle', async () => {
     const cycles = [];
+    let navigationIntents = 0;
+    const cycle = deferred();
     const { viewer, panel } = createViewer({
+        onNavigationIntent: () => { navigationIntents += 1; },
         cycleLocalSessionStatus: async (kind, currentTarget) => {
             cycles.push({ kind, currentTarget });
+            await cycle.promise;
         },
     });
     await viewer.open(target('session-a', 'input-1'));
 
-    await panel.receive({
+    const receiving = panel.receive({
         type: 'conversation-viewer-cycle-status-session',
         version: 1,
         kind: 'attention',
     });
+    await Promise.resolve();
+    assert.equal(navigationIntents, 1,
+        'a valid status-cycle message must cancel an older navigation before its local cycle settles');
+    cycle.resolve();
+    await receiving;
     assert.deepEqual(cycles, [{
         kind: 'attention',
         currentTarget: target('session-a', 'input-1'),
     }]);
+    assert.equal(navigationIntents, 1);
 
     for (const message of [
         { type: 'conversation-viewer-cycle-status-session', version: 1 },
@@ -3037,6 +3048,8 @@ test('CONVERSATION-SESSION-STATUS-001 routes status button clicks to the local s
     }
     assert.equal(cycles.length, 1,
         'malformed or spoofed kinds are dropped by the protocol validator');
+    assert.equal(navigationIntents, 1,
+        'invalid status-cycle messages must not supersede a valid navigation');
 });
 
 test('CONVERSATION-SESSION-STATUS-001 republishes the status after a retarget even when unchanged', async () => {

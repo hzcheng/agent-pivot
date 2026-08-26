@@ -811,6 +811,315 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shares a slow in-flight warmup 
     harness.capability.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 abandons a slow claimed warmup before it delays a foreground switch', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:claim-${index}`,
+        provider,
+        sessionId: `claim-${index}`,
+        name: `${provider} Session`,
+    }));
+    const slowKimiSnapshot = deferred();
+    const timers = [];
+    let kimiReads = 0;
+    let warmupAborted = false;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        setTimer: (callback, delayMs) => {
+            const timer = { callback, delayMs, cleared: false };
+            timers.push(timer);
+            if (delayMs === 0) {
+                setImmediate(() => {
+                    if (!timer.cleared) callback();
+                });
+            }
+            return timer;
+        },
+        clearTimer: timer => { timer.cleared = true; },
+        readSnapshot: async (provider, sessionId, _preferredInteractionId, signal) => {
+            if (provider === 'kimi' && ++kimiReads === 1) {
+                signal.onAbort(() => { warmupAborted = true; });
+                return slowKimiSnapshot.promise;
+            }
+            return {
+                outline: makeOutline(provider, sessionId, ['input-a']),
+                page: makePage(provider, sessionId, 'input-a'),
+            };
+        },
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'claim-0',
+    }), 'opened');
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('kimi:claim-1'),
+        'the adjacent Kimi warmup to start'
+    );
+
+    const following = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'claim-1',
+    });
+    await waitFor(
+        () => timers.some(timer => timer.delayMs === 120 && !timer.cleared),
+        'the foreground warmup claim budget'
+    );
+    timers.find(timer => timer.delayMs === 120 && !timer.cleared).callback();
+
+    assert.equal(await following, 'opened');
+    assert.equal(kimiReads, 2,
+        'the foreground switch must replace a warmup that misses its budget');
+    assert.equal(warmupAborted, true,
+        'the abandoned warmup must release its provider read before retrying');
+    slowKimiSnapshot.resolve({
+        outline: makeOutline('kimi', 'claim-1', ['input-a']),
+        page: makePage('kimi', 'claim-1', 'input-a'),
+    });
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 cancels a foreground read when a newer navigation intent arrives', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:cancel-${index}`,
+        provider,
+        sessionId: `cancel-${index}`,
+        name: `${provider} Session`,
+    }));
+    const slowCodexSnapshot = deferred();
+    let codexAborted = false;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        readSnapshot: async (provider, sessionId, _preferredInteractionId, signal) => {
+            if (provider === 'codex') {
+                signal.onAbort(() => { codexAborted = true; });
+                return slowCodexSnapshot.promise;
+            }
+            return {
+                outline: makeOutline(provider, sessionId, ['input-a']),
+                page: makePage(provider, sessionId, 'input-a'),
+            };
+        },
+    });
+
+    const stale = harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'cancel-0',
+    });
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('codex:cancel-0'),
+        'the first foreground read to start'
+    );
+    harness.capability.cancelPendingNavigation();
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'cancel-1',
+    }), 'opened');
+    assert.equal(await stale, 'superseded');
+    assert.equal(codexAborted, true,
+        'the stale foreground provider read must receive an abort signal');
+    slowCodexSnapshot.resolve({
+        outline: makeOutline('codex', 'cancel-0', ['input-a']),
+        page: makePage('codex', 'cancel-0', 'input-a'),
+    });
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 releases an obsolete Viewer wait on cancellation', async () => {
+    const delayedOpen = deferred();
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        openViewer: () => delayedOpen.promise,
+    });
+    const stale = harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    });
+    await waitFor(
+        () => harness.viewerTargets.length === 1,
+        'the stale Viewer application to start'
+    );
+
+    harness.capability.cancelPendingNavigation();
+    assert.equal(await stale, 'superseded');
+    assert.equal(harness.viewerRefreshes, 0,
+        'an obsolete Viewer wait must not schedule post-load work');
+    delayedOpen.resolve();
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 releases a claimed warmup as soon as its navigation is cancelled', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:claimed-cancel-${index}`,
+        provider,
+        sessionId: `claimed-cancel-${index}`,
+        name: `${provider} Session`,
+    }));
+    const slowKimiSnapshot = deferred();
+    const timers = [];
+    let warmupAborted = false;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        setTimer: (callback, delayMs) => {
+            const timer = { callback, delayMs, cleared: false };
+            timers.push(timer);
+            if (delayMs === 0) {
+                setImmediate(() => {
+                    if (!timer.cleared) callback();
+                });
+            }
+            return timer;
+        },
+        clearTimer: timer => { timer.cleared = true; },
+        readSnapshot: async (provider, sessionId, _preferredInteractionId, signal) => {
+            if (provider === 'kimi') {
+                signal.onAbort(() => { warmupAborted = true; });
+                return slowKimiSnapshot.promise;
+            }
+            return {
+                outline: makeOutline(provider, sessionId, ['input-a']),
+                page: makePage(provider, sessionId, 'input-a'),
+            };
+        },
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'claimed-cancel-0',
+    }), 'opened');
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('kimi:claimed-cancel-1'),
+        'the adjacent Kimi warmup to start'
+    );
+
+    const stale = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'claimed-cancel-1',
+    });
+    await waitFor(
+        () => timers.some(timer => timer.delayMs === 120 && !timer.cleared),
+        'the foreground warmup claim budget'
+    );
+    harness.capability.cancelPendingNavigation();
+
+    assert.equal(await stale, 'superseded');
+    await waitFor(
+        () => warmupAborted,
+        'the claimed provider read to receive its cancellation'
+    );
+    assert.equal(warmupAborted, true,
+        'the claimed provider read must be released before its budget expires');
+    assert.equal(timers.some(timer => timer.delayMs === 120 && !timer.cleared), false,
+        'cancelling the claim must clear its budget timer');
+    slowKimiSnapshot.resolve({
+        outline: makeOutline('kimi', 'claimed-cancel-1', ['input-a']),
+        page: makePage('kimi', 'claimed-cancel-1', 'input-a'),
+    });
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 transfers a cancelled warmup claim to an immediate same-target retry', async () => {
+    const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
+        key: `${provider}:claimed-retry-${index}`,
+        provider,
+        sessionId: `claimed-retry-${index}`,
+        name: `${provider} Session`,
+    }));
+    const slowKimiSnapshot = deferred();
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        session: sessions[0],
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session => session.provider === provider
+                && session.sessionId === sessionId) || null,
+        resolveActiveTargets: () => sessions,
+        setTimer: (callback, delayMs) => {
+            const timer = { cleared: false };
+            if (delayMs === 0) {
+                setImmediate(() => {
+                    if (!timer.cleared) callback();
+                });
+            }
+            return timer;
+        },
+        clearTimer: timer => { timer.cleared = true; },
+        readSnapshot: async (provider, sessionId, _preferredInteractionId) => {
+            if (provider === 'kimi') {
+                return slowKimiSnapshot.promise;
+            }
+            return {
+                outline: makeOutline(provider, sessionId, ['input-a']),
+                page: makePage(provider, sessionId, 'input-a'),
+            };
+        },
+    });
+
+    assert.equal(await harness.capability.openLatestConversation({
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'claimed-retry-0',
+    }), 'opened');
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('kimi:claimed-retry-1'),
+        'the adjacent Kimi warmup to start'
+    );
+
+    const stale = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'claimed-retry-1',
+    });
+    harness.capability.cancelPendingNavigation();
+    const retry = harness.capability.followActiveConversation({
+        projectId: 'project-a',
+        provider: 'kimi',
+        sessionId: 'claimed-retry-1',
+    });
+    slowKimiSnapshot.resolve({
+        outline: makeOutline('kimi', 'claimed-retry-1', ['input-a']),
+        page: makePage('kimi', 'claimed-retry-1', 'input-a'),
+    });
+
+    assert.equal(await stale, 'superseded');
+    assert.equal(await retry, 'opened');
+    assert.equal(
+        harness.snapshotReadTargets.filter(target =>
+            target === 'kimi:claimed-retry-1').length,
+        1,
+        'the queued same-target retry must retain the shared warm provider read'
+    );
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 times out a hung speculative read before the user switches', async () => {
     const sessions = ['codex', 'kimi'].map((provider, index) => makeSession({
         key: `${provider}:hung-${index}`,
@@ -1235,6 +1544,25 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus
     assert.match(
         dashboardSource,
         /const focusTerminal = e\.version === 2 && e\.focusTerminal === true;[\s\S]*focusAiSessionAndOpenConversation\(target\)/
+    );
+    assert.match(
+        dashboardSource,
+        /const beginConversationNavigationIntent = \(\): number => \{[\s\S]*conversationCapability\?\.cancelPendingNavigation\(\)/,
+        'a new Dashboard intent must cancel a foreground read before the shared queue runs it'
+    );
+    const intentStart = navigationPath[0].indexOf(
+        'const intent = beginConversationNavigationIntent();'
+    );
+    const enqueueStart = navigationPath[0].indexOf(
+        'sessionNavigationCoordinator.enqueueLatest('
+    );
+    assert.ok(intentStart >= 0,
+        'a row click must create a navigation intent in its own execution path');
+    assert.ok(enqueueStart >= 0,
+        'a row click must use the shared terminal-focus queue');
+    assert.ok(
+        intentStart < enqueueStart,
+        'a row click must cancel the old read before it joins the shared queue'
     );
 });
 

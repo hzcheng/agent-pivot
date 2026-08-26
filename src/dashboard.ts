@@ -1753,6 +1753,11 @@ async function initializeDashboard(
     let conversationNavigationIntent = 0;
     const beginConversationNavigationIntent = (): number => {
         conversationNavigationIntent += 1;
+        // The coordinator can discard queued target switches, but a slow
+        // foreground provider read has already left that queue. Cancel it at
+        // the moment the newer user intent arrives so it cannot hold the
+        // latest target behind its full read timeout.
+        conversationCapability?.cancelPendingNavigation();
         return conversationNavigationIntent;
     };
     conversationCapability = ownResource(() => createConversationCapability({
@@ -3154,6 +3159,7 @@ async function initializeDashboard(
         },
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
+        onNavigationIntent: () => beginConversationNavigationIntent(),
     });
     // The first paint happens after bootstrap settles (see the post-ready
     // startup timer below); earlier reads of the card projection are unsafe.

@@ -166,6 +166,8 @@ export interface WorktreeOrSessionSwitchHandlerOptions {
     revealWorktree: (navigationIdentity: string, key: WorktreeKey) => Promise<unknown>;
     showInformationMessage: (message: string) => unknown;
     showWarningMessage: (message: string) => unknown;
+    /** Called after a picker selection commits a user-visible switch. */
+    onNavigationIntent?: () => void;
 }
 
 export function createWorktreeOrSessionSwitchHandler(
@@ -182,6 +184,7 @@ export function createWorktreeOrSessionSwitchHandler(
         if (!picked) {
             return;
         }
+        options.onNavigationIntent?.();
         if (picked.target.kind === 'worktree') {
             await options.revealWorktree(target.workspace.navigationIdentity, picked.target.key);
             return;

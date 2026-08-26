@@ -12,8 +12,8 @@ export interface ConversationJsonlReadOptions {
      * reducer state is only advanced at a physical-line boundary.
      */
     endOffset?: number;
-    /** Continue discarding a physical line known to cross a prior slice. */
-    discardInitialPartialLine?: boolean;
+    /** Continue discarding a physical line which crossed a prior slice. */
+    resumeDiscard?: 'partial' | 'oversized';
     signal?: ConversationAbortSignal;
     now?: () => number;
     onRecord?: (record: ConversationJsonlRecord) => void;
@@ -32,8 +32,8 @@ export interface ConversationJsonlReadResult {
     malformedLines: number;
     oversizedLines: number;
     partial: boolean;
-    /** Pass this to the next bounded slice when it stopped inside an oversized line. */
-    discardInitialPartialLine?: boolean;
+    /** Pass this to the next bounded slice until the physical line ends. */
+    resumeDiscard?: 'partial' | 'oversized';
 }
 
 export async function getConversationReadStart(
@@ -84,8 +84,10 @@ export async function readConversationJsonl(
         throw new ConversationError('unavailable');
     }
     const endOffset = requestedEnd === undefined ? source.size : requestedEnd;
-    const discardInitialPartialLine = normalizedOptions.discardInitialPartialLine === true
-        || (requestedStart === undefined && startOffset > 0);
+    const initialDiscard = normalizedOptions.resumeDiscard
+        || (requestedStart === undefined && startOffset > 0
+            ? 'partial'
+            : undefined);
     const collectRecords = normalizedOptions.collectRecords !== false;
     const records: ConversationJsonlRecord[] = [];
     let malformedLines = 0;
@@ -94,8 +96,8 @@ export async function readConversationJsonl(
     let lineStart = startOffset;
     let lineBytes = 0;
     let oversized = false;
-    let initialPartial = discardInitialPartialLine;
-    let discardingOversizedLine = normalizedOptions.discardInitialPartialLine === true;
+    let initialPartial = initialDiscard !== undefined;
+    let discardKind = initialDiscard;
     const fragments: Buffer[] = [];
     let bytesSinceYield = 0;
 
@@ -124,11 +126,11 @@ export async function readConversationJsonl(
     };
     const finishLine = (): void => {
         if (initialPartial) {
-            if (discardingOversizedLine) {
+            if (discardKind === 'oversized') {
                 oversizedLines += 1;
             }
             initialPartial = false;
-            discardingOversizedLine = false;
+            discardKind = undefined;
             resetLine(readOffset);
             return;
         }
@@ -220,7 +222,13 @@ export async function readConversationJsonl(
     }
     if (!initialPartial && lineBytes && readOffset === source.size) {
         if (oversized) {
-            oversizedLines += 1;
+            // EOF is only the current source snapshot boundary. A bounded
+            // caller keeps a resumable discard cursor for a later append.
+            if (normalizedOptions.endOffset === undefined) {
+                // Preserve the established foreground reader contract; its
+                // callers do not consume the bounded resume cursor.
+                oversizedLines += 1;
+            }
         } else {
             let record: ConversationJsonlRecord;
             try {
@@ -250,8 +258,8 @@ export async function readConversationJsonl(
         malformedLines,
         oversizedLines,
         partial: startOffset > 0,
-        ...((initialPartial || oversized) && readOffset < source.size
-            ? { discardInitialPartialLine: true }
+        ...((initialPartial || oversized) && normalizedOptions.endOffset !== undefined
+            ? { resumeDiscard: initialPartial ? discardKind : 'oversized' }
             : {}),
     };
 }

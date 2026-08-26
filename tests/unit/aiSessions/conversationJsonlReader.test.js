@@ -347,6 +347,178 @@ test('SESSION-AI-SESSION-CONVERSATION-JSONL-013 accepts one valid final JSON rec
     assert.equal(result.nextOffset, source.size);
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-014 commits bounded scans only at physical-line boundaries', async t => {
+    const firstLine = '{"kind":"first"}\n';
+    const secondLine = '{"kind":"second","text":"crosses the boundary"}\n';
+    const fixture = await createJsonlFixture(t, [
+        firstLine,
+        secondLine,
+        '{"kind":"third"}\n',
+    ]);
+    const source = await fixture.open();
+    try {
+        const first = await reader.readConversationJsonl(source, {
+            startOffset: 0,
+            endOffset: Buffer.byteLength(firstLine) + 8,
+        });
+        assert.deepEqual(first.records.map(record => record.value.kind), ['first', 'second']);
+        assert.equal(first.nextOffset, Buffer.byteLength(firstLine + secondLine));
+
+        const second = await reader.readConversationJsonl(source, {
+            startOffset: first.nextOffset,
+        });
+        assert.deepEqual(second.records.map(record => record.value.kind), ['third']);
+        assert.equal(second.nextOffset, source.size);
+    } finally {
+        await source.handle.close();
+    }
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-015 supports callback-only bounded scans', async t => {
+    const fixture = await createJsonlFixture(t, [
+        '{"kind":"first"}\n',
+        '{"kind":"second"}\n',
+    ]);
+    const source = await fixture.open();
+    const seen = [];
+    try {
+        const result = await reader.readConversationJsonl(source, {
+            startOffset: 0,
+            endOffset: source.size,
+            collectRecords: false,
+            onRecord(record) {
+                seen.push(record.value.kind);
+            },
+        });
+        assert.deepEqual(result.records, []);
+        assert.deepEqual(seen, ['first', 'second']);
+        assert.equal(result.nextOffset, source.size);
+    } finally {
+        await source.handle.close();
+    }
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-016 advances across a multi-slice oversized physical line', async t => {
+    const oversized = 'x'.repeat(CONVERSATION_LIMITS.maxLineBytes
+        + CONVERSATION_LIMITS.readChunkBytes * 2);
+    const fixture = await createJsonlFixture(t, [
+        `${oversized}\n`,
+        '{"kind":"after-oversized"}\n',
+    ]);
+    const source = await fixture.open();
+    try {
+        const span = CONVERSATION_LIMITS.readChunkBytes;
+        let offset = 0;
+        let resumeDiscard;
+        let sawResumeDiscard = false;
+        let oversizedLines = 0;
+        const seen = [];
+        while (offset < source.size) {
+            const result = await reader.readConversationJsonl(source, {
+                startOffset: offset,
+                endOffset: Math.min(source.size, offset + span),
+                resumeDiscard,
+                collectRecords: false,
+                onRecord(record) {
+                    seen.push(record.value.kind);
+                },
+            });
+            assert.ok(result.nextOffset > offset, 'each bounded slice advances');
+            offset = result.nextOffset;
+            resumeDiscard = result.resumeDiscard;
+            sawResumeDiscard ||= resumeDiscard === 'oversized';
+            oversizedLines += result.oversizedLines;
+        }
+        assert.deepEqual(seen, ['after-oversized']);
+        assert.equal(oversizedLines, 1);
+        assert.equal(sawResumeDiscard, true);
+    } finally {
+        await source.handle.close();
+    }
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-018 preserves a bounded oversized discard cursor across EOF append', async t => {
+    const oversized = 'x'.repeat(CONVERSATION_LIMITS.maxLineBytes + CONVERSATION_LIMITS.readChunkBytes);
+    const fixture = await createJsonlFixture(t, [oversized]);
+    const firstSource = await fixture.open();
+    const first = await reader.readConversationJsonl(firstSource, {
+        startOffset: 0,
+        endOffset: firstSource.size,
+        collectRecords: false,
+    });
+    await firstSource.handle.close();
+    assert.equal(first.nextOffset, firstSource.size);
+    assert.equal(first.resumeDiscard, 'oversized');
+    assert.equal(first.oversizedLines, 0);
+
+    await fixture.append('\n{"kind":"after-eof"}\n');
+    const appended = await fixture.open();
+    try {
+        const seen = [];
+        const result = await reader.readConversationJsonl(appended, {
+            startOffset: first.nextOffset,
+            endOffset: appended.size,
+            resumeDiscard: first.resumeDiscard,
+            collectRecords: false,
+            onRecord(record) {
+                seen.push(record.value.kind);
+            },
+        });
+        assert.deepEqual(seen, ['after-eof']);
+        assert.equal(result.oversizedLines, 1);
+        assert.equal(result.resumeDiscard, undefined);
+    } finally {
+        await appended.handle.close();
+    }
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-019 does not count a cold-start partial line as oversized', async t => {
+    const prefix = 'p'.repeat(CONVERSATION_LIMITS.maxSourceBytes + 1);
+    const fixture = await createJsonlFixture(t, [`${prefix}\n{"kind":"after-partial"}\n`]);
+    const source = await fixture.open();
+    try {
+        const first = await reader.readConversationJsonl(source, {
+            endOffset: Math.min(
+                source.size,
+                source.size - CONVERSATION_LIMITS.maxSourceBytes
+                    + CONVERSATION_LIMITS.readChunkBytes
+            ),
+        });
+        assert.equal(first.resumeDiscard, 'partial');
+        assert.equal(first.oversizedLines, 0);
+        const second = await reader.readConversationJsonl(source, {
+            startOffset: first.nextOffset,
+            endOffset: source.size,
+            resumeDiscard: first.resumeDiscard,
+        });
+        assert.equal(second.oversizedLines, 0);
+        assert.deepEqual(second.records.map(record => record.value.kind), ['after-partial']);
+    } finally {
+        await source.handle.close();
+    }
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-017 rejects invalid bounded scan ranges', async t => {
+    const fixture = await createJsonlFixture(t, ['{"kind":"one"}\n']);
+    const source = await fixture.open();
+    try {
+        await assert.rejects(
+            reader.readConversationJsonl(source, { startOffset: 2, endOffset: 1 }),
+            error => error.name === 'ConversationError' && error.code === 'unavailable'
+        );
+        await assert.rejects(
+            reader.readConversationJsonl(source, { endOffset: source.size + 1 }),
+            error => error.name === 'ConversationError' && error.code === 'unavailable'
+        );
+        await assert.rejects(
+            reader.readConversationJsonl(source, { endOffset: 0.5 }),
+            error => error.name === 'ConversationError' && error.code === 'unavailable'
+        );
+    } finally {
+        await source.handle.close();
+    }
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-JSONL-009 bounds inactive indexes while retaining viewed entries', () => {
     let now = 0;
     const disposed = [];

@@ -89,6 +89,12 @@ export type FollowAdjacentConversationResult =
 export interface ConversationCapability {
     viewer: ConversationViewerApi;
     availability: 'available' | 'unavailable';
+    /**
+     * Cancels an in-flight foreground resolution as soon as a newer
+     * user-visible navigation intent wins, before that later intent reaches
+     * the terminal-focus queue.
+     */
+    cancelPendingNavigation(): void;
     openLatestConversation(
         target: ConversationSessionOpenTarget
     ): Promise<OpenLatestConversationResult>;
@@ -617,6 +623,11 @@ function createAvailableConversationCapability(
     return {
         viewer,
         availability: 'available',
+        cancelPendingNavigation: () => {
+            if (!disposed) {
+                beginViewerIntent();
+            }
+        },
         openLatestConversation: target => openConversation(target),
         async openLatestActiveConversation(
             target: ConversationSessionOpenTarget
@@ -813,6 +824,7 @@ function createUnavailableConversationCapability(): ConversationCapability {
     return {
         viewer,
         availability: 'unavailable',
+        cancelPendingNavigation(): void {},
         async openLatestConversation(): Promise<OpenLatestConversationResult> {
             return 'unavailable';
         },
@@ -1130,6 +1142,9 @@ function hasSameConversationSession(
 
 const CONVERSATION_SNAPSHOT_WARM_TTL_MS = 5_000;
 const CONVERSATION_SNAPSHOT_WARM_LIMIT = 4;
+// A speculative read is useful only when it is already almost complete. A
+// foreground switch must otherwise start its own abortable read promptly.
+const CONVERSATION_SNAPSHOT_WARM_CLAIM_BUDGET_MS = 120;
 
 interface WarmConversationSnapshot {
     completedAt?: number;
@@ -1186,7 +1201,10 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
             this.snapshots.delete(key);
             entry.cancel();
         }
-        return entry.promise;
+        if (entry.completedAt !== undefined) {
+            return entry.promise;
+        }
+        return this.claimWithinBudget(key, entry);
     }
 
     isDisposed(): boolean {
@@ -1408,6 +1426,43 @@ class ConversationSnapshotWarmup implements AiSessionDisposable {
             snapshot => settle(snapshot, false),
             () => settle(undefined, false)
         );
+    }
+
+    private claimWithinBudget(
+        key: string,
+        entry: WarmConversationSnapshot
+    ): Promise<ConversationSnapshot | undefined> {
+        return new Promise(resolve => {
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            const settle = (snapshot: ConversationSnapshot | undefined): void => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                if (timer !== undefined) {
+                    this.options.clearTimer(timer);
+                    timer = undefined;
+                }
+                resolve(snapshot);
+            };
+            let budgetFiredSynchronously = false;
+            const budget = this.options.setTimer(() => {
+                budgetFiredSynchronously = true;
+                if (this.snapshots.get(key) === entry) {
+                    this.snapshots.delete(key);
+                }
+                // Release the speculative provider work before the
+                // authoritative foreground read starts. Adapters receive the
+                // abort signal and can give the new target priority.
+                entry.cancel();
+                settle(undefined);
+            }, CONVERSATION_SNAPSHOT_WARM_CLAIM_BUDGET_MS);
+            if (!budgetFiredSynchronously) {
+                timer = budget;
+            }
+            void entry.promise.then(snapshot => settle(snapshot));
+        });
     }
 
     private schedule(operation: () => void | PromiseLike<void>): void {

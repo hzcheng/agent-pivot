@@ -1753,6 +1753,11 @@ async function initializeDashboard(
     let conversationNavigationIntent = 0;
     const beginConversationNavigationIntent = (): number => {
         conversationNavigationIntent += 1;
+        // The coordinator can discard queued target switches, but a slow
+        // foreground provider read has already left that queue. Cancel it at
+        // the moment the newer user intent arrives so it cannot hold the
+        // latest target behind its full read timeout.
+        conversationCapability?.cancelPendingNavigation();
         return conversationNavigationIntent;
     };
     conversationCapability = ownResource(() => createConversationCapability({

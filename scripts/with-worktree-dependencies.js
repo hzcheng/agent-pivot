@@ -35,10 +35,20 @@ function packageMapsMatch(repositoryRoot, fileSystem = fs) {
         // npm 7-11 may keep the root lockfile at v2 while writing the hidden
         // installed lockfile at v3, so package content is the compatibility
         // contract rather than the two lockfile format version numbers.
-        const installedEntries = Object.entries(installed.packages);
-        return installedEntries.length > 0
-            && installedEntries.every(([packagePath, installedPackage]) =>
-            JSON.stringify(expected.packages[packagePath]) === JSON.stringify(installedPackage));
+        const manifest = readJson(path.join(repositoryRoot, 'package.json'), fileSystem);
+        const directDependencies = Object.keys({
+            ...manifest.dependencies,
+            ...manifest.devDependencies,
+            ...manifest.optionalDependencies,
+        });
+        return Object.keys(installed.packages).length > 0
+            && directDependencies.every(dependency => {
+                const expectedPackage = expected.packages[`node_modules/${dependency}`];
+                const installedPackage = installed.packages[`node_modules/${dependency}`];
+                return expectedPackage && installedPackage
+                    && ['version', 'resolved', 'integrity', 'link'].every(field =>
+                        expectedPackage[field] === installedPackage[field]);
+            });
     } catch {
         return false;
     }
@@ -141,8 +151,12 @@ function acquireLock(lockPath, options = {}) {
     }
 }
 
-function runCommand(command, args, repositoryRoot, environment, spawnSync = childProcess.spawnSync) {
-    const result = spawnSync(command, args, {
+function npmExecutable(platform = process.platform) {
+    return platform === 'win32' ? 'npm.cmd' : 'npm';
+}
+
+function runCommand(command, args, repositoryRoot, environment, spawnSync = childProcess.spawnSync, platform) {
+    const result = spawnSync(command === 'npm' ? npmExecutable(platform) : command, args, {
         cwd: repositoryRoot,
         env: environment,
         stdio: 'inherit',
@@ -186,11 +200,12 @@ function runWithWorktreeDependencies(argv, options = {}) {
         if (!dependenciesAreCurrent(repositoryRoot, options.fileSystem || fs)) {
             logger.log('Installing worktree dependencies with npm ci --ignore-scripts...');
             const installStatus = runCommand(
-                process.platform === 'win32' ? 'npm.cmd' : 'npm',
+                'npm',
                 ['ci', '--ignore-scripts', '--allow-scripts='],
                 repositoryRoot,
                 installationEnvironment(environment, lockPath),
-                spawnSync
+                spawnSync,
+                options.platform
             );
             if (installStatus !== 0) {
                 return installStatus;
@@ -214,7 +229,8 @@ function runWithWorktreeDependencies(argv, options = {}) {
             parsed.command.slice(1),
             repositoryRoot,
             { ...environment, [LOCK_ENVIRONMENT_VARIABLE]: lockPath },
-            spawnSync
+            spawnSync,
+            options.platform
         );
     } finally {
         if (release) {
@@ -245,6 +261,7 @@ module.exports = {
     directDependenciesArePresent,
     installationEnvironment,
     lockOwnerIsAlive,
+    npmExecutable,
     packageMapsMatch,
     parseArguments,
     resolveGitDirectory,

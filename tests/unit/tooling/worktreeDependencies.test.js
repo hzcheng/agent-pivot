@@ -12,6 +12,7 @@ const {
     acquireLock,
     dependenciesAreCurrent,
     installationEnvironment,
+    npmExecutable,
     packageMapsMatch,
     parseArguments,
     runWithWorktreeDependencies,
@@ -51,7 +52,7 @@ function makeRepository(t) {
     return { root, gitDirectory };
 }
 
-test('WORKTREE-DEPENDENCY-GUARD-001 accepts an installed lockfile only when it exactly matches package-lock', t => {
+test('WORKTREE-DEPENDENCY-GUARD-001 accepts direct installed lock entries when their resolved identities match package-lock', t => {
     const { root } = makeRepository(t);
 
     assert.equal(packageMapsMatch(root), true);
@@ -158,4 +159,25 @@ test('WORKTREE-DEPENDENCY-GUARD-001 clears a forwarded npm script allowlist befo
     assert.equal(environment.NPM_CONFIG_ALLOW_SCRIPTS, undefined);
     assert.equal(environment[LOCK_ENVIRONMENT_VARIABLE], '/tmp/lock');
     assert.equal(environment.KEEP, 'value');
+});
+
+test('WORKTREE-DEPENDENCY-GUARD-001 resolves npm.cmd for Windows child commands', t => {
+    const { root, gitDirectory } = makeRepository(t);
+    const calls = [];
+
+    const status = runWithWorktreeDependencies(['npm', '--version'], {
+        repositoryRoot: root,
+        gitDirectory,
+        platform: 'win32',
+        logger: { log() {} },
+        spawnSync(command, args) {
+            calls.push({ command, args });
+            return { status: 0 };
+        },
+    });
+
+    assert.equal(status, 0);
+    assert.deepEqual(calls, [{ command: 'npm.cmd', args: ['--version'] }]);
+    assert.equal(npmExecutable('win32'), 'npm.cmd');
+    assert.equal(npmExecutable('linux'), 'npm');
 });

@@ -16,8 +16,9 @@ making any change.
    git worktree add -b <branch> .worktrees/<topic> origin/main  # once per job
    ```
    Run `npm run worktree:bootstrap` inside the worktree before verifying
-   anything. It runs the required `npm ci --ignore-scripts --allow-scripts=`
-   when the local install is missing or stale, avoiding user-level npm script
+   anything. It validates direct dependency lock entries and build sentinels;
+   when either is missing or stale it runs the required `npm ci
+   --ignore-scripts --allow-scripts=`, avoiding user-level npm script
    allowlists, and serializes it with other guarded commands in that worktree.
    Use `npm run worktree:run -- <command>` for a complete verification command
    so a concurrent install cannot delete its `node_modules` mid-run. npm

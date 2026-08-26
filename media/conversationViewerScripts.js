@@ -380,7 +380,6 @@
     // same session remain independently recoverable.
     var resyncRequestedPublicationKey = '';
     var conversationLoading = false;
-    var loadingDisabledElements = [];
     // Detached conversation frames keyed by session: switching back to a
     // session whose content token is unchanged reattaches the already-built
     // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
@@ -1131,51 +1130,6 @@
         return true;
     }
 
-    // A reused panel keeps the outgoing conversation on screen while the
-    // incoming session loads. The Host's loading notice arms a lightweight
-    // indicator and disables outgoing controls, while keeping the live
-    // loading status available to assistive technology.
-    function setLoadingInteractivity(disabled) {
-        if (disabled) {
-            loadingDisabledElements = Array.prototype.slice.call(
-                document.querySelectorAll('button, input, select, textarea, [tabindex]')
-            ).map(function (element) {
-                return {
-                    element: element,
-                    disabled: 'disabled' in element ? element.disabled : undefined,
-                    tabindex: element.getAttribute('tabindex'),
-                    ariaDisabled: element.getAttribute('aria-disabled'),
-                };
-            });
-            loadingDisabledElements.forEach(function (entry) {
-                if (entry.disabled !== undefined) {
-                    entry.element.disabled = true;
-                }
-                if (entry.tabindex !== null) {
-                    entry.element.setAttribute('tabindex', '-1');
-                }
-                entry.element.setAttribute('aria-disabled', 'true');
-            });
-            return;
-        }
-        loadingDisabledElements.forEach(function (entry) {
-            if (entry.disabled !== undefined) {
-                entry.element.disabled = entry.disabled;
-            }
-            if (entry.tabindex === null) {
-                entry.element.removeAttribute('tabindex');
-            } else {
-                entry.element.setAttribute('tabindex', entry.tabindex);
-            }
-            if (entry.ariaDisabled === null) {
-                entry.element.removeAttribute('aria-disabled');
-            } else {
-                entry.element.setAttribute('aria-disabled', entry.ariaDisabled);
-            }
-        });
-        loadingDisabledElements = [];
-    }
-
     function applyLoadingNotice(message) {
         if (!message || typeof message !== 'object'
             || message.type !== 'conversation-viewer-loading') {
@@ -1199,18 +1153,18 @@
             // Stale or same-session notices never dim the live content.
             return true;
         }
-        // A new notice can supersede a cached preview. Restore that preview's
-        // controls before moving its nodes back into the cache; otherwise the
-        // next call overwrites the tracked entries and leaves that frame inert
-        // when it is later restored.
-        if (conversationLoading) {
-            setLoadingInteractivity(false);
-        }
         conversationLoading = true;
         document.body.setAttribute('data-conversation-loading', 'true');
+        document.body.setAttribute('aria-busy', 'true');
+        document.body.setAttribute('aria-disabled', 'true');
         messages.setAttribute('aria-busy', 'true');
         status.textContent = 'Loading conversation…';
         var previewHit = previewCachedFrame(message.target);
+        if (previewHit) {
+            document.body.setAttribute('data-conversation-frame-preview', 'true');
+        } else {
+            document.body.removeAttribute('data-conversation-frame-preview');
+        }
         // This is deliberately a separate message rather than a field on the
         // applied receipt: an older Host rejects unknown receipt fields, but
         // safely ignores this best-effort diagnostic event.
@@ -1223,10 +1177,6 @@
             provider: message.target.provider,
             sessionId: message.target.sessionId,
         });
-        // Preview nodes are attached synchronously above. Disable the live
-        // controls only after that attachment, otherwise a cached target
-        // could become interactive while the Host still owns the old target.
-        setLoadingInteractivity(true);
         return true;
     }
 
@@ -1236,7 +1186,9 @@
         }
         conversationLoading = false;
         document.body.removeAttribute('data-conversation-loading');
-        setLoadingInteractivity(false);
+        document.body.removeAttribute('data-conversation-frame-preview');
+        document.body.removeAttribute('aria-busy');
+        document.body.removeAttribute('aria-disabled');
         messages.removeAttribute('aria-busy');
         // The applied page recomputes the status line right below.
     }
@@ -2491,6 +2443,53 @@
 
     reconcileController.attach();
 
+    // The Host rejects actions during a target handoff, but several controls
+    // enter local pending state before they post their intent. Intercept
+    // input before those handlers run instead of mutating every control in a
+    // large cached transcript. Focus/blur remain unblocked so the Host's
+    // keyboard-routing state stays current throughout the transition.
+    function isLoadingActivationKey(event) {
+        return event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar';
+    }
+
+    function isLoadingActionTarget(target) {
+        return target && typeof target.closest === 'function'
+            ? target.closest(
+                'button, input, select, textarea, a[href], [data-action], [contenteditable="true"]'
+            )
+            : null;
+    }
+
+    function blockLoadingInteraction(event) {
+        if (!conversationLoading) {
+            return;
+        }
+        if (event.type === 'keydown') {
+            // Keep preview reading usable: Tab, Escape, copy, find, and
+            // other read-only shortcuts remain available. Only keys that
+            // would activate or edit a control are stopped here.
+            if (!isLoadingActivationKey(event)
+                || !isLoadingActionTarget(event.target)) {
+                return;
+            }
+        }
+        if (event.type === 'input') {
+            // `input` itself is generally non-cancelable, but stop local
+            // controller listeners if an external input source got this far.
+            event.stopImmediatePropagation();
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+    [
+        'click', 'auxclick', 'contextmenu', 'pointerdown', 'keydown',
+        'beforeinput', 'input', 'change', 'submit', 'paste', 'cut',
+        'compositionstart', 'compositionupdate', 'dragstart', 'drop',
+    ].forEach(function (type) {
+        document.addEventListener(type, blockLoadingInteraction, true);
+    });
+
     // On-demand earlier-page loading: the transcript reaching its top while
     // earlier history sits behind the oldest retained page's cursor posts a
     // single load request (re-armed by the next page apply). The Host loads
@@ -2500,7 +2499,8 @@
         'data-auto-scroll-threshold'
     )) || 0;
     function maybeRequestEarlierPage() {
-        if (state.earlierPageRequested
+        if (conversationLoading
+            || state.earlierPageRequested
             || state.earlierPageCursor === undefined
             || scroll.scrollTop > autoScrollThresholdPx) {
             return;

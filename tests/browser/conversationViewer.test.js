@@ -1187,6 +1187,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
         status: document.querySelector('[data-conversation-status]')
             .textContent,
         loading: document.body.getAttribute('data-conversation-loading'),
+        preview: document.body.getAttribute('data-conversation-frame-preview'),
+        ariaBusy: document.body.getAttribute('aria-busy'),
+        ariaDisabled: document.body.getAttribute('aria-disabled'),
         busy: document.querySelector('[data-conversation-messages]')
             .getAttribute('aria-busy'),
         content: document.querySelector('[data-conversation-messages]')
@@ -1202,6 +1205,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
     assert.deepEqual(await loadingState(), {
         status: 'Loading conversation…',
         loading: 'true',
+        preview: null,
+        ariaBusy: 'true',
+        ariaDisabled: 'true',
         busy: 'true',
         content: 'alpha',
     });
@@ -1217,6 +1223,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
     assert.deepEqual(await loadingState(), {
         status: 'Loading conversation…',
         loading: 'true',
+        preview: null,
+        ariaBusy: 'true',
+        ariaDisabled: 'true',
         busy: 'true',
         content: 'alpha',
     });
@@ -1226,6 +1235,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
     assert.deepEqual(await loadingState(), {
         status: '',
         loading: null,
+        preview: null,
+        ariaBusy: null,
+        ariaDisabled: null,
         busy: null,
         content: 'beta',
     });
@@ -1275,6 +1287,10 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         var previewControl = document.createElement('button');
         previewControl.setAttribute('data-preview-control', '');
         previewControl.textContent = 'beta action';
+        window.__previewControlClicks = 0;
+        previewControl.addEventListener('click', function () {
+            window.__previewControlClicks += 1;
+        });
         window.__betaNode.appendChild(previewControl);
     });
     // This full publication returns to alpha and stashes beta for a later
@@ -1282,21 +1298,71 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
     // before any Host page for generation five is delivered.
     await sendPage(page, sessionPage(4, 'session-alpha', 'alpha', 'sig-alpha'));
     await sendPage(page, loadingNotice(5, 'session-beta'));
+    await page.evaluate(() =>
+        document.querySelector('[data-preview-control]').click()
+    );
+    const loadingKeyboardGate = await page.evaluate(() => {
+        var control = document.querySelector('[data-preview-control]');
+        var tab = new KeyboardEvent('keydown', {
+            key: 'Tab', bubbles: true, cancelable: true,
+        });
+        var copy = new KeyboardEvent('keydown', {
+            key: 'c', ctrlKey: true, bubbles: true, cancelable: true,
+        });
+        var activate = new KeyboardEvent('keydown', {
+            key: 'Enter', bubbles: true, cancelable: true,
+        });
+        var beforeInput = new Event('beforeinput', {
+            bubbles: true, cancelable: true,
+        });
+        control.dispatchEvent(tab);
+        control.dispatchEvent(copy);
+        control.dispatchEvent(activate);
+        control.dispatchEvent(beforeInput);
+        return {
+            tabPrevented: tab.defaultPrevented,
+            copyPrevented: copy.defaultPrevented,
+            activatePrevented: activate.defaultPrevented,
+            beforeInputPrevented: beforeInput.defaultPrevented,
+        };
+    });
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
 
     assert.deepEqual(await page.evaluate(() => ({
         content: document.querySelector('[data-conversation-messages]')
             .textContent.trim(),
         sameNode: document.querySelector('[data-message-id="beta-0"]')
             === window.__betaNode,
-        previewControlDisabled: document.querySelector('[data-preview-control]')
+        previewControlPreserved: !document.querySelector('[data-preview-control]')
             .disabled,
         loading: document.body.getAttribute('data-conversation-loading'),
+        preview: document.body.getAttribute('data-conversation-frame-preview'),
+        ariaBusy: document.body.getAttribute('aria-busy'),
+        ariaDisabled: document.body.getAttribute('aria-disabled'),
+        clickCount: window.__previewControlClicks,
     })), {
         content: 'betabeta action',
         sameNode: true,
-        previewControlDisabled: true,
+        previewControlPreserved: true,
         loading: 'true',
+        preview: 'true',
+        ariaBusy: 'true',
+        ariaDisabled: 'true',
+        clickCount: 0,
     });
+    assert.deepEqual(loadingKeyboardGate, {
+        tabPrevented: false,
+        copyPrevented: false,
+        activatePrevented: true,
+        beforeInputPrevented: true,
+    }, 'the loading gate blocks mutation inputs but preserves reading shortcuts');
+    assert.deepEqual((await postedMessages(page)).filter(message =>
+        message.type === 'conversation-viewer-focus'
+    ).at(-1), {
+        type: 'conversation-viewer-focus',
+        version: 1,
+        focused: true,
+    }, 'focus lifecycle remains live while action controls are gated');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preserves cached frames across rapid preview handoffs', async t => {
@@ -4588,6 +4654,142 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Normalize the cache-preview presentation fast path back to the
+        // preceding script before stepping through historical fixtures.
+        .replace(
+            "    var conversationLoading = false;\n",
+            "    var conversationLoading = false;\n"
+                + "    var loadingDisabledElements = [];\n"
+        )
+        .replace(
+            '    function post(message) {\n'
+                + '        // During a target handoff the Host rejects user intents anyway. Keep\n'
+                + '        // that protection without walking and mutating every control in a\n'
+                + '        // large cached transcript: only lifecycle messages may cross while\n'
+                + '        // the preview is non-authoritative.\n'
+                + "        if (conversationLoading && message && typeof message === 'object'\n"
+                + "            && message.type !== 'conversation-viewer-applied'\n"
+                + "            && message.type !== 'conversation-viewer-frame-cache-preview'\n"
+                + "            && message.type !== 'conversation-viewer-request-sync') {\n"
+                + '            return;\n'
+                + '        }\n'
+                + "        if (vscodeApi && typeof vscodeApi.postMessage === 'function') {\n"
+                + '            vscodeApi.postMessage(message);\n'
+                + '        }\n'
+                + '    }\n',
+            '    function post(message) {\n'
+                + "        if (vscodeApi && typeof vscodeApi.postMessage === 'function') {\n"
+                + '            vscodeApi.postMessage(message);\n'
+                + '        }\n'
+                + '    }\n'
+        )
+        .replace(
+            '    function applyLoadingNotice(message) {\n',
+            '    // A reused panel keeps the outgoing conversation on screen while the\n'
+                + '    // incoming session loads. The Host\'s loading notice arms a lightweight\n'
+                + '    // indicator and disables outgoing controls, while keeping the live\n'
+                + '    // loading status available to assistive technology.\n'
+                + '    function setLoadingInteractivity(disabled) {\n'
+                + '        if (disabled) {\n'
+                + '            loadingDisabledElements = Array.prototype.slice.call(\n'
+                + "                document.querySelectorAll('button, input, select, textarea, [tabindex]')\n"
+                + '            ).map(function (element) {\n'
+                + '                return {\n'
+                + '                    element: element,\n'
+                + "                    disabled: 'disabled' in element ? element.disabled : undefined,\n"
+                + "                    tabindex: element.getAttribute('tabindex'),\n"
+                + "                    ariaDisabled: element.getAttribute('aria-disabled'),\n"
+                + '                };\n'
+                + '            });\n'
+                + '            loadingDisabledElements.forEach(function (entry) {\n'
+                + '                if (entry.disabled !== undefined) {\n'
+                + '                    entry.element.disabled = true;\n'
+                + '                }\n'
+                + '                if (entry.tabindex !== null) {\n'
+                + "                    entry.element.setAttribute('tabindex', '-1');\n"
+                + '                }\n'
+                + "                entry.element.setAttribute('aria-disabled', 'true');\n"
+                + '            });\n'
+                + '            return;\n'
+                + '        }\n'
+                + '        loadingDisabledElements.forEach(function (entry) {\n'
+                + '            if (entry.disabled !== undefined) {\n'
+                + '                entry.element.disabled = entry.disabled;\n'
+                + '            }\n'
+                + '            if (entry.tabindex === null) {\n'
+                + "                entry.element.removeAttribute('tabindex');\n"
+                + '            } else {\n'
+                + "                entry.element.setAttribute('tabindex', entry.tabindex);\n"
+                + '            }\n'
+                + '            if (entry.ariaDisabled === null) {\n'
+                + "                entry.element.removeAttribute('aria-disabled');\n"
+                + '            } else {\n'
+                + "                entry.element.setAttribute('aria-disabled', entry.ariaDisabled);\n"
+                + '            }\n'
+                + '        });\n'
+                + '        loadingDisabledElements = [];\n'
+                + '    }\n\n'
+                + '    function applyLoadingNotice(message) {\n'
+        )
+        .replace(
+            '        conversationLoading = true;\n'
+                + "        document.body.setAttribute('data-conversation-loading', 'true');\n"
+                + "        document.body.setAttribute('aria-busy', 'true');\n"
+                + "        document.body.setAttribute('aria-disabled', 'true');\n"
+                + "        messages.setAttribute('aria-busy', 'true');\n"
+                + "        status.textContent = 'Loading conversation…';\n"
+                + '        var previewHit = previewCachedFrame(message.target);\n'
+                + '        if (previewHit) {\n'
+                + "            document.body.setAttribute('data-conversation-frame-preview', 'true');\n"
+                + '        } else {\n'
+                + "            document.body.removeAttribute('data-conversation-frame-preview');\n"
+                + '        }\n',
+            '        // A new notice can supersede a cached preview. Restore that preview\'s\n'
+                + '        // controls before moving its nodes back into the cache; otherwise the\n'
+                + '        // next call overwrites the tracked entries and leaves that frame inert\n'
+                + '        // when it is later restored.\n'
+                + '        if (conversationLoading) {\n'
+                + '            setLoadingInteractivity(false);\n'
+                + '        }\n'
+                + '        conversationLoading = true;\n'
+                + "        document.body.setAttribute('data-conversation-loading', 'true');\n"
+                + "        messages.setAttribute('aria-busy', 'true');\n"
+                + "        status.textContent = 'Loading conversation…';\n"
+                + '        var previewHit = previewCachedFrame(message.target);\n'
+        )
+        .replace(
+            '        });\n'
+                + '        return true;\n'
+                + '    }\n\n'
+                + '    function clearConversationLoading() {\n',
+            '        });\n'
+                + '        // Preview nodes are attached synchronously above. Disable the live\n'
+                + '        // controls only after that attachment, otherwise a cached target\n'
+                + '        // could become interactive while the Host still owns the old target.\n'
+                + '        setLoadingInteractivity(true);\n'
+                + '        return true;\n'
+                + '    }\n\n'
+                + '    function clearConversationLoading() {\n'
+        )
+        .replace(
+            "        document.body.removeAttribute('data-conversation-loading');\n"
+                + "        document.body.removeAttribute('data-conversation-frame-preview');\n"
+                + "        document.body.removeAttribute('aria-busy');\n"
+                + "        document.body.removeAttribute('aria-disabled');\n"
+                + "        messages.removeAttribute('aria-busy');\n",
+            "        document.body.removeAttribute('data-conversation-loading');\n"
+                + '        setLoadingInteractivity(false);\n'
+                + "        messages.removeAttribute('aria-busy');\n"
+        )
+        .replace(
+            /\n    \/\/ The Host rejects actions during a target handoff,[\s\S]*?\n    \}\);\n(?=\n    \/\/ On-demand earlier-page loading)/,
+            ''
+        )
+        .replace(
+            '        if (conversationLoading\n'
+                + '            || state.earlierPageRequested\n',
+            '        if (state.earlierPageRequested\n'
+        )
         // Normalize the newer bounded two-frame reserve and diagnostic receipt
         // back to the preceding cached-frame generation before the remaining
         // historical transforms step through older fixtures.

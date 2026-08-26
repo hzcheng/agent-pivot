@@ -2119,6 +2119,92 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records target-free timing for 
     viewer.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records the correlated frame-cache preview outcome', async () => {
+    const diagnostics = [];
+    const { viewer, panel } = createViewer({
+        onDiagnostic: event => diagnostics.push(event),
+    });
+
+    await viewer.open(target('session-a'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+
+    await viewer.follow(target('session-b'));
+    const incoming = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(incoming, 'the reused panel must receive a page for session-b');
+    await panel.receive({
+        type: 'conversation-viewer-frame-cache-preview',
+        version: 1,
+        subscriptionGeneration: incoming.subscriptionGeneration,
+        outcome: 'hit',
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-b',
+    });
+
+    assert.ok(diagnostics.some(event =>
+        event.event === 'conversation-viewer'
+            && event.reason === 'frame-cache-preview'
+            && event.sessionId === 'session-b'
+            && event.outcome === 'hit'
+    ));
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preflights a cached frame before target snapshot resolution and restores it on cancellation', async () => {
+    const { viewer, panel } = createViewer();
+    await viewer.open(target('session-a'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.equal(viewer.previewSession({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    }), undefined, 'a retained pre-upgrade Webview never receives a cancel it cannot apply');
+    await panel.receive({
+        type: 'conversation-viewer-capabilities',
+        version: 1,
+        documentId: decodeDocumentId(panel.webview.html),
+        capabilities: ['tail-patch', 'frame-preflight'],
+    });
+    const preview = viewer.previewSession({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    });
+    assert.ok(preview, 'an existing panel can preflight a different session');
+    const loading = panel.postedMessages.at(-1);
+    assert.deepEqual(loading, {
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration + 1,
+        target: {
+            projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+        },
+        preflight: true,
+    }, 'the cache handoff does not wait for a resolved interaction target');
+
+    assert.equal(viewer.previewSession({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    }), undefined, 'a rapid reversal restores the still-authoritative session');
+    assert.deepEqual(panel.postedMessages.at(-1), {
+        type: 'conversation-viewer-loading-cancel',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration + 1,
+        target: {
+            projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+        },
+    }, 'an A → B preview → A reversal restores the authoritative document immediately');
+    preview.dispose();
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-loading-cancel'
+    ).length, 1, 'the stale B handle cannot cancel a later intent');
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records document timing after a message-delivery fallback', async () => {
     let now = 100;
     const timings = [];

@@ -523,60 +523,69 @@ function createAvailableConversationCapability(
                 return 'closed';
             }
             const intentGeneration = ++viewerIntentGeneration;
-            const resolution = await resolveLatestConversationTarget(
-                options,
-                coordinator,
-                target,
-                undefined,
-                undefined,
-                snapshotWarmup
-            );
-            if (intentGeneration !== viewerIntentGeneration) {
-                return 'superseded';
-            }
-            if (resolution.result !== 'opened') {
-                reportFollowFailure(
-                    options.onDiagnostic,
-                    target.provider,
-                    resolution.result,
-                    resolution.diagnostic
+            const preview = viewer.previewSession?.(target);
+            let followedSuccessfully = false;
+            try {
+                const resolution = await resolveLatestConversationTarget(
+                    options,
+                    coordinator,
+                    target,
+                    undefined,
+                    undefined,
+                    snapshotWarmup
                 );
-                viewer.showNotice(
-                    conversationFollowNoticeText(resolution.result)
-                );
-                return resolution.result;
-            }
-            if (!viewer.isOpen()) {
-                return 'closed';
-            }
-            const follow = viewer.follow(
-                resolution.viewerTarget,
-                resolution.snapshot
-            );
-            snapshotWarmup?.prepareAfterTargetSet(
-                resolution.viewerTarget,
-                viewer
-            );
-            const followed = await follow;
-            if (followed) {
-                snapshotWarmup?.afterLoad(
+                if (intentGeneration !== viewerIntentGeneration) {
+                    return 'superseded';
+                }
+                if (resolution.result !== 'opened') {
+                    reportFollowFailure(
+                        options.onDiagnostic,
+                        target.provider,
+                        resolution.result,
+                        resolution.diagnostic
+                    );
+                    viewer.showNotice(
+                        conversationFollowNoticeText(resolution.result)
+                    );
+                    return resolution.result;
+                }
+                if (!viewer.isOpen()) {
+                    return 'closed';
+                }
+                const follow = viewer.follow(
                     resolution.viewerTarget,
-                    resolution.prefetchedSnapshot === true,
+                    resolution.snapshot
+                );
+                snapshotWarmup?.prepareAfterTargetSet(
+                    resolution.viewerTarget,
                     viewer
                 );
-                const currentTarget = viewer.getCurrentTarget();
-                terminalAuthority.confirmedTarget =
-                    cloneConversationViewerTarget(
-                        currentTarget
-                            && hasSameConversationSession(
-                                currentTarget,
-                                resolution.viewerTarget
-                            )
-                            ? currentTarget
-                            : resolution.viewerTarget
+                const followed = await follow;
+                if (followed) {
+                    snapshotWarmup?.afterLoad(
+                        resolution.viewerTarget,
+                        resolution.prefetchedSnapshot === true,
+                        viewer
                     );
+                    const currentTarget = viewer.getCurrentTarget();
+                    terminalAuthority.confirmedTarget =
+                        cloneConversationViewerTarget(
+                            currentTarget
+                                && hasSameConversationSession(
+                                    currentTarget,
+                                    resolution.viewerTarget
+                                )
+                                ? currentTarget
+                                : resolution.viewerTarget
+                        );
+                    followedSuccessfully = true;
+                }
+                return followed ? 'opened' : 'closed';
+            } finally {
+                if (!followedSuccessfully) {
+                    preview?.dispose();
+                }
             }
-            return followed ? 'opened' : 'closed';
         },
         async followAdjacentActiveConversation(
             direction: ConversationSessionSwitchDirection
@@ -791,16 +800,10 @@ async function openLatestConversation(
     isCurrent: () => boolean,
     snapshotWarmup?: ConversationSnapshotWarmup
 ): Promise<OpenLatestConversationResult> {
-    let resolution = await resolveLatestConversationTarget(
-        options,
-        coordinator,
-        target,
-        undefined,
-        undefined,
-        snapshotWarmup
-    );
-    if (resolution.result === 'unavailable' && isCurrent()) {
-        resolution = await resolveLatestConversationTarget(
+    const preview = viewer.previewSession?.(target);
+    let opened = false;
+    try {
+        let resolution = await resolveLatestConversationTarget(
             options,
             coordinator,
             target,
@@ -808,22 +811,40 @@ async function openLatestConversation(
             undefined,
             snapshotWarmup
         );
+        if (resolution.result === 'unavailable' && isCurrent()) {
+            resolution = await resolveLatestConversationTarget(
+                options,
+                coordinator,
+                target,
+                undefined,
+                undefined,
+                snapshotWarmup
+            );
+        }
+        if (!isCurrent()) {
+            return 'superseded';
+        }
+        if (!resolution.viewerTarget) {
+            return resolution.result;
+        }
+        const opening = viewer.open(
+            resolution.viewerTarget,
+            resolution.snapshot
+        );
+        snapshotWarmup?.prepareAfterTargetSet(resolution.viewerTarget, viewer);
+        await opening;
+        snapshotWarmup?.afterLoad(
+            resolution.viewerTarget,
+            resolution.prefetchedSnapshot === true,
+            viewer
+        );
+        opened = true;
+        return 'opened';
+    } finally {
+        if (!opened) {
+            preview?.dispose();
+        }
     }
-    if (!isCurrent()) {
-        return 'superseded';
-    }
-    if (!resolution.viewerTarget) {
-        return resolution.result;
-    }
-    const opening = viewer.open(resolution.viewerTarget, resolution.snapshot);
-    snapshotWarmup?.prepareAfterTargetSet(resolution.viewerTarget, viewer);
-    await opening;
-    snapshotWarmup?.afterLoad(
-        resolution.viewerTarget,
-        resolution.prefetchedSnapshot === true,
-        viewer
-    );
-    return 'opened';
 }
 
 type LatestConversationTargetResolution =
@@ -897,89 +918,99 @@ async function followAdjacentConversation(
     const adjacent = switchable[
         (currentIndex + step + switchable.length) % switchable.length
     ];
-    const resolution = await resolveLatestConversationTarget(
-        options,
-        coordinator,
-        {
-            projectId: currentTarget.projectId,
-            provider: adjacent.provider,
-            sessionId: adjacent.sessionId,
-        },
-        undefined,
-        undefined,
-        snapshotWarmup
-    );
-    if (!isCurrent()) {
-        return 'superseded';
-    }
-    if (!resolution.viewerTarget) {
-        return resolution.result;
-    }
-    if (!viewer.isOpen()) {
-        return 'closed';
-    }
-    const follow = viewer.follow(
-        resolution.viewerTarget,
-        resolution.snapshot
-    );
-    snapshotWarmup?.prepareAfterTargetSet(resolution.viewerTarget, viewer);
-    const followed = await follow;
-    if (!isCurrent()) {
-        return 'superseded';
-    }
-    if (!followed) {
-        return 'closed';
-    }
-    snapshotWarmup?.afterLoad(
-        resolution.viewerTarget,
-        resolution.prefetchedSnapshot === true,
-        viewer
-    );
-    if (queueTerminalFocus) {
-        // Webview navigation syncs the terminal/tmux window. Command
-        // navigation queues a Conversation reveal behind any terminal focus
-        // already in flight, so AI Conversation remains the final focus owner.
-        try {
-            const terminalFocused = await queueTerminalFocus({
-                projectId: currentTarget.projectId,
-                provider: adjacent.provider,
-                sessionId: adjacent.sessionId,
-            }, isCurrent);
-            if (!terminalFocused) {
-                return 'superseded';
-            }
-            if (terminalAuthority) {
-                terminalAuthority.confirmedTarget =
-                    cloneConversationViewerTarget(resolution.viewerTarget);
-            }
-        } catch (_error) {
-            if (!isCurrent()) {
-                return 'superseded';
-            }
-            // Terminal authority did not move to the requested Session. Best
-            // effort restores the previous terminal and exact Conversation
-            // target so the card and viewer cannot settle on different roots.
-            const rollbackTarget = terminalAuthority?.confirmedTarget
-                || currentTarget;
+    const target = {
+        projectId: currentTarget.projectId,
+        provider: adjacent.provider,
+        sessionId: adjacent.sessionId,
+    };
+    const preview = viewer.previewSession?.(target);
+    let followedSuccessfully = false;
+    try {
+        const resolution = await resolveLatestConversationTarget(
+            options,
+            coordinator,
+            target,
+            undefined,
+            undefined,
+            snapshotWarmup
+        );
+        if (!isCurrent()) {
+            return 'superseded';
+        }
+        if (!resolution.viewerTarget) {
+            return resolution.result;
+        }
+        if (!viewer.isOpen()) {
+            return 'closed';
+        }
+        const follow = viewer.follow(
+            resolution.viewerTarget,
+            resolution.snapshot
+        );
+        snapshotWarmup?.prepareAfterTargetSet(resolution.viewerTarget, viewer);
+        const followed = await follow;
+        if (!isCurrent()) {
+            return 'superseded';
+        }
+        if (!followed) {
+            return 'closed';
+        }
+        snapshotWarmup?.afterLoad(
+            resolution.viewerTarget,
+            resolution.prefetchedSnapshot === true,
+            viewer
+        );
+        followedSuccessfully = true;
+        if (queueTerminalFocus) {
+            // Webview navigation syncs the terminal/tmux window. Command
+            // navigation queues a Conversation reveal behind any terminal focus
+            // already in flight, so AI Conversation remains the final focus owner.
             try {
-                await queueTerminalFocus(rollbackTarget, isCurrent);
-            } catch (_rollbackError) {
-                // The authoritative refresh still reflects the observed runtime.
+                const terminalFocused = await queueTerminalFocus({
+                    projectId: currentTarget.projectId,
+                    provider: adjacent.provider,
+                    sessionId: adjacent.sessionId,
+                }, isCurrent);
+                if (!terminalFocused) {
+                    return 'superseded';
+                }
+                if (terminalAuthority) {
+                    terminalAuthority.confirmedTarget =
+                        cloneConversationViewerTarget(resolution.viewerTarget);
+                }
+            } catch (_error) {
+                if (!isCurrent()) {
+                    return 'superseded';
+                }
+                // Terminal authority did not move to the requested Session. Best
+                // effort restores the previous terminal and exact Conversation
+                // target so the card and viewer cannot settle on different roots.
+                const rollbackTarget = terminalAuthority?.confirmedTarget
+                    || currentTarget;
+                try {
+                    await queueTerminalFocus(rollbackTarget, isCurrent);
+                } catch (_rollbackError) {
+                    // The authoritative refresh still reflects the observed runtime.
+                }
+                if (!isCurrent()) {
+                    return 'superseded';
+                }
+                if (!viewer.isOpen()) {
+                    return 'closed';
+                }
+                const restored = await viewer.follow(rollbackTarget);
+                if (!isCurrent()) {
+                    return 'superseded';
+                }
+                return restored ? 'unavailable' : 'closed';
             }
-            if (!isCurrent()) {
-                return 'superseded';
-            }
-            if (!viewer.isOpen()) {
-                return 'closed';
-            }
-            const restored = await viewer.follow(rollbackTarget);
-            if (!isCurrent()) {
-                return 'superseded';
-            }
-            return restored ? 'unavailable' : 'closed';
+        }
+        return isCurrent() ? 'opened' : 'superseded';
+    } finally {
+        if (!followedSuccessfully) {
+            preview?.dispose();
         }
     }
-    return isCurrent() ? 'opened' : 'superseded';
 }
 
 function cloneConversationViewerTarget(

@@ -338,10 +338,9 @@ button {
     margin: 0 auto;
 }
 
-// A reused panel switching sessions keeps the outgoing conversation
-// visible under a lightweight loading state until the incoming session's
-// first publication lands.
-body[data-conversation-loading='true'] .conversation-messages {
+// A reused panel switching sessions keeps a cache miss visibly loading, but
+// a matching detached frame is already readable and should not look stalled.
+body[data-conversation-loading='true']:not([data-conversation-frame-preview='true']) .conversation-messages {
     opacity: 0.55;
 }
 

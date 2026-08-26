@@ -380,12 +380,18 @@
     // same session remain independently recoverable.
     var resyncRequestedPublicationKey = '';
     var conversationLoading = false;
-    var loadingDisabledElements = [];
+    // A cache preview can begin before the Host has resolved a fresh
+    // outline. Keep enough identity to return to the still-authoritative
+    // document if that speculative read is superseded or fails.
+    var loadingTarget;
+    var loadingGeneration = 0;
+    var loadingStatusText;
     // Detached conversation frames keyed by session: switching back to a
     // session whose content token is unchanged reattaches the already-built
     // DOM — no HTML transfer, sanitize, parse, or reconcile at all. Bounded
-    // by both frame count and a total node budget so large conversations
-    // cannot balloon Webview memory.
+    // by frame count and a bounded return-path node budget. The two most
+    // recently departed sessions form the return path, so retain both past
+    // the normal budget, but never past the dedicated return-path ceiling.
     var frameCache = new Map();
     var frameCacheNodes = 0;
     // A cached frame can be shown as a non-authoritative preview as soon as
@@ -394,6 +400,8 @@
     var previewFrame;
     var FRAME_CACHE_LIMIT = 4;
     var FRAME_CACHE_NODE_BUDGET = 600;
+    var FRAME_CACHE_RETURN_FRAME_RESERVE = 2;
+    var FRAME_CACHE_RETURN_NODE_BUDGET = 1200;
     var state = {
         atLatest: false,
         initialized: false,
@@ -1128,51 +1136,6 @@
         return true;
     }
 
-    // A reused panel keeps the outgoing conversation on screen while the
-    // incoming session loads. The Host's loading notice arms a lightweight
-    // indicator and disables outgoing controls, while keeping the live
-    // loading status available to assistive technology.
-    function setLoadingInteractivity(disabled) {
-        if (disabled) {
-            loadingDisabledElements = Array.prototype.slice.call(
-                document.querySelectorAll('button, input, select, textarea, [tabindex]')
-            ).map(function (element) {
-                return {
-                    element: element,
-                    disabled: 'disabled' in element ? element.disabled : undefined,
-                    tabindex: element.getAttribute('tabindex'),
-                    ariaDisabled: element.getAttribute('aria-disabled'),
-                };
-            });
-            loadingDisabledElements.forEach(function (entry) {
-                if (entry.disabled !== undefined) {
-                    entry.element.disabled = true;
-                }
-                if (entry.tabindex !== null) {
-                    entry.element.setAttribute('tabindex', '-1');
-                }
-                entry.element.setAttribute('aria-disabled', 'true');
-            });
-            return;
-        }
-        loadingDisabledElements.forEach(function (entry) {
-            if (entry.disabled !== undefined) {
-                entry.element.disabled = entry.disabled;
-            }
-            if (entry.tabindex === null) {
-                entry.element.removeAttribute('tabindex');
-            } else {
-                entry.element.setAttribute('tabindex', entry.tabindex);
-            }
-            if (entry.ariaDisabled === null) {
-                entry.element.removeAttribute('aria-disabled');
-            } else {
-                entry.element.setAttribute('aria-disabled', entry.ariaDisabled);
-            }
-        });
-        loadingDisabledElements = [];
-    }
-
     function applyLoadingNotice(message) {
         if (!message || typeof message !== 'object'
             || message.type !== 'conversation-viewer-loading') {
@@ -1181,6 +1144,7 @@
         if (message.version !== 1
             || !Number.isSafeInteger(message.subscriptionGeneration)
             || message.subscriptionGeneration < 1
+            || (message.preflight !== undefined && message.preflight !== true)
             || !validCommentTarget({
                 projectId: message.target && message.target.projectId,
                 provider: message.target && message.target.provider,
@@ -1196,23 +1160,90 @@
             // Stale or same-session notices never dim the live content.
             return true;
         }
-        // A new notice can supersede a cached preview. Restore that preview's
-        // controls before moving its nodes back into the cache; otherwise the
-        // next call overwrites the tracked entries and leaves that frame inert
-        // when it is later restored.
-        if (conversationLoading) {
-            setLoadingInteractivity(false);
+        if (message.preflight === true) {
+            var preflightKey = frameSessionKey(message.target);
+            var alreadyPreviewed = previewFrame
+                && previewFrame.key === preflightKey;
+            if (!preflightKey || (!alreadyPreviewed
+                && !frameCache.has(preflightKey))) {
+                // Do not make a cache miss look slower than it did before
+                // preflight existed. If this supersedes a prior hit, return
+                // that detached frame before keeping the outgoing document
+                // readable while the new Host read proceeds.
+                restoreCancelledPreflight();
+                return true;
+            }
+        }
+        if (!conversationLoading) {
+            loadingStatusText = status.textContent;
         }
         conversationLoading = true;
+        loadingTarget = {
+            projectId: message.target.projectId,
+            provider: message.target.provider,
+            sessionId: message.target.sessionId,
+        };
+        loadingGeneration = message.subscriptionGeneration;
         document.body.setAttribute('data-conversation-loading', 'true');
+        document.body.setAttribute('aria-busy', 'true');
+        document.body.setAttribute('aria-disabled', 'true');
         messages.setAttribute('aria-busy', 'true');
         status.textContent = 'Loading conversation…';
-        previewCachedFrame(message.target);
-        // Preview nodes are attached synchronously above. Disable the live
-        // controls only after that attachment, otherwise a cached target
-        // could become interactive while the Host still owns the old target.
-        setLoadingInteractivity(true);
+        var previewHit = previewCachedFrame(message.target);
+        if (previewHit) {
+            document.body.setAttribute('data-conversation-frame-preview', 'true');
+        } else {
+            document.body.removeAttribute('data-conversation-frame-preview');
+        }
+        // This is deliberately a separate message rather than a field on the
+        // applied receipt: an older Host rejects unknown receipt fields, but
+        // safely ignores this best-effort diagnostic event.
+        post({
+            type: 'conversation-viewer-frame-cache-preview',
+            version: 1,
+            subscriptionGeneration: message.subscriptionGeneration,
+            outcome: previewHit ? 'hit' : 'miss',
+            projectId: message.target.projectId,
+            provider: message.target.provider,
+            sessionId: message.target.sessionId,
+        });
         return true;
+    }
+
+    function applyLoadingCancel(message) {
+        if (!message || typeof message !== 'object'
+            || message.type !== 'conversation-viewer-loading-cancel') {
+            return false;
+        }
+        if (message.version !== 1
+            || !Number.isSafeInteger(message.subscriptionGeneration)
+            || message.subscriptionGeneration < 1
+            || !validCommentTarget({
+                projectId: message.target && message.target.projectId,
+                provider: message.target && message.target.provider,
+                sessionId: message.target && message.target.sessionId,
+            })) {
+            return true;
+        }
+        if (!conversationLoading || !loadingTarget
+            || loadingGeneration !== message.subscriptionGeneration
+            || loadingTarget.projectId !== message.target.projectId
+            || loadingTarget.provider !== message.target.provider
+            || loadingTarget.sessionId !== message.target.sessionId) {
+            return true;
+        }
+        restoreCancelledPreflight();
+        return true;
+    }
+
+    function restoreCancelledPreflight() {
+        if (!conversationLoading) {
+            return;
+        }
+        var restoreStatusText = loadingStatusText;
+        returnPreviewFrameToCache();
+        clearConversationLoading();
+        status.textContent = restoreStatusText || '';
     }
 
     function clearConversationLoading() {
@@ -1220,8 +1251,13 @@
             return;
         }
         conversationLoading = false;
+        loadingTarget = undefined;
+        loadingGeneration = 0;
+        loadingStatusText = undefined;
         document.body.removeAttribute('data-conversation-loading');
-        setLoadingInteractivity(false);
+        document.body.removeAttribute('data-conversation-frame-preview');
+        document.body.removeAttribute('aria-busy');
+        document.body.removeAttribute('aria-disabled');
         messages.removeAttribute('aria-busy');
         // The applied page recomputes the status line right below.
     }
@@ -1681,7 +1717,9 @@
         });
         frameCacheNodes += nodes.length;
         while ((frameCache.size > FRAME_CACHE_LIMIT
-                || frameCacheNodes > FRAME_CACHE_NODE_BUDGET)
+                || (frameCacheNodes > FRAME_CACHE_NODE_BUDGET
+                    && (frameCache.size > FRAME_CACHE_RETURN_FRAME_RESERVE
+                        || frameCacheNodes > FRAME_CACHE_RETURN_NODE_BUDGET)))
             && frameCache.size > 1) {
             var oldestKey = frameCache.keys().next().value;
             if (oldestKey === undefined || oldestKey === key) {
@@ -1719,10 +1757,10 @@
     function previewCachedFrame(target) {
         var key = frameSessionKey(target);
         if (!key) {
-            return;
+            return false;
         }
         if (previewFrame && previewFrame.key === key) {
-            return;
+            return true;
         }
         returnPreviewFrameToCache();
         // Take the requested frame before stashing the outgoing one. At the
@@ -1738,7 +1776,7 @@
         // until the incoming page applies, and all controls are disabled.
         stashCurrentFrame();
         if (!frame) {
-            return;
+            return false;
         }
         previewFrame = { key: key, frame: frame };
         messages.replaceChildren.apply(messages, frame.nodes);
@@ -1747,6 +1785,7 @@
         } else {
             restoreViewportReadingPosition(frame.anchor, frame.scrollTop);
         }
+        return true;
     }
 
     // A frame is restorable only when its content token matches the page's
@@ -2473,6 +2512,53 @@
 
     reconcileController.attach();
 
+    // The Host rejects actions during a target handoff, but several controls
+    // enter local pending state before they post their intent. Intercept
+    // input before those handlers run instead of mutating every control in a
+    // large cached transcript. Focus/blur remain unblocked so the Host's
+    // keyboard-routing state stays current throughout the transition.
+    function isLoadingActivationKey(event) {
+        return event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar';
+    }
+
+    function isLoadingActionTarget(target) {
+        return target && typeof target.closest === 'function'
+            ? target.closest(
+                'button, input, select, textarea, a[href], [data-action], [contenteditable="true"]'
+            )
+            : null;
+    }
+
+    function blockLoadingInteraction(event) {
+        if (!conversationLoading) {
+            return;
+        }
+        if (event.type === 'keydown') {
+            // Keep preview reading usable: Tab, Escape, copy, find, and
+            // other read-only shortcuts remain available. Only keys that
+            // would activate or edit a control are stopped here.
+            if (!isLoadingActivationKey(event)
+                || !isLoadingActionTarget(event.target)) {
+                return;
+            }
+        }
+        if (event.type === 'input') {
+            // `input` itself is generally non-cancelable, but stop local
+            // controller listeners if an external input source got this far.
+            event.stopImmediatePropagation();
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+    [
+        'click', 'auxclick', 'contextmenu', 'pointerdown', 'keydown',
+        'beforeinput', 'input', 'change', 'submit', 'paste', 'cut',
+        'compositionstart', 'compositionupdate', 'dragstart', 'drop',
+    ].forEach(function (type) {
+        document.addEventListener(type, blockLoadingInteraction, true);
+    });
+
     // On-demand earlier-page loading: the transcript reaching its top while
     // earlier history sits behind the oldest retained page's cursor posts a
     // single load request (re-armed by the next page apply). The Host loads
@@ -2482,7 +2568,8 @@
         'data-auto-scroll-threshold'
     )) || 0;
     function maybeRequestEarlierPage() {
-        if (state.earlierPageRequested
+        if (conversationLoading
+            || state.earlierPageRequested
             || state.earlierPageCursor === undefined
             || scroll.scrollTop > autoScrollThresholdPx) {
             return;
@@ -2826,6 +2913,7 @@
         if (changesController && changesController.apply(event.data)) return;
         if (applySessionStatusMessage(event.data)) return;
         if (applyFollowNotice(event.data)) return;
+        if (applyLoadingCancel(event.data)) return;
         if (applyLoadingNotice(event.data)) return;
         if (applyEarlierPageResult(event.data)) return;
         if (applyHistoryChunk(event.data)) return;
@@ -2858,7 +2946,7 @@
     post({
         type: 'conversation-viewer-capabilities',
         version: 1,
-        capabilities: ['tail-patch'],
+        capabilities: ['tail-patch', 'frame-preflight'],
         documentId: document.body.getAttribute('data-document-id') || '',
     });
     postFocusState();

@@ -160,6 +160,7 @@ function runCommand(command, args, repositoryRoot, environment, spawnSync = chil
         cwd: repositoryRoot,
         env: environment,
         stdio: 'inherit',
+        shell: platform === 'win32',
     });
     if (result.error) {
         throw result.error;

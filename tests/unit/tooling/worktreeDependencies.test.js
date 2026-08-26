@@ -170,14 +170,17 @@ test('WORKTREE-DEPENDENCY-GUARD-001 resolves npm.cmd for Windows child commands'
         gitDirectory,
         platform: 'win32',
         logger: { log() {} },
-        spawnSync(command, args) {
-            calls.push({ command, args });
+        spawnSync(command, args, options) {
+            calls.push({ command, args, options });
             return { status: 0 };
         },
     });
 
     assert.equal(status, 0);
-    assert.deepEqual(calls, [{ command: 'npm.cmd', args: ['--version'] }]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, 'npm.cmd');
+    assert.deepEqual(calls[0].args, ['--version']);
+    assert.equal(calls[0].options.shell, true);
     assert.equal(npmExecutable('win32'), 'npm.cmd');
     assert.equal(npmExecutable('linux'), 'npm');
 });

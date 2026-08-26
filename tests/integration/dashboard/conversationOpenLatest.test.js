@@ -1307,6 +1307,67 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached target before
     harness.capability.dispose();
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 returns to the authoritative target without another snapshot read', async () => {
+    let abortedReads = 0;
+    const currentTarget = {
+        projectId: 'project-a',
+        provider: 'codex',
+        workspaceName: '',
+        sessionId: 'session-a',
+        interactionId: 'input-a',
+        expectedRevision: 'r1',
+        displayName: 'session-a',
+        duplicateDisplayName: false,
+    };
+    const harness = createHarness({
+        viewerOpen: true,
+        initialViewerTarget: currentTarget,
+        previewSession: target => target.sessionId === 'session-b'
+            ? { dispose() {} }
+            : undefined,
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`,
+            provider,
+            sessionId,
+            name: sessionId,
+        }),
+        readOutline: (provider, sessionId, signal) => sessionId === 'session-b'
+            ? new Promise((_resolve, reject) => {
+                signal.onAbort(() => {
+                    abortedReads += 1;
+                    reject(new Error('superseded provider read'));
+                });
+            })
+            : makeOutline(provider, sessionId, ['input-a']),
+    });
+    const slowFollow = harness.capability.followActiveConversation({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    });
+    await waitFor(
+        () => harness.previewedViewerTargets.length === 1,
+        'the B preflight before the reversal'
+    );
+
+    assert.equal(await harness.capability.followActiveConversation({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    }), 'opened');
+    assert.equal(harness.outlineReads, 1,
+        'returning to the current session does not resolve another outline');
+    assert.equal(harness.followedViewerTargets.length, 0,
+        'the retained Viewer does not receive a redundant follow');
+    assert.equal(abortedReads, 1,
+        'the new current-session intent aborts the stale B snapshot read');
+    assert.equal(await slowFollow, 'superseded');
+    await waitFor(
+        () => harness.cancelledViewerPreviews.length === 1,
+        'the stale B preview cancellation'
+    );
+    assert.deepEqual(harness.cancelledViewerPreviews, [{
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    }]);
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-FOLLOW-FEEDBACK-001 surfaces an in-panel notice and sanitized diagnostic when a follow finds no conversation', async () => {
     const diagnostics = [];
     const harness = createHarness({

@@ -547,6 +547,19 @@ function createAvailableConversationCapability(
                 return 'closed';
             }
             const intent = beginViewerIntent();
+            const currentTarget = viewer.getCurrentTarget();
+            if (currentTarget
+                && hasSameConversationSession(currentTarget, target)) {
+                // This is a new navigation intent, even though it resolves to
+                // the already-authoritative session. Let the Viewer cancel a
+                // pending preflight for another session, then keep the
+                // retained document without waiting for or parsing a second
+                // snapshot.
+                viewer.previewSession?.(target);
+                terminalAuthority.confirmedTarget =
+                    cloneConversationViewerTarget(currentTarget);
+                return 'opened';
+            }
             const preview = viewer.previewSession?.(target);
             let followedSuccessfully = false;
             try {

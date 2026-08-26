@@ -2187,9 +2187,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preflights a cached frame befor
         preflight: true,
     }, 'the cache handoff does not wait for a resolved interaction target');
 
-    assert.equal(viewer.previewSession({
-        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
-    }), undefined, 'a rapid reversal restores the still-authoritative session');
+    assert.equal(await viewer.follow(target('session-a')), true,
+        'a duplicate follow restores the still-authoritative session');
     assert.deepEqual(panel.postedMessages.at(-1), {
         type: 'conversation-viewer-loading-cancel',
         version: 1,
@@ -2197,7 +2196,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preflights a cached frame befor
         target: {
             projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
         },
-    }, 'an A → B preview → A reversal restores the authoritative document immediately');
+    }, 'an A → B preview → A follow restores the authoritative document immediately');
     preview.dispose();
     assert.equal(panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-loading-cancel'
@@ -5003,6 +5002,77 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 announces a lightweight loading
     await viewer.follow(target('session-b', 'input-1'));
     assert.equal(loadingNotices().length, 1,
         're-following the visible session is not a switch either');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 retains an exact target without publishing another conversation page', async () => {
+    let outlineReads = 0;
+    let pageReads = 0;
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            return outline(sessionId, ['input-1']);
+        },
+        readPage: async request => {
+            pageReads += 1;
+            return page(request.sessionId, request.anchorInteractionId);
+        },
+    });
+    const sameTarget = target('session-a', 'input-1');
+    await viewer.open(sameTarget);
+    const pageMessagesBefore = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').length;
+    const generationBefore = viewer.getCurrentTarget().expectedRevision;
+    const outlineReadsBefore = outlineReads;
+    const pageReadsBefore = pageReads;
+
+    assert.deepEqual(viewer.getCurrentTarget(), sameTarget,
+        'the follow input matches the authoritative target exactly');
+    assert.equal(await viewer.follow(sameTarget), true);
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page').length,
+        pageMessagesBefore,
+        'an unchanged exact target must not reapply the conversation page'
+    );
+    assert.equal(viewer.getCurrentTarget().expectedRevision, generationBefore,
+        'the retained target stays authoritative without a generation reset');
+    assert.equal(outlineReads, outlineReadsBefore,
+        'an unchanged target must not reread the conversation outline');
+    assert.equal(pageReads, pageReadsBefore,
+        'an unchanged target must not reparse the conversation page');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 completes an exact-target follow without waiting for an unrelated refresh', async () => {
+    const refreshStarted = deferred();
+    const releaseRefresh = deferred();
+    let outlineReads = 0;
+    let delayRefresh = false;
+    const { viewer } = createViewer({
+        readOutline: async (_provider, sessionId) => {
+            outlineReads += 1;
+            if (delayRefresh) {
+                refreshStarted.resolve();
+                await releaseRefresh.promise;
+            }
+            return outline(sessionId, ['input-1']);
+        },
+    });
+    const sameTarget = target('session-a', 'input-1');
+    await viewer.open(sameTarget);
+    delayRefresh = true;
+    const refresh = viewer.refresh();
+    await refreshStarted.promise;
+    assert.equal(await viewer.follow(sameTarget), true,
+        'the duplicate target is already authoritative while its refresh continues');
+    assert.equal(outlineReads, 2,
+        'the duplicate follow does not queue another outline read');
+    releaseRefresh.resolve();
+    await refresh;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(outlineReads, 2,
+        'the duplicate follow does not queue another read after refresh completion');
     viewer.dispose();
 });
 

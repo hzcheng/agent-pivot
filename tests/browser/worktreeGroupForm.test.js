@@ -60,6 +60,7 @@ function repositoryOptions() {
             repositoryKey: '/alpha/.git', label: 'alpha',
             defaultBaseRef: 'refs/heads/main',
             localBranches: ['main', 'release/1.0'],
+            remoteBranches: ['origin/feature/remote-base'],
             defaultChecked: true,
             setupCommand: ['npm', 'ci'],
         },
@@ -510,6 +511,30 @@ test('WORKTREE-GROUPS-CREATE-UI-001 the base combobox filters and selects by key
     ], 'the keyboard selection drives the next preview');
     assert.equal(await page.locator('[data-group-form-base="/alpha/.git"]').textContent(),
         'release/1.0 \u25be'.replace('\\u25be', '\u25be'));
+});
+
+test('WORKTREE-GROUPS-CREATE-UI-001 the base combobox offers remote branches and previews their full ref', async t => {
+    const page = await openFormPage(t);
+    await openBootstrappedForm(page);
+
+    await page.locator('[data-group-form-base="/alpha/.git"]')
+        .evaluate(button => button.click());
+    const filter = page.locator('[data-group-form-base-filter]');
+    await filter.evaluate(input => input.focus());
+    await page.keyboard.type('origin/feature');
+    const options = page.locator('[data-group-form-base-option]');
+    assert.deepEqual(await options.allTextContents(), ['origin/feature/remote-base'],
+        'a fetched remote branch is searchable alongside local base branches');
+
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(50);
+    const lastPreview = (await postedMessages(page))
+        .filter(message => message.type === 'preview-worktree-group').at(-1);
+    assert.deepEqual(lastPreview.selections, [{
+        repositoryKey: '/alpha/.git', baseRef: 'refs/remotes/origin/feature/remote-base',
+    }], 'remote selection preserves the fully-qualified ref for Host validation');
+    assert.equal(await page.locator('[data-group-form-base="/alpha/.git"]').textContent(),
+        'origin/feature/remote-base \u25be'.replace('\\u25be', '\u25be'));
 });
 
 test('WORKTREE-GROUPS-CREATE-UI-001 the form stays usable at the 170px minimum width', async t => {

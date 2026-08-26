@@ -67,6 +67,29 @@ test('WORKTREE-PROVISIONING-GIT-001 creates and reconciles a real linked worktre
         'a retry reconciles the already-created target instead of reporting a false conflict');
 });
 
+test('WORKTREE-PROVISIONING-GIT-001 lists fetched remote branches and creates from their frozen commit', async t => {
+    const fixture = await repositoryFixture(t);
+    const head = git(fixture.repositoryPath, ['rev-parse', 'HEAD']);
+    git(fixture.repositoryPath, ['update-ref', 'refs/remotes/origin/release/1.0', head]);
+    git(fixture.repositoryPath, ['update-ref', 'refs/remotes/upstream/feature/search', head]);
+    git(fixture.repositoryPath, [
+        'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/release/1.0',
+    ]);
+    const provisioner = new GitWorktreeProvisioner();
+
+    assert.deepEqual(await provisioner.listRemoteBranches(fixture.repositoryPath), [
+        'origin/release/1.0', 'upstream/feature/search',
+    ], 'symbolic remote HEAD is not an actionable task baseline');
+
+    const plan = {
+        ...planFor(fixture, 'from-origin-release'),
+        baseRef: 'refs/remotes/origin/release/1.0',
+    };
+    const key = await provisioner.createWorktree(plan, () => false);
+    assert.equal(git(key.canonicalWorktreePath, ['rev-parse', 'HEAD']), head,
+        'the new local branch starts at the selected fetched remote commit');
+});
+
 test('WORKTREE-PROVISIONING-GIT-001 names an unborn base ref instead of a bare invalid plan', async t => {
     const sandbox = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-provision-'));
     t.after(async () => fs.promises.rm(sandbox, { recursive: true, force: true }));

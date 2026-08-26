@@ -74,6 +74,7 @@ function fixture(overrides = {}) {
             ? { workspace } : null,
         getWorktreeSnapshot: () => snapshot,
         listLocalBranches: async () => ['main', 'release/1.0'],
+        listRemoteBranches: async () => ['origin/main', 'origin/release/1.0'],
         isBranchAvailable: async () => true,
         isPathAvailable: async () => true,
         preflightPlan: async () => 'ok',
@@ -183,7 +184,30 @@ test('WORKTREE-GROUPS-CREATE-001 lists repository options with per-repo setup an
     assert.deepEqual(options[1].setupCommand, ['make', 'setup'],
         'setup resolves per repository');
     assert.deepEqual(options[0].localBranches, ['main', 'release/1.0']);
+    assert.deepEqual(options[0].remoteBranches, ['origin/main', 'origin/release/1.0']);
     assert.equal(options[0].defaultBaseRef, 'refs/heads/main');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 previews a remote-tracking branch as the member baseline', async () => {
+    const current = fixture();
+    const preview = await current.controller.preview('project', 'Fix login', [{
+        repositoryKey: '/alpha/.git', baseRef: 'refs/remotes/origin/release/1.0',
+    }]);
+
+    assert.equal(preview.members[0].baseRef, 'refs/remotes/origin/release/1.0');
+    assert.equal(preview.members[0].preflight, 'ok');
+});
+
+test('WORKTREE-GROUPS-CREATE-001 keeps local base choices when remote discovery fails', async () => {
+    const current = fixture({
+        listRemoteBranches: async () => {
+            throw new Error('remote refs unavailable');
+        },
+    });
+    const options = await current.controller.listRepositoryOptions('project');
+
+    assert.deepEqual(options[0].localBranches, ['main', 'release/1.0']);
+    assert.deepEqual(options[0].remoteBranches, []);
 });
 
 test('WORKTREE-GROUPS-CREATE-001 preview computes per-member plans with visible auto-suffixes', async () => {

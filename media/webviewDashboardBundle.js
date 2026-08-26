@@ -3171,9 +3171,25 @@ function initWorktreeGroupForm(options) {
 
     function shortRefName(ref) {
         var value = String(ref || '');
-        return value.indexOf('refs/heads/') === 0
-            ? value.slice('refs/heads/'.length)
+        if (value.indexOf('refs/heads/') === 0) {
+            return value.slice('refs/heads/'.length);
+        }
+        return value.indexOf('refs/remotes/') === 0
+            ? value.slice('refs/remotes/'.length)
             : value;
+    }
+
+    function baseRefsFor(repository) {
+        return [repository.defaultBaseRef]
+            .concat((repository.localBranches || []).map(function (branch) {
+                return 'refs/heads/' + branch;
+            }))
+            .concat((repository.remoteBranches || []).map(function (branch) {
+                return 'refs/remotes/' + branch;
+            }))
+            .filter(function (ref, position, all) {
+                return ref && all.indexOf(ref) === position;
+            });
     }
 
     function checkedRepositories(state) {
@@ -3619,18 +3635,7 @@ function initWorktreeGroupForm(options) {
         var key = repository.repositoryKey;
         var checked = !!state.checked[key];
         var preview = previewMemberFor(state, key);
-        var seen = {};
-        var refs = [];
-        [repository.defaultBaseRef]
-            .concat((repository.localBranches || []).map(function (branch) {
-                return 'refs/heads/' + branch;
-            }))
-            .forEach(function (ref) {
-                if (ref && !seen[ref]) {
-                    seen[ref] = true;
-                    refs.push(ref);
-                }
-            });
+        var refs = baseRefsFor(repository);
         var multiRepo = state.repositories.length > 1;
         var preflight = preview && preview.preflight !== 'ok'
             ? '<span class="ai-session-group-form-preflight" role="alert" id="group-form-preflight-'
@@ -4130,15 +4135,7 @@ function initWorktreeGroupForm(options) {
                 var repository = state.repositories.find(function (candidate) {
                     return candidate.repositoryKey === dropdown.repositoryKey;
                 });
-                var refs = repository
-                    ? [repository.defaultBaseRef]
-                        .concat((repository.localBranches || []).map(function (branch) {
-                            return 'refs/heads/' + branch;
-                        }))
-                        .filter(function (ref, position, all) {
-                            return ref && all.indexOf(ref) === position;
-                        })
-                    : [];
+                var refs = repository ? baseRefsFor(repository) : [];
                 var filtered = refs.filter(function (ref) {
                     return shortRefName(ref).toLowerCase()
                         .indexOf((dropdown.filter || '').toLowerCase()) >= 0;

@@ -1367,6 +1367,8 @@ async function initializeDashboard(
         getWorktreeSnapshot: () => worktreeSnapshotCoordinator.getSnapshot(),
         listLocalBranches: commandCwd =>
             worktreeGroupProvisioner.listLocalBranches(commandCwd),
+        listRemoteBranches: commandCwd =>
+            worktreeGroupProvisioner.listRemoteBranches(commandCwd),
         isBranchAvailable: (commandCwd, branchName) =>
             worktreeGroupProvisioner.isBranchAvailable(commandCwd, branchName),
         isPathAvailable: worktreePath =>

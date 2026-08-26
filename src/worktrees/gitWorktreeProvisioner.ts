@@ -145,10 +145,7 @@ export class GitWorktreeProvisioner {
             && head.stdout.trim() === baseline.commitSha;
     }
 
-    /**
-     * Local branches offered as base-ref candidates in the group creation
-     * form (PRD §6.1: 本地分支 + 记忆的基准, remote-only branches excluded).
-     */
+    /** Local branches offered as base-ref candidates in the group creation form. */
     async listLocalBranches(commandCwd: string): Promise<string[]> {
         if (!isSafeAbsolutePath(commandCwd)) {
             return [];
@@ -166,6 +163,32 @@ export class GitWorktreeProvisioner {
             .filter(line => line && isSafeBranchName(line));
         // PRD §6.1: 不设上限 — the git output itself is already bounded by
         // the provisioner's 4MB output cap.
+        return Array.from(new Set(branches))
+            .sort((left, right) => left.localeCompare(right));
+    }
+
+    /**
+     * Fetched remote-tracking branches offered as base-ref candidates in the
+     * group creation form. This is deliberately read-only: selecting one
+     * never fetches or creates a local tracking branch.
+     */
+    async listRemoteBranches(commandCwd: string): Promise<string[]> {
+        if (!isSafeAbsolutePath(commandCwd)) {
+            return [];
+        }
+        const result = await this.runGit(commandCwd, [
+            '-C', commandCwd, 'for-each-ref', '--format=%(refname:strip=2)',
+            'refs/remotes',
+        ]);
+        if (result.exitCode !== 0) {
+            throw gitFailure('worktree-create-failed', result);
+        }
+        const branches = result.stdout
+            .split('\n')
+            .map(line => line.trim())
+            // origin/HEAD is Git's symbolic remote default, not a branch a
+            // user can intentionally select as their task baseline.
+            .filter(line => line && !/^[^/]+\/HEAD$/u.test(line) && isSafeBranchName(line));
         return Array.from(new Set(branches))
             .sort((left, right) => left.localeCompare(right));
     }

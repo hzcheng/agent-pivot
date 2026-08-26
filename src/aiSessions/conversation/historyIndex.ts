@@ -40,6 +40,13 @@ export interface ConversationHistoryIndexSegmentProof {
     digest: string;
 }
 
+export interface ConversationHistoryIndexStatus {
+    sourceRevision: string;
+    complete: boolean;
+    saturated: boolean;
+    blocked: boolean;
+}
+
 export type ReadConversationHistoryIndexSlice = (
     request: ConversationHistoryIndexSliceRequest,
     signal?: ConversationAbortSignal
@@ -153,7 +160,43 @@ export class ConversationHistoryIndex {
 
     state(key: string): ConversationHistoryIndexState | undefined {
         const entry = this.entries.get(key);
+        if (entry) {
+            // Map insertion order is the LRU order. Reinsert the same object
+            // so in-flight token/object identity remains valid.
+            this.entries.delete(key);
+            this.entries.set(key, entry);
+        }
         return entry ? snapshot(entry) : undefined;
+    }
+
+    /** Lightweight foreground status; never clones indexed conversation data. */
+    status(key: string): ConversationHistoryIndexStatus | undefined {
+        const entry = this.entries.get(key);
+        if (!entry) {
+            return undefined;
+        }
+        this.entries.delete(key);
+        this.entries.set(key, entry);
+        return {
+            sourceRevision: entry.sourceRevision,
+            complete: entry.complete,
+            saturated: entry.saturated,
+            blocked: entry.blocked,
+        };
+    }
+
+    /** Internal immutable-by-convention source for foreground page builders. */
+    completedInteractions(
+        key: string,
+        sourceRevision: string
+    ): ConversationInteraction[] | undefined {
+        const entry = this.entries.get(key);
+        if (!entry || !entry.complete || entry.sourceRevision !== sourceRevision) {
+            return undefined;
+        }
+        this.entries.delete(key);
+        this.entries.set(key, entry);
+        return entry.interactions;
     }
 
     invalidate(key: string): void {
@@ -183,7 +226,8 @@ export class ConversationHistoryIndex {
                 && entry.restartOffset <= entry.sourceSize
                 && entry.restartInteractionCount <= entry.interactions.length
                 && hasContiguousPrefixProof(
-                    entry.prefixSegments,
+                    entry.prefixSegments.filter(segment =>
+                        segment.endOffset <= entry.restartOffset),
                     entry.restartOffset
                 );
             const retained = canContinue
@@ -222,6 +266,7 @@ export class ConversationHistoryIndex {
                 serializedBytes: serializedInteractionBytes(retained),
             };
             this.entries.set(key, entry);
+            this.evictEntries();
         }
         if (entry.complete || entry.saturated || entry.blocked || signal?.aborted) {
             return snapshot(entry);
@@ -248,10 +293,13 @@ export class ConversationHistoryIndex {
                 return undefined;
             }
             entry.blocked = true;
+            this.releaseUnusablePayload(entry);
             return snapshot(entry);
         }
         if (slice.complete) {
-            if (slice.nextOffset !== undefined) {
+            if (slice.nextOffset !== undefined
+                || typeof slice.completeSegmentDigest !== 'string'
+                || !slice.completeSegmentDigest) {
                 return undefined;
             }
         } else if (!Number.isSafeInteger(slice.nextOffset)
@@ -285,6 +333,7 @@ export class ConversationHistoryIndex {
             // source. The foreground tail remains authoritative until a
             // future, segment-backed protocol can page beyond this bound.
             entry.saturated = true;
+            this.releaseUnusablePayload(entry);
             return snapshot(entry);
         }
         entry.interactions.push(...cloneInteractions(additions));
@@ -292,7 +341,13 @@ export class ConversationHistoryIndex {
         entry.nextOffset = slice.complete
             ? source.sourceSize
             : slice.nextOffset as number;
-        if (!slice.complete) {
+        if (slice.complete) {
+            entry.prefixSegments.push({
+                startOffset,
+                endOffset: source.sourceSize,
+                digest: slice.completeSegmentDigest as string,
+            });
+        } else {
             entry.restartOffset = entry.nextOffset;
             entry.restartInteractionCount = entry.interactions.length;
             entry.restartInteractionId = slice.restartInteractionId;
@@ -306,5 +361,31 @@ export class ConversationHistoryIndex {
         }
         entry.complete = slice.complete;
         return snapshot(entry);
+    }
+
+    private releaseUnusablePayload(entry: ConversationHistoryIndexEntry): void {
+        entry.interactions = [];
+        entry.serializedBytes = 0;
+        entry.prefixSegments = [];
+        entry.nextOffset = 0;
+        entry.restartOffset = 0;
+        entry.restartInteractionCount = 0;
+        entry.restartInteractionId = undefined;
+        entry.restartRecordEndOffset = undefined;
+        entry.restartRecordDigest = undefined;
+    }
+
+    private evictEntries(): void {
+        while (this.entries.size > 8) {
+            const oldest = this.entries.keys().next().value as string | undefined;
+            if (oldest === undefined) {
+                return;
+            }
+            const entry = this.entries.get(oldest);
+            if (entry) {
+                entry.taskToken += 1;
+            }
+            this.entries.delete(oldest);
+        }
     }
 }

@@ -12,6 +12,8 @@ export interface CachedConversationHistoryRestartPoint
     extends ConversationHistoryRestartPoint {
     recordEndOffset: number;
     recordDigest: string;
+    /** Digest of this scan's bytes before the restart record. */
+    prefixDigest: string;
 }
 
 /** Retains only the recent in-memory discovery window; durable sparse points

@@ -181,6 +181,7 @@ interface LoadedConversation {
         restartRecordEndOffset?: number;
         restartRecordDigest?: string;
         restartSegmentDigest?: string;
+        completeSegmentDigest?: string;
         complete: boolean;
         blocked?: boolean;
     };
@@ -462,7 +463,40 @@ async function continuesHistoryIndex(
         }
         expectedOffset = segment.endOffset;
     }
-    return expectedOffset === previous.restartOffset;
+    return expectedOffset === (previous.complete
+        ? previous.sourceSize
+        : previous.restartOffset);
+}
+
+/**
+ * A saturated index intentionally has no payload to continue.  Avoid
+ * repeatedly rebuilding it while a live transcript only grows: proving the
+ * two stable edges is bounded work, whereas restarting the index would read
+ * the entire retained prefix just to hit the same capacity limit again.
+ *
+ * This is deliberately only a scheduling suppression, never an authority
+ * decision.  A shrink, replacement epoch, or changed edge permits a fresh
+ * index attempt; an unprovable middle rewrite merely keeps the existing
+ * fallback (the bounded foreground tail) in place.
+ */
+async function keepsSaturatedHistoryIndex(
+    source: OpenConversationSource,
+    previous: ConversationHistoryIndexState,
+    signal?: ConversationAbortSignal
+): Promise<boolean> {
+    if (!previous.saturated || signal?.aborted
+        || source.size < previous.sourceSize
+        || historyIndexSourceEpoch(source) !== previous.sourceEpoch
+        || source.portableFirstHash !== previous.sourceFirstHash) {
+        return false;
+    }
+    const edgeBytes = Math.min(64 * 1024, previous.sourceSize);
+    return await digestConversationSourceRange(
+        source,
+        Math.max(0, previous.sourceSize - edgeBytes),
+        previous.sourceSize,
+        signal
+    ) === previous.sourceLastHash;
 }
 
 export class KimiConversationAdapter implements ConversationProviderAdapter {
@@ -750,6 +784,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             if (source.identity !== entry.source.identity) {
                 return undefined;
             }
+            if (indexed && await keepsSaturatedHistoryIndex(source, indexed, signal)) {
+                return undefined;
+            }
             const points = await verifyConversationHistoryRestartPoints(
                 source,
                 entry.restartPoints,
@@ -817,6 +854,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 ...(loaded.historySlice.restartSegmentDigest === undefined ? {} : {
                     restartSegmentDigest: loaded.historySlice.restartSegmentDigest,
                 }),
+                ...(loaded.historySlice.completeSegmentDigest === undefined ? {} : {
+                    completeSegmentDigest: loaded.historySlice.completeSegmentDigest,
+                }),
                 interactions: cloneInteractions(loaded.interactions),
                 complete: loaded.historySlice.complete,
                 ...(loaded.historySlice.blocked ? { blocked: true } : {}),
@@ -834,8 +874,11 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         sessionId: string,
         loaded: LoadedConversation
     ): LoadedConversation {
-        const indexed = this.historyIndex.state(sessionId);
-        if (!indexed?.complete || indexed.sourceRevision !== loaded.sourceRevision) {
+        const interactions = this.historyIndex.completedInteractions(
+            sessionId,
+            loaded.sourceRevision
+        );
+        if (!interactions) {
             return loaded;
         }
         // This replay is continuous from offset zero through this exact
@@ -843,7 +886,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         // concatenating the two sources would create a hidden history gap.
         return {
             ...loaded,
-            interactions: indexed.interactions,
+            interactions,
             partial: false,
         };
     }
@@ -854,6 +897,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         settled = false
     ): void {
         if (this.disposed) {
+            return;
+        }
+        const indexed = this.historyIndex.status(sessionId);
+        if (indexed?.saturated && indexed.sourceRevision === loaded.sourceRevision) {
             return;
         }
         const running = this.historyIndexTasks.get(sessionId);
@@ -881,6 +928,19 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             this.scheduleHistoryIndex(sessionId, loaded);
             return;
         }
+        // Indexing is explicitly low priority. The most recently viewed
+        // session wins; never let A→B→C create three concurrent 4 MiB scans.
+        this.historyIndexTasks.forEach((task, activeSessionId) => {
+            if (activeSessionId !== sessionId) {
+                task.controller.abort();
+                this.pendingHistoryIndexes.delete(activeSessionId);
+                const scheduled = this.historyIndexStartTimers.get(activeSessionId);
+                if (scheduled?.timer !== undefined) {
+                    this.options.clearTimeout(scheduled.timer);
+                }
+                this.historyIndexStartTimers.delete(activeSessionId);
+            }
+        });
         const controller = new ConversationAbortController();
         this.historyIndexTasks.set(sessionId, {
             controller,
@@ -1051,6 +1111,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 interactionId: string;
                 recordEndOffset: number;
                 recordDigest: string;
+                segmentDigest: string;
             } | undefined;
             const historySliceEndOffset = historySlice
                 ? Math.min(
@@ -1077,6 +1138,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         interactionId: point.interactionId,
                         recordEndOffset: point.recordEndOffset,
                         recordDigest: point.recordDigest,
+                        segmentDigest: point.prefixDigest,
                     };
                 }
             };
@@ -1201,8 +1263,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             && approvalTracker.size === 0) {
                             addRestartPoint({
                                 offset: record.offset,
-                                recordEndOffset: record.endOffset,
-                                recordDigest: record.recordDigest,
+                                recordEndOffset: record.proofEndOffset,
+                                recordDigest: record.proofDigest,
+                                prefixDigest: record.prefixDigest,
                                 interactionId: id,
                             });
                         }
@@ -1596,7 +1659,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     ...(historySlice ? {
                         endOffset: Math.min(
                             source.size,
-                            startOffset + CONVERSATION_LIMITS.historyIndexSliceBytes
+                            // Target a 4 MiB segment, but permit one bounded
+                            // 4 MiB extension to reach a reducer-safe turn.
+                            startOffset
+                                + CONVERSATION_LIMITS.historyIndexSliceBytes * 2
                         ),
                         collectRecords: false,
                     } : {}),
@@ -1628,22 +1694,6 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             }
             if (historySlice) {
                 if (historyBoundary) {
-                    const restartSegmentDigest = await digestConversationSourceSegment(
-                        source,
-                        historySlice.startOffset,
-                        historyBoundary.offset,
-                        signal
-                    );
-                    if (!restartSegmentDigest) {
-                        return {
-                            interactions: [],
-                            sourceRevision: historySlice.sourceRevision,
-                            partial: false,
-                            telemetryContext,
-                            telemetryPaths,
-                            historySlice: { complete: false, blocked: true },
-                        };
-                    }
                     return {
                         interactions: interactions.slice(
                             0,
@@ -1658,7 +1708,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             restartInteractionId: historyBoundary.interactionId,
                             restartRecordEndOffset: historyBoundary.recordEndOffset,
                             restartRecordDigest: historyBoundary.recordDigest,
-                            restartSegmentDigest,
+                            restartSegmentDigest: historyBoundary.segmentDigest,
                             complete: false,
                         },
                     };
@@ -1682,7 +1732,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     partial: false,
                     telemetryContext,
                     telemetryPaths,
-                    historySlice: { complete: result.nextOffset >= source.size },
+                    historySlice: {
+                        complete: result.nextOffset >= source.size,
+                        completeSegmentDigest: result.consumedDigest,
+                    },
                 };
             }
             const partial = continuing ? previous.partial : result.partial;

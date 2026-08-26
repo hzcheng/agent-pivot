@@ -96,7 +96,7 @@ const CONVERSATION_RECORD_PROOF_MAX_BYTES = 1024 * 1024 + 1;
 // A 4 MiB requested slice may complete the physical line straddling its
 // boundary. JSONL rejects lines over 1 MiB, so 8 MiB is a hard ceiling with
 // room for format evolution while keeping verification bounded.
-const CONVERSATION_HISTORY_SEGMENT_PROOF_MAX_BYTES = 8 * 1024 * 1024;
+const CONVERSATION_HISTORY_SEGMENT_PROOF_MAX_BYTES = 10 * 1024 * 1024;
 
 function hasStableFileIdentity(stat: fs.Stats): boolean {
     return Number.isFinite(stat.dev) && stat.dev > 0

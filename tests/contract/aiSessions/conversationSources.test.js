@@ -7,6 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 
 const {
+    digestConversationSourceRange,
     digestConversationSourceSegment,
     openValidatedConversationSource,
     isConversationSourceContinuation,
@@ -336,6 +337,12 @@ test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-006 proves a whole retained prefix
     assert.equal(await isConversationSourceContinuation(before, after), true);
     assert.notEqual(afterDigest, beforeDigest);
     assert.equal(await digestConversationSourceSegment(
+        after,
+        0,
+        before.size,
+        cancelled.signal
+    ), undefined);
+    assert.equal(await digestConversationSourceRange(
         after,
         0,
         before.size,

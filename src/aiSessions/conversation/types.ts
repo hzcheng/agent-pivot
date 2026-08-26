@@ -505,6 +505,8 @@ export interface ConversationHistoryIndexSlice {
     restartRecordDigest?: string;
     /** Digest of the entire committed byte segment for this slice. */
     restartSegmentDigest?: string;
+    /** Digest of [startOffset, sourceSize) for a completed slice. */
+    completeSegmentDigest?: string;
     interactions: ConversationInteraction[];
     complete: boolean;
     /** The bounded reader reached its budget before another safe boundary. */

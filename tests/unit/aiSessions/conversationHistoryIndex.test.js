@@ -37,7 +37,9 @@ function slice(request, interactions, options = {}) {
         ...request,
         interactions,
         complete: options.complete === true,
-        ...(options.complete === true ? {} : {
+        ...(options.complete === true ? {
+            completeSegmentDigest: options.completeSegmentDigest || 'complete-segment',
+        } : {
             nextOffset: options.nextOffset,
         }),
     };
@@ -132,6 +134,31 @@ test('CONVERSATION-HISTORY-INDEX-004 capacity never publishes a non-contiguous p
     assert.equal(repeated.saturated, true);
 });
 
+test('CONVERSATION-HISTORY-INDEX-008 exposes completed data without cloning and releases unusable payloads', async () => {
+    const index = new ConversationHistoryIndex();
+    await index.advance('kimi:complete', source, async request =>
+        slice(request, [interaction('complete')], { complete: true })
+    );
+    assert.deepEqual(index.status('kimi:complete'), {
+        sourceRevision: 'r1',
+        complete: true,
+        saturated: false,
+        blocked: false,
+    });
+    assert.deepEqual(index.completedInteractions('kimi:complete', 'r1')
+        .map(item => item.id), ['complete']);
+    assert.equal(index.completedInteractions('kimi:complete', 'r2'), undefined);
+
+    const blocked = await index.advance('kimi:blocked-payload', source, async request => ({
+        ...request,
+        interactions: [],
+        complete: false,
+        blocked: true,
+    }));
+    assert.deepEqual(blocked.interactions, []);
+    assert.deepEqual(blocked.prefixSegments, []);
+});
+
 test('CONVERSATION-HISTORY-INDEX-005 a proven append replays only from the last safe boundary', async () => {
     const index = new ConversationHistoryIndex();
     const first = await index.advance('kimi:append', source, async request =>
@@ -186,6 +213,18 @@ test('CONVERSATION-HISTORY-INDEX-007 refuses a slice without a whole-prefix segm
     }));
     assert.equal(state, undefined);
     assert.deepEqual(index.state('kimi:unproven').interactions, []);
+
+    const unprovenComplete = await index.advance(
+        'kimi:unproven-complete',
+        source,
+        async request => ({
+            ...request,
+            interactions: [interaction('unproven-complete')],
+            complete: true,
+        })
+    );
+    assert.equal(unprovenComplete, undefined);
+    assert.deepEqual(index.state('kimi:unproven-complete').interactions, []);
 });
 
 test('CONVERSATION-HISTORY-INDEX-006 a range without a safe boundary stays blocked', async () => {

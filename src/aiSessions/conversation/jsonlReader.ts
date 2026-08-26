@@ -29,6 +29,11 @@ export interface ConversationJsonlRecord {
     endOffset: number;
     /** SHA-256 of the exact physical JSONL bytes parsed for this record. */
     recordDigest: string;
+    /** Includes the trailing LF when the record was newline-terminated. */
+    proofEndOffset: number;
+    proofDigest: string;
+    /** SHA-256 of bytes from this read's start through this record's start. */
+    prefixDigest: string;
     value: unknown;
 }
 
@@ -38,6 +43,8 @@ export interface ConversationJsonlReadResult {
     malformedLines: number;
     oversizedLines: number;
     partial: boolean;
+    /** SHA-256 of every byte consumed by this invocation. */
+    consumedDigest: string;
     /** Pass this to the next bounded slice until the physical line ends. */
     resumeDiscard?: 'partial' | 'oversized';
 }
@@ -107,6 +114,8 @@ export async function readConversationJsonl(
     let stopped = false;
     const fragments: Buffer[] = [];
     let bytesSinceYield = 0;
+    const prefixHash = createHash('sha256');
+    let lineStartPrefixDigest = prefixHash.copy().digest('hex');
 
     const checkAbort = (): void => {
         if (normalizedOptions.signal?.aborted) {
@@ -118,6 +127,7 @@ export async function readConversationJsonl(
         lineBytes = 0;
         oversized = false;
         fragments.length = 0;
+        lineStartPrefixDigest = prefixHash.copy().digest('hex');
     };
     const appendLineBytes = (fragment: Buffer): void => {
         if (!fragment.length || oversized) {
@@ -157,6 +167,10 @@ export async function readConversationJsonl(
                 offset: lineStart,
                 endOffset: readOffset - 1,
                 recordDigest: createHash('sha256').update(rawRecord).digest('hex'),
+                proofEndOffset: readOffset,
+                proofDigest: createHash('sha256')
+                    .update(rawRecord).update('\n').digest('hex'),
+                prefixDigest: lineStartPrefixDigest,
                 value: JSON.parse(rawRecord.toString('utf8')),
             };
         } catch (_error) {
@@ -204,14 +218,18 @@ export async function readConversationJsonl(
         while (!stopped && chunkIndex < chunk.length) {
             const newlineIndex = chunk.indexOf(0x0a, chunkIndex);
             if (newlineIndex < 0) {
+                const rawLineFragment = chunk.subarray(chunkIndex);
                 if (!initialPartial) {
-                    appendLineBytes(chunk.subarray(chunkIndex));
+                    appendLineBytes(rawLineFragment);
                 }
+                prefixHash.update(rawLineFragment);
                 break;
             }
+            const rawLineFragment = chunk.subarray(chunkIndex, newlineIndex + 1);
             if (!initialPartial) {
                 appendLineBytes(chunk.subarray(chunkIndex, newlineIndex));
             }
+            prefixHash.update(rawLineFragment);
             readOffset += newlineIndex + 1 - chunkIndex;
             finishLine();
             chunkIndex = newlineIndex + 1;
@@ -247,6 +265,9 @@ export async function readConversationJsonl(
                     offset: lineStart,
                     endOffset: readOffset,
                     recordDigest: createHash('sha256').update(rawRecord).digest('hex'),
+                    proofEndOffset: readOffset,
+                    proofDigest: createHash('sha256').update(rawRecord).digest('hex'),
+                    prefixDigest: lineStartPrefixDigest,
                     value: JSON.parse(rawRecord.toString('utf8')),
                 };
             } catch (_error) {
@@ -271,6 +292,7 @@ export async function readConversationJsonl(
         malformedLines,
         oversizedLines,
         partial: startOffset > 0,
+        consumedDigest: prefixHash.copy().digest('hex'),
         ...((initialPartial || oversized) && normalizedOptions.endOffset !== undefined
             ? { resumeDiscard: initialPartial ? discardKind : 'oversized' }
             : {}),

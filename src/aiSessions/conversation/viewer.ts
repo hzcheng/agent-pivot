@@ -458,6 +458,8 @@ export class ConversationViewer implements ConversationViewerApi {
         token: number;
         request: ConversationViewerLoadEarlierMessage;
         target: ConversationViewerTarget;
+        /** A stale before-page retry had to refresh around the selection. */
+        staleFallback?: boolean;
         abortController?: ConversationAbortController;
         timer?: unknown;
     };
@@ -1123,7 +1125,7 @@ export class ConversationViewer implements ConversationViewerApi {
             cursor,
             expectedRevision: outline.sourceRevision,
             limit: CONVERSATION_LIMITS.maxPageInteractions,
-        }, 'before', false, 'refresh', this.outlineController.selection, true);
+        }, 'before', false, 'refresh', this.outlineController.selection, true, backfill);
         backfill.abortController = this.abortController;
         const timeout = () => {
             if (this.earlierPageBackfill !== backfill) {
@@ -1171,10 +1173,18 @@ export class ConversationViewer implements ConversationViewerApi {
                     // progress: remember this boundary so ack-triggered
                     // restarts stop retrying it forever.
                     this.earlierBackfillStuckAnchor = madeProgress
+                        || backfill.staleFallback
                         ? undefined
                         : oldestBefore;
                     if (!madeProgress) {
-                        this.settleEarlierPageBackfill(request, 'stalled');
+                        // A stale cursor retry intentionally falls back to
+                        // an around-selection page. It did not prepend, but
+                        // it also did not prove this cursor is terminal; keep
+                        // it available for the next user-requested attempt.
+                        this.settleEarlierPageBackfill(
+                            request,
+                            backfill.staleFallback ? 'busy' : 'stalled'
+                        );
                     }
                 },
                 () => {
@@ -2351,8 +2361,18 @@ export class ConversationViewer implements ConversationViewerApi {
                             !== interaction.responseState
                     ).map(interaction => interaction.id)
                     : [];
+                // A completed background history index can replace the
+                // bounded tail with a continuous source without changing
+                // either the source revision or the most recent outline
+                // IDs. Its total/partial metadata still changes the page
+                // boundary (and therefore its earlier cursor), so it must
+                // not take the lifecycle-only fast path.
+                const pagingMetadataChanged = retainedOutline.totalInteractions
+                    !== outline.totalInteractions
+                    || retainedOutline.partial !== outline.partial;
                 if (retainedRevisionMatches
-                    && !lifecycleChangedInteractionIds.length) {
+                    && !lifecycleChangedInteractionIds.length
+                    && !pagingMetadataChanged) {
                     void this.telemetryController.refresh(
                         target,
                         generation,
@@ -2375,7 +2395,8 @@ export class ConversationViewer implements ConversationViewerApi {
                     }
                 }
                 if (retainedRevisionMatches
-                    && !lifecycleProjectionInteractionId) {
+                    && !lifecycleProjectionInteractionId
+                    && !pagingMetadataChanged) {
                     if (this.outlineController.replace(
                         outline,
                         selectedInteractionId
@@ -2513,9 +2534,13 @@ export class ConversationViewer implements ConversationViewerApi {
             this.stale = false;
             if (updateKind === 'refresh') {
                 if (selectedRefreshPage) {
-                    this.mergeRefreshPage(selectedRefreshPage, outline);
+                    this.mergeRefreshPage(
+                        selectedRefreshPage,
+                        outline,
+                        retainedRevisionMatches
+                    );
                 }
-                this.mergeRefreshPage(page, outline);
+                this.mergeRefreshPage(page, outline, retainedRevisionMatches);
             } else {
                 this.retain(page, 'replace');
             }
@@ -2603,7 +2628,8 @@ export class ConversationViewer implements ConversationViewerApi {
         replaceDocument: boolean,
         updateKind: ConversationViewerPageMessage['updateKind'],
         preferredInteractionId: string,
-        preserveSelection = false
+        preserveSelection = false,
+        earlierBackfill?: NonNullable<ConversationViewer['earlierPageBackfill']>
     ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
@@ -2655,6 +2681,9 @@ export class ConversationViewer implements ConversationViewerApi {
                     return false;
                 }
                 retriedStaleRevision = true;
+                if (placement === 'before' && earlierBackfill) {
+                    earlierBackfill.staleFallback = true;
+                }
                 page = await this.options.readPage({
                     provider: target.provider,
                     sessionId: this.effectiveSessionId(target),
@@ -2675,19 +2704,23 @@ export class ConversationViewer implements ConversationViewerApi {
                 return false;
             }
             this.stale = false;
+            if (retriedStaleRevision && outline) {
+                // A retry is a new authoritative snapshot even while the
+                // user reads an older page. Advance the outline revision
+                // before retaining the selection for later before-page reads.
+                if (!this.outlineController.replace(
+                    outline,
+                    preferredInteractionId
+                )) {
+                    await this.publishFailure(replaceDocument, updateKind);
+                    return false;
+                }
+            }
             if (preserveSelection) {
                 // A prepended page may be older than the bounded outline.
                 // Keep the current selection anchored in that outline rather
                 // than rejecting a perfectly valid, cursor-authorized page.
                 if (!this.outlineController.contains(preferredInteractionId)) {
-                    await this.publishFailure(replaceDocument, updateKind);
-                    return false;
-                }
-            } else if (retriedStaleRevision && outline) {
-                if (!this.outlineController.replace(
-                    outline,
-                    page.anchorInteractionId
-                )) {
                     await this.publishFailure(replaceDocument, updateKind);
                     return false;
                 }
@@ -2698,7 +2731,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 }
             }
             if (retriedStaleRevision && outline) {
-                this.mergeRefreshPage(page, outline);
+                this.mergeRefreshPage(page, outline, false);
             } else {
                 this.retain(page, placement);
             }
@@ -3547,7 +3580,8 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private mergeRefreshPage(
         page: ConversationPage,
-        outline: ConversationOutline
+        outline: ConversationOutline,
+        preserveOutOfOutline = true
     ): void {
         const outlineIds = new Set(
             outline.interactions.map(interaction => interaction.id)
@@ -3560,7 +3594,7 @@ export class ConversationViewer implements ConversationViewerApi {
         >();
         this.pages.forEach(retained => {
             retained.page.interactionStates.forEach(state => {
-                if (outlineIds.has(state.interactionId)) {
+                if (preserveOutOfOutline || outlineIds.has(state.interactionId)) {
                     loadedIds.add(state.interactionId);
                     if (!statesByInteraction.has(state.interactionId)) {
                         statesByInteraction.set(state.interactionId, {
@@ -3570,7 +3604,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 }
             });
             retained.page.messages.forEach(message => {
-                if (!outlineIds.has(message.interactionId)) {
+                if (!preserveOutOfOutline && !outlineIds.has(message.interactionId)) {
                     return;
                 }
                 const messages = messagesByInteraction.get(message.interactionId)
@@ -3606,37 +3640,86 @@ export class ConversationViewer implements ConversationViewerApi {
             messages.push(copyMessage(message));
             messagesByInteraction.set(message.interactionId, messages);
         });
-        this.pages = outline.interactions.reduce(
-            (retainedPages: RetainedConversationPage[], interaction, index) => {
-                if (!loadedIds.has(interaction.id)) {
-                    return retainedPages;
-                }
-                const retainedState = statesByInteraction.get(interaction.id);
-                retainedPages.push({
-                    page: {
-                        provider: outline.provider,
-                        sessionId: outline.sessionId,
-                        sourceRevision: outline.sourceRevision,
-                        anchorInteractionId: interaction.id,
-                        messages: messagesByInteraction.get(interaction.id) || [],
-                        interactionStates: [{
-                            interactionId: interaction.id,
-                            responseState: interaction.responseState,
-                            ...(retainedState?.timestamp !== undefined
-                                ? { timestamp: retainedState.timestamp }
-                                : {}),
-                            ...(retainedState?.completedAt !== undefined
-                                ? { completedAt: retainedState.completedAt }
-                                : {}),
-                        }],
-                        isStart: index === 0,
-                        isEnd: index === outline.interactions.length - 1,
-                    },
-                });
-                return retainedPages;
-            },
-            []
-        );
+        const orderedIds: string[] = [];
+        const addOrderedId = (interactionId: string): void => {
+            if (loadedIds.has(interactionId) && !orderedIds.includes(interactionId)) {
+                orderedIds.push(interactionId);
+            }
+        };
+        if (preserveOutOfOutline) {
+            this.pages.forEach(retained => retained.page.interactionStates
+                .filter(state => !outlineIds.has(state.interactionId))
+                .forEach(state => addOrderedId(state.interactionId)));
+        }
+        outline.interactions.forEach(interaction => addOrderedId(interaction.id));
+        const outlineStates = new Map(outline.interactions.map(interaction => [
+            interaction.id,
+            interaction,
+        ]));
+        // Cursors describe the two outer edges only. Interior page cursors
+        // are already covered by retained interactions and must never be
+        // promoted to a rebuilt edge.
+        const oldestRetained = this.pages[0]?.page;
+        const newestRetained = this.pages[this.pages.length - 1]?.page;
+        // Overlap alone is not enough: an around page can include the last
+        // interaction of the oldest retained page while its cursor still
+        // starts later. Only an exact outer-boundary match can replace an
+        // existing edge cursor.
+        const refreshedOldestEdge = oldestRetained?.interactionStates[0]
+            ?.interactionId === page.interactionStates[0]?.interactionId;
+        const refreshedNewestEdge = newestRetained?.interactionStates[
+            newestRetained.interactionStates.length - 1
+        ]?.interactionId === page.interactionStates[
+            page.interactionStates.length - 1
+        ]?.interactionId;
+        const hadStart = refreshedOldestEdge
+            ? page.isStart
+            : (oldestRetained?.isStart ?? page.isStart);
+        const hadEnd = refreshedNewestEdge
+            ? page.isEnd
+            : (newestRetained?.isEnd ?? page.isEnd);
+        const previousCursor = refreshedOldestEdge
+            ? page.previousCursor
+            : (oldestRetained
+                ? oldestRetained.previousCursor
+                : page.previousCursor);
+        const nextCursor = refreshedNewestEdge
+            ? page.nextCursor
+            : (newestRetained
+                ? newestRetained.nextCursor
+                : page.nextCursor);
+        this.pages = orderedIds.map((interactionId, index) => {
+            const retainedState = statesByInteraction.get(interactionId);
+            const outlineState = outlineStates.get(interactionId);
+            return {
+                page: {
+                    provider: outline.provider,
+                    sessionId: outline.sessionId,
+                    sourceRevision: outline.sourceRevision,
+                    anchorInteractionId: interactionId,
+                    messages: messagesByInteraction.get(interactionId) || [],
+                    interactionStates: [{
+                        interactionId,
+                        responseState: outlineState?.responseState
+                            || retainedState?.responseState || 'complete',
+                        ...(retainedState?.timestamp !== undefined
+                            ? { timestamp: retainedState.timestamp }
+                            : {}),
+                        ...(retainedState?.completedAt !== undefined
+                            ? { completedAt: retainedState.completedAt }
+                            : {}),
+                    }],
+                    isStart: index === 0 && hadStart,
+                    isEnd: index === orderedIds.length - 1 && hadEnd,
+                    ...(index === 0 && previousCursor !== undefined
+                        ? { previousCursor }
+                        : {}),
+                    ...(index === orderedIds.length - 1 && nextCursor !== undefined
+                        ? { nextCursor }
+                        : {}),
+                },
+            };
+        });
         this.evict();
     }
 

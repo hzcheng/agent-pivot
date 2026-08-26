@@ -12,6 +12,7 @@ import type {
 export const CONVERSATION_LIMITS = Object.freeze({
     previewGraphemes: 160,
     maxOutlineInteractions: 2_000,
+    maxHistoryRestartPointIdLength: 256,
     maxPageInteractions: 20,
     maxPageBytes: 512 * 1024,
     maxSourceBytes: 64 * 1024 * 1024,
@@ -518,6 +519,10 @@ export interface ConversationProviderAdapter extends AiSessionDisposable {
         request: ConversationPageRequest,
         signal?: ConversationAbortSignal
     ): Promise<ConversationPage>;
+    /** Host-local sparse restart candidates for local JSONL providers. */
+    getHistoryRestartPoints?(
+        sessionId: string
+    ): ConversationHistoryRestartPoint[];
     readSubagents?(
         sessionId: string,
         signal?: ConversationAbortSignal

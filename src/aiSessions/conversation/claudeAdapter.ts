@@ -657,7 +657,6 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
         const isSubagentTranscript = Boolean(split.subagentId);
         const previous = this.cache.get(sessionId);
         let interactions: ConversationInteraction[] = [];
-        let restartPoints: ConversationHistoryRestartPoint[] = [];
         let openInteractionIndex: number | undefined;
         let timeoutOpenInteractionIndex: number | undefined;
         let telemetryModel: string | undefined;
@@ -674,9 +673,25 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             );
             const continuing = Boolean(previous)
                 && startOffset === previous.nextOffset;
+            // See Kimi's equivalent guard: reducer continuation is safe for
+            // a verified append, while sparse restart offsets are not trusted
+            // after any source identity change.
+            let restartPoints: ConversationHistoryRestartPoint[] = continuing
+                && previous?.source.identity === source.identity
+                ? previous.restartPoints
+                : [];
+            let ownsRestartPoints = restartPoints.length === 0;
+            const addRestartPoint = (
+                point: ConversationHistoryRestartPoint
+            ): void => {
+                if (!ownsRestartPoints) {
+                    restartPoints = restartPoints.slice();
+                    ownsRestartPoints = true;
+                }
+                appendConversationHistoryRestartPoint(restartPoints, point);
+            };
             if (continuing) {
                 interactions = cloneInteractions(previous.interactions);
-                restartPoints = previous.restartPoints.slice();
                 openInteractionIndex = previous.appendInteractionIndex;
                 telemetryModel = previous.telemetryModel;
                 telemetryContext = previous.telemetryContext;
@@ -764,6 +779,9 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                                 : undefined;
                         if (questionBlock) {
                             settleClaudeQuestion(questionBlock, text);
+                            if (typeof block.tool_use_id === 'string') {
+                                questionTracker.delete(block.tool_use_id);
+                            }
                         } else {
                             toolTracker.finish(block.tool_use_id, text);
                         }
@@ -792,10 +810,15 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     )) {
                         return;
                     }
-                    appendConversationHistoryRestartPoint(restartPoints, {
-                        offset: record.offset,
-                        interactionId: event.uuid,
-                    });
+                    if (!toolTracker.hasPending()
+                        && questionTracker.size === 0
+                        && event.uuid.length
+                            <= CONVERSATION_LIMITS.maxHistoryRestartPointIdLength) {
+                        addRestartPoint({
+                            offset: record.offset,
+                            interactionId: event.uuid,
+                        });
+                    }
                     interactions.push({
                         id: event.uuid,
                         timestamp: timestampValue(event.timestamp),

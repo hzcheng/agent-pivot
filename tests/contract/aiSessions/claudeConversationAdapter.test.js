@@ -115,11 +115,13 @@ test('CONVERSATION-HISTORY-RESTART-POINT-001 Claude restart points replay their 
     const source = await createFixture(t);
     const adapter = createAdapter(source);
     t.after(() => adapter.dispose());
-    const full = await adapter.readOutline(sessionId);
+    const full = await readWholeConversation(adapter);
     const points = adapter.getHistoryRestartPoints(sessionId);
     assert.ok(points.length >= 2);
     const point = points[1];
-    const start = full.interactions.findIndex(item => item.id === point.interactionId);
+    const start = full.outline.interactions.findIndex(
+        item => item.id === point.interactionId
+    );
     assert.ok(start >= 0);
 
     const suffixPath = await restartSuffix(t, source.sourcePath, point.offset);
@@ -128,8 +130,68 @@ test('CONVERSATION-HISTORY-RESTART-POINT-001 Claude restart points replay their 
         sourcePath: suffixPath,
     });
     t.after(() => suffixAdapter.dispose());
-    const suffix = await suffixAdapter.readOutline(sessionId);
-    assert.deepEqual(suffix.interactions, full.interactions.slice(start));
+    const suffix = await readWholeConversation(suffixAdapter);
+    const suffixInteractionIds = new Set(
+        full.outline.interactions.slice(start).map(item => item.id)
+    );
+    assert.deepEqual(
+        suffix.outline.interactions,
+        full.outline.interactions.slice(start)
+    );
+    assert.deepEqual(
+        {
+            messages: suffix.page.messages,
+            interactionStates: suffix.page.interactionStates,
+        },
+        {
+            messages: full.page.messages.filter(message =>
+                suffixInteractionIds.has(message.interactionId)
+            ),
+            interactionStates: full.page.interactionStates.filter(state =>
+                suffixInteractionIds.has(state.interactionId)
+            ),
+        }
+    );
+});
+
+test('CONVERSATION-HISTORY-RESTART-POINT-003 Claude does not publish a point across an unsettled tool call', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            type: 'user',
+            uuid: 'restart-before-tool',
+            message: { role: 'user', content: 'Start the tool call' },
+        },
+        {
+            type: 'assistant',
+            uuid: 'assistant-tool-call',
+            message: {
+                role: 'assistant',
+                content: [{
+                    type: 'tool_use',
+                    id: 'pending-tool',
+                    name: 'Bash',
+                    input: { command: 'pwd' },
+                }],
+            },
+        },
+        {
+            type: 'user',
+            uuid: 'restart-after-tool',
+            message: {
+                role: 'user',
+                content: 'Must replay from before the tool',
+            },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        adapter.getHistoryRestartPoints(sessionId).map(point => point.interactionId),
+        ['restart-before-tool']
+    );
 });
 
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude accepts canonical string content without exposing hidden records', async t => {
@@ -646,6 +708,7 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-007 changes revision after a same-s
         source.sourcePath,
         `${JSON.stringify({
             ...firstRecord,
+            uuid: 'claude-rewritten-next',
             message: {
                 role: 'user',
                 content: [{ type: 'text', text: 'Bravo' }],
@@ -660,6 +723,13 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-007 changes revision after a same-s
     const rebuilt = await adapter.readOutline(sessionId);
     assert.equal(rebuilt.interactions[0].userPreview, 'Bravo');
     assert.notEqual(rebuilt.sourceRevision, first.sourceRevision);
+    assert.deepEqual(
+        adapter.getHistoryRestartPoints(sessionId),
+        [{
+            offset: 0,
+            interactionId: 'claude-rewritten-next',
+        }]
+    );
 });
 
 test('CONVERSATION-TELEMETRY-001 Claude surfaces the latest assistant model and context window usage', async t => {

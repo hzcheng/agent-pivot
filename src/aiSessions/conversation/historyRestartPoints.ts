@@ -14,7 +14,7 @@ export function appendConversationHistoryRestartPoint(
     }
     points.push(point);
     const excess = points.length - CONVERSATION_LIMITS.maxOutlineInteractions;
-    if (excess > 0) {
+    if (excess >= 64) {
         points.splice(0, excess);
     }
 }

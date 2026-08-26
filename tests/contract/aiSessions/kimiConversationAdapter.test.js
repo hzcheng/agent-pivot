@@ -156,11 +156,13 @@ test('CONVERSATION-HISTORY-RESTART-POINT-001 Kimi restart points replay their in
     const source = await createFixture(t);
     const adapter = createAdapter(source);
     t.after(() => adapter.dispose());
-    const full = await adapter.readOutline(sessionId);
+    const full = await readWholeConversation(adapter);
     const points = adapter.getHistoryRestartPoints(sessionId);
     assert.ok(points.length >= 2);
     const point = points[1];
-    const start = full.interactions.findIndex(item => item.id === point.interactionId);
+    const start = full.outline.interactions.findIndex(
+        item => item.id === point.interactionId
+    );
     assert.ok(start >= 0);
 
     const suffixPath = await restartSuffix(t, source.sourcePath, point.offset);
@@ -169,8 +171,66 @@ test('CONVERSATION-HISTORY-RESTART-POINT-001 Kimi restart points replay their in
         sourcePath: suffixPath,
     });
     t.after(() => suffixAdapter.dispose());
-    const suffix = await suffixAdapter.readOutline(sessionId);
-    assert.deepEqual(suffix.interactions, full.interactions.slice(start));
+    const suffix = await readWholeConversation(suffixAdapter);
+    const suffixInteractionIds = new Set(
+        full.outline.interactions.slice(start).map(item => item.id)
+    );
+    assert.deepEqual(
+        suffix.outline.interactions,
+        full.outline.interactions.slice(start)
+    );
+    assert.deepEqual(
+        {
+            messages: suffix.page.messages,
+            interactionStates: suffix.page.interactionStates,
+        },
+        {
+            messages: full.page.messages.filter(message =>
+                suffixInteractionIds.has(message.interactionId)
+            ),
+            interactionStates: full.page.interactionStates.filter(state =>
+                suffixInteractionIds.has(state.interactionId)
+            ),
+        }
+    );
+});
+
+test('CONVERSATION-HISTORY-RESTART-POINT-003 Kimi does not publish a point across an unsettled tool call', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        {
+            timestamp: 1000,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Start the tool call' },
+            },
+        },
+        {
+            timestamp: 1001,
+            message: {
+                type: 'ToolCall',
+                payload: {
+                    id: 'pending-tool',
+                    function: { name: 'Shell', arguments: '{"command":"pwd"}' },
+                },
+            },
+        },
+        {
+            timestamp: 1002,
+            message: {
+                type: 'TurnBegin',
+                payload: { user_input: 'Must replay from before the tool' },
+            },
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    await adapter.readOutline(sessionId);
+    assert.deepEqual(
+        adapter.getHistoryRestartPoints(sessionId).map(point => point.offset),
+        [0]
+    );
 });
 
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi merges streamed text deltas into one block across incremental loads', async t => {

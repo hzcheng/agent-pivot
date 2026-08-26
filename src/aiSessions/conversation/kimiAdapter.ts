@@ -686,7 +686,6 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         }
         const previous = this.cache.get(sessionId);
         let interactions: ConversationInteraction[] = [];
-        let restartPoints: ConversationHistoryRestartPoint[] = [];
         let openInteractionIndex: number | undefined;
         let telemetryContext: ConversationContextUsage | undefined;
         let telemetryPaths: string[] = effectiveCandidate.cwd
@@ -702,9 +701,27 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             );
             const continuing = Boolean(previous)
                 && startOffset === previous.nextOffset;
+            // Restart offsets are only valid for the exact source snapshot
+            // that produced them. An append may reuse reducer state after the
+            // continuation check, but it must rediscover restart points: the
+            // source identity changed and cannot prove an arbitrary prefix
+            // was not rewritten in place.
+            let restartPoints: ConversationHistoryRestartPoint[] = continuing
+                && previous?.source.identity === source.identity
+                ? previous.restartPoints
+                : [];
+            let ownsRestartPoints = restartPoints.length === 0;
+            const addRestartPoint = (
+                point: ConversationHistoryRestartPoint
+            ): void => {
+                if (!ownsRestartPoints) {
+                    restartPoints = restartPoints.slice();
+                    ownsRestartPoints = true;
+                }
+                appendConversationHistoryRestartPoint(restartPoints, point);
+            };
             if (continuing) {
                 interactions = cloneInteractions(previous.interactions);
-                restartPoints = previous.restartPoints.slice();
                 openInteractionIndex = previous.openInteractionIndex;
                 telemetryContext = previous.telemetryContext;
                 telemetryPaths = previous.telemetryPaths.slice();
@@ -813,10 +830,14 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         if (interactions.some(interaction => interaction.id === id)) {
                             return;
                         }
-                        appendConversationHistoryRestartPoint(restartPoints, {
-                            offset: record.offset,
-                            interactionId: id,
-                        });
+                        if (!toolTracker.hasPending()
+                            && questionTracker.size === 0
+                            && approvalTracker.size === 0) {
+                            addRestartPoint({
+                                offset: record.offset,
+                                interactionId: id,
+                            });
+                        }
                         interactions.push({
                             id,
                             timestamp: timestampValue(envelope?.timestamp),
@@ -1036,6 +1057,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             `Approval: ${response}${feedback}`
                         );
                     }
+                    if (requestId) {
+                        approvalTracker.delete(requestId);
+                    }
                 } else if (event.type === 'StatusUpdate') {
                     const payload = asRecord(event.payload);
                     const usedTokens = Number(payload?.context_tokens);
@@ -1153,6 +1177,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         : undefined;
                     if (questionBlock) {
                         applyKimiQuestionSettlement(questionBlock, output);
+                        if (toolCallId) {
+                            questionTracker.delete(toolCallId);
+                        }
                     } else {
                         toolTracker.finish(payload?.tool_call_id, output);
                     }

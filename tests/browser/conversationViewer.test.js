@@ -17977,7 +17977,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies a streaming tail patch 
     ), [{
         type: 'conversation-viewer-capabilities',
         version: 1,
-        capabilities: ['tail-patch'],
+        capabilities: ['tail-patch', 'frame-preflight'],
         documentId: '',
     }]);
     await sendPage(page, {

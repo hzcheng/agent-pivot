@@ -15,12 +15,6 @@ export const CONVERSATION_LIMITS = Object.freeze({
     maxPageInteractions: 20,
     maxPageBytes: 512 * 1024,
     maxSourceBytes: 64 * 1024 * 1024,
-    // Historical indexes are intentionally bounded independently of the
-    // foreground tail cache.  They store reducer checkpoints, never a second
-    // unbounded normalized conversation.
-    historyIndexCheckpointBytes: 4 * 1024 * 1024,
-    historyIndexMaxSessionBytes: 16 * 1024 * 1024,
-    historyIndexMaxTotalBytes: 128 * 1024 * 1024,
     readChunkBytes: 256 * 1024,
     yieldEveryBytes: 4 * 1024 * 1024,
     maxLineBytes: 1024 * 1024,

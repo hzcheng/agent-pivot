@@ -12,6 +12,8 @@ export interface ConversationJsonlReadOptions {
      * reducer state is only advanced at a physical-line boundary.
      */
     endOffset?: number;
+    /** Continue discarding a physical line known to cross a prior slice. */
+    discardInitialPartialLine?: boolean;
     signal?: ConversationAbortSignal;
     now?: () => number;
     onRecord?: (record: ConversationJsonlRecord) => void;
@@ -30,6 +32,8 @@ export interface ConversationJsonlReadResult {
     malformedLines: number;
     oversizedLines: number;
     partial: boolean;
+    /** Pass this to the next bounded slice when it stopped inside an oversized line. */
+    discardInitialPartialLine?: boolean;
 }
 
 export async function getConversationReadStart(
@@ -75,10 +79,13 @@ export async function readConversationJsonl(
         ? Math.max(0, source.size - CONVERSATION_LIMITS.maxSourceBytes)
         : requestedStart;
     const requestedEnd = checkedStartOffset(source.size, normalizedOptions.endOffset);
-    const endOffset = requestedEnd === undefined || requestedEnd < startOffset
-        ? source.size
-        : requestedEnd;
-    const discardInitialPartialLine = requestedStart === undefined && startOffset > 0;
+    if (normalizedOptions.endOffset !== undefined
+        && (requestedEnd === undefined || requestedEnd < startOffset)) {
+        throw new ConversationError('unavailable');
+    }
+    const endOffset = requestedEnd === undefined ? source.size : requestedEnd;
+    const discardInitialPartialLine = normalizedOptions.discardInitialPartialLine === true
+        || (requestedStart === undefined && startOffset > 0);
     const collectRecords = normalizedOptions.collectRecords !== false;
     const records: ConversationJsonlRecord[] = [];
     let malformedLines = 0;
@@ -88,6 +95,7 @@ export async function readConversationJsonl(
     let lineBytes = 0;
     let oversized = false;
     let initialPartial = discardInitialPartialLine;
+    let discardingOversizedLine = normalizedOptions.discardInitialPartialLine === true;
     const fragments: Buffer[] = [];
     let bytesSinceYield = 0;
 
@@ -116,7 +124,11 @@ export async function readConversationJsonl(
     };
     const finishLine = (): void => {
         if (initialPartial) {
+            if (discardingOversizedLine) {
+                oversizedLines += 1;
+            }
             initialPartial = false;
+            discardingOversizedLine = false;
             resetLine(readOffset);
             return;
         }
@@ -147,12 +159,18 @@ export async function readConversationJsonl(
         resetLine(readOffset);
     };
 
-    while (readOffset < endOffset) {
+    // A valid record may straddle the requested boundary.  Finish at most one
+    // such record (bounded by maxLineBytes); when it proves oversized, return
+    // a resumable discard cursor instead of repeatedly rewinding to its start.
+    while (readOffset < endOffset
+        || (readOffset < source.size && lineBytes > 0 && !oversized)) {
         checkAbort();
         checkDeadline();
+        const extendingPastBoundary = readOffset >= endOffset;
+        const readLimit = extendingPastBoundary ? source.size : endOffset;
         const length = Math.min(
             CONVERSATION_LIMITS.readChunkBytes,
-            endOffset - readOffset
+            readLimit - readOffset
         );
         const buffer = Buffer.alloc(length);
         const result = await source.handle.read(buffer, 0, length, readOffset);
@@ -160,7 +178,16 @@ export async function readConversationJsonl(
         if (result.bytesRead <= 0) {
             break;
         }
-        const chunk = buffer.subarray(0, result.bytesRead);
+        const rawChunk = buffer.subarray(0, result.bytesRead);
+        // Once a bounded scan crosses its requested boundary, consume only
+        // enough bytes to finish the in-progress physical line.  The rest of
+        // this kernel read stays for the next slice.
+        const boundaryNewline = extendingPastBoundary
+            ? rawChunk.indexOf(0x0a)
+            : -1;
+        const chunk = boundaryNewline < 0
+            ? rawChunk
+            : rawChunk.subarray(0, boundaryNewline + 1);
         let chunkIndex = 0;
         while (chunkIndex < chunk.length) {
             const newlineIndex = chunk.indexOf(0x0a, chunkIndex);
@@ -182,7 +209,7 @@ export async function readConversationJsonl(
         } else if (chunkIndex === chunk.length) {
             // The last byte was a newline and has already advanced readOffset.
         }
-        bytesSinceYield += result.bytesRead;
+        bytesSinceYield += chunk.length;
         if (bytesSinceYield >= CONVERSATION_LIMITS.yieldEveryBytes) {
             checkAbort();
             checkDeadline();
@@ -191,7 +218,7 @@ export async function readConversationJsonl(
             bytesSinceYield = 0;
         }
     }
-    if (!initialPartial && lineBytes && endOffset === source.size) {
+    if (!initialPartial && lineBytes && readOffset === source.size) {
         if (oversized) {
             oversizedLines += 1;
         } else {
@@ -212,9 +239,9 @@ export async function readConversationJsonl(
                 normalizedOptions.onRecord?.(record);
             }
         }
-    } else if (!initialPartial && lineBytes) {
-        // This is a bounded scan, not EOF.  Do not parse or report a partial
-        // physical line: the next slice starts at this exact line boundary.
+    } else if (!initialPartial && lineBytes && !oversized) {
+        // This is a bounded scan ending in a normal line. Rewind once so the
+        // next slice parses that complete record instead of dropping it.
         readOffset = lineStart;
     }
     return {
@@ -223,6 +250,9 @@ export async function readConversationJsonl(
         malformedLines,
         oversizedLines,
         partial: startOffset > 0,
+        ...((initialPartial || oversized) && readOffset < source.size
+            ? { discardInitialPartialLine: true }
+            : {}),
     };
 }
 

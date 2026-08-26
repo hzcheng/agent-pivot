@@ -242,6 +242,31 @@ test('SESSION-AI-SESSION-CONVERSATION-JSONL-008 reports valid records to an inte
     }
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-JSONL-009 stops only after the requested complete record', async t => {
+    const fixture = await createJsonlFixture(t, [
+        '{"kind":"first"}\n',
+        '{"kind":"second"}\n',
+        '{"kind":"third"}\n',
+    ]);
+    const source = await fixture.open();
+    try {
+        const result = await reader.readConversationJsonl(source, {
+            startOffset: 0,
+            onRecord(record) {
+                return record.value.kind === 'second';
+            },
+        });
+        assert.deepEqual(result.records.map(record => record.value.kind), [
+            'first', 'second',
+        ]);
+        assert.equal(result.nextOffset, Buffer.byteLength(
+            '{"kind":"first"}\n{"kind":"second"}\n'
+        ));
+    } finally {
+        await source.handle.close();
+    }
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-JSONL-011 retains an invalid unterminated tail until an append completes it', async t => {
     const completePrefix = '{"kind":"first"}\n';
     const partialTail = '{"kind":"par';

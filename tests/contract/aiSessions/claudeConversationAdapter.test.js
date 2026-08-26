@@ -156,6 +156,44 @@ test('CONVERSATION-HISTORY-RESTART-POINT-001 Claude restart points replay their 
     }
 });
 
+test('CONVERSATION-HISTORY-INDEX-SLICE-001 Claude advances immutable history slices only between proven restart points', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    const full = await readWholeConversation(adapter);
+    const snapshot = await adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(snapshot);
+
+    const interactionIds = [];
+    let startOffset = 0;
+    for (;;) {
+        const slice = await adapter.readHistoryIndexSlice(sessionId, {
+            ...snapshot,
+            startOffset,
+        });
+        assert.ok(slice);
+        interactionIds.push(...slice.interactions.map(item => item.id));
+        if (slice.complete) {
+            assert.equal(slice.nextOffset, undefined);
+            break;
+        }
+        assert.ok(Number.isSafeInteger(slice.nextOffset));
+        assert.ok(slice.nextOffset > startOffset);
+        startOffset = slice.nextOffset;
+    }
+    assert.deepEqual(interactionIds, full.outline.interactions.map(item => item.id));
+    assert.deepEqual(
+        (await adapter.readOutline(sessionId)).interactions,
+        full.outline.interactions,
+        'background replay must not mutate the foreground cache'
+    );
+    await fs.promises.appendFile(source.sourcePath, '\n');
+    assert.equal(await adapter.readHistoryIndexSlice(sessionId, {
+        ...snapshot,
+        startOffset: 0,
+    }), undefined, 'a changed source snapshot must reject a late slice');
+});
+
 test('CONVERSATION-HISTORY-RESTART-POINT-003 Claude seals an unsettled tool call before a later turn', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [

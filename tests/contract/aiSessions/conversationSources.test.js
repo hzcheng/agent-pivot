@@ -6,7 +6,12 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { openValidatedConversationSource, isConversationSourceContinuation } = require('../../../out/aiSessions/conversation/source');
+const {
+    digestConversationSourceSegment,
+    openValidatedConversationSource,
+    isConversationSourceContinuation,
+} = require('../../../out/aiSessions/conversation/source');
+const { ConversationAbortController } = require('../../../out/aiSessions/conversation/types');
 const KimiSessionService = require('../../../out/services/kimiSessionService').default;
 const CodexSessionService = require('../../../out/services/codexSessionService').default;
 const ClaudeSessionService = require('../../../out/services/claudeSessionService').default;
@@ -293,6 +298,49 @@ test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-005 rejects an in-place same-inode
     assert.equal(before.birthtimeMs, after.birthtimeMs);
     assert.equal(after.size >= before.size, true);
     assert.equal(await isConversationSourceContinuation(before, after), false);
+    await before.handle.close();
+    await after.handle.close();
+});
+
+test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-006 proves a whole retained prefix, not only its edges', async t => {
+    const sandbox = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'steward-conversation-prefix-proof-'));
+    t.after(() => fs.promises.rm(sandbox, { recursive: true, force: true }));
+    const providerHome = path.join(sandbox, 'provider-home');
+    const sourcePath = path.join(providerHome, 'conversation.jsonl');
+    const original = Buffer.concat([
+        Buffer.alloc(64 * 1024, 'a'),
+        Buffer.alloc(128 * 1024, 'b'),
+        Buffer.alloc(64 * 1024, 'c'),
+    ]);
+    await fs.promises.mkdir(providerHome, { recursive: true });
+    await fs.promises.writeFile(sourcePath, original);
+    const before = await openValidatedConversationSource({ providerHome, sourcePath });
+    const beforeDigest = await digestConversationSourceSegment(
+        before,
+        0,
+        before.size
+    );
+
+    const rewritten = Buffer.from(original);
+    rewritten.fill('x', 64 * 1024, 64 * 1024 + 128 * 1024);
+    await fs.promises.writeFile(sourcePath, rewritten);
+    await fs.promises.appendFile(sourcePath, Buffer.from('append'));
+    const after = await openValidatedConversationSource({ providerHome, sourcePath });
+    const afterDigest = await digestConversationSourceSegment(
+        after,
+        0,
+        before.size
+    );
+    const cancelled = new ConversationAbortController();
+    cancelled.abort();
+    assert.equal(await isConversationSourceContinuation(before, after), true);
+    assert.notEqual(afterDigest, beforeDigest);
+    assert.equal(await digestConversationSourceSegment(
+        after,
+        0,
+        before.size,
+        cancelled.signal
+    ), undefined);
     await before.handle.close();
     await after.handle.close();
 });

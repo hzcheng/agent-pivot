@@ -2676,7 +2676,10 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             this.stale = false;
             if (preserveSelection) {
-                if (!this.outlineController.contains(page.anchorInteractionId)) {
+                // A prepended page may be older than the bounded outline.
+                // Keep the current selection anchored in that outline rather
+                // than rejecting a perfectly valid, cursor-authorized page.
+                if (!this.outlineController.contains(preferredInteractionId)) {
                     await this.publishFailure(replaceDocument, updateKind);
                     return false;
                 }

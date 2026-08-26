@@ -725,6 +725,65 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundar
     viewer.dispose();
 });
 
+test('CONVERSATION-HISTORY-PAGING-001 prepends an indexed page older than the outline window', async () => {
+    const sessionId = 'indexed-history-boundary';
+    const olderInteractions = ['input-1', 'input-2'];
+    const recentInteractions = ['input-2001', 'input-2002'];
+    const { viewer, panel } = createViewer({
+        // The outline deliberately retains only the most recent window. The
+        // older page is valid via its opaque cursor but must not become the
+        // selected outline item merely because it was prepended.
+        readOutline: async () => outline(sessionId, recentInteractions, {
+            totalInteractions: 2_002,
+            partial: true,
+        }),
+        readPage: async request => request.direction === 'before'
+            ? page(sessionId, 'input-1', 'message', {
+                interactionIds: olderInteractions,
+                anchorInteractionId: 'input-1',
+            })
+            : {
+                ...page(sessionId, 'input-2002', 'message', {
+                    interactionIds: recentInteractions,
+                    anchorInteractionId: 'input-2002',
+                }),
+                previousCursor: 'indexed-cursor',
+                isStart: false,
+            },
+    });
+
+    await viewer.open(target(sessionId, 'input-2002'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+        requestId: initial.requestId,
+        htmlSignature: initial.htmlSignature,
+    });
+    await panel.receive({
+        type: 'conversation-viewer-load-earlier',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: initial.subscriptionGeneration,
+    });
+    for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+        const latest = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).at(-1);
+        if (latest?.html?.includes('data-message-id="input-1:user"')) {
+            break;
+        }
+    }
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.match(publication.html, /data-message-id="input-1:user"/);
+    assert.equal(publication.selectedInteractionId, 'input-2002');
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 settles a stalled earlier-page read', async () => {
     const sessionId = 'progressive-boundary-timeout';
     const interactionIds = ['input-1', 'input-2'];

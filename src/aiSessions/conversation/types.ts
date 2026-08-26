@@ -12,6 +12,12 @@ import type {
 export const CONVERSATION_LIMITS = Object.freeze({
     previewGraphemes: 160,
     maxOutlineInteractions: 2_000,
+    // Background history paging has its own bounded store. This is larger
+    // than the outline window because it backs older pages, but it must not
+    // turn a very large transcript into an unbounded host-memory cache.
+    maxHistoryIndexInteractions: 10_000,
+    maxHistoryIndexBytes: 32 * 1024 * 1024,
+    historyIndexSliceBytes: 4 * 1024 * 1024,
     maxHistoryRestartPointIdLength: 256,
     maxPageInteractions: 20,
     maxPageBytes: 512 * 1024,
@@ -457,7 +463,52 @@ export interface ConversationHistoryRestartSnapshot {
     sourceSize: number;
     sourceRevision: string;
     reducerVersion: 1;
+    /** Stable file-instance identity, excluding normal append metadata. */
+    sourceEpoch: string;
+    /** Hashes of the snapshot's old prefix edges for append verification. */
+    sourceFirstHash: string;
+    sourceLastHash: string;
+    /** Set only after the adapter proved this source extends this exact index. */
+    continuationOf?: {
+        sourceIdentity: string;
+        sourceSize: number;
+        sourceRevision: string;
+        reducerVersion: 1;
+    };
     points: ConversationHistoryRestartPoint[];
+}
+
+/** A provider-owned replay request. The generic indexer never interprets
+ * provider JSONL; it only asks a reducer to advance between proven points. */
+export interface ConversationHistoryIndexSliceRequest {
+    sourceIdentity: string;
+    sourceSize: number;
+    sourceRevision: string;
+    reducerVersion: 1;
+    /** Zero, or the offset of a restart point returned by the same snapshot. */
+    startOffset: number;
+}
+
+/** One immutable, restart-safe prefix segment produced by a provider reducer. */
+export interface ConversationHistoryIndexSlice {
+    sourceIdentity: string;
+    sourceSize: number;
+    sourceRevision: string;
+    reducerVersion: 1;
+    startOffset: number;
+    /** The next slice must start here; it is a proven restart point. */
+    nextOffset?: number;
+    /** Identity of that exact restart point, when nextOffset is present. */
+    restartInteractionId?: string;
+    /** Physical-record proof for that restart point, never sent to the UI. */
+    restartRecordEndOffset?: number;
+    restartRecordDigest?: string;
+    /** Digest of the entire committed byte segment for this slice. */
+    restartSegmentDigest?: string;
+    interactions: ConversationInteraction[];
+    complete: boolean;
+    /** The bounded reader reached its budget before another safe boundary. */
+    blocked?: boolean;
 }
 
 export interface ConversationAbortSignal {
@@ -533,6 +584,11 @@ export interface ConversationProviderAdapter extends AiSessionDisposable {
     getHistoryRestartPoints?(
         sessionId: string
     ): Promise<ConversationHistoryRestartSnapshot | undefined>;
+    readHistoryIndexSlice?(
+        sessionId: string,
+        request: ConversationHistoryIndexSliceRequest,
+        signal?: ConversationAbortSignal
+    ): Promise<ConversationHistoryIndexSlice | undefined>;
     readSubagents?(
         sessionId: string,
         signal?: ConversationAbortSignal

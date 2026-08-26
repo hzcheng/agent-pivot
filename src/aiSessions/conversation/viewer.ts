@@ -741,6 +741,17 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!this.panel) {
             return false;
         }
+        if (this.target && hasSameConversationViewerTarget(this.target, target)) {
+            // The target is already authoritative. A duplicate dashboard
+            // intent has no new state to apply, so do not re-read or
+            // re-render the retained conversation. It may arrive after a
+            // preflight for another target, however; cancel that preview so
+            // the authoritative document becomes interactive immediately.
+            if (this.preflightPreview) {
+                this.cancelPreflightPreview(this.preflightPreview);
+            }
+            return true;
+        }
         // A dashboard-driven follow for the same session must not yank the
         // user out of a subagent transcript they deliberately opened.
         if (this.target?.subagent
@@ -3876,6 +3887,21 @@ function hasSameConversationSessionTarget(
     return left.projectId === right.projectId
         && left.provider === right.provider
         && left.sessionId === right.sessionId;
+}
+
+function hasSameConversationViewerTarget(
+    left: ConversationViewerTarget,
+    right: ConversationViewerTarget
+): boolean {
+    return hasSameConversationSessionTarget(left, right)
+        && left.workspaceName === right.workspaceName
+        && left.interactionId === right.interactionId
+        && left.expectedRevision === right.expectedRevision
+        && left.displayName === right.displayName
+        && left.duplicateDisplayName === right.duplicateDisplayName
+        && left.taskName === right.taskName
+        && left.subagent?.id === right.subagent?.id
+        && left.subagent?.label === right.subagent?.label;
 }
 
 function sameSubagents(

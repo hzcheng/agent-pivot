@@ -25,6 +25,11 @@ export class ToolCallTracker {
         return this.pending.size > 0;
     }
 
+    /** A provider-proved terminal boundary makes older pairings orphaned. */
+    discardPending(): void {
+        this.pending.clear();
+    }
+
     begin(
         interaction: ToolCallInteraction,
         key: string | undefined,

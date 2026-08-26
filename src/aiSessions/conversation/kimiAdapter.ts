@@ -44,6 +44,7 @@ import {
     ConversationError,
     ConversationFileDiff,
     ConversationHistoryRestartPoint,
+    ConversationHistoryRestartSnapshot,
     ConversationInteraction,
     ConversationOutline,
     ConversationPage,
@@ -623,10 +624,15 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
     /** Provider-owned candidates for the persistent history indexer. */
     getHistoryRestartPoints(
         sessionId: string
-    ): ConversationHistoryRestartPoint[] {
-        return this.cache.get(sessionId)?.restartPoints.map(point => ({
-            ...point,
-        })) || [];
+    ): ConversationHistoryRestartSnapshot | undefined {
+        const entry = this.cache.get(sessionId);
+        return entry && {
+            sourceIdentity: entry.source.identity,
+            sourceSize: entry.source.size,
+            sourceRevision: `r${entry.revision}`,
+            reducerVersion: 1,
+            points: entry.restartPoints.map(point => ({ ...point })),
+        };
     }
 
     private load(
@@ -701,16 +707,14 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             );
             const continuing = Boolean(previous)
                 && startOffset === previous.nextOffset;
-            // Restart offsets are only valid for the exact source snapshot
-            // that produced them. An append may reuse reducer state after the
-            // continuation check, but it must rediscover restart points: the
-            // source identity changed and cannot prove an arbitrary prefix
-            // was not rewritten in place.
+            // `continuing` verifies the old prefix before reducer state is
+            // reused, so its restart points remain valid across an append.
+            // A replacement or truncation fails that proof and starts a new
+            // discovery epoch.
             let restartPoints: ConversationHistoryRestartPoint[] = continuing
-                && previous?.source.identity === source.identity
                 ? previous.restartPoints
                 : [];
-            let ownsRestartPoints = restartPoints.length === 0;
+            let ownsRestartPoints = !continuing;
             const addRestartPoint = (
                 point: ConversationHistoryRestartPoint
             ): void => {
@@ -822,6 +826,12 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                                 'interrupted';
                             openInteractionIndex = undefined;
                         }
+                        // A following TurnBegin seals the former interaction.
+                        // Its late tool/question/approval results can no
+                        // longer affect this replay boundary.
+                        toolTracker.discardPending();
+                        questionTracker.clear();
+                        approvalTracker.clear();
                         const id = interactionId(
                             sessionId,
                             record.offset,
@@ -1191,6 +1201,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     || event.type === 'TurnInterrupted') {
                     stampActivity(envelope);
                     finishInteraction('interrupted');
+                    toolTracker.discardPending();
+                    questionTracker.clear();
+                    approvalTracker.clear();
                 }
             };
             const finishInteraction = (

@@ -450,6 +450,16 @@ export interface ConversationHistoryRestartPoint {
     interactionId: string;
 }
 
+/** Sparse candidates atomically bound to the source snapshot that produced
+ * them. Consumers must not carry offsets across a different identity. */
+export interface ConversationHistoryRestartSnapshot {
+    sourceIdentity: string;
+    sourceSize: number;
+    sourceRevision: string;
+    reducerVersion: 1;
+    points: ConversationHistoryRestartPoint[];
+}
+
 export interface ConversationAbortSignal {
     readonly aborted: boolean;
     onAbort(listener: () => void): AiSessionDisposable;
@@ -519,10 +529,10 @@ export interface ConversationProviderAdapter extends AiSessionDisposable {
         request: ConversationPageRequest,
         signal?: ConversationAbortSignal
     ): Promise<ConversationPage>;
-    /** Host-local sparse restart candidates for local JSONL providers. */
+    /** Host-local sparse restart candidates bound to one source snapshot. */
     getHistoryRestartPoints?(
         sessionId: string
-    ): ConversationHistoryRestartPoint[];
+    ): ConversationHistoryRestartSnapshot | undefined;
     readSubagents?(
         sessionId: string,
         signal?: ConversationAbortSignal

@@ -41,6 +41,7 @@ import {
     ConversationError,
     ConversationFileDiff,
     ConversationHistoryRestartPoint,
+    ConversationHistoryRestartSnapshot,
     ConversationInteraction,
     ConversationOutline,
     ConversationPage,
@@ -596,10 +597,15 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
     /** Provider-owned candidates for the persistent history indexer. */
     getHistoryRestartPoints(
         sessionId: string
-    ): ConversationHistoryRestartPoint[] {
-        return this.cache.get(sessionId)?.restartPoints.map(point => ({
-            ...point,
-        })) || [];
+    ): ConversationHistoryRestartSnapshot | undefined {
+        const entry = this.cache.get(sessionId);
+        return entry && {
+            sourceIdentity: entry.source.identity,
+            sourceSize: entry.source.size,
+            sourceRevision: `r${entry.revision}`,
+            reducerVersion: 1,
+            points: entry.restartPoints.map(point => ({ ...point })),
+        };
     }
 
     private load(
@@ -673,14 +679,12 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
             );
             const continuing = Boolean(previous)
                 && startOffset === previous.nextOffset;
-            // See Kimi's equivalent guard: reducer continuation is safe for
-            // a verified append, while sparse restart offsets are not trusted
-            // after any source identity change.
+            // See Kimi's equivalent guard. `continuing` verifies the old
+            // prefix before reducer state and sparse candidates are reused.
             let restartPoints: ConversationHistoryRestartPoint[] = continuing
-                && previous?.source.identity === source.identity
                 ? previous.restartPoints
                 : [];
-            let ownsRestartPoints = restartPoints.length === 0;
+            let ownsRestartPoints = !continuing;
             const addRestartPoint = (
                 point: ConversationHistoryRestartPoint
             ): void => {
@@ -757,6 +761,8 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     && isUserInterrupt(message.content)) {
                     finishInteraction('interrupted');
                     timeoutOpenInteractionIndex = undefined;
+                    toolTracker.discardPending();
+                    questionTracker.clear();
                 } else if (event.type === 'user'
                     && message?.role === 'user'
                     && openInteractionIndex !== undefined
@@ -805,6 +811,11 @@ export class ClaudeConversationAdapter implements ConversationProviderAdapter {
                     }
                     finishInteraction();
                     timeoutOpenInteractionIndex = undefined;
+                    // A new visible user record seals the former turn. Any
+                    // still-unpaired tool/question is orphaned rather than a
+                    // dependency of this replay boundary.
+                    toolTracker.discardPending();
+                    questionTracker.clear();
                     if (interactions.some(
                         interaction => interaction.id === event.uuid
                     )) {

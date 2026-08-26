@@ -116,45 +116,47 @@ test('CONVERSATION-HISTORY-RESTART-POINT-001 Claude restart points replay their 
     const adapter = createAdapter(source);
     t.after(() => adapter.dispose());
     const full = await readWholeConversation(adapter);
-    const points = adapter.getHistoryRestartPoints(sessionId);
+    const restartSnapshot = adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(restartSnapshot);
+    const { points } = restartSnapshot;
     assert.ok(points.length >= 2);
-    const point = points[1];
-    const start = full.outline.interactions.findIndex(
-        item => item.id === point.interactionId
-    );
-    assert.ok(start >= 0);
-
-    const suffixPath = await restartSuffix(t, source.sourcePath, point.offset);
-    const suffixAdapter = createAdapter({
-        providerHome: source.providerHome,
-        sourcePath: suffixPath,
-    });
-    t.after(() => suffixAdapter.dispose());
-    const suffix = await readWholeConversation(suffixAdapter);
-    const suffixInteractionIds = new Set(
-        full.outline.interactions.slice(start).map(item => item.id)
-    );
-    assert.deepEqual(
-        suffix.outline.interactions,
-        full.outline.interactions.slice(start)
-    );
-    assert.deepEqual(
-        {
-            messages: suffix.page.messages,
-            interactionStates: suffix.page.interactionStates,
-        },
-        {
-            messages: full.page.messages.filter(message =>
-                suffixInteractionIds.has(message.interactionId)
-            ),
-            interactionStates: full.page.interactionStates.filter(state =>
-                suffixInteractionIds.has(state.interactionId)
-            ),
-        }
-    );
+    for (const point of points) {
+        const start = full.outline.interactions.findIndex(
+            item => item.id === point.interactionId
+        );
+        assert.ok(start >= 0);
+        const suffixPath = await restartSuffix(t, source.sourcePath, point.offset);
+        const suffixAdapter = createAdapter({
+            providerHome: source.providerHome,
+            sourcePath: suffixPath,
+        });
+        t.after(() => suffixAdapter.dispose());
+        const suffix = await readWholeConversation(suffixAdapter);
+        const suffixInteractionIds = new Set(
+            full.outline.interactions.slice(start).map(item => item.id)
+        );
+        assert.deepEqual(
+            suffix.outline.interactions,
+            full.outline.interactions.slice(start)
+        );
+        assert.deepEqual(
+            {
+                messages: suffix.page.messages,
+                interactionStates: suffix.page.interactionStates,
+            },
+            {
+                messages: full.page.messages.filter(message =>
+                    suffixInteractionIds.has(message.interactionId)
+                ),
+                interactionStates: full.page.interactionStates.filter(state =>
+                    suffixInteractionIds.has(state.interactionId)
+                ),
+            }
+        );
+    }
 });
 
-test('CONVERSATION-HISTORY-RESTART-POINT-003 Claude does not publish a point across an unsettled tool call', async t => {
+test('CONVERSATION-HISTORY-RESTART-POINT-003 Claude seals an unsettled tool call before a later turn', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [
         {
@@ -172,6 +174,16 @@ test('CONVERSATION-HISTORY-RESTART-POINT-003 Claude does not publish a point acr
                     id: 'pending-tool',
                     name: 'Bash',
                     input: { command: 'pwd' },
+                }, {
+                    type: 'tool_use',
+                    id: 'pending-question',
+                    name: 'AskUserQuestion',
+                    input: {
+                        questions: [{
+                            question: 'Continue?',
+                            options: [{ label: 'Yes' }],
+                        }],
+                    },
                 }],
             },
         },
@@ -189,9 +201,28 @@ test('CONVERSATION-HISTORY-RESTART-POINT-003 Claude does not publish a point acr
 
     await adapter.readOutline(sessionId);
     assert.deepEqual(
-        adapter.getHistoryRestartPoints(sessionId).map(point => point.interactionId),
-        ['restart-before-tool']
+        adapter.getHistoryRestartPoints(sessionId).points.map(point => point.interactionId),
+        ['restart-before-tool', 'restart-after-tool']
     );
+});
+
+test('CONVERSATION-HISTORY-RESTART-POINT-004 Claude keeps restart points across a verified non-turn append', async t => {
+    const source = await createFixture(t);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+
+    await adapter.readOutline(sessionId);
+    const before = adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(before?.points.length);
+    await fs.promises.appendFile(source.sourcePath, `${JSON.stringify({
+        type: 'summary',
+        summary: 'host-only status record',
+    })}\n`);
+    await adapter.readOutline(sessionId);
+    const after = adapter.getHistoryRestartPoints(sessionId);
+    assert.ok(after);
+    assert.notEqual(after.sourceIdentity, before.sourceIdentity);
+    assert.deepEqual(after.points, before.points);
 });
 
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Claude accepts canonical string content without exposing hidden records', async t => {
@@ -724,7 +755,7 @@ test('SESSION-AI-SESSION-CLAUDE-CONVERSATION-007 changes revision after a same-s
     assert.equal(rebuilt.interactions[0].userPreview, 'Bravo');
     assert.notEqual(rebuilt.sourceRevision, first.sourceRevision);
     assert.deepEqual(
-        adapter.getHistoryRestartPoints(sessionId),
+        adapter.getHistoryRestartPoints(sessionId).points,
         [{
             offset: 0,
             interactionId: 'claude-rewritten-next',

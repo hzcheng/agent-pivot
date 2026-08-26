@@ -125,6 +125,24 @@ function validateChromiumInstall(job) {
     'quality-linux must install only the Chromium headless shell with three bounded retries');
 }
 
+function validatePrMetadataPreflight(jobs) {
+    const job = jobs['pr-metadata'];
+    assert.ok(isMapping(job), 'GitHub verification workflow must define pr-metadata');
+    assert.equal(job.name, 'pr-metadata', 'pr-metadata must expose a stable check name');
+    assert.equal(job['runs-on'], 'ubuntu-latest', 'pr-metadata must use ubuntu-latest');
+    assert.equal(job['timeout-minutes'], 2, 'pr-metadata must have a short timeout');
+    assert.ok(findStep(job, step => isMapping(step) && step.uses === 'actions/checkout@v4'),
+        'pr-metadata must checkout the PR head');
+    assert.equal(findStep(job, step => isMapping(step)
+        && step.name === 'Check PR body conventions')?.run,
+    'node scripts/check-pr-body.js',
+    'pr-metadata must run the PR body validator directly');
+    assert.equal(findStep(job, step => isMapping(step) && step.run === 'npm ci'), undefined,
+        'pr-metadata must run before dependency installation');
+    assert.equal(jobs['quality-linux'].needs, 'pr-metadata',
+        'quality-linux must wait for the PR metadata preflight');
+}
+
 function validateVerifyWorkflow(verifyWorkflow) {
     const workflow = parseVerifyWorkflow(verifyWorkflow);
     validateTriggers(workflow);
@@ -137,6 +155,7 @@ function validateVerifyWorkflow(verifyWorkflow) {
     assert.equal(workflow.concurrency['cancel-in-progress'], true,
         'GitHub verification workflow must cancel in-progress runs');
     assert.ok(isMapping(workflow.jobs), 'GitHub verification workflow jobs must be a mapping');
+    validatePrMetadataPreflight(workflow.jobs);
     validateJob(
         workflow.jobs,
         'quality-linux',

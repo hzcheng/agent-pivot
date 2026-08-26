@@ -19,8 +19,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pr-metadata:
+    name: pr-metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check PR body conventions
+        if: github.event_name == 'pull_request'
+        run: node scripts/check-pr-body.js
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
   quality-linux:
     name: quality-linux
+    needs: pr-metadata
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -50,13 +65,6 @@ jobs:
         run: npm run test:ci:linux
         env:
           COVERAGE_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
-      - name: Check PR body conventions
-        if: github.event_name == 'pull_request'
-        run: node scripts/check-pr-body.js
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-
   platform-windows:
     name: platform-windows
     runs-on: windows-latest

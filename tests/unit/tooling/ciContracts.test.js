@@ -67,6 +67,15 @@ test('RELEASE-VSIX-PACKAGING-001 accepts the unquoted GitHub Actions on key', ()
     assert.doesNotThrow(() => validateVerifyWorkflow(verifyWorkflow));
 });
 
+test('RELEASE-VSIX-PACKAGING-001 requires PR metadata validation before dependency installation', () => {
+    const noPreflightWorkflow = verifyWorkflow.replace(/\n  pr-metadata:[\s\S]*?\n  quality-linux:/,
+        '\n  quality-linux:');
+    assert.throws(
+        () => validateVerifyWorkflow(noPreflightWorkflow),
+        /must define pr-metadata/
+    );
+});
+
 test('RUNTIME-REAL-TMUX-CI-GATE-001 requires a stable real-tmux smoke job', () => {
     const missingTmuxJobWorkflow = verifyWorkflow.replace(/\n  tmux-smoke-linux:[\s\S]*$/, '');
     assert.throws(
@@ -127,8 +136,8 @@ test('RELEASE-VSIX-PACKAGING-001 rejects workflow requirements that appear only 
 
 test('RELEASE-VSIX-PACKAGING-001 rejects a Linux gate assigned to the Windows runner', () => {
     const wrongRunnerWorkflow = verifyWorkflow.replace(
-        'runs-on: ubuntu-latest',
-        'runs-on: windows-latest'
+        '  quality-linux:\n    name: quality-linux\n    needs: pr-metadata\n    runs-on: ubuntu-latest',
+        '  quality-linux:\n    name: quality-linux\n    needs: pr-metadata\n    runs-on: windows-latest'
     );
 
     assert.throws(

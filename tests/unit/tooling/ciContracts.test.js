@@ -76,6 +76,17 @@ test('RELEASE-VSIX-PACKAGING-001 requires PR metadata validation before dependen
     );
 });
 
+test('RELEASE-VSIX-PACKAGING-001 requires static repository checks before dependency installation', () => {
+    const noStaticPreflightWorkflow = verifyWorkflow.replace(
+        /\n  static-preflight:[\s\S]*?\n  quality-linux:/,
+        '\n  quality-linux:'
+    );
+    assert.throws(
+        () => validateVerifyWorkflow(noStaticPreflightWorkflow),
+        /must define static-preflight/
+    );
+});
+
 test('RUNTIME-REAL-TMUX-CI-GATE-001 requires a stable real-tmux smoke job', () => {
     const missingTmuxJobWorkflow = verifyWorkflow.replace(/\n  tmux-smoke-linux:[\s\S]*$/, '');
     assert.throws(
@@ -136,8 +147,8 @@ test('RELEASE-VSIX-PACKAGING-001 rejects workflow requirements that appear only 
 
 test('RELEASE-VSIX-PACKAGING-001 rejects a Linux gate assigned to the Windows runner', () => {
     const wrongRunnerWorkflow = verifyWorkflow.replace(
-        '  quality-linux:\n    name: quality-linux\n    needs: pr-metadata\n    runs-on: ubuntu-latest',
-        '  quality-linux:\n    name: quality-linux\n    needs: pr-metadata\n    runs-on: windows-latest'
+        '  quality-linux:\n    name: quality-linux\n    needs: [pr-metadata, static-preflight]\n    runs-on: ubuntu-latest',
+        '  quality-linux:\n    name: quality-linux\n    needs: [pr-metadata, static-preflight]\n    runs-on: windows-latest'
     );
 
     assert.throws(

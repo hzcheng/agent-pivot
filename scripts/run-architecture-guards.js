@@ -1807,14 +1807,80 @@ const guards = {
             ).length !== 1
             || callArguments(
                 dashboardClickNavigator.initializer,
-                'conversationCapability.followActiveConversation',
+                'conversationCapability.prepareActiveConversation',
             ).length !== 1
             || callArguments(
                 dashboardClickNavigator.initializer,
-                'conversationCapability.openLatestActiveConversation',
+                'preparedConversation.apply',
+            ).length !== 1
+            || callArguments(
+                dashboardClickNavigator.initializer,
+                'preparedConversation.cancel',
             ).length !== 1) {
             fail(this.id, risk,
-                'Dashboard Chat-row clicks must use the shared latest-intent navigation transaction');
+                'Dashboard Chat-row clicks must prepare once, then commit only through the shared latest-intent navigation transaction');
+        }
+        const focusCall = uniqueAstNode(
+            dashboardClickNavigator.initializer,
+            node => ts.isCallExpression(node)
+                && node.expression.getText(dashboard) === 'aiSessionTerminalCommandController.focusActive',
+            this.id,
+            risk,
+            'Dashboard Chat-row terminal focus call'
+        );
+        const preparedApply = uniqueAstNode(
+            dashboardClickNavigator.initializer,
+            node => ts.isCallExpression(node)
+                && node.expression.getText(dashboard) === 'preparedConversation.apply',
+            this.id,
+            risk,
+            'Dashboard Chat-row prepared Viewer apply'
+        );
+        let guardedBySuccessfulFocus = false;
+        for (let parent = preparedApply.parent; parent; parent = parent.parent) {
+            if (ts.isIfStatement(parent)
+                && normalizedAstText(parent.expression, dashboard)
+                    === 'focused && intent === conversationNavigationIntent') {
+                guardedBySuccessfulFocus = true;
+                break;
+            }
+        }
+        if (!guardedBySuccessfulFocus
+            || focusCall.getStart(dashboard) >= preparedApply.getStart(dashboard)) {
+            fail(this.id, risk,
+                'Dashboard Chat-row prepared Viewer apply must occur after successful current-intent terminal focus');
+        }
+        const preparedCancel = uniqueAstNode(
+            dashboardClickNavigator.initializer,
+            node => ts.isCallExpression(node)
+                && node.expression.getText(dashboard) === 'preparedConversation.cancel',
+            this.id,
+            risk,
+            'Dashboard Chat-row prepared Viewer cancel'
+        );
+        let cancelGuardedByUncommittedFinally = false;
+        for (let parent = preparedCancel.parent; parent; parent = parent.parent) {
+            if (!ts.isIfStatement(parent)
+                || normalizedAstText(parent.expression, dashboard)
+                    !== '!conversationApplied') {
+                continue;
+            }
+            for (let ancestor = parent.parent; ancestor; ancestor = ancestor.parent) {
+                if (ts.isTryStatement(ancestor)
+                    && ancestor.finallyBlock
+                    && ancestor.finallyBlock.pos <= parent.pos
+                    && parent.end <= ancestor.finallyBlock.end) {
+                    cancelGuardedByUncommittedFinally = true;
+                    break;
+                }
+            }
+            if (cancelGuardedByUncommittedFinally) {
+                break;
+            }
+        }
+        if (!cancelGuardedByUncommittedFinally) {
+            fail(this.id, risk,
+                'Dashboard Chat-row prepared Viewer cancel must remain in the uncommitted finally branch');
         }
     },
 

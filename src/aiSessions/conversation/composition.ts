@@ -577,8 +577,8 @@ function createAvailableConversationCapability(
                 if (viewerLoadRecorded || !followed) {
                     return;
                 }
-                const current = viewer.getCurrentTarget();
-                if (!current || !hasSameConversationSession(
+                const current = viewer.getCurrentTarget?.();
+                if (current && !hasSameConversationSession(
                     current,
                     resolution.viewerTarget
                 )) {
@@ -943,8 +943,8 @@ async function openLatestConversation(
             if (viewerLoadRecorded) {
                 return;
             }
-            const current = viewer.getCurrentTarget();
-            if (!current || !hasSameConversationSession(
+            const current = viewer.getCurrentTarget?.();
+            if (current && !hasSameConversationSession(
                 current,
                 resolution.viewerTarget
             )) {

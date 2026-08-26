@@ -32,6 +32,8 @@ export interface GroupCreationRepositoryOption {
     defaultBaseRef: string;
     /** Local branch short names; the remembered base is not repeated here. */
     localBranches: string[];
+    /** Remote-tracking branch short names, including their remote (for example origin/main). */
+    remoteBranches: string[];
     defaultChecked: boolean;
     setupCommand: string[];
 }
@@ -89,6 +91,8 @@ export interface WorktreeGroupCreationControllerOptions {
     ) => { workspace: OpenWorkspace } | null;
     getWorktreeSnapshot: () => WorktreeSnapshot | null;
     listLocalBranches: (commandCwd: string) => Promise<string[]>;
+    /** Optional while older Host integrations migrate; absent means no remote candidates. */
+    listRemoteBranches?: (commandCwd: string) => Promise<string[]>;
     isBranchAvailable: (commandCwd: string, branchName: string) => Promise<boolean>;
     isPathAvailable: (worktreePath: string) => Promise<boolean>;
     preflightPlan: (
@@ -220,18 +224,20 @@ export class WorktreeGroupCreationController {
             : undefined;
         return Promise.all(repositories.map(async (repository, index) => {
             const commandCwd = repositoryCommandCwd(repository);
-            let localBranches: string[] = [];
-            try {
-                localBranches = await this.options.listLocalBranches(commandCwd);
-            } catch (_error) {
-                // A repository that cannot list branches still appears; its
-                // preflight reports the concrete blocker.
-            }
+            const [localBranches, remoteBranches] = await Promise.all([
+                this.options.listLocalBranches(commandCwd).catch(() => []),
+                this.options.listRemoteBranches
+                    ? this.options.listRemoteBranches(commandCwd).catch(() => [])
+                    : Promise.resolve([]),
+            ]);
+            // A repository whose remote-ref query fails still exposes its
+            // local bases; preflight reports any later Git blocker.
             return {
                 repositoryKey: repository.repositoryKey,
                 label: repositoryLabel(repository),
                 defaultBaseRef: repository.baseRef || '',
                 localBranches,
+                remoteBranches,
                 defaultChecked: activeRepositoryKey
                     ? repository.repositoryKey === activeRepositoryKey
                     : index === 0,

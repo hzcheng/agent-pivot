@@ -165,7 +165,7 @@ ready → deleting → deleted（从 manifest 移除）
 1. 入口：tab 行图标按钮 / 组行 ⋯ 菜单（派生，见 §6.2）/ Current 锚点不出现建组入口（其 + 按钮只建主 checkout 普通 session，见 §4）。**Unmanaged 行的"从此分支新建 worktree"也被表单吸收**：打开表单、预选该仓库、基准预填该分支——不保留 QuickPick 旧流程，避免两套创建入口语义漂移。触发后在**列表顶部就地展开创建卡片**，不遮挡既有列表；**表单同时只允许一个实例**（新建入口在表单打开期间禁用；既有组内 failed member 的 Retry 不阻塞新建）。Esc 或收起按钮放弃且不产生任何副作用，再次打开时保留上次未提交的输入。
 2. 输入组名（建议 slug 生成规则见 §5.2）；**预览随输入实时更新**（slug、各 member 的路径与分支名即时反映）。
 3. 名称下方直接渲染**创建预览**，逐 member 一行，完整展示全部物理副作用：
-   - 目标仓库（可取消勾选）与基准分支（可搜索下拉覆盖，第一版列本地分支 + 记忆的基准，不含 remote-only 分支；排序：记忆的基准置顶，其余字母序，不设上限）；
+   - 目标仓库（可取消勾选）与基准分支（可搜索下拉覆盖，列本地分支、已 fetch 的 remote-tracking 分支与记忆的基准；远端候选是上次 fetch 的快照，创建不自动 fetch；排序：记忆的基准置顶，其余字母序）；
    - 将创建的路径与**本地分支名**；
    - 将执行的 **setup command**：**按仓库维度解析配置**（resource-scoped，跨仓库组常同时包含 Node/Java/Go 仓库，全局单一命令不适用；这要求 `agentPivot.worktreeSetupCommand` 的注册 scope 为 `machine-overridable`，见 §11），预览中可**逐 member 禁用**；"无 setup 配置"与"setup 对该仓库不适用"分别明确表达；
    - 哪个 member 是组 session 的 **primary cwd**（可切换，仅 ready 后生效）；
@@ -324,7 +324,7 @@ WORKTREES | CHATS                          [collapse-all] [new]
 | 组 session 启动与 **scope 收紧（M1）** | `isolatedSessionController` / `sessionScope` | cwd = primary ready member；`writableRootHostPaths` 与 provider additional dirs 只含 ready member 路径（**收紧现有 workspace-roots 填充**，承诺 2，须入行为契约）；resume 按当前 member 重建；存量运行中 session 标 "Legacy workspace scope" |
 | 组级/member 级删除 | `managedWorktreeRemovalController` / `removalProtocol` + 新增删除 journal（manifest aggregate 内） | 预检门禁（逐 member `isActive` + clean-check，任一阻断不开始）+ 逐成员执行（承认 `partial`，不回滚，残余 + Retry）；journal 副作用前冻结快照 + 容量预占 + 重启对账（§6.4）；脱离 member 双动作；retired identity 与世代模型接管历史 session 标记；mutation lease + admission mutex |
 | 组 → 组 Merge | manifest store + 投影 | M1 交付迁移建议合并的最小版本；M3 交付任意 Adopt/Merge；冲突阻断（不变式二） |
-| Webview UI | `webviewContent.ts` / `media/` | 锚点行、组行、member 摘要/详情行、创建预览表单（完整副作用 + 预检 + "仅创建可用成员"；基准下拉数据源为 `git for-each-ref` 本地分支 + 记忆基准，§6.1）、Adopt / Merge 勾选界面、a11y |
+| Webview UI | `webviewContent.ts` / `media/` | 锚点行、组行、member 摘要/详情行、创建预览表单（完整副作用 + 预检 + "仅创建可用成员"；基准下拉数据源为 `git for-each-ref` 本地分支、已 fetch 的 remote-tracking 分支 + 记忆基准，§6.1）、Adopt / Merge 勾选界面、a11y |
 
 session 归属的 cwd 匹配机制不变；聚合投影把物理 worktree 归到组行。切换 session 命令的视图跟随改为指向组行。
 

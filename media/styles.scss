@@ -3811,6 +3811,7 @@ body.steward-sidebar {
 
             .ai-session-group-form-base {
                 max-width: 140px;
+                overflow: hidden;
                 padding: 1px 6px;
                 background: var(--vscode-dropdown-background, var(--vscode-input-background));
                 color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
@@ -3820,6 +3821,15 @@ body.steward-sidebar {
                 font-size: 9px;
                 cursor: pointer;
                 text-align: left;
+                text-overflow: ellipsis;
+                vertical-align: bottom;
+                white-space: nowrap;
+            }
+
+            .ai-session-group-form-remote-hint {
+                margin-top: 4px;
+                color: var(--vscode-descriptionForeground);
+                font-size: 9px;
             }
 
             .ai-session-group-form-base-combobox {
@@ -3874,6 +3884,12 @@ body.steward-sidebar {
                     .ai-session-group-form-base-empty {
                         color: var(--vscode-descriptionForeground);
                         cursor: default;
+                    }
+
+                    .ai-session-group-form-base-limit {
+                        color: var(--vscode-descriptionForeground);
+                        cursor: default;
+                        font-style: italic;
                     }
                 }
             }

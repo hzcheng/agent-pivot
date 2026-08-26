@@ -157,7 +157,6 @@ function validateStaticPreflight(jobs) {
         'node --test tests/unit/tooling/conversationReleaseJourneys.test.js',
         'node scripts/check-conversation-release-journeys.js',
         'node scripts/run-performance-architecture-baseline-checks.js',
-        'node scripts/run-architecture-guards.js',
         'node scripts/run-release-notes-checks.js',
         '',
     ].join('\n'), 'static-preflight must run only checkout-safe repository checks');

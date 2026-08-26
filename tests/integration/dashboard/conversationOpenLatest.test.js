@@ -259,7 +259,9 @@ function createHarness(options = {}) {
         createViewer: viewerOptions => {
             capturedViewerOptions = viewerOptions;
             return {
-                isOpen: () => options.viewerOpen === true,
+                isOpen: () => typeof options.getViewerOpen === 'function'
+                    ? options.getViewerOpen() === true
+                    : options.viewerOpen === true,
                 getCurrentTarget: () => (
                     options.getCurrentViewerTarget?.()
                     || options.getFocusedViewerTarget?.()
@@ -985,13 +987,20 @@ test('CONVERSATION-SWITCH-LATENCY-002 starts a prepared snapshot before terminal
     const harness = createHarness({
         enableSnapshots: true,
         requireSnapshot: true,
+        viewerOpen: true,
+        initialViewerTarget: {
+            projectId: 'project-a', provider: 'kimi', workspaceName: '',
+            sessionId: 'session-before', interactionId: 'input-before', expectedRevision: 'r1',
+            displayName: 'session-before', duplicateDisplayName: false,
+        },
         readSnapshot: () => delayedSnapshot.promise,
+        previewSession: () => ({ dispose() {} }),
     });
     const prepared = harness.capability.prepareActiveConversation({
         projectId: 'project-a',
         provider: 'codex',
         sessionId: 'session-a',
-    }, true);
+    }, false);
     const navigation = (async () => {
         await delayedFocus.promise;
         return prepared.apply();
@@ -1003,14 +1012,20 @@ test('CONVERSATION-SWITCH-LATENCY-002 starts a prepared snapshot before terminal
     );
     assert.deepEqual(harness.viewerTargets, [],
         'a prepared snapshot must not mutate the Viewer before terminal focus succeeds');
+    assert.deepEqual(harness.previewedViewerTargets, [],
+        'preparing must not preflight the Viewer before terminal focus succeeds');
 
     delayedFocus.resolve();
+    await waitFor(
+        () => harness.previewedViewerTargets.some(target => target.sessionId === 'session-a'),
+        'the Viewer preflight to begin only after terminal focus releases apply'
+    );
     delayedSnapshot.resolve({
         outline: makeOutline('codex', 'session-a', ['input-a']),
         page: makePage('codex', 'session-a', 'input-a'),
     });
     assert.equal(await navigation, 'opened');
-    assert.equal(harness.viewerTargets.length, 1,
+    assert.equal(harness.followedViewerTargets.length, 1,
         'the resolved snapshot applies only after the queued terminal focus completes');
     harness.capability.dispose();
 });
@@ -1061,9 +1076,226 @@ test('CONVERSATION-SWITCH-LATENCY-002 cancels a prepared snapshot when terminal 
     harness.capability.dispose();
 });
 
+test('CONVERSATION-SWITCH-LATENCY-002 cancels a prepared follow when its Viewer closes before apply', async () => {
+    const slowSnapshot = deferred();
+    let viewerOpen = true;
+    let readAborted = false;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        getViewerOpen: () => viewerOpen,
+        initialViewerTarget: {
+            projectId: 'project-a', provider: 'codex', workspaceName: '',
+            sessionId: 'session-a', interactionId: 'input-a', expectedRevision: 'r1',
+            displayName: 'session-a', duplicateDisplayName: false,
+        },
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`, provider, sessionId, name: sessionId,
+        }),
+        readSnapshot: (_provider, _sessionId, _preferredInteractionId, signal) => {
+            signal.onAbort(() => { readAborted = true; });
+            return slowSnapshot.promise;
+        },
+    });
+    const prepared = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'kimi', sessionId: 'session-b',
+    }, false);
+    await waitFor(
+        () => harness.snapshotReadTargets.includes('kimi:session-b'),
+        'the prepared follow read to start'
+    );
+
+    viewerOpen = false;
+    assert.equal(await prepared.apply(), 'closed');
+    assert.equal(readAborted, true,
+        'a closed Viewer must release an uncommitted prepared follow read');
+    slowSnapshot.resolve({
+        outline: makeOutline('kimi', 'session-b', ['input-b']),
+        page: makePage('kimi', 'session-b', 'input-b'),
+    });
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-SWITCH-LATENCY-002 revalidates a prepared snapshot after Viewer application', async () => {
+    const releaseFollow = deferred();
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        initialViewerTarget: {
+            projectId: 'project-a', provider: 'codex', workspaceName: '',
+            sessionId: 'session-a', interactionId: 'input-a', expectedRevision: 'r1',
+            displayName: 'session-a', duplicateDisplayName: false,
+        },
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`, provider, sessionId, name: sessionId,
+        }),
+        followViewer: () => releaseFollow.promise,
+    });
+    const prepared = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'kimi', sessionId: 'session-b',
+    }, false);
+
+    const applying = prepared.apply();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(harness.viewerRefreshes, 0,
+        'freshness revalidation must wait for the Viewer to commit its target');
+    releaseFollow.resolve(true);
+    assert.equal(await applying, 'opened');
+    await waitFor(
+        () => harness.viewerRefreshes === 1,
+        'the post-apply freshness revalidation'
+    );
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-SWITCH-LATENCY-002 previews an open Viewer while a prepared snapshot still resolves', async () => {
+    const slowSnapshot = deferred();
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        initialViewerTarget: {
+            projectId: 'project-a', provider: 'codex', workspaceName: '',
+            sessionId: 'session-a', interactionId: 'input-a', expectedRevision: 'r1',
+            displayName: 'session-a', duplicateDisplayName: false,
+        },
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`, provider, sessionId, name: sessionId,
+        }),
+        readSnapshot: () => slowSnapshot.promise,
+        previewSession: () => ({ dispose() {} }),
+    });
+    const prepared = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'kimi', sessionId: 'session-b',
+    }, false);
+
+    const applying = prepared.apply();
+    await waitFor(
+        () => harness.previewedViewerTargets.some(target => target.sessionId === 'session-b'),
+        'the Viewer preflight to begin before the slow prepared snapshot resolves'
+    );
+    assert.deepEqual(harness.followedViewerTargets, []);
+    slowSnapshot.resolve({
+        outline: makeOutline('kimi', 'session-b', ['input-b']),
+        page: makePage('kimi', 'session-b', 'input-b'),
+    });
+    assert.equal(await applying, 'opened');
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-SWITCH-LATENCY-002 retries an early empty prepared result at apply', async () => {
+    let reads = 0;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: true,
+        initialViewerTarget: {
+            projectId: 'project-a', provider: 'codex', workspaceName: '',
+            sessionId: 'session-a', interactionId: 'input-a', expectedRevision: 'r1',
+            displayName: 'session-a', duplicateDisplayName: false,
+        },
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`, provider, sessionId, name: sessionId,
+        }),
+        readSnapshot: (provider, sessionId) => {
+            reads += 1;
+            return reads === 1
+                ? {
+                    outline: makeOutline(provider, sessionId, []),
+                    page: makePage(provider, sessionId, 'input-a'),
+                }
+                : {
+                    outline: makeOutline(provider, sessionId, ['input-b']),
+                    page: makePage(provider, sessionId, 'input-b'),
+                };
+        },
+    });
+    const prepared = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'kimi', sessionId: 'session-b',
+    }, false);
+
+    assert.equal(await prepared.apply(), 'opened');
+    assert.equal(reads, 2,
+        'an early empty result must be checked again after terminal focus');
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-SWITCH-LATENCY-002 does not double-retry a persistent unavailable prepared open', async () => {
+    let reads = 0;
+    const harness = createHarness({
+        enableSnapshots: true,
+        requireSnapshot: true,
+        viewerOpen: false,
+        resolveTarget: (_projectId, provider, sessionId) => makeSession({
+            key: `${provider}:${sessionId}`, provider, sessionId, name: sessionId,
+        }),
+        readSnapshot: () => {
+            reads += 1;
+            throw new Error('snapshot remains unavailable');
+        },
+    });
+    const prepared = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'kimi', sessionId: 'session-b',
+    }, true);
+
+    assert.equal(await prepared.apply(), 'unavailable');
+    assert.equal(reads, 2,
+        'one overlapped read plus one commit retry must bound an unavailable open');
+    harness.capability.dispose();
+});
+
+test('CONVERSATION-SWITCH-LATENCY-002 records terminal authority after a prepared closed-Viewer open', async () => {
+    const sessions = [
+        makeSession({ key: 'codex:session-a', sessionId: 'session-a' }),
+        makeSession({ key: 'codex:session-b', sessionId: 'session-b' }),
+        makeSession({ key: 'codex:session-c', sessionId: 'session-c' }),
+    ];
+    let viewerOpen = true;
+    const focusedSessions = [];
+    const harness = createHarness({
+        getViewerOpen: () => viewerOpen,
+        initialViewerTarget: {
+            projectId: 'project-a', provider: 'codex', workspaceName: '',
+            sessionId: 'session-a', interactionId: 'input-a', expectedRevision: 'r1',
+            displayName: 'session-a', duplicateDisplayName: false,
+        },
+        resolveTarget: (_projectId, provider, sessionId) =>
+            sessions.find(session =>
+                session.provider === provider && session.sessionId === sessionId
+            ) || null,
+        resolveActiveTargets: () => sessions,
+        focusSession: async target => {
+            focusedSessions.push(target.sessionId);
+            return target.sessionId !== 'session-c';
+        },
+    });
+    await harness.capability.followActiveConversation({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    });
+    viewerOpen = false;
+    const prepared = harness.capability.prepareActiveConversation({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    }, true);
+    assert.equal(await prepared.apply(), 'opened');
+
+    viewerOpen = true;
+    assert.equal(
+        await harness.capability.followAdjacentActiveConversation('next'),
+        'unavailable'
+    );
+    assert.deepEqual(focusedSessions, ['session-c', 'session-b'],
+        'a rejected B-to-C focus must return to the freshly opened B authority');
+    assert.deepEqual(harness.followedViewerTargets.map(target => target.sessionId), [
+        'session-c', 'session-b',
+    ]);
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-SWITCH-LATENCY-002 lets only the newest prepared target apply', async () => {
     const slowSnapshot = deferred();
     let staleReadAborted = false;
+    let latestReadAborted = false;
     const harness = createHarness({
         enableSnapshots: true,
         requireSnapshot: true,
@@ -1078,6 +1310,7 @@ test('CONVERSATION-SWITCH-LATENCY-002 lets only the newest prepared target apply
                 signal.onAbort(() => { staleReadAborted = true; });
                 return slowSnapshot.promise;
             }
+            signal.onAbort(() => { latestReadAborted = true; });
             return {
                 outline: makeOutline(provider, sessionId, ['input-b']),
                 page: makePage(provider, sessionId, 'input-b'),
@@ -1095,9 +1328,12 @@ test('CONVERSATION-SWITCH-LATENCY-002 lets only the newest prepared target apply
         projectId: 'project-a', provider: 'kimi', sessionId: 'session-b',
     }, true);
 
+    stale.cancel();
     assert.equal(await stale.apply(), 'superseded');
     assert.equal(staleReadAborted, true,
         'a newer prepared target must abort the stale provider read immediately');
+    assert.equal(latestReadAborted, false,
+        'a stale focus cleanup must not abort the latest prepared read');
     assert.equal(await latest.apply(), 'opened');
     assert.deepEqual(harness.viewerTargets.map(target => target.sessionId), ['session-b']);
     slowSnapshot.resolve({
@@ -1705,12 +1941,27 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus
     const preparedStart = navigationPath[0].indexOf(
         'conversationCapability.prepareActiveConversation(target, openWhenClosed)'
     );
+    const focusStart = navigationPath[0].indexOf(
+        'focused = await aiSessionTerminalCommandController.focusActive('
+    );
+    const applyStart = navigationPath[0].indexOf(
+        'await preparedConversation.apply();'
+    );
+    const focusedBranch = navigationPath[0].match(
+        /if \(focused && intent === conversationNavigationIntent\) \{([\s\S]*?)\n\s*\} else if \(focused\)/
+    );
     assert.ok(intentStart >= 0,
         'a row click must create a navigation intent in its own execution path');
     assert.ok(enqueueStart >= 0,
         'a row click must use the shared terminal-focus queue');
     assert.ok(preparedStart >= 0,
         'a row click must start a snapshot transaction in its own execution path');
+    assert.ok(focusStart >= 0 && applyStart >= 0,
+        'the shared path must explicitly await focus and its prepared apply');
+    assert.ok(focusedBranch,
+        'a prepared apply must remain inside the successful current-intent focus branch');
+    assert.match(focusedBranch[1], /await preparedConversation\.apply\(\)/,
+        'only successful focus for the current intent may apply a prepared snapshot');
     assert.ok(
         intentStart < enqueueStart,
         'a row click must cancel the old read before it joins the shared queue'
@@ -1718,6 +1969,10 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus
     assert.ok(
         preparedStart < enqueueStart,
         'a row click must begin snapshot resolution before terminal focus enters the queue'
+    );
+    assert.ok(
+        focusStart < applyStart,
+        'a row click must not apply Viewer state before terminal focus succeeds'
     );
 });
 

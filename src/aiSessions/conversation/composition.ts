@@ -526,6 +526,8 @@ function createAvailableConversationCapability(
         isCurrent(): boolean;
         signal: ConversationAbortSignal;
         resolution?: Promise<LatestConversationTargetResolution>;
+        revalidateAfterLoad?: boolean;
+        preview?: AiSessionDisposable;
     };
     const followOpenConversation = async (
         target: ConversationSessionOpenTarget,
@@ -534,12 +536,14 @@ function createAvailableConversationCapability(
         preparedIntent?: PreparedViewerIntent
     ): Promise<FollowActiveConversationResult> => {
         if (!viewer.isOpen()) {
+            preparedIntent?.preview?.dispose();
             return 'closed';
         }
         const intent: PreparedViewerIntent = preparedIntent || beginViewerIntent();
         const currentTarget = viewer.getCurrentTarget();
         if (currentTarget
             && hasSameConversationSession(currentTarget, target)) {
+            preparedIntent?.preview?.dispose();
             // This is a new navigation intent, even though it resolves to
             // the already-authoritative session. Let the Viewer cancel a
             // pending preflight for another session, then keep the retained
@@ -552,7 +556,7 @@ function createAvailableConversationCapability(
             }
             return 'opened';
         }
-        const preview = viewer.previewSession?.(target);
+        const preview = preparedIntent?.preview || viewer.previewSession?.(target);
         let followedSuccessfully = false;
         try {
             const resolution = await (intent.resolution
@@ -608,7 +612,8 @@ function createAvailableConversationCapability(
                 viewerLoadRecorded = true;
                 snapshotWarmup?.afterLoad(
                     resolution.viewerTarget,
-                    resolution.prefetchedSnapshot === true,
+                    resolution.prefetchedSnapshot === true
+                        || intent.revalidateAfterLoad === true,
                     viewer
                 );
             };
@@ -717,31 +722,89 @@ function createAvailableConversationCapability(
                     return 'superseded';
                 }
                 applied = true;
-                const preparedIntent: PreparedViewerIntent = {
-                    ...intent,
-                    resolution,
-                };
-                if (viewer.isOpen()) {
-                    return followOpenConversation(
-                        target,
-                        openWhenClosed,
-                        !openWhenClosed,
-                        preparedIntent
-                    );
-                }
-                if (!openWhenClosed) {
+                if (!viewer.isOpen() && !openWhenClosed) {
+                    cancel();
                     return 'closed';
                 }
-                return openLatestConversation(
-                    options,
-                    coordinator,
-                    viewer,
-                    target,
-                    intent.isCurrent,
-                    snapshotWarmup,
-                    intent.signal,
-                    resolution
-                );
+                const currentTarget = viewer.getCurrentTarget();
+                const preparedPreview = viewer.isOpen()
+                    && !(currentTarget && hasSameConversationSession(
+                        currentTarget,
+                        target
+                    ))
+                    ? viewer.previewSession?.(target)
+                    : undefined;
+                let previewTransferred = false;
+                try {
+                    let resolutionForApply = resolution;
+                    let retriedAtApply = false;
+                    if (resolution) {
+                        const preparedResolution = await resolution;
+                        if (!intent.isCurrent()) {
+                            return 'superseded';
+                        }
+                        // An early empty/unavailable response can become usable
+                        // while terminal focus is queued. Re-read only those
+                        // terminal outcomes at commit time; an opened snapshot
+                        // is revalidated after Viewer application below.
+                        if (preparedResolution.result !== 'opened') {
+                            retriedAtApply = true;
+                            resolutionForApply = resolveLatestConversationTarget(
+                                options,
+                                coordinator,
+                                target,
+                                undefined,
+                                undefined,
+                                snapshotWarmup,
+                                intent.signal
+                            );
+                        }
+                    }
+                    const preparedIntent: PreparedViewerIntent = {
+                        ...intent,
+                        resolution: resolutionForApply,
+                        revalidateAfterLoad: resolution !== undefined,
+                        preview: preparedPreview,
+                    };
+                    if (viewer.isOpen()) {
+                        previewTransferred = true;
+                        return followOpenConversation(
+                            target,
+                            openWhenClosed,
+                            !openWhenClosed,
+                            preparedIntent
+                        );
+                    }
+                    if (!openWhenClosed) {
+                        cancel();
+                        return 'closed';
+                    }
+                    const result = await openLatestConversation(
+                        options,
+                        coordinator,
+                        viewer,
+                        target,
+                        intent.isCurrent,
+                        snapshotWarmup,
+                        intent.signal,
+                        resolutionForApply,
+                        resolution !== undefined,
+                        retriedAtApply
+                    );
+                    if (result === 'opened') {
+                        const openedTarget = viewer.getCurrentTarget();
+                        if (openedTarget
+                            && hasSameConversationSession(openedTarget, target)) {
+                            terminalAuthority.confirmedTarget =
+                                cloneConversationViewerTarget(openedTarget);
+                        }
+                    }
+                    return result;
+                } finally {
+                    if (!previewTransferred) {
+                        preparedPreview?.dispose();
+                    }
+                }
             },
         };
     };
@@ -997,7 +1060,9 @@ async function openLatestConversation(
     isCurrent: () => boolean,
     snapshotWarmup?: ConversationSnapshotWarmup,
     signal?: ConversationAbortSignal,
-    preparedResolution?: Promise<LatestConversationTargetResolution>
+    preparedResolution?: Promise<LatestConversationTargetResolution>,
+    revalidateAfterLoad = false,
+    skipUnavailableRetry = false
 ): Promise<OpenLatestConversationResult> {
     const preview = viewer.previewSession?.(target);
     let opened = false;
@@ -1012,7 +1077,9 @@ async function openLatestConversation(
                 snapshotWarmup,
                 signal
             ));
-        if (resolution.result === 'unavailable' && isCurrent()) {
+        if (resolution.result === 'unavailable'
+            && isCurrent()
+            && !skipUnavailableRetry) {
             resolution = await resolveLatestConversationTarget(
                 options,
                 coordinator,
@@ -1049,7 +1116,7 @@ async function openLatestConversation(
             viewerLoadRecorded = true;
             snapshotWarmup?.afterLoad(
                 resolution.viewerTarget,
-                resolution.prefetchedSnapshot === true,
+                resolution.prefetchedSnapshot === true || revalidateAfterLoad,
                 viewer
             );
         };

@@ -43,6 +43,16 @@ Green self-authored fixtures alone are not evidence.
 
 ## Current On-Disk Layouts (re-probe before relying)
 
+**Kimi ships two CLI dialects under one `kimi` executable name.** The Python
+`kimi-cli` (PyPI) accepts `--work-dir` and seeds interactive sessions with
+`--prompt`; the TypeScript `kimi-code` (npm `@moonshot-ai/kimi-code`, the
+official successor — `kimi-cli` is winding down) has no `--work-dir` (use the
+process cwd), supports `--add-dir`/`--resume`/`--yolo`, but its `--prompt`
+runs ONE headless turn and exits (and conflicts with `--yolo`). Launch code
+detects the dialect from `kimi --help` (`--work-dir` present → `kimi-cli`);
+session discovery/conversation parsing still assumes the `kimi-cli` on-disk
+layout below — kimi-code's store is a known follow-up.
+
 | Provider | Session source | Subagents |
 |---|---|---|
 | Kimi | `<kimiHome>/sessions/<workdirHash>/<sessionUuid>/wire.jsonl` | `<sessionDir>/subagents/<id>/{meta.json,wire.jsonl}`; meta carries explicit `status` + `created_at`. The Shell tool is **stateless per command** — every invocation runs with `cwd = session.work_dir` (kimi_cli/tools/shell source), so relative `cd` targets resolve against the session workdir, not the previous command |

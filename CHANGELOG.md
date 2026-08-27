@@ -4,6 +4,35 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-27
+
+### Added
+
+- Page indexed AI Conversation history so long sessions load incrementally
+  instead of blocking the viewer, and support remote worktree baselines for
+  remote repository setups.
+- Publish Agent Pivot to the VS Code Marketplace automatically with every
+  minor or major release tag; patch releases stay on GitHub Releases.
+
+### Changed
+
+- Make AI Conversation switches feel immediate: cached transcripts render
+  first, heavy conversations render progressively with a bounded backfill,
+  and superseded navigation settles safely without resending state.
+- Declare limited Workspace Trust support: the custom CSS and custom color
+  settings now apply only in trusted workspaces, matching the agent and
+  worktree features that already require trust.
+- Sanitize settings-sourced styles (custom CSS, custom theme colors, and
+  project colors) before they reach the webview, so workspace settings
+  cannot break out of the style context or load remote resources.
+
+### Fixed
+
+- Keep IME composition alive through the worktree group creation form
+  lifecycle and close replay-ordering gaps.
+- Ship complete third-party license notices for every bundled dependency,
+  generated from the production dependency closure.
+
 ## [1.1.4] - 2026-08-26
 
 ### Changed

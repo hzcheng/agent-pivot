@@ -38,15 +38,15 @@ const providers = [{
     resumeSpec: commands.buildKimiResumeLaunchSpec,
     newSpec: commands.buildKimiNewSessionLaunchSpec,
     expectedResume: {
-        executable: 'kimi', args: ['--work-dir', cwd, '--resume', sessionId], markerPath,
+        executable: 'kimi', args: ['--resume', sessionId], cwd, markerPath,
         windowsDirectShell: 'current',
     },
     expectedNew: {
-        executable: 'kimi', args: ['--work-dir', cwd, '--prompt', title], markerPath,
+        executable: 'kimi', args: ['--prompt', title], cwd, markerPath,
         windowsDirectShell: 'powershell',
     },
-    resumeCommand: `kimi --work-dir '${cwd}' --resume '${sessionId}'`,
-    newCommand: `kimi --work-dir '${cwd}' --prompt 'Fixture owner'\\''s request'`,
+    resumeCommand: `cd '${cwd}' && kimi --resume '${sessionId}'`,
+    newCommand: `cd '${cwd}' && kimi --prompt 'Fixture owner'\\''s request'`,
 }, {
     id: 'claude',
     resumeSpec: commands.buildClaudeResumeLaunchSpec,
@@ -102,11 +102,11 @@ test('SESSION-AI-SESSION-YOLO-LAUNCH-001 adds the exact provider flag to New and
     );
     assert.deepEqual(
         commands.buildKimiNewSessionLaunchSpec(directoryScope, title, markerPath, yolo).args,
-        ['--work-dir', cwd, '--yolo', '--prompt', title]
+        ['--yolo', '--prompt', title]
     );
     assert.deepEqual(
         commands.buildKimiResumeLaunchSpec(sessionId, directoryScope, markerPath, yolo).args,
-        ['--work-dir', cwd, '--yolo', '--resume', sessionId]
+        ['--yolo', '--resume', sessionId]
     );
     assert.deepEqual(
         commands.buildClaudeNewSessionLaunchSpec(directoryScope, title, markerPath, yolo).args,
@@ -144,7 +144,7 @@ test('SESSION-CONVERSATION-COMMENTS-RESUME-001 passes one prompt through each pr
         commands.buildKimiResumeLaunchSpec(
             sessionId, directoryScope, markerPath, { yolo: false }, prompt
         ).args,
-        ['--work-dir', cwd, '--resume', sessionId, '--prompt', prompt]
+        ['--resume', sessionId, '--prompt', prompt]
     );
     assert.deepEqual(
         commands.buildClaudeResumeLaunchSpec(
@@ -162,7 +162,7 @@ test('SESSION-HANDOFF-001 a handoff prompt becomes the first-turn argv of each p
     );
     assert.deepEqual(
         commands.buildKimiNewSessionLaunchSpec(directoryScope, prompt, markerPath, { yolo: false }).args,
-        ['--work-dir', cwd, '--prompt', prompt]
+        ['--prompt', prompt]
     );
     assert.deepEqual(
         commands.buildClaudeNewSessionLaunchSpec(directoryScope, null, markerPath, { yolo: false }, prompt).args,
@@ -190,7 +190,7 @@ test('SESSION-CODEX-PROFILE-LAUNCH-001 injects -p into Codex New and Resume argv
     // Other providers never receive the Codex-only flag.
     assert.deepEqual(
         commands.buildKimiNewSessionLaunchSpec(directoryScope, title, markerPath, withProfile).args,
-        ['--work-dir', cwd, '--prompt', title]
+        ['--prompt', title]
     );
     assert.deepEqual(
         commands.buildClaudeResumeLaunchSpec(sessionId, directoryScope, markerPath, withProfile).args,

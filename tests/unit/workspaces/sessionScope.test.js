@@ -136,9 +136,13 @@ test('SESSION-WORKSPACE-SCOPE-001 builds provider-specific add-directory argumen
     assert.deepEqual(commandBuilders.buildCodexNewSessionLaunchSpec(scope).args, [
         '--cd', '/work/api', '--add-dir', '/work', '--add-dir', '/work/web',
     ]);
-    assert.deepEqual(commandBuilders.buildKimiNewSessionLaunchSpec(scope).args, [
-        '--work-dir', '/work/api', '--add-dir', '/work', '--add-dir', '/work/web',
-    ]);
+    assert.deepEqual(commandBuilders.buildKimiNewSessionLaunchSpec(scope), {
+        executable: 'kimi',
+        args: ['--add-dir', '/work', '--add-dir', '/work/web'],
+        cwd: '/work/api',
+        markerPath: null,
+        windowsDirectShell: 'powershell',
+    });
     assert.deepEqual(commandBuilders.buildClaudeNewSessionLaunchSpec(scope), {
         executable: 'claude',
         args: ['--add-dir', '/work', '/work/web'],

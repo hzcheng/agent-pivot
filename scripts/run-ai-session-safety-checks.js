@@ -8935,13 +8935,18 @@ function runCommandBuilderChecks() {
     });
     assert.deepStrictEqual(commands.buildKimiNewSessionLaunchSpec(scope, 'fix tests', marker), {
         executable: 'kimi',
-        args: ['--work-dir', '/work/web', '--add-dir', '/work/api', '--add-dir', '/work/文档', '--prompt', 'fix tests'],
+        args: ['--add-dir', '/work/api', '--add-dir', '/work/文档', '--prompt', 'fix tests'],
+        cwd: '/work/web',
         markerPath: marker,
         windowsDirectShell: 'powershell',
     });
-    assert.deepStrictEqual(commands.buildKimiResumeLaunchSpec('k1', scope, marker).args, [
-        '--work-dir', '/work/web', '--add-dir', '/work/api', '--add-dir', '/work/文档', '--resume', 'k1',
-    ]);
+    assert.deepStrictEqual(commands.buildKimiResumeLaunchSpec('k1', scope, marker), {
+        executable: 'kimi',
+        args: ['--add-dir', '/work/api', '--add-dir', '/work/文档', '--resume', 'k1'],
+        cwd: '/work/web',
+        markerPath: marker,
+        windowsDirectShell: 'current',
+    });
     assert.deepStrictEqual(commands.buildClaudeNewSessionLaunchSpec(scope, 'fix tests', marker), {
         executable: 'claude',
         args: ['--add-dir', '/work/api', '/work/文档', '--name', 'fix tests'],
@@ -8970,7 +8975,7 @@ function runCommandBuilderChecks() {
     );
     assert.deepStrictEqual(
         commands.buildKimiNewSessionLaunchSpec(whitespaceScope, null, null).args,
-        ['--work-dir', '/work/repo ', '--add-dir', '/work/ api'],
+        ['--add-dir', '/work/ api'],
     );
     assert.deepStrictEqual(
         commands.buildClaudeNewSessionLaunchSpec(whitespaceScope, null, null),
@@ -8997,7 +9002,7 @@ function runCommandBuilderChecks() {
             commands.buildKimiNewSessionLaunchSpec({ ...scope, primaryCwd: '/work/app', additionalDirectories: [] }, "owner's task", null),
             'linux'
         ),
-        "kimi --work-dir '/work/app' --prompt 'owner'\\''s task'"
+        "cd '/work/app' && kimi --prompt 'owner'\\''s task'"
     );
     assert.strictEqual(
         commands.buildCodexResumeCommand('abc123', { ...scope, primaryCwd: '/work/My App', additionalDirectories: [] }, null, 'linux'),
@@ -9005,7 +9010,7 @@ function runCommandBuilderChecks() {
     );
     assert.strictEqual(
         commands.buildKimiNewSessionCommand({ ...scope, primaryCwd: '/work/app', additionalDirectories: [] }, "owner's task", null, 'linux'),
-        "kimi --work-dir '/work/app' --prompt 'owner'\\''s task'"
+        "cd '/work/app' && kimi --prompt 'owner'\\''s task'"
     );
     let markedCommand = commands.buildClaudeResumeCommand('session-1', { ...scope, primaryCwd: '/work/app', additionalDirectories: [] }, '/tmp/session.done', 'linux');
     assert.ok(markedCommand.startsWith('sh -lc '));

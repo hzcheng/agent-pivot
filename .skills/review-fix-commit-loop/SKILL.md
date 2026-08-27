@@ -126,6 +126,13 @@ Summarize:
 - Judge gate and verification scripts by their own exit code: piping to
   `grep`/`head` masks it (check `$?` directly or use `set -o pipefail`), and
   chain commits after verification steps with `&&`, never `;`.
+- A script exiting 0 without printing its success banner is not a pass: an
+  awaited promise that never settles lets Node drain the event loop and exit
+  0 silently mid-script (observed: `run-ai-session-safety-checks.js` stalling
+  in a terminal-binding-store check on one machine, skipping every later
+  check on clean `origin/main`). Confirm the banner line, e.g.
+  `node scripts/<gate>.js | tail -1`, and classify the stall as an
+  environment issue only after reproducing it on the clean base.
 - Run long suites such as `npm run test:ci:linux` as a background task with an
   explicit generous `timeout`: background tasks default to about a minute and
   foreground calls cap out around five minutes, so either default kills the

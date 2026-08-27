@@ -448,6 +448,7 @@
         "src/aiSessions/handoffNaming.ts",
         "src/aiSessions/handoffPrompt.ts",
         "src/aiSessions/historyProjection.ts",
+        "src/aiSessions/interactiveCliPrompt.ts",
         "src/aiSessions/launchSpec.ts",
         "src/aiSessions/lifecycle.ts",
         "src/aiSessions/lifecycleSignalAcceptance.ts",

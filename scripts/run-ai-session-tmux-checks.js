@@ -816,18 +816,17 @@ function runLaunchSpecChecks() {
     assert.ok(tmuxCommand.includes(': >'));
     assert.ok(tmuxCommand.includes('exit'));
 
-    assert.deepStrictEqual(
-        commandBuilders.buildKimiResumeLaunchSpec(
-            'kimi; nope', createDirectoryScope('/work/Kimi App'), '/tmp/kimi.done'
-        ).args,
-        ['--work-dir', '/work/Kimi App', '--resume', 'kimi; nope']
+    const kimiResumeSpec = commandBuilders.buildKimiResumeLaunchSpec(
+        'kimi; nope', createDirectoryScope('/work/Kimi App'), '/tmp/kimi.done'
     );
-    assert.deepStrictEqual(
-        commandBuilders.buildKimiNewSessionLaunchSpec(
-            createDirectoryScope('/work/Kimi App'), "owner's task", '/tmp/kimi-new.done'
-        ).args,
-        ['--work-dir', '/work/Kimi App', '--prompt', "owner's task"]
+    assert.deepStrictEqual(kimiResumeSpec.args, ['--resume', 'kimi; nope']);
+    assert.strictEqual(kimiResumeSpec.cwd, '/work/Kimi App',
+        'kimi launches carry the work directory via cwd so both Kimi CLI dialects work');
+    const kimiNewSpec = commandBuilders.buildKimiNewSessionLaunchSpec(
+        createDirectoryScope('/work/Kimi App'), "owner's task", '/tmp/kimi-new.done'
     );
+    assert.deepStrictEqual(kimiNewSpec.args, ['--prompt', "owner's task"]);
+    assert.strictEqual(kimiNewSpec.cwd, '/work/Kimi App');
     assert.strictEqual(
         commandBuilders.buildClaudeResumeLaunchSpec(
             'claude-session', createDirectoryScope('/work/claude'), '/tmp/claude.done'
@@ -891,7 +890,7 @@ function runLaunchSpecChecks() {
         commandBuilders.buildKimiResumeCommand(
             'session-1', createDirectoryScope('C:\\Repo App'), null, 'win32'
         ),
-        'kimi --work-dir "C:\\Repo App" --resume "session-1"'
+        'cd "C:\\Repo App" && kimi --resume "session-1"'
     );
     assert.strictEqual(
         commandBuilders.buildClaudeResumeCommand(
@@ -910,7 +909,7 @@ function runLaunchSpecChecks() {
         decodePowerShellPayload(commandBuilders.buildKimiNewSessionCommand(
             createDirectoryScope('C:\\Repo App'), 'Prompt', null, 'win32'
         )),
-        "kimi --work-dir 'C:\\Repo App' --prompt 'Prompt'"
+        "Set-Location -LiteralPath 'C:\\Repo App'; kimi --prompt 'Prompt'"
     );
     assert.strictEqual(
         decodePowerShellPayload(commandBuilders.buildClaudeNewSessionCommand(

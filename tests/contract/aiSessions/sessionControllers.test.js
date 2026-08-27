@@ -428,6 +428,69 @@ test('SESSION-HANDOFF-001 handoff warns and creates nothing when the source chat
         && /not found/i.test(effect[1])));
 });
 
+test('SESSION-HANDOFF-001 handoff to a CLI without interactive prompt support copies the prompt instead of passing --prompt', async () => {
+    const receivedPrompts = [];
+    const clipboard = [];
+    const fixture = makeQuickCreateController({
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([
+            { id: 's2', name: '', provider: 'codex', cwd: '/work' },
+        ]) : null,
+        getSessionTranscriptPath: () => null,
+        resolveInteractiveCliPromptSupport: async () => false,
+        writeClipboard: value => clipboard.push(value),
+        getProvider: providerId => ({
+            label: providerId,
+            terminalNamePrefix: providerId,
+            buildNewSessionLaunchSpec: (_scope, _title, _markerPath, _launchOptions, initialPrompt) => {
+                receivedPrompts.push(initialPrompt);
+                return { executable: providerId, args: ['--new'] };
+            },
+        }),
+    });
+
+    const created = await fixture.controller.handoffSession('p', 'codex', 's2', 'kimi');
+
+    assert.equal(created, true);
+    assert.equal(fixture.requests.length, 1);
+    assert.equal(fixture.requests[0].identity.provider, 'kimi');
+    assert.deepEqual(receivedPrompts, [undefined],
+        'the kimi-code dialect must never receive --prompt (it runs one headless turn and exits)');
+    assert.equal(clipboard.length, 1);
+    assert.match(clipboard[0], /previous Codex chat \(session s2\)/,
+        'the dropped prompt lands on the clipboard for a manual paste');
+    assert.ok(fixture.effects.some(effect => effect[0] === 'warning'
+        && /cannot prefill a prompt/i.test(effect[1])));
+});
+
+test('SESSION-HANDOFF-001 handoff keeps --prompt when the CLI supports interactive prompt seeding', async () => {
+    const receivedPrompts = [];
+    const clipboard = [];
+    const fixture = makeQuickCreateController({
+        getWorkspaceTarget: id => id === 'p' ? makeWorkspaceTarget([
+            { id: 's2', name: '', provider: 'codex', cwd: '/work' },
+        ]) : null,
+        getSessionTranscriptPath: () => null,
+        resolveInteractiveCliPromptSupport: async () => true,
+        writeClipboard: value => clipboard.push(value),
+        getProvider: providerId => ({
+            label: providerId,
+            terminalNamePrefix: providerId,
+            buildNewSessionLaunchSpec: (_scope, _title, _markerPath, _launchOptions, initialPrompt) => {
+                receivedPrompts.push(initialPrompt);
+                return { executable: providerId, args: ['--new'] };
+            },
+        }),
+    });
+
+    const created = await fixture.controller.handoffSession('p', 'codex', 's2', 'kimi');
+
+    assert.equal(created, true);
+    assert.equal(receivedPrompts.length, 1);
+    assert.match(receivedPrompts[0], /previous Codex chat \(session s2\)/);
+    assert.deepEqual(clipboard, []);
+    assert.ok(!fixture.effects.some(effect => effect[0] === 'warning'));
+});
+
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 a session on a retired path persists its claim before side effects', async () => {
     const order = [];
     const discarded = [];
@@ -910,6 +973,51 @@ test('SESSION-AI-SESSION-RESUME-CONTROLLER-001 delegates scoped resume and revea
     assert.deepEqual(receivedLaunchOptions, [{ yolo: true }]);
     assert.deepEqual(receivedPrompts, ['Handle both comments.']);
     assert.equal(result.status, 'started');
+});
+
+test('SESSION-CONVERSATION-COMMENTS-RESUME-001 resume drops --prompt and copies it when the CLI lacks interactive prompt seeding', async () => {
+    const effects = [];
+    const receivedPrompts = [];
+    const clipboard = [];
+    const controller = new AiSessionResumeController({
+        getWorkspaceTarget: id => id === 'p'
+            ? makeWorkspaceTarget([{ id: 's', name: 'Session', cwd: '/work' }])
+            : null,
+        getLaunchOptions: () => ({ yolo: false }),
+        getProvider: () => ({
+            label: 'Kimi',
+            terminalEnvKey: 'KIMI',
+            buildResumeLaunchSpec: (_id, _scope, _markerPath, _launchOptions, prompt) => {
+                receivedPrompts.push(prompt);
+                return { executable: 'kimi', args: ['--resume', 's'], cwd: '/work' };
+            },
+        }),
+        resolveWorkspaceDirectoryScope: () => directoryScope,
+        getTerminalName: () => 'Kimi: Session', getMarkerPath: () => '/tmp/new',
+        showWarningMessage: message => effects.push(message),
+        resolveInteractiveCliPromptSupport: async () => false,
+        writeClipboard: value => clipboard.push(value),
+        refresh: () => undefined, showActiveTab: () => undefined,
+        announceStatus: async () => undefined,
+        runtimeCoordinator: {
+            resume: async request => {
+                if (typeof request.createLaunchSpec === 'function') {
+                    request.createLaunchSpec();
+                }
+                return { status: 'started', backend: 'vscode' };
+            },
+        },
+    });
+
+    // The fixture workspace lists the session under `codex`; the provider id
+    // only routes lookups here, the dialect gate answers "unsupported" for it.
+    const result = await controller.resumeProjectSession('p', 'codex', 's', undefined, 'Handle both comments.');
+
+    assert.equal(result.status, 'started');
+    assert.deepEqual(receivedPrompts, [undefined],
+        'the kimi-code dialect must never receive --prompt (it runs one headless turn and exits)');
+    assert.deepEqual(clipboard, ['Handle both comments.']);
+    assert.ok(effects.some(message => /cannot prefill a prompt/i.test(message)));
 });
 
 test('SESSION-AI-SESSION-YOLO-LAZY-001 does not read options or build specs for non-dispatch controller results', async () => {

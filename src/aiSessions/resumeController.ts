@@ -1,6 +1,10 @@
 'use strict';
 
 import type { AiSessionProviderId, CodexSession } from '../models';
+import {
+    InteractiveCliPromptGateOptions,
+    resolveInteractiveLaunchPrompt,
+} from './interactiveCliPrompt';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
@@ -44,7 +48,7 @@ export interface AiSessionResumeRuntimeCoordinator<TTerminal> {
     resume(request: AiSessionResumeRuntimeRequest): Promise<AiSessionRuntimeActionResult<TTerminal>>;
 }
 
-export interface AiSessionResumeControllerCommonOptions {
+export interface AiSessionResumeControllerCommonOptions extends InteractiveCliPromptGateOptions {
     getWorkspaceTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
     getLaunchOptions: () => AiSessionLaunchOptions;
     /**
@@ -69,7 +73,6 @@ export interface AiSessionResumeControllerCommonOptions {
     ) => Thenable<void> | Promise<void>;
     getTerminalName: (providerId: AiSessionProviderId, session: CodexSession) => string;
     getMarkerPath: (providerId: AiSessionProviderId, sessionId: string) => string;
-    showWarningMessage: (message: string) => unknown;
     refresh: () => void;
     showActiveTab: (projectId: string) => unknown;
     showErrorMessage?: (message: string) => Thenable<unknown> | Promise<unknown>;
@@ -190,6 +193,9 @@ export class AiSessionResumeController<
         const cwd = directoryScope.primaryCwd;
         const markerPath = options.getMarkerPath(providerId, session.id);
         const launchScope = cloneAiSessionDirectoryScope(directoryScope);
+        const resumePrompt = await resolveInteractiveLaunchPrompt(
+            this.options, providerId, prompt, 'resumed'
+        );
         const request: AiSessionResumeRuntimeRequest = {
             identity: {
                 provider: providerId,
@@ -218,7 +224,7 @@ export class AiSessionResumeController<
                     codexProfile
                         ? { ...options.getLaunchOptions(), codexProfile }
                         : options.getLaunchOptions(),
-                    prompt
+                    resumePrompt
                 )),
             directoryScope,
         };

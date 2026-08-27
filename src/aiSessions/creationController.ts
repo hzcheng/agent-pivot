@@ -7,6 +7,10 @@ import { assignPathToWorkspaceRoot } from '../sessionAssignment';
 import { sanitizeAiSessionAlias } from './aliasStore';
 import { deriveHandoffSessionAlias } from './handoffNaming';
 import { buildAiSessionHandoffPrompt } from './handoffPrompt';
+import {
+    InteractiveCliPromptGateOptions,
+    resolveInteractiveLaunchPrompt,
+} from './interactiveCliPrompt';
 import type { AiSessionLaunchOptions } from './launchOptions';
 import type { AiSessionLaunchSpec } from './launchSpec';
 import { createSingleUseLaunchSpecFactory } from './runtimeLaunch';
@@ -59,7 +63,7 @@ export interface AiSessionCreationRuntimeCoordinator {
     getPending(): AiSessionPendingRuntimeSnapshot<vscode.Terminal>[];
 }
 
-export interface AiSessionCreationControllerCommonOptions {
+export interface AiSessionCreationControllerCommonOptions extends InteractiveCliPromptGateOptions {
     isProviderId: (value: string) => value is AiSessionProviderId;
     getWorkspaceTarget: (cardId: string) => WorkspaceAiSessionActionTarget | null;
     pickWorkspaceRoot: (
@@ -533,6 +537,9 @@ export class AiSessionCreationController {
         const markerPath = options.getPendingMarkerPath(providerId);
         const terminalName = `${sessionProvider.terminalNamePrefix}: ${target.name || 'New Session'}`;
         const launchScope = cloneAiSessionDirectoryScope(directoryScope);
+        const initialPrompt = await resolveInteractiveLaunchPrompt(
+            this.options, providerId, fields.initialPrompt, 'new'
+        );
         const request: AiSessionCreateRuntimeRequest = {
             identity: {
                 provider: providerId,
@@ -564,7 +571,7 @@ export class AiSessionCreationController {
                         options.getLaunchOptions(),
                         fields.codexProfileDecision
                     ),
-                    fields.initialPrompt
+                    initialPrompt
                 )),
             directoryScope,
         };

@@ -456,6 +456,69 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 adds late subagents without rep
     );
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-003 fills the subagents panel from a state-only envelope', async t => {
+    const { page } = await openHostViewerDocument(t);
+    const html = messageHtml('kept-across-subagent-state', 2);
+    const base = {
+        ...hostileConversationPage,
+        requestId: 60,
+        updateKind: 'initial',
+        html,
+        htmlSignature: 'sig-subagent-state',
+        subagents: [],
+    };
+    await sendPage(page, base);
+    await page.evaluate(() => {
+        window.__keptNodes = Array.from(document.querySelectorAll(
+            '[data-conversation-messages] [data-message-id]'
+        ));
+        window.__sanitizeCalls = 0;
+        const sanitize = window.DOMPurify.sanitize;
+        window.DOMPurify.sanitize = function () {
+            window.__sanitizeCalls += 1;
+            return sanitize.apply(window.DOMPurify, arguments);
+        };
+    });
+
+    // The Host discovered the session's subagents. That is sidebar state, so
+    // it arrives with no HTML on the wire: the transcript must not be
+    // re-sanitized, re-parsed, or re-laid-out to show it.
+    const { html: _omitted, ...stateOnly } = base;
+    await sendPage(page, {
+        ...stateOnly,
+        requestId: 61,
+        updateKind: 'refresh',
+        subagents: [{
+            id: 'a11111111',
+            label: 'Late provider worker',
+            status: 'running',
+            updatedAt: 1_780_000_000_000,
+        }],
+    });
+
+    assert.equal(
+        await page.locator('[data-subagent-id="a11111111"]').count(), 1,
+        'the panel must list the discovered subagent'
+    );
+    assert.equal(
+        await page.locator('[data-telemetry-subagents]').innerText(), '1/1',
+        'the telemetry pill must count it'
+    );
+    assert.deepEqual(await page.evaluate(() => ({
+        nodesRetained: Array.from(document.querySelectorAll(
+            '[data-conversation-messages] [data-message-id]'
+        )).every((node, index) => node === window.__keptNodes[index]),
+        messageCount: document.querySelectorAll(
+            '[data-conversation-messages] [data-message-id]'
+        ).length,
+        sanitizeCalls: window.__sanitizeCalls,
+    })), {
+        nodesRetained: true,
+        messageCount: 2,
+        sanitizeCalls: 0,
+    }, 'a state-only envelope must not touch the transcript DOM');
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications without resending or re-sanitizing HTML', async t => {
     const page = await openViewerPage(t);
     const fullPage = {

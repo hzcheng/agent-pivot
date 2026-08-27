@@ -7,6 +7,15 @@ import type { AiSessionProviderId } from '../models';
 
 export type ProviderDirectoryCapabilityStatus = 'supported' | 'unsupported' | 'unavailable';
 
+/**
+ * Two CLI implementations ship a `kimi` executable: the Python Kimi CLI
+ * (`kimi-cli`, supports `--work-dir` and treats `--prompt` as an interactive
+ * session seed) and the TypeScript Kimi Code CLI (`kimi-code`, no
+ * `--work-dir`; `--prompt` switches to a headless one-shot run). Launch
+ * arguments must follow the detected dialect.
+ */
+export type KimiCliDialect = 'kimi-cli' | 'kimi-code';
+
 export interface ProviderDirectoryCapabilityProvider {
     id: AiSessionProviderId;
     commandName: string;
@@ -35,11 +44,18 @@ export interface ProviderDirectoryCapabilityChildProcessAdapter {
 
 export interface ProviderDirectoryCapabilityResult {
     status: ProviderDirectoryCapabilityStatus;
+    /**
+     * Kimi only: which CLI dialect the resolved `kimi` executable speaks,
+     * derived from the same `--help` output as the capability status.
+     * Undefined for other providers and when help output is unavailable.
+     */
+    kimiDialect?: KimiCliDialect;
 }
 
 const HELP_TIMEOUT_MS = 5_000;
 const HELP_OUTPUT_MAX_BYTES = 64 * 1024;
 const ADD_DIRECTORY_OPTION = /(?:^|\s)--add-dir(?=$|[\s=<\[(])/m;
+const WORK_DIR_OPTION = /(?:^|\s)--work-dir(?=$|[\s=<\[(])/m;
 
 function boundedHelpOutput(help: BoundedChildProcessResult): string {
     const stdout = typeof help.stdout === 'string' ? help.stdout : '';
@@ -49,8 +65,11 @@ function boundedHelpOutput(help: BoundedChildProcessResult): string {
         .toString('utf8');
 }
 
-function result(status: ProviderDirectoryCapabilityStatus): ProviderDirectoryCapabilityResult {
-    return Object.freeze({ status });
+function result(
+    status: ProviderDirectoryCapabilityStatus,
+    kimiDialect?: KimiCliDialect
+): ProviderDirectoryCapabilityResult {
+    return Object.freeze(kimiDialect ? { status, kimiDialect } : { status });
 }
 
 export class ProviderDirectoryCapabilityProbe {
@@ -111,7 +130,10 @@ export class ProviderDirectoryCapabilityProbe {
         }
 
         const output = boundedHelpOutput(help);
-        return result(ADD_DIRECTORY_OPTION.test(output) ? 'supported' : 'unsupported');
+        const kimiDialect = provider.id === 'kimi'
+            ? (WORK_DIR_OPTION.test(output) ? 'kimi-cli' : 'kimi-code')
+            : undefined;
+        return result(ADD_DIRECTORY_OPTION.test(output) ? 'supported' : 'unsupported', kimiDialect);
     }
 }
 

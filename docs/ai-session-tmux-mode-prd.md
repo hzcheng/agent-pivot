@@ -8,7 +8,7 @@ Agent Pivot 现在可以在 `OPEN PROJECT` 卡片下展示 Codex、Kimi、Claude
 
 ```text
 codex resume --cd "<cwd>" "<session-id>"
-kimi --work-dir "<cwd>" --resume "<session-id>"
+cd "<cwd>" && kimi --resume "<session-id>"
 claude --resume "<session-id>"
 ```
 
@@ -410,14 +410,16 @@ Codex title 仍然作为 Agent Pivot 本地 alias。Agent Pivot 不应该尝试�
 Resume command：
 
 ```text
-kimi --work-dir <cwd> --resume <session-id>
+cd <cwd> && kimi --resume <session-id>
 ```
 
 New session command：
 
 ```text
-kimi --work-dir <cwd>
+cd <cwd> && kimi
 ```
+
+工作目录通过 `cd` 传递而不是 `--work-dir`：两代 Kimi CLI（Python `kimi-cli` 与 TypeScript `kimi-code`）都以当前目录为工作目录，但只有前者支持 `--work-dir`。`--add-dir` / `--resume` / `--yolo` 两代都支持。
 
 Kimi title 仍然作为 Agent Pivot 本地 alias，除非未来 Kimi 提供安全的原生命名接口。
 

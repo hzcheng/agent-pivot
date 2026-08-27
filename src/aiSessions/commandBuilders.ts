@@ -71,12 +71,12 @@ export function buildKimiResumeLaunchSpec(sessionId: string, scope: AiSessionDir
     return {
         executable: 'kimi',
         args: [
-            ...(scope?.primaryCwd ? ['--work-dir', scope.primaryCwd] : []),
             ...buildRepeatedAdditionalDirectoryArgs(scope),
             ...yoloArg(launchOptions, '--yolo'),
             '--resume', sessionId,
             ...(prompt ? ['--prompt', prompt] : []),
         ],
+        cwd: scope?.primaryCwd || undefined,
         markerPath,
         windowsDirectShell: 'current',
     };
@@ -86,11 +86,11 @@ export function buildKimiNewSessionLaunchSpec(scope: AiSessionDirectoryScope, pr
     return {
         executable: 'kimi',
         args: [
-            ...(scope?.primaryCwd ? ['--work-dir', scope.primaryCwd] : []),
             ...buildRepeatedAdditionalDirectoryArgs(scope),
             ...yoloArg(launchOptions, '--yolo'),
             ...(prompt ? ['--prompt', prompt] : []),
         ],
+        cwd: scope?.primaryCwd || undefined,
         markerPath,
         windowsDirectShell: 'powershell',
     };

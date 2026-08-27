@@ -157,13 +157,13 @@ test('RUNTIME-LAUNCH-SPEC-001 preserves argv boundaries and renders hostile valu
     assert.deepEqual(commandBuilders.buildKimiResumeLaunchSpec(
         'kimi; nope', directoryScope('/work/Kimi App'), '/tmp/kimi.done'
     ), {
-        executable: 'kimi', args: ['--work-dir', '/work/Kimi App', '--resume', 'kimi; nope'],
+        executable: 'kimi', args: ['--resume', 'kimi; nope'], cwd: '/work/Kimi App',
         markerPath: '/tmp/kimi.done', windowsDirectShell: 'current',
     });
     assert.deepEqual(commandBuilders.buildKimiNewSessionLaunchSpec(
         directoryScope('/work/Kimi App'), "owner's task", '/tmp/kimi-new.done'
     ), {
-        executable: 'kimi', args: ['--work-dir', '/work/Kimi App', '--prompt', "owner's task"],
+        executable: 'kimi', args: ['--prompt', "owner's task"], cwd: '/work/Kimi App',
         markerPath: '/tmp/kimi-new.done', windowsDirectShell: 'powershell',
     });
     assert.deepEqual(commandBuilders.buildClaudeResumeLaunchSpec(
@@ -226,7 +226,7 @@ test('RUNTIME-LAUNCH-SPEC-001 preserves argv boundaries and renders hostile valu
     ), 'codex resume --cd "C:\\Repo App" "session-1"');
     assert.equal(commandBuilders.buildKimiResumeCommand(
         'session-1', directoryScope('C:\\Repo App'), null, 'win32'
-    ), 'kimi --work-dir "C:\\Repo App" --resume "session-1"');
+    ), 'cd "C:\\Repo App" && kimi --resume "session-1"');
     assert.equal(commandBuilders.buildClaudeResumeCommand(
         'session-1', directoryScope('C:\\Repo App'), null, 'win32'
     ), 'cd "C:\\Repo App" && claude --resume "session-1"');
@@ -235,7 +235,7 @@ test('RUNTIME-LAUNCH-SPEC-001 preserves argv boundaries and renders hostile valu
     )), "codex --cd 'C:\\Repo App' 'Prompt'");
     assert.equal(decodePowerShellPayload(commandBuilders.buildKimiNewSessionCommand(
         directoryScope('C:\\Repo App'), 'Prompt', null, 'win32'
-    )), "kimi --work-dir 'C:\\Repo App' --prompt 'Prompt'");
+    )), "Set-Location -LiteralPath 'C:\\Repo App'; kimi --prompt 'Prompt'");
     assert.equal(decodePowerShellPayload(commandBuilders.buildClaudeNewSessionCommand(
         directoryScope('C:\\Repo App'), 'Title', null, 'win32'
     )), "Set-Location -LiteralPath 'C:\\Repo App'; claude --name 'Title'");

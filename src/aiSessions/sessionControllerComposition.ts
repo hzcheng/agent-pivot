@@ -246,6 +246,21 @@ export function createSessionControllerComposition(
     const writeClipboard = options.writeClipboard;
     const focusTerminalView = options.focusTerminalView;
 
+    // Kimi Code CLI (TypeScript) cannot seed an interactive session with
+    // `--prompt` — there it runs one headless turn and exits. Probe the
+    // dialect once (cached) so prompt-carrying launches can degrade to a
+    // clipboard hand-off instead of launching a session that dies after one
+    // turn (or fails outright when combined with --yolo).
+    const resolveInteractiveCliPromptSupport = async (providerId: AiSessionProviderId): Promise<boolean> => {
+        if (providerId !== 'kimi') {
+            return true;
+        }
+        const capability = await providerDirectoryCapability.probe(
+            getRegisteredAiSessionProvider(providerId)
+        );
+        return capability.kimiDialect !== 'kimi-code';
+    };
+
     const pickAiSessionWorkspaceRoot = async (
         workspace: OpenWorkspace,
         action: 'create' | 'resume'
@@ -476,6 +491,8 @@ export function createSessionControllerComposition(
         getProviderLabel: getAiSessionProviderLabel,
         getLaunchOptions,
         getProvider: getRegisteredAiSessionProvider,
+        resolveInteractiveCliPromptSupport: resolveInteractiveCliPromptSupport,
+        writeClipboard: value => writeClipboard(value),
         getSessionTranscriptPath: (providerId, sessionId) =>
             getRegisteredAiSessionProvider(providerId)?.service.resolveSessionFilePath?.(sessionId)
                 || null,
@@ -644,6 +661,8 @@ export function createSessionControllerComposition(
         getLaunchOptions,
         resolveResumeProfileDecision,
         getProvider: getRegisteredAiSessionProvider,
+        resolveInteractiveCliPromptSupport: resolveInteractiveCliPromptSupport,
+        writeClipboard: value => writeClipboard(value),
         resolveWorkspaceDirectoryScope: (target, session, providerId, explicitRootId) =>
             aiSessionCommandController.resolveWorkspaceDirectoryScope(
                 target.workspace, providerId, session, explicitRootId

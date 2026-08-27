@@ -460,3 +460,69 @@ test('RELEASE-CONVERSATION-JOURNEYS-001 release publishing needs installed VSIX 
         /release-extension-host must need verify/
     );
 });
+
+test('RELEASE-MARKETPLACE-PUBLISH-001 publishes released VSIX files after the release job', () => {
+    assert.doesNotThrow(() => validateReleaseWorkflow(releaseWorkflow));
+
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            /\n  publish-marketplace:[\s\S]*$/, '\n'
+        )),
+        /must define verify, release-extension-host, release, and publish-marketplace/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '    needs: release\n',
+            '    needs: verify\n'
+        )),
+        /publish-marketplace must need release/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            /      publish_marketplace:\n(        .*\n){4}/,
+            ''
+        )),
+        /must define the publish_marketplace override input/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            "git tag --list 'v*.*.*' --sort=-version:refname",
+            'git describe --tags --abbrev=0'
+        )),
+        /must compare against the previous release tag/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            'current_major_minor="${version%.*}"',
+            'current_major_minor="$version"'
+        )),
+        /must compare the major\.minor prefix to skip patch-only bumps/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '        uses: actions/download-artifact@v4',
+            '        uses: actions/checkout@v4'
+        )),
+        /must download the released VSIX artifact/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            /\$\{\{ secrets\.VSCE_PAT \}\}/g,
+            '${{ secrets.RELEASE_TOKEN }}'
+        )),
+        /must authenticate with the VSCE_PAT repository secret/
+    );
+});
+
+test('RELEASE-MARKETPLACE-PUBLISH-001 publishes UI Bridge before the main extension', () => {
+    const reordered = releaseWorkflow.replace(
+        '          npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation\n' +
+        '          npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation',
+        '          npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation\n' +
+        '          npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation'
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(reordered),
+        /must publish UI Bridge before the main extension/
+    );
+});

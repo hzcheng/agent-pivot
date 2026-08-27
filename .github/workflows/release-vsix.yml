@@ -20,6 +20,11 @@ on:
         required: false
         default: false
         type: boolean
+      publish_marketplace:
+        description: "Publish to the VS Code Marketplace even when only the patch digit changed."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -56,6 +61,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      vsix_file: ${{ steps.meta.outputs.vsix_file }}
+      bridge_vsix_file: ${{ steps.meta.outputs.bridge_vsix_file }}
 
     steps:
       - name: Checkout
@@ -180,3 +190,124 @@ jobs:
             --title "Agent Pivot ${VERSION}" \
             --notes-file release-notes.md \
             "${args[@]}"
+
+  publish-marketplace:
+    name: publish-marketplace
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.12.0
+          cache: npm
+
+      - name: Decide marketplace publish
+        id: decision
+        env:
+          FORCE_PUBLISH: ${{ inputs.publish_marketplace }}
+          RELEASE_VERSION: ${{ needs.release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$RELEASE_VERSION"
+          current_tag="v${version}"
+          previous_tag="$(git tag --list 'v*.*.*' --sort=-version:refname | grep -vx "$current_tag" | head -n 1 || true)"
+
+          publish="false"
+          if [[ "$FORCE_PUBLISH" == "true" ]]; then
+              publish="true"
+              reason="forced by the publish_marketplace workflow input"
+          elif [[ -z "$previous_tag" ]]; then
+              publish="true"
+              reason="no earlier release tag found; treating ${current_tag} as the first marketplace release"
+          else
+              previous_major_minor="${previous_tag#v}"
+              previous_major_minor="${previous_major_minor%.*}"
+              current_major_minor="${version%.*}"
+              if [[ "$previous_major_minor" != "$current_major_minor" ]]; then
+                  publish="true"
+                  reason="minor or major bump ${previous_tag} -> ${current_tag}"
+              else
+                  reason="patch-only bump ${previous_tag} -> ${current_tag}; the marketplace keeps the previous minor line"
+              fi
+          fi
+
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=$previous_tag" >> "$GITHUB_OUTPUT"
+          echo "$reason"
+
+      - name: Check marketplace credentials
+        id: credentials
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        shell: bash
+        run: |
+          if [[ -n "${VSCE_PAT:-}" ]]; then
+              echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Handle missing marketplace credentials
+        if: steps.decision.outputs.publish == 'true' && steps.credentials.outputs.configured == 'false'
+        env:
+          FORCE_PUBLISH: ${{ inputs.publish_marketplace }}
+        shell: bash
+        run: |
+          if [[ "$FORCE_PUBLISH" == "true" ]]; then
+              echo "::error::publish_marketplace was requested but the VSCE_PAT secret is not configured on this repository." >&2
+              exit 1
+          fi
+          echo "::warning::Skipping marketplace publish: the VSCE_PAT secret is not configured. Create an Azure DevOps PAT with the Marketplace > Manage scope for publisher hzcheng and store it as the VSCE_PAT repository secret."
+
+      - name: Record marketplace skip
+        if: steps.decision.outputs.publish == 'false'
+        shell: bash
+        run: |
+          echo "::notice::${{ steps.decision.outputs.reason }}"
+
+      - name: Download release VSIX artifact
+        if: steps.decision.outputs.publish == 'true' && steps.credentials.outputs.configured == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-pivot-${{ needs.release.outputs.version }}-vsix
+          path: artifacts
+
+      - name: Publish extensions to the VS Code Marketplace
+        if: steps.decision.outputs.publish == 'true' && steps.credentials.outputs.configured == 'true'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          BRIDGE_VSIX_FILE: ${{ needs.release.outputs.bridge_vsix_file }}
+          VSIX_FILE: ${{ needs.release.outputs.vsix_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation
+          npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation
+
+      - name: Write marketplace publish summary
+        if: always()
+        env:
+          REASON: ${{ steps.decision.outputs.reason }}
+          PUBLISH: ${{ steps.decision.outputs.publish }}
+          CREDENTIALS: ${{ steps.credentials.outputs.configured }}
+        shell: bash
+        run: |
+          {
+            echo "## Marketplace publish"
+            echo
+            echo "- Decision: ${REASON}"
+            echo "- Publish requested: ${PUBLISH}"
+            echo "- VSCE_PAT configured: ${CREDENTIALS}"
+          } >> "$GITHUB_STEP_SUMMARY"

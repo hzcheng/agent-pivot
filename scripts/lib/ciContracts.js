@@ -353,10 +353,11 @@ function validateReleaseWorkflow(releaseWorkflow) {
         'pull-requests': 'read',
     }, 'GitHub release workflow permissions must include every nested read permission');
     assert.deepEqual(Object.keys(workflow.jobs).sort(), [
+        'publish-marketplace',
         'release',
         'release-extension-host',
         'verify',
-    ], 'GitHub release workflow must define verify, release-extension-host, and release');
+    ], 'GitHub release workflow must define verify, release-extension-host, release, and publish-marketplace');
 
     const verify = workflow.jobs.verify;
     assert.ok(isMapping(verify), 'GitHub release workflow must define verify');
@@ -382,6 +383,62 @@ function validateReleaseWorkflow(releaseWorkflow) {
         'release job permissions must be exactly contents: write');
     assert.equal(containsKey(workflow, 'continue-on-error'), false,
         'GitHub release workflow must not define continue-on-error');
+
+    validateMarketplacePublishJob(workflow, releaseWorkflow);
+}
+
+function validateMarketplacePublishJob(workflow, source) {
+    const job = workflow.jobs['publish-marketplace'];
+    assert.ok(isMapping(job), 'GitHub release workflow must define publish-marketplace');
+    assert.equal(job.name, 'publish-marketplace',
+        'publish-marketplace must expose the stable check name publish-marketplace');
+    assert.equal(job.needs, 'release',
+        'publish-marketplace must need release so it publishes only released VSIX artifacts');
+    assert.equal(job['runs-on'], 'ubuntu-latest',
+        'publish-marketplace must use ubuntu-latest');
+    assert.equal(job['timeout-minutes'], 15,
+        'publish-marketplace timeout-minutes must be 15');
+    assert.deepEqual(job.permissions, { contents: 'read' },
+        'publish-marketplace job permissions must be exactly contents: read');
+
+    const dispatch = workflow.on && workflow.on.workflow_dispatch;
+    assert.ok(isMapping(dispatch) && isMapping(dispatch.inputs)
+        && isMapping(dispatch.inputs.publish_marketplace),
+    'release workflow workflow_dispatch must define the publish_marketplace override input');
+
+    const checkout = findStep(job,
+        step => isMapping(step) && step.uses === 'actions/checkout@v4');
+    assert.ok(checkout && isMapping(checkout.with) && checkout.with['fetch-depth'] === 0,
+        'publish-marketplace checkout must fetch full history to compare release tags');
+
+    const decision = findStep(job,
+        step => isMapping(step) && step.name === 'Decide marketplace publish');
+    assert.ok(decision, 'publish-marketplace must define the Decide marketplace publish step');
+    assert.ok(typeof decision.run === 'string'
+        && decision.run.includes("git tag --list 'v*.*.*' --sort=-version:refname"),
+    'publish-marketplace decision must compare against the previous release tag');
+    assert.ok(decision.run.includes('${version%.*}'),
+        'publish-marketplace decision must compare the major.minor prefix to skip patch-only bumps');
+
+    const download = findStep(job,
+        step => isMapping(step) && step.uses === 'actions/download-artifact@v4');
+    assert.ok(download, 'publish-marketplace must download the released VSIX artifact');
+    assert.equal(download.with && download.with.name,
+        'agent-pivot-${{ needs.release.outputs.version }}-vsix',
+    'publish-marketplace must download the artifact produced by the release job');
+
+    const bridgePublish = source.indexOf(
+        'npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE"');
+    const mainPublish = source.indexOf(
+        'npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE"');
+    assert.ok(bridgePublish !== -1 && mainPublish !== -1,
+        'publish-marketplace must publish both VSIX files with vsce');
+    assert.ok(bridgePublish < mainPublish,
+        'publish-marketplace must publish UI Bridge before the main extension');
+    assert.ok(source.includes('${{ secrets.VSCE_PAT }}'),
+        'publish-marketplace must authenticate with the VSCE_PAT repository secret');
+    assert.ok(source.includes('--allow-star-activation'),
+        'publish-marketplace must pass --allow-star-activation to vsce');
 }
 
 function includesShellCommand(script, command) {

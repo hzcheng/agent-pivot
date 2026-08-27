@@ -1706,6 +1706,20 @@
     ]
   },
   {
+    "id": "RELEASE-MARKETPLACE-PUBLISH-001",
+    "domain": "release",
+    "title": "Tagged minor and major releases auto-publish the released VSIX artifacts to the VS Code Marketplace with VSCE_PAT, UI Bridge first, while patch-only bumps skip unless forced",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/ciContracts.test.js"
+    ],
+    "evidence": [
+      ".github/workflows/release-vsix.yml",
+      "scripts/lib/ciContracts.js"
+    ]
+  },
+  {
     "id": "RELEASE-CONVERSATION-JOURNEYS-001",
     "domain": "release",
     "title": "AI Conversation pull-request and release blockers remain explicit, P0, automated where portable, and backed by scheduled packaged Extension Host evidence",

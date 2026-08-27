@@ -269,8 +269,8 @@ function validateReleaseWorkflow(workflow) {
         'release workflow must not define continue-on-error');
     assert.deepStrictEqual(
         Object.keys(workflow.jobs).sort(),
-        ['release', 'release-extension-host', 'verify'],
-        'release workflow must contain only verify, release-extension-host, and release jobs'
+        ['publish-marketplace', 'release', 'release-extension-host', 'verify'],
+        'release workflow must contain only verify, release-extension-host, release, and publish-marketplace jobs'
     );
     const verify = workflow.jobs.verify;
     assert.strictEqual(verify.uses, './.github/workflows/verify.yml',
@@ -295,6 +295,26 @@ function validateReleaseWorkflow(workflow) {
     );
     assert.deepStrictEqual(release.permissions, { contents: 'write' },
         'release job permissions must be exactly contents: write');
+    assert.deepStrictEqual(release.outputs, {
+        version: '${{ steps.meta.outputs.version }}',
+        tag: '${{ steps.meta.outputs.tag }}',
+        vsix_file: '${{ steps.meta.outputs.vsix_file }}',
+        bridge_vsix_file: '${{ steps.meta.outputs.bridge_vsix_file }}',
+    }, 'release job must expose the VSIX metadata outputs consumed by publish-marketplace');
+    const publishMarketplace = workflow.jobs['publish-marketplace'];
+    assertExactKeys(
+        publishMarketplace,
+        ['name', 'needs', 'runs-on', 'timeout-minutes', 'permissions', 'steps'],
+        'publish-marketplace job'
+    );
+    assert.strictEqual(publishMarketplace.needs, 'release',
+        'publish-marketplace must need release');
+    assert.deepStrictEqual(publishMarketplace.permissions, { contents: 'read' },
+        'publish-marketplace job permissions must be exactly contents: read');
+    assert.strictEqual(publishMarketplace['runs-on'], 'ubuntu-latest',
+        'publish-marketplace must use ubuntu-latest');
+    assert.strictEqual(publishMarketplace['timeout-minutes'], 15,
+        'publish-marketplace timeout-minutes must be 15');
 }
 
 function assertWorkflowMutationRejected(validate, workflow, mutate, message) {
@@ -940,6 +960,18 @@ function run() {
     assertWorkflowMutationRejected(validateReleaseWorkflow, release,
         value => { value.jobs.release.steps[0]['continue-on-error'] = true; },
         'release continue-on-error must be rejected recursively');
+    assertWorkflowMutationRejected(validateReleaseWorkflow, release,
+        value => { delete value.jobs['publish-marketplace']; },
+        'marketplace publish job removal must be rejected');
+    assertWorkflowMutationRejected(validateReleaseWorkflow, release,
+        value => { delete value.jobs['publish-marketplace'].needs; },
+        'marketplace publish dependency removal must be rejected');
+    assertWorkflowMutationRejected(validateReleaseWorkflow, release,
+        value => { value.jobs['publish-marketplace'].permissions = { contents: 'write' }; },
+        'marketplace publish write permission must be rejected');
+    assertWorkflowMutationRejected(validateReleaseWorkflow, release,
+        value => { delete value.jobs.release.outputs; },
+        'release outputs removal must be rejected');
 
     const mainIgnore = readText('.vscodeignore');
     const bridgeIgnore = readText('extensions/attention-ui-bridge/.vscodeignore');

@@ -62,6 +62,13 @@ Turn every confirmed regression into a CI-owned behavior before changing product
      red run as green. Use `set -o pipefail` or read the stored log.
 7. **Keep the behavior catalog current**
    - In every automated owner file, use literal behavior IDs for the behaviors it owns. After any implementation, owner, or catalog change, run `npm run test:behavior-contracts`.
+   - That command validates catalog→owner only: every entry's owner files
+     exist and cite its ID. It never reads a test for IDs the catalog is
+     missing, so a behavior ID that appears in a test but in no catalog entry
+     passes every required check silently and the behavior ends up owned by
+     nothing. When putting an ID in a test, confirm the reverse direction
+     explicitly: `grep -c '<BEHAVIOR-ID>' docs/testing/behavior-contracts.json`
+     must be non-zero.
    - Classify commits by changed paths and protected behavior, never by a subject prefix. Treat `.skills/` and skill-owner tests as implementation paths.
    - In repositories with both `origin` and `upstream`, pass the intended `--repo <owner/name>` to every `gh pr checks`, `gh run view`, and Actions log command. Do not let local remote ordering select the repository.
 

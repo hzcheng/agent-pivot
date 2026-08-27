@@ -220,6 +220,239 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 renders a modest latest page in
     ).length, 0, 'the modest page must not wait for a second full refresh');
 });
 
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 paints the recent window before backfilling a heavy short page', async () => {
+    const sessionId = 'progressive-heavy-short-page';
+    let now = 10;
+    const timings = [];
+    const interactionIds = Array.from(
+        { length: 30 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        now: () => now,
+        onTiming: timing => timings.push(timing),
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+            padding: 'x'.repeat(4 * 1024),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /Loading earlier messages/);
+    assert.doesNotMatch(partial.html, /message-0/);
+    assert.match(partial.html, /message-29/);
+
+    now = 35;
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: partial.subscriptionGeneration,
+        requestId: partial.requestId,
+        htmlSignature: partial.htmlSignature,
+    });
+    assert.deepEqual(timings, [{
+        source: 'open',
+        updateKind: 'initial',
+        delivery: 'document',
+        applicationMs: 25,
+        contentBytes: Buffer.byteLength(partial.html, 'utf8'),
+        progressive: true,
+        loadMs: 25,
+    }], 'diagnostics must identify the lightweight first paint, without session data');
+    const chunk = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(chunk, 'the deferred prefix must backfill after the first paint');
+    assert.match(chunk.html, /message-3/);
+    assert.doesNotMatch(chunk.html, /message-0/);
+    assert.doesNotMatch(chunk.html, /message-2/,
+        'a heavy deferred prefix must not return in one long Webview task');
+    let nextChunk = chunk;
+    while (!nextChunk.complete) {
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: nextChunk.subscriptionGeneration,
+            requestId: nextChunk.requestId,
+            htmlSignature: nextChunk.htmlSignature,
+        });
+        nextChunk = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).at(-1);
+    }
+    await panel.receive({
+        type: 'conversation-viewer-history-chunk-applied',
+        version: 1,
+        subscriptionGeneration: nextChunk.subscriptionGeneration,
+        requestId: nextChunk.requestId,
+        htmlSignature: nextChunk.htmlSignature,
+    });
+    const completion = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.equal(completion?.html, undefined,
+        'the final reconciliation must reuse the fully backfilled content');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 bounds the first paint of an unusually heavy latest window', async () => {
+    const sessionId = 'progressive-heavy-latest-window';
+    const interactionIds = Array.from(
+        { length: 30 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+            padding: 'x'.repeat(16 * 1024),
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /message-29/);
+    assert.doesNotMatch(partial.html, /message-26/,
+        'the first paint must stay within its byte budget, not always render twelve messages');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 byte-triggers below the count threshold without splitting a visible interaction', async () => {
+    const sessionId = 'progressive-utf8-short-page';
+    const latestInteractionId = 'input-latest';
+    const interactionIds = [
+        ...Array.from({ length: 8 }, (_item, index) => `input-${index}`),
+        latestInteractionId,
+    ];
+    const messages = Array.from({ length: 10 }, (_item, index) => ({
+        id: `message-${index}`,
+        interactionId: index >= 8 ? latestInteractionId : `input-${index}`,
+        role: 'user',
+        markdown: `marker-${index}-${'界'.repeat(10_000)}`,
+    }));
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: 'r1',
+            anchorInteractionId: latestInteractionId,
+            messages,
+            interactionStates: interactionIds.map(interactionId => ({
+                interactionId,
+                responseState: 'complete',
+            })),
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, latestInteractionId));
+
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /marker-8-/,
+        'the first member of the final interaction must remain visible');
+    assert.match(partial.html, /marker-9-/,
+        'the final interaction must remain whole at a byte boundary');
+    assert.doesNotMatch(partial.html, /marker-7-/,
+        'a short-by-count but heavy UTF-8 page must defer older history');
+    assert.match(partial.html, /Loading earlier messages/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 ignores hidden Thinking payloads when choosing a first paint', async () => {
+    const sessionId = 'progressive-hidden-thinking';
+    const interactionIds = Array.from(
+        { length: 30 },
+        (_item, index) => `input-${index}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: 'r1',
+            anchorInteractionId: interactionIds.at(-1),
+            messages: interactionIds.map((interactionId, index) => ({
+                id: `thinking-${index}`,
+                interactionId,
+                role: 'thinking',
+                markdown: 'hidden-thinking',
+                thinking: { text: 'x'.repeat(8 * 1024) },
+            })),
+            interactionStates: interactionIds.map(interactionId => ({
+                interactionId,
+                responseState: 'complete',
+            })),
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(initial.html, /Loading earlier messages/,
+        'hidden Thinking must not create a visible progressive-loading detour');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps an oversized latest interaction atomic', async () => {
+    const sessionId = 'progressive-oversized-latest-atomic';
+    const latestInteractionId = 'input-latest';
+    const messages = [
+        {
+            id: 'latest-user', interactionId: latestInteractionId,
+            role: 'user', markdown: 'Inspect the long worklog',
+        },
+        ...Array.from({ length: 6 }, (_item, index) => ({
+            id: `latest-tool-${index}`, interactionId: latestInteractionId,
+            role: 'tool', markdown: '',
+            tool: {
+                name: 'Shell', summary: `command-${index}`,
+                detail: 'x'.repeat(16 * 1024),
+            },
+        })),
+        {
+            id: 'latest-answer', interactionId: latestInteractionId,
+            role: 'assistant', markdown: 'Final answer.',
+        },
+    ];
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, [
+            'input-earlier',
+            latestInteractionId,
+        ]),
+        readPage: async () => ({
+            provider: 'codex', sessionId, sourceRevision: 'r1',
+            anchorInteractionId: latestInteractionId, messages,
+            interactionStates: [{
+                interactionId: latestInteractionId,
+                responseState: 'complete',
+            }],
+            isStart: true, isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, latestInteractionId));
+
+    const initial = decodeInitialPublication(panel.webview.html);
+    assert.doesNotMatch(initial.html, /Loading earlier messages/);
+    assert.match(initial.html, /command-0/);
+    assert.match(initial.html, /Final answer/);
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).length, 0,
+        'a group-derived worklog must never be reconstructed by blind prepends');
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes a recovered recent-message page', async () => {
     const sessionId = 'progressive-recovery';
     const interactionIds = Array.from(
@@ -1671,6 +1904,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 patches only the trailing inter
     let revision = 1;
     let tailText = 'answer part';
     let watchCallback;
+    const timings = [];
     const streamingPage = () => ({
         provider: 'codex',
         sessionId,
@@ -1700,6 +1934,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 patches only the trailing inter
         isEnd: true,
     });
     const { viewer, panel } = createViewer({
+        onTiming: timing => timings.push(timing),
         watch: (_provider, _sessionId, onChange) => {
             watchCallback = onChange;
             return { dispose() {} };
@@ -1753,6 +1988,11 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 patches only the trailing inter
         requestId: patch.requestId,
         htmlSignature: patch.htmlSignature,
     });
+    assert.equal(timings.at(-1)?.delivery, 'message');
+    assert.equal(timings.at(-1)?.contentBytes,
+        Buffer.byteLength(patch.tailHtml, 'utf8'),
+        'tail timing must count only the HTML that crossed the wire');
+    assert.equal(timings.at(-1)?.progressive, false);
 
     // After the patched receipt, an unchanged refresh omits HTML entirely.
     revision = 3;
@@ -1771,6 +2011,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 patches only the trailing inter
         requestId: idle.requestId,
         htmlSignature: idle.htmlSignature,
     });
+    assert.equal(timings.at(-1)?.contentBytes, 0,
+        'an unchanged delta must report no HTML transfer');
 
     // A new interaction changes the prefix: back to a full refresh.
     interactionIds.push('input-4');
@@ -2413,13 +2655,16 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records target-free timing for 
         requestId: publication.requestId,
         htmlSignature: publication.htmlSignature,
     });
-    assert.deepEqual(timings, [{
+    assert.equal(timings.length, 1);
+    assert.deepEqual(timings[0], {
         source: 'open',
         updateKind: 'initial',
         delivery: 'document',
         applicationMs: 25,
+        contentBytes: Buffer.byteLength(publication.html, 'utf8'),
+        progressive: false,
         loadMs: 25,
-    }]);
+    });
     viewer.dispose();
 });
 
@@ -2576,13 +2821,16 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records document timing after a
         requestId: publication.requestId,
         htmlSignature: publication.htmlSignature,
     });
-    assert.deepEqual(timings, [{
+    assert.equal(timings.length, 1);
+    assert.deepEqual(timings[0], {
         source: 'follow',
         updateKind: 'initial',
         delivery: 'document',
         applicationMs: 20,
+        contentBytes: Buffer.byteLength(publication.html, 'utf8'),
+        progressive: false,
         loadMs: 20,
-    }]);
+    });
     viewer.dispose();
 });
 
@@ -2644,13 +2892,16 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 records correlated, target-free
         requestId: publication.requestId,
         htmlSignature: publication.htmlSignature,
     });
-    assert.deepEqual(timings, [{
+    assert.equal(timings.length, 1);
+    assert.deepEqual(timings[0], {
         source: 'follow',
         updateKind: 'initial',
         delivery: 'message',
         applicationMs: 15,
+        contentBytes: Buffer.byteLength(publication.html, 'utf8'),
+        progressive: false,
         loadMs: 60,
-    }]);
+    });
     assert.equal('sessionId' in timings[0], false);
     assert.equal('provider' in timings[0], false);
     viewer.dispose();
@@ -5557,7 +5808,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rebuilds a stalled reused-panel
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 offers a frame restore only for acknowledged session content', async () => {
     let changed = false;
+    const timings = [];
     const { viewer, panel } = createViewer({
+        onTiming: timing => timings.push(timing),
         readOutline: async (_provider, sessionId) => outline(
             sessionId,
             ['input-1', 'input-2'],
@@ -5617,6 +5870,10 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 offers a frame restore only for
 
     // Content changed while away: the switch back must carry full HTML.
     await ack(latest, [frameEntry('session-b', sessionBToken)]);
+    assert.equal(timings.at(-1)?.delivery, 'message');
+    assert.equal(timings.at(-1)?.contentBytes, 0,
+        'a frame restore must report no HTML retransmission');
+    assert.equal(timings.at(-1)?.progressive, false);
     await viewer.follow(target('session-b', 'input-1'));
     latest = lastPage();
     assert.equal(latest.restoreFrame, true,

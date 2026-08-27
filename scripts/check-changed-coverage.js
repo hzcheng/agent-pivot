@@ -24,6 +24,11 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // scripts with their own unit tests (coverage, changed-coverage, tslint) are
     // deliberately NOT listed here.
     'scripts/check-behavior-contracts.js',
+    // CLI wrapper executed with `node scripts/generate-third-party-notices.js`;
+    // its main() runs on load and no suite requires it. The notice collection
+    // and rendering logic lives in scripts/lib/thirdPartyNotices.js, which
+    // stays instrumented and enforced.
+    'scripts/generate-third-party-notices.js',
     // Dev-only probes and rendered-output verifiers (scripts/dev/*) are run
     // manually with `node scripts/dev/<name>.js` during dogfooding; no suite
     // requires them, and they carry no production behavior.

@@ -848,6 +848,20 @@
     ]
   },
   {
+    "id": "WEBVIEW-STYLE-CONFIG-SANITIZATION-001",
+    "domain": "webview",
+    "title": "Settings-sourced webview styles (customCss, custom theme colors, per-project colors) are sanitized against style breakout and remote resource loading, and the four style settings are restricted in untrusted workspaces",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/webview/styleConfigSanitization.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewContent.ts",
+      "package.json"
+    ]
+  },
+  {
     "id": "WEBVIEW-ASSET-IDENTITY-001",
     "domain": "webview",
     "title": "src/webview scripts mirror into media byte-for-byte",
@@ -1717,6 +1731,22 @@
     "evidence": [
       ".github/workflows/release-vsix.yml",
       "scripts/lib/ciContracts.js"
+    ]
+  },
+  {
+    "id": "THIRD-PARTY-NOTICES-CLOSURE-001",
+    "domain": "release",
+    "title": "THIRD_PARTY_NOTICES.md is generated from the full production dependency closure with verbatim LF-normalized license texts and stays in sync with package-lock.json",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/thirdPartyNotices.test.js"
+    ],
+    "evidence": [
+      "scripts/lib/thirdPartyNotices.js",
+      "scripts/generate-third-party-notices.js",
+      "scripts/run-release-packaging-checks.js",
+      "THIRD_PARTY_NOTICES.md"
     ]
   },
   {

@@ -51,7 +51,13 @@
     ],
     "capabilities": {
         "untrustedWorkspaces": {
-            "supported": true
+            "supported": "limited",
+            "restrictedConfigurations": [
+                "agentPivot.customCss",
+                "agentPivot.customProjectCardBackground",
+                "agentPivot.customProjectNameColor",
+                "agentPivot.customProjectPathColor"
+            ]
         }
     },
     "contributes": {
@@ -270,7 +276,7 @@
                 },
                 "agentPivot.customCss": {
                     "type": "string",
-                    "markdownDescription": "Custom CSS rules to be injected into the Agent Pivot can be placed here. Note that this will not be sanitized!",
+                    "markdownDescription": "Custom CSS rules to be injected into the Agent Pivot webview. The value is sanitized before injection: `<` characters, `@import`, remote `url()` references, and script-like constructs are stripped. This setting is ignored in untrusted workspaces.",
                     "default": null
                 },
                 "agentPivot.recentColors": {
@@ -530,14 +536,17 @@
                 },
                 "agentPivot.customProjectCardBackground": {
                     "type": "string",
+                    "markdownDescription": "Custom background color for project cards. Must be a plain CSS color (hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, a named color, or a `var()` reference); other values are ignored. This setting is ignored in untrusted workspaces.",
                     "default": null
                 },
                 "agentPivot.customProjectNameColor": {
                     "type": "string",
+                    "markdownDescription": "Custom color for project names. Must be a plain CSS color (hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, a named color, or a `var()` reference); other values are ignored. This setting is ignored in untrusted workspaces.",
                     "default": null
                 },
                 "agentPivot.customProjectPathColor": {
                     "type": "string",
+                    "markdownDescription": "Custom color for project paths. Must be a plain CSS color (hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`, a named color, or a `var()` reference); other values are ignored. This setting is ignored in untrusted workspaces.",
                     "default": null
                 },
                 "agentPivot.applyProjectColorToWindow": {

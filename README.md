@@ -374,6 +374,9 @@ reply.
 
 Agent Pivot began as a fork of Kruemelkatze/vscode-dashboard and retains the upstream MIT attribution.
 
+Agent Pivot is an independent open-source project and is not affiliated with,
+endorsed by, or sponsored by OpenAI, Anthropic, Moonshot AI, or Microsoft.
+
 The upstream copyright and MIT license terms remain in [LICENSE](LICENSE).
 Notices for bundled JavaScript libraries are in
 [Third-Party Notices](THIRD_PARTY_NOTICES.md).

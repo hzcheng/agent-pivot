@@ -10,6 +10,7 @@ const {
     validateScheduledWorkflow: validateScheduledWorkflowSource,
     validateVerifyWorkflow,
 } = require('./lib/ciContracts');
+const { collectNotices, renderNotices } = require('./lib/thirdPartyNotices');
 
 const repositoryRoot = path.resolve(__dirname, '..');
 
@@ -882,6 +883,12 @@ function run() {
             publishScript.indexOf('run_vsce "${PUBLISH_ARGS[@]}"'),
         'Marketplace publish script must publish UI Bridge before the main extension'
     );
+
+    const thirdPartyNotices = readText('THIRD_PARTY_NOTICES.md');
+    assert.strictEqual(thirdPartyNotices,
+        renderNotices(collectNotices(repositoryRoot)),
+        'THIRD_PARTY_NOTICES.md must match the generated production dependency closure; '
+            + 'run `node scripts/generate-third-party-notices.js` and commit the result');
 
     const workflow = readText('.github/workflows/release-vsix.yml');
     assertIncludes(workflow, 'name: Release Agent Pivot VSIX', 'GitHub release workflow');

@@ -91,7 +91,7 @@ export function getStewardContent(
         assetRevision,
     );
 
-    var customCss = infos.config.get('customCss') || '';
+    var customCss = sanitizeCustomCss(infos.config.get('customCss') || '');
     var searchCatalog = serializeDashboardSearchCatalog(
         buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.skills || [])
     );
@@ -704,9 +704,7 @@ function getProjectDiv(
 }
 
 function getCardColorStyles(colorValue: string | undefined): { cardStyle: string; accentStyle: string } {
-    const rawColor = (colorValue || '').trim();
-    const escapedColor = escapeStyleValue(rawColor);
-    const color = escapedColor === rawColor ? escapedColor : '';
+    const color = sanitizeCssColor(colorValue);
 
     return {
         cardStyle: color ? `--project-color: ${color};` : '',
@@ -729,8 +727,39 @@ export function getProjectSearchText(project: Project): string {
 }
 
 
-function escapeStyleValue(value: string): string {
-    return (value || '').replace(/[;"<>]/g, '').trim();
+// Settings-sourced style values end up inside <style> blocks in the webview.
+// Sanitize them so a hostile (or compromised) workspace cannot break out of
+// the style context or force the webview to load remote resources: the CSP
+// allows https: images for user conversation content, so raw CSS must never
+// smuggle in remote url() references or markup.
+const CUSTOM_CSS_FORBIDDEN_PATTERNS: ReadonlyArray<RegExp> = [
+    /</g, // never needed in CSS; blocks </style> breakouts and tag injection
+    /@import/gi,
+    /expression\s*\(/gi,
+    /javascript\s*:/gi,
+    /url\(\s*['"]?\s*https?:/gi,
+    /-moz-binding/gi,
+];
+
+export function sanitizeCustomCss(value: string): string {
+    let css = typeof value === 'string' ? value : '';
+    for (const pattern of CUSTOM_CSS_FORBIDDEN_PATTERNS) {
+        css = css.replace(pattern, ' ');
+    }
+    return css;
+}
+
+// Plain CSS colors only: hex, named colors, numeric rgb()/hsl() functions, or
+// a var() reference to another custom property. Anything else (url(), quotes,
+// semicolons, markup) is dropped so the value stays a single safe token.
+const CSS_COLOR_PATTERN = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{1,32}|rgba?\([\d.,%\s/]+\)|hsla?\([\d.,%\s/]+\)|var\(\s*--[a-zA-Z0-9_-]+(\s*,\s*[a-zA-Z0-9#()%.,\s-]+)?\s*\))$/;
+
+export function sanitizeCssColor(value: string | undefined | null): string {
+    const color = (value || '').trim();
+    if (!color || color.length > 96) {
+        return '';
+    }
+    return CSS_COLOR_PATTERN.test(color) ? color : '';
 }
 
 function getNoProjectsDiv() {
@@ -815,19 +844,22 @@ function getCustomStyle(config: vscode.WorkspaceConfiguration, runningImages: Ru
     } = config;
 
     // Nested Template Strings, hooray! \o/
+    var cardBackground = sanitizeCssColor(customProjectCardBackground);
+    var nameColor = sanitizeCssColor(customProjectNameColor);
+    var pathColor = sanitizeCssColor(customProjectPathColor);
     return `
 <style>
     :root {
-        ${customProjectCardBackground && customProjectCardBackground.trim()
-            ? `--steward-project-card-bg: ${customProjectCardBackground};`
+        ${cardBackground
+            ? `--steward-project-card-bg: ${cardBackground};`
             : ''
         }
-        ${customProjectNameColor && customProjectNameColor.trim()
-            ? `--steward-foreground: ${customProjectNameColor};`
+        ${nameColor
+            ? `--steward-foreground: ${nameColor};`
             : ''
         }
-        ${customProjectPathColor && customProjectPathColor.trim()
-            ? `--steward-path: ${customProjectPathColor};`
+        ${pathColor
+            ? `--steward-path: ${pathColor};`
             : ''
         }
         ${projectTileWidth && !isNaN(+projectTileWidth)

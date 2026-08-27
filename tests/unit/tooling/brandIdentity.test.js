@@ -188,15 +188,15 @@ test('third-party notices preserve authoritative installed license artifacts', (
     const notices = read('THIRD_PARTY_NOTICES.md');
     for (const [heading, licensePath] of [
         [
-            'dom-autoscroller 2.3.4 — MIT — Copyright Quentin Engles',
+            'dom-autoscroller 2.3.4 — MIT — Copyright (c) 2016 Quentin Engles',
             'node_modules/dom-autoscroller/LICENSE',
         ],
         [
-            'dragula 3.7.3 — MIT — Copyright Nicolas Bevacqua',
+            'dragula 3.7.3 — MIT — Copyright © 2015-2016 Nicolas Bevacqua',
             'node_modules/dragula/license',
         ],
         [
-            'fitty 2.3.5 — MIT — Copyright Rik Schennink',
+            'fitty 2.3.5 — MIT — Copyright (c) 2017-2021 Rik Schennink',
             'node_modules/fitty/LICENSE',
         ],
     ]) {
@@ -269,7 +269,7 @@ test('marketplace notices name every required dependency', () => {
         'dom-autoscroller 2.3.4',
         'dragula 3.7.3',
         'fitty 2.3.5',
-        'DOMPurify 3.4.13',
+        'dompurify 3.4.13',
     ]) {
         assert.match(read('THIRD_PARTY_NOTICES.md'), new RegExp(dependency));
     }

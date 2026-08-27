@@ -2172,6 +2172,14 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!pending || this.suspended || this.target !== pending.target
             || this.subscriptionGeneration !== pending.generation
             || this.progressiveBackfill
+            // A partial page owes the reader its deferred history. Auxiliary
+            // state is not content, so it must never buy its way onto the wire
+            // by re-rendering the whole conversation: wait for the obligation
+            // to close and ride the state-only envelope below instead. Without
+            // this, every switch into a session with comments, bookmarks, or
+            // subagents discards the progressive first paint.
+            || this.progressiveContentIncomplete?.generation
+                === this.subscriptionGeneration
             || !publication || !this.isCurrentPublication(publication)) {
             return;
         }
@@ -2202,7 +2210,8 @@ export class ConversationViewer implements ConversationViewerApi {
             && publication.projectComments.revision
                 === this.projectCommentController.snapshot.revision
             && publication.bookmarks.revision
-                === this.bookmarkController.snapshot.revision;
+                === this.bookmarkController.snapshot.revision
+            && sameSubagents(publication.subagents, this.subagents);
     }
 
     async navigateLatest(): Promise<void> {
@@ -2668,13 +2677,14 @@ export class ConversationViewer implements ConversationViewerApi {
                 return;
             }
             this.subagents = subagents.map(entry => ({ ...entry }));
-            const requestId = this.allocateRequestId();
-            this.currentRequestId = requestId;
-            await this.deliverPublication(this.createPublication(
-                requestId,
-                generation,
-                'refresh'
-            ), false);
+            // The list is sidebar metadata, so it publishes the same way as
+            // restored comments and bookmarks: deferred behind any open
+            // deferred-history obligation and then delivered as a state-only
+            // envelope. Publishing a page for it directly would resend the
+            // whole transcript, because a fresh publication's content
+            // signature cannot match what the Webview already applied.
+            this.pendingRestoredAuxiliaryState = { target, generation };
+            this.publishRestoredAuxiliaryState();
         }).catch(() => undefined);
     }
 

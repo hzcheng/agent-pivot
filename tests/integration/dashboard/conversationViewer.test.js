@@ -195,6 +195,27 @@ function lastContentPublication(panel) {
     return publication;
 }
 
+// A real Webview acknowledges every publication it applies. State-only
+// envelopes — restored auxiliary revisions and the subagent list — are
+// withheld until that receipt proves the base content is actually on screen,
+// so a harness asserting them has to model the receipt.
+async function acknowledgeLatestPublication(panel) {
+    const publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1) || decodeInitialPublication(panel.webview.html);
+    assert.ok(publication, 'a publication must exist to acknowledge');
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+    });
+    for (let attempt = 0; attempt < 6; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+}
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 renders a modest latest page in one publication', async () => {
     const sessionId = 'progressive-page';
     const interactionIds = Array.from(
@@ -1962,7 +1983,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps interaction groups intact
     viewer.dispose();
 });
 
-test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes through an auxiliary refresh that lands before the first receipt', async () => {
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-003 keeps the progressive render when an auxiliary restore lands before the first receipt', async () => {
     const sessionId = 'progressive-chunk-early-auxiliary';
     const interactionIds = Array.from(
         { length: 100 },
@@ -1987,7 +2008,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes through an auxiliary 
     assert.equal(recent.comments.revision, 0,
         'the readable page must not wait for the auxiliary restore');
     // The auxiliary restore settles after the publication but before its
-    // receipt: the restore wins the race against the backfill.
+    // receipt. It must not win that race by re-rendering the whole
+    // conversation: restoring comments is a state change, so it waits for the
+    // deferred history instead of discarding the progressive first paint.
     restoredComments.resolve({ revision: 7, comments: [] });
     await new Promise(resolve => setImmediate(resolve));
     await panel.receive({
@@ -1998,16 +2021,176 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 completes through an auxiliary 
         htmlSignature: recent.htmlSignature,
     });
 
-    // The restored auxiliary state rides a full-content refresh, which
-    // completes the progressive page directly instead of chunking.
-    const complete = lastContentPublication(panel);
-    assert.equal(complete.updateKind, 'refresh');
-    assert.doesNotMatch(complete.html, /Loading earlier messages/);
-    assert.match(complete.html, /message-0/);
-    assert.equal(complete.comments.revision, 7);
-    assert.equal(panel.postedMessages.filter(message =>
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+        ).length,
+        0,
+        'the auxiliary restore must not supersede the progressive page'
+    );
+
+    // The backfill runs to the session start in ack-paced slices.
+    let applied = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-history-chunk'
-    ).length, 0);
+    ).at(-1);
+    assert.ok(applied, 'the receipt must still plan the deferred backfill');
+    for (let slice = 0; slice < 8 && !applied.complete; slice++) {
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: applied.subscriptionGeneration,
+            requestId: applied.requestId,
+            htmlSignature: applied.htmlSignature,
+        });
+        applied = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).at(-1);
+    }
+    assert.equal(applied.complete, true, 'the backfill must reach history start');
+    await panel.receive({
+        type: 'conversation-viewer-history-chunk-applied',
+        version: 1,
+        subscriptionGeneration: applied.subscriptionGeneration,
+        requestId: applied.requestId,
+        htmlSignature: applied.htmlSignature,
+    });
+
+    // History is whole, so the completion publication needs no HTML. Its
+    // receipt closes the obligation and releases the restored comments as a
+    // state-only envelope — the reader pays nothing for them.
+    const completion = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(completion, 'the completion publication must exist');
+    assert.equal(completion.html, undefined,
+        'a converged document must not be resent');
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: completion.subscriptionGeneration,
+        requestId: completion.requestId,
+        htmlSignature: completion.htmlSignature,
+    });
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    const auxiliary = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && message.comments.revision === 7
+    ).at(-1);
+    assert.ok(auxiliary, 'the restored comments must still reach the Webview');
+    assert.equal(auxiliary.html, undefined,
+        'auxiliary state must ride a state-only envelope, never a re-render');
+    viewer.dispose();
+});
+
+// A conversation's subagent list is sidebar metadata, not content. Discovering
+// it must never cost the reader a full-document re-render: switching into any
+// session that has subagents would otherwise throw away the progressive first
+// paint and resend the whole transcript, which is the dominant cost of a switch.
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-003 keeps the progressive render when a session has subagents', async () => {
+    const sessionId = 'progressive-subagent-switch';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+        readSubagents: async () => ([{
+            id: 'sub-1',
+            label: 'explorer',
+            agentType: 'Explore',
+            status: 'idle',
+            createdAt: 1,
+            updatedAt: 2,
+        }]),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /Loading earlier messages/);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: partial.subscriptionGeneration,
+        requestId: partial.requestId,
+        htmlSignature: partial.htmlSignature,
+    });
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+                && typeof message.html === 'string'
+        ).length,
+        0,
+        'discovering subagents must not resend the conversation'
+    );
+
+    // The deferred history still backfills in ack-paced slices.
+    let applied = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(applied, 'the partial receipt must plan the deferred backfill');
+    for (let slice = 0; slice < 8 && !applied.complete; slice++) {
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: applied.subscriptionGeneration,
+            requestId: applied.requestId,
+            htmlSignature: applied.htmlSignature,
+        });
+        applied = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).at(-1);
+    }
+    assert.equal(applied.complete, true, 'the backfill must reach history start');
+    await panel.receive({
+        type: 'conversation-viewer-history-chunk-applied',
+        version: 1,
+        subscriptionGeneration: applied.subscriptionGeneration,
+        requestId: applied.requestId,
+        htmlSignature: applied.htmlSignature,
+    });
+    const completion = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+    ).at(-1);
+    assert.ok(completion, 'the completion publication must exist');
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: completion.subscriptionGeneration,
+        requestId: completion.requestId,
+        htmlSignature: completion.htmlSignature,
+    });
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    // The list still reaches the sidebar — as state, with no HTML on the wire.
+    const withSubagents = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page'
+            && message.subagents?.length === 1
+    ).at(-1);
+    assert.ok(withSubagents, 'the subagent list must still reach the Webview');
+    assert.equal(withSubagents.subagents[0].id, 'sub-1');
+    assert.equal(withSubagents.html, undefined,
+        'the subagent list must ride a state-only envelope');
+    assert.equal(
+        panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-page'
+                && typeof message.html === 'string'
+        ).length,
+        0,
+        'no publication in the whole switch may carry conversation HTML'
+    );
     viewer.dispose();
 });
 
@@ -4029,6 +4212,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 opens a subagent transcript in plac
 
     await viewer.open(target('session-a', 'input-a'));
     await new Promise(resolve => setImmediate(resolve));
+    await acknowledgeLatestPublication(panel);
     const initial = panel.postedMessages.at(-1)
         || decodeInitialPublication(panel.webview.html);
     assert.deepEqual(
@@ -4083,6 +4267,8 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 opens a subagent transcript in plac
         version: 1,
     });
     assert.equal(panel.postedMessages.length, settledCount);
+
+    await acknowledgeLatestPublication(panel);
 
     // A dashboard follow for the same session preserves the subagent view.
     const beforeFollow = panel.postedMessages.length;
@@ -4179,6 +4365,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 keeps late subagents after same
         status: 'running',
     }]);
     await new Promise(resolve => setImmediate(resolve));
+    await acknowledgeLatestPublication(panel);
     assert.deepEqual(
         panel.postedMessages.at(-1).subagents.map(entry => entry.id),
         ['a11111111']
@@ -4236,6 +4423,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 prevents an older subagent resu
         status: 'running',
     }]);
     await new Promise(resolve => setImmediate(resolve));
+    await acknowledgeLatestPublication(panel);
 
     assert.deepEqual(
         panel.postedMessages.at(-1).subagents.map(entry => entry.id),
@@ -4299,6 +4487,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 prevents an older subagent resu
         status: 'running',
     }]);
     await new Promise(resolve => setImmediate(resolve));
+    await acknowledgeLatestPublication(panel);
 
     assert.equal(panel.postedMessages.at(-1).selectedInteractionId, 'input-1');
     assert.match(lastContentPublication(panel).html, /navigated/);

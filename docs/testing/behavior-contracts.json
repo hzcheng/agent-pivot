@@ -4787,6 +4787,21 @@
     ]
   },
   {
+    "id": "CONVERSATION-LARGE-SESSION-PERFORMANCE-003",
+    "domain": "webview",
+    "title": "Auxiliary AI Conversation state never discards a progressive render or resends unchanged conversation content",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-VIEWER-USER-EMPHASIS-001",
     "domain": "webview",
     "title": "AI Conversation presents User prompts as dominant full-width blocks",

@@ -919,6 +919,218 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 defers post-load revalidation w
     viewer.dispose();
 });
 
+// A session-watch invalidation whose content turns out to be unchanged is the
+// most common event during a first paint: the provider rewrites its transcript
+// while the deferred history is still being backfilled. That refresh claims the
+// request counter before it can know it will publish nothing, so it must hand
+// the counter back — otherwise the in-flight slice's receipt is orphaned and
+// the reader is left with a "Loading earlier messages" placeholder forever.
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 keeps the deferred backfill alive across an unchanged session-watch refresh', async () => {
+    const sessionId = 'progressive-watch-noop';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    let invalidate;
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+        watch: (_provider, _sessionId, onChange) => {
+            invalidate = onChange;
+            return { dispose() {} };
+        },
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /Loading earlier messages/);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: partial.subscriptionGeneration,
+        requestId: partial.requestId,
+        htmlSignature: partial.htmlSignature,
+    });
+    const firstChunk = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(firstChunk, 'the partial receipt must anchor the backfill');
+
+    // The transcript is touched while that slice is in flight.
+    invalidate();
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    // Drain the rest of the history. Every receipt must still be correlated,
+    // so each one releases the next slice through to the session start.
+    let applied = firstChunk;
+    for (let slice = 0; slice < 8 && !applied.complete; slice++) {
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: applied.subscriptionGeneration,
+            requestId: applied.requestId,
+            htmlSignature: applied.htmlSignature,
+        });
+        applied = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).at(-1);
+    }
+    assert.equal(applied.complete, true,
+        'an unchanged refresh must not strand the deferred history');
+    viewer.dispose();
+});
+
+// The same invalidation can also land before the Webview reports its first
+// paint. The partial page is still the authoritative document, so its receipt
+// must still be able to plan the backfill.
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 plans the deferred backfill when an unchanged refresh precedes the first receipt', async () => {
+    const sessionId = 'progressive-watch-noop-preflight';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    let invalidate;
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => page(sessionId, interactionIds[0], 'message', {
+            interactionIds,
+            anchorInteractionId: interactionIds.at(-1),
+        }),
+        watch: (_provider, _sessionId, onChange) => {
+            invalidate = onChange;
+            return { dispose() {} };
+        },
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /Loading earlier messages/);
+
+    invalidate();
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: partial.subscriptionGeneration,
+        requestId: partial.requestId,
+        htmlSignature: partial.htmlSignature,
+    });
+    assert.ok(
+        panel.postedMessages.some(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ),
+        'the partial receipt must still plan the deferred backfill'
+    );
+    viewer.dispose();
+});
+
+// A superseding load that genuinely owns the counter can still stall before it
+// publishes. The incomplete-content obligation is the Webview's only promise
+// that its placeholder will resolve, so it carries its own watchdog: one
+// full-content refresh converges the document instead of stranding the reader.
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 recovers deferred history stranded by a load that never publishes', async () => {
+    const sessionId = 'progressive-obligation-watchdog';
+    const interactionIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const timers = new Map();
+    let nextTimer = 1;
+    let invalidate;
+    let outlineReads = 0;
+    let stallPageReads = false;
+    const { viewer, panel } = createViewer({
+        setTimer(callback, delayMs) {
+            const handle = nextTimer++;
+            timers.set(handle, { callback, delayMs });
+            return handle;
+        },
+        clearTimer(handle) {
+            timers.delete(handle);
+        },
+        readOutline: async () => {
+            outlineReads += 1;
+            // The second read reports a completed turn, so the refresh cannot
+            // take its unchanged short-circuit and must re-read the page.
+            return outline(sessionId, interactionIds, outlineReads > 1
+                ? { responseStates: { [interactionIds.at(-1)]: 'inProgress' } }
+                : {});
+        },
+        readPage: async () => {
+            if (stallPageReads) {
+                await new Promise(() => {});
+            }
+            return page(sessionId, interactionIds[0], 'message', {
+                interactionIds,
+                anchorInteractionId: interactionIds.at(-1),
+            });
+        },
+        watch: (_provider, _sessionId, onChange) => {
+            invalidate = onChange;
+            return { dispose() {} };
+        },
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /Loading earlier messages/);
+    await panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: partial.subscriptionGeneration,
+        requestId: partial.requestId,
+        htmlSignature: partial.htmlSignature,
+    });
+    const chunk = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk'
+    ).at(-1);
+    assert.ok(chunk, 'the partial receipt must anchor the backfill');
+
+    // A refresh claims the counter and never returns from its page read.
+    stallPageReads = true;
+    invalidate();
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    // The in-flight slice's receipt is orphaned by that load.
+    await panel.receive({
+        type: 'conversation-viewer-history-chunk-applied',
+        version: 1,
+        subscriptionGeneration: chunk.subscriptionGeneration,
+        requestId: chunk.requestId,
+        htmlSignature: chunk.htmlSignature,
+    });
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    const watchdog = Array.from(timers.values()).find(candidate =>
+        candidate.delayMs === 4_000
+    );
+    assert.ok(watchdog,
+        'an open incomplete-content obligation must be watched');
+    watchdog.callback();
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+
+    const recovered = lastContentPublication(panel);
+    assert.equal(recovered.updateKind, 'refresh');
+    assert.doesNotMatch(recovered.html, /Loading earlier messages/,
+        'the recovery must retire the deferred-history placeholder');
+    assert.match(recovered.html, /message-0/);
+    assert.match(recovered.html, /message-99/);
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 continues across a page boundary to the session start', async () => {
     const sessionId = 'progressive-boundary';
     const olderInteractions = ['input-1', 'input-2'];

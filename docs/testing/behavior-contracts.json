@@ -4772,6 +4772,21 @@
     ]
   },
   {
+    "id": "CONVERSATION-LARGE-SESSION-PERFORMANCE-002",
+    "domain": "webview",
+    "title": "Progressively rendered large AI Conversations always converge on their deferred history instead of stranding a loading placeholder",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-VIEWER-USER-EMPHASIS-001",
     "domain": "webview",
     "title": "AI Conversation presents User prompts as dominant full-width blocks",

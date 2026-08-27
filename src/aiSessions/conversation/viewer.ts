@@ -502,6 +502,15 @@ export class ConversationViewer implements ConversationViewerApi {
     // publication cancels the plan; a lost slice falls back to the normal
     // full-content refresh.
     private progressiveBackfill?: ConversationProgressiveBackfill;
+    // Every path that yields the backfill assumes a superseding load will
+    // publish the full document instead. A load can also be aborted, or
+    // resolve to "nothing changed", and publish nothing at all — which would
+    // leave the reader's deferred-history placeholder with no delivery and no
+    // timer left to retire it. This watchdog belongs to the open
+    // incomplete-content obligation itself, so a yielded backfill always
+    // converges on one full-content refresh.
+    private progressiveObligationTimer?: unknown;
+    private progressiveObligationTimerToken = 0;
     private pendingPublicationTiming?: {
         subscriptionGeneration: number;
         requestId: number;
@@ -1397,6 +1406,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
+        this.clearProgressiveObligationWatchdog();
         this.cancelProgressiveBackfill();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
@@ -1519,6 +1529,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.clearPublicationAckTimeout();
         this.progressivePublication = undefined;
         this.progressiveContentIncomplete = undefined;
+        this.clearProgressiveObligationWatchdog();
         this.cancelProgressiveBackfill();
         this.pendingPublicationTiming = undefined;
         this.pendingTargetLoadTiming = undefined;
@@ -2321,6 +2332,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const subagentDiscoveryGeneration =
             ++this.subagentDiscoveryGeneration;
         const requestId = this.allocateRequestId();
+        const supersededRequestId = this.currentRequestId;
         this.currentRequestId = requestId;
         const previousSelectedInteractionId = this.outlineController.selection;
         const followLatest = updateKind === 'refresh'
@@ -2407,6 +2419,12 @@ export class ConversationViewer implements ConversationViewerApi {
                 if (retainedRevisionMatches
                     && !lifecycleChangedInteractionIds.length
                     && !pagingMetadataChanged) {
+                    // Nothing to publish: hand the request counter back so the
+                    // still-visible publication stays correlatable.
+                    this.releaseUnpublishedRequestId(
+                        requestId,
+                        supersededRequestId
+                    );
                     void this.telemetryController.refresh(
                         target,
                         generation,
@@ -2980,6 +2998,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 !== publication.htmlSignature) {
             this.progressiveContentIncomplete = undefined;
             this.progressivePublication = undefined;
+            this.clearProgressiveObligationWatchdog();
         }
         this.reportPublicationApplication(publication);
         if (this.transitioningGeneration === message.subscriptionGeneration) {
@@ -2995,6 +3014,9 @@ export class ConversationViewer implements ConversationViewerApi {
     ): void {
         if (this.progressivePublication !== publication
             || !this.isCurrentPublication(publication)) {
+            // A superseding load claimed the counter before this receipt
+            // arrived. The obligation stays open, so watch it.
+            this.scheduleProgressiveObligationWatchdog();
             return;
         }
         this.progressivePublication = undefined;
@@ -3074,6 +3096,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const plan = this.progressiveBackfill;
         const panel = this.panel;
         if (!plan || !panel || this.suspended) {
+            this.scheduleProgressiveObligationWatchdog();
             return;
         }
         if (plan.generation !== this.subscriptionGeneration
@@ -3081,6 +3104,7 @@ export class ConversationViewer implements ConversationViewerApi {
             // A newer load or publication owns the request counter now; it
             // supersedes the backfill (its own delivery cancels the plan).
             this.cancelProgressiveBackfill();
+            this.scheduleProgressiveObligationWatchdog();
             return;
         }
         const chunk = this.createNextProgressiveBackfillChunk(plan);
@@ -3181,6 +3205,7 @@ export class ConversationViewer implements ConversationViewerApi {
             // backfill, so the receipt must not allocate ids or publish.
             this.emitDiagnostic('backfill-stale-anchor');
             this.cancelProgressiveBackfill();
+            this.scheduleProgressiveObligationWatchdog();
             return;
         }
         this.clearProgressiveBackfillTimer(plan);
@@ -3212,6 +3237,8 @@ export class ConversationViewer implements ConversationViewerApi {
     private scheduleProgressiveBackfillTimeout(
         plan: ConversationProgressiveBackfill
     ): void {
+        // A slice is now the pending step and carries its own recovery.
+        this.clearProgressiveObligationWatchdog();
         const token = ++plan.timerToken;
         const recover = () => {
             if (token !== plan.timerToken) {
@@ -3270,12 +3297,14 @@ export class ConversationViewer implements ConversationViewerApi {
         this.emitDiagnostic(reason);
         this.cancelProgressiveBackfill();
         if (this.suspended || !this.panel) {
+            this.scheduleProgressiveObligationWatchdog();
             return;
         }
         if (plan.anchorRequestId !== this.currentRequestId) {
             // A newer load owns the request counter; its publication
             // supersedes the backfill, so a recovery refresh would kill it.
             this.emitDiagnostic('backfill-recovery-yielded');
+            this.scheduleProgressiveObligationWatchdog();
             return;
         }
         const requestId = this.allocateRequestId();
@@ -3294,6 +3323,91 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         this.clearProgressiveBackfillTimer(plan);
+    }
+
+    /**
+     * Arm the open incomplete-content obligation's own watchdog. Safe to call
+     * from any yield path: it no-ops unless a partial page for the current
+     * generation is still waiting for its deferred history. Re-arming on each
+     * yield is intended — the obligation is only ever closed by a full-content
+     * receipt.
+     */
+    private scheduleProgressiveObligationWatchdog(): void {
+        if (this.progressiveContentIncomplete?.generation
+            !== this.subscriptionGeneration
+            || this.suspended
+            || !this.panel) {
+            return;
+        }
+        this.clearProgressiveObligationWatchdog();
+        const generation = this.subscriptionGeneration;
+        const token = ++this.progressiveObligationTimerToken;
+        const recover = () => {
+            if (token !== this.progressiveObligationTimerToken) {
+                return;
+            }
+            this.progressiveObligationTimer = undefined;
+            this.recoverProgressiveObligation(generation);
+        };
+        const handle = this.options.setTimer
+            ? this.options.setTimer(
+                recover,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            )
+            : setTimeout(
+                recover,
+                CONVERSATION_LIMITS.viewerPublicationAckTimeoutMs
+            );
+        if (token === this.progressiveObligationTimerToken) {
+            this.progressiveObligationTimer = handle;
+        } else if (this.options.clearTimer) {
+            this.options.clearTimer(handle);
+        } else {
+            clearTimeout(handle as NodeJS.Timeout);
+        }
+    }
+
+    private clearProgressiveObligationWatchdog(): void {
+        this.progressiveObligationTimerToken += 1;
+        const timer = this.progressiveObligationTimer;
+        this.progressiveObligationTimer = undefined;
+        if (timer === undefined) {
+            return;
+        }
+        if (this.options.clearTimer) {
+            this.options.clearTimer(timer);
+        } else {
+            clearTimeout(timer as NodeJS.Timeout);
+        }
+    }
+
+    /**
+     * Nothing has advanced the partial page since it yielded its backfill.
+     * Publish the full document once: it retires the placeholder, and its own
+     * delivery receipt closes the obligation. A load still in flight loses the
+     * request counter here and yields without publishing, which is the
+     * intended outcome — a stalled read must not outrank the reader's promised
+     * history, and the session watch reissues any genuinely newer content.
+     */
+    private recoverProgressiveObligation(generation: number): void {
+        if (this.progressiveContentIncomplete?.generation !== generation
+            || generation !== this.subscriptionGeneration
+            || this.suspended
+            || !this.panel
+            || !this.target
+            || !this.outlineController.snapshot
+            || this.progressiveBackfill?.pending) {
+            return;
+        }
+        this.emitDiagnostic('progressive-obligation-timeout');
+        this.cancelProgressiveBackfill();
+        const requestId = this.allocateRequestId();
+        this.currentRequestId = requestId;
+        void this.deliverPublication(this.createPublication(
+            requestId,
+            generation,
+            'refresh'
+        ), false);
     }
 
     private rebuildLatestDocument(): void {
@@ -3357,6 +3471,9 @@ export class ConversationViewer implements ConversationViewerApi {
         delivery: ConversationViewerApplicationTiming['delivery'],
         contentBytes = Buffer.byteLength(publication.html || '', 'utf8')
     ): void {
+        // A delivery is now the pending step, and its own ack watchdog covers
+        // an open incomplete-content obligation.
+        this.clearProgressiveObligationWatchdog();
         this.pendingPublicationTiming = {
             subscriptionGeneration: publication.subscriptionGeneration,
             requestId: publication.requestId,
@@ -3597,6 +3714,32 @@ export class ConversationViewer implements ConversationViewerApi {
             ? CONVERSATION_LIMITS.minRequestId
             : requestId + 1;
         return requestId;
+    }
+
+    /**
+     * A load claims the request counter before it can know whether it will
+     * publish. One that resolves to "nothing changed" replaces nothing, so it
+     * must hand the counter back to the publication still on screen —
+     * otherwise that publication's own correlated receipts (above all a
+     * progressive history slice's) are orphaned by a delivery that never
+     * happened, and the Webview's deferred-history placeholder is left with
+     * nothing in flight to converge it. Only the counter is restored: the
+     * caller has already published nothing.
+     */
+    private releaseUnpublishedRequestId(
+        claimed: number,
+        superseded: number
+    ): void {
+        if (this.currentRequestId !== claimed) {
+            // A newer load owns the counter; its delivery is authoritative.
+            return;
+        }
+        if (this.latestPublication?.requestId !== superseded) {
+            // Nothing authoritative to restore to, so leaving the claimed id
+            // in place keeps every stale receipt correctly rejected.
+            return;
+        }
+        this.currentRequestId = superseded;
     }
 
     private ensureWatch(

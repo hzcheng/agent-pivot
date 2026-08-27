@@ -18366,6 +18366,41 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 clears a stalled progressive lo
     assert.equal(await page.locator(
         '.conversation-deferred-messages'
     ).getAttribute('data-history-backfill-stalled'), 'true');
+
+    // The notice is honest, not terminal: the Host owes this document a
+    // convergence, and when it arrives the reader is left with the full
+    // history and a clean status line — never a stranded placeholder.
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 2,
+        subscriptionGeneration: 1,
+        updateKind: 'refresh',
+        html: messageHtml('msg', 12, 0),
+        htmlSignature: 'sig-full-recovered',
+        outline: progressiveOutline(12),
+        selectedInteractionId: 'msg-11',
+        selectedInput: 11,
+        totalInputs: 12,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-full-recovered'
+    ));
+    assert.equal(await page.locator(
+        '.conversation-deferred-messages').count(), 0,
+    'the recovery retires the stalled placeholder');
+    assert.equal(await page.locator(
+        '[data-conversation-messages] [data-message-id]').count(), 12,
+    'the reader ends with the complete history');
+    assert.equal(await page.locator(
+        '[data-conversation-status]').textContent(), '',
+    'the stalled notice must not survive its own recovery');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 ignores a history chunk after a full page superseded the partial one', async t => {

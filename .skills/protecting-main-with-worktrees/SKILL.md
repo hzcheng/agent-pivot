@@ -57,3 +57,17 @@ job.
 - Never assume `origin/main` when the repo also has `upstream` or the user named a different target.
 - If a feature branch tracks a deleted remote after merge, that is expected; remove the worktree after checking it is clean.
 - If a command accidentally affects the primary checkout, stop and inspect before continuing.
+- An absolute path is the main way edits leak into the primary checkout: the
+  two trees differ only by the `/.worktrees/<topic>` infix, so a path
+  reconstructed from memory silently targets the primary checkout and the edit
+  appears to succeed. Build every absolute path from the worktree root, and
+  after editing check `git -C <primary> status --short` for files you did not
+  intend to touch.
+- A worktree can vanish underneath a session (a parallel agent, a cleanup, a
+  removed directory). `npm run` from the emptied path then walks up to the
+  primary checkout's `package.json` and silently operates on it — a build
+  script such as `test-compile` will clean and rebuild the primary `out/`.
+  Before running builds or tests, confirm the cwd is still a live worktree
+  (`git rev-parse --show-toplevel` matches it, and it appears in
+  `git worktree list`); if it does not, re-create the worktree instead of
+  running anything from that path.

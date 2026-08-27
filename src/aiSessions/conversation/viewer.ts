@@ -2610,7 +2610,13 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             const progressiveCandidate = updateKind === 'initial'
                 && this.canProgressivelyRender();
-            const publication = this.createPublication(
+            const publication = this.restorableFramePublication(
+                requestId,
+                generation,
+                updateKind,
+                progressiveCandidate,
+                target
+            ) || this.createPublication(
                 requestId,
                 generation,
                 updateKind,
@@ -4173,6 +4179,43 @@ export class ConversationViewer implements ConversationViewerApi {
     private canProgressivelyRender(): boolean {
         const projection = this.outlineController.createPublication();
         return projection.atLatest && !projection.partial;
+    }
+
+    /**
+     * Reattaching the Webview's own detached frame is the cheapest switch
+     * there is: no HTML on the wire, no sanitize, no parse, no layout. A
+     * progressive publication can never be served that way — its signature
+     * describes the partial first paint, not the converged document the frame
+     * holds — so a progressive candidate whose session is on the reported
+     * frame list renders whole once to find out whether the frame still
+     * matches. When it does, that whole publication is the one to deliver and
+     * `deliverPublication` turns it into a frame restore. When it does not
+     * (the transcript moved on while away), the caller falls back to the
+     * progressive first paint and only the Host paid one extra render.
+     *
+     * Returns undefined whenever the frame cannot serve this content, so the
+     * caller keeps its normal publication path.
+     */
+    private restorableFramePublication(
+        requestId: number,
+        generation: number,
+        updateKind: ConversationViewerPageMessage['updateKind'],
+        progressiveCandidate: boolean,
+        target: ConversationViewerTarget
+    ): ConversationViewerPageMessage | undefined {
+        if (!progressiveCandidate) {
+            return undefined;
+        }
+        const token = this.webviewFrames.get(
+            conversationFrameTokenKey(target)
+        );
+        if (token === undefined || token === this.appliedContentSignature) {
+            // No reported frame, or the Webview already has this content live
+            // and the ordinary delta path is cheaper still.
+            return undefined;
+        }
+        const whole = this.createPublication(requestId, generation, updateKind);
+        return whole.htmlSignature === token ? whole : undefined;
     }
 
     private createInteractionInfo(): Map<string, {

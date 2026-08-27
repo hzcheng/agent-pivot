@@ -6336,6 +6336,123 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 offers a frame restore only for
     viewer.dispose();
 });
 
+// Returning to a conversation is the most common switch there is. The Webview
+// already holds that session's converged document detached, so reattaching it
+// must beat repainting: a progressive publication's signature describes only
+// the partial page, so it can never match the stashed frame's token, and
+// preferring it would replay the whole backfill on every return visit.
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 restores a large conversation from its stashed frame instead of repainting', async () => {
+    const bigIds = Array.from(
+        { length: 100 },
+        (_item, index) => `input-${index + 1}`
+    );
+    const smallIds = ['b-1', 'b-2'];
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            sessionId === 'big-a' ? bigIds : smallIds
+        ),
+        readPage: async request => page(
+            request.sessionId,
+            request.sessionId === 'big-a' ? bigIds[0] : smallIds[0],
+            'message',
+            {
+                interactionIds: request.sessionId === 'big-a'
+                    ? bigIds
+                    : smallIds,
+                anchorInteractionId: request.sessionId === 'big-a'
+                    ? bigIds.at(-1)
+                    : smallIds.at(-1),
+            }
+        ),
+    });
+    const lastPage = () => panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    const ack = (publication, frames) => panel.receive({
+        type: 'conversation-viewer-applied',
+        version: 1,
+        subscriptionGeneration: publication.subscriptionGeneration,
+        requestId: publication.requestId,
+        htmlSignature: publication.htmlSignature,
+        frames,
+    });
+
+    // Open the large conversation and converge it exactly as a Webview does:
+    // the applied token advances with every slice.
+    await viewer.open(target('big-a', bigIds.at(-1)));
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /Loading earlier messages/);
+    let appliedToken = partial.htmlSignature;
+    await ack(partial, []);
+    let slice = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-history-chunk').at(-1);
+    assert.ok(slice, 'the deferred history must backfill');
+    for (let guard = 0; guard < 10 && slice; guard++) {
+        appliedToken = slice.htmlSignature;
+        await panel.receive({
+            type: 'conversation-viewer-history-chunk-applied',
+            version: 1,
+            subscriptionGeneration: slice.subscriptionGeneration,
+            requestId: slice.requestId,
+            htmlSignature: slice.htmlSignature,
+        });
+        if (slice.complete) {
+            break;
+        }
+        slice = panel.postedMessages.filter(message =>
+            message.type === 'conversation-viewer-history-chunk').at(-1);
+    }
+    const completion = lastPage();
+    assert.ok(completion, 'the completion publication must exist');
+    appliedToken = completion.htmlSignature;
+    await ack(completion, []);
+
+    // Switch away; the Webview stashes the converged frame under that token.
+    await viewer.follow(target('small-b', smallIds[0]));
+    await ack(lastPage(), [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'big-a',
+        token: appliedToken,
+    }]);
+
+    // Return. The frame is the cheapest possible switch, so take it.
+    const beforeReturn = panel.postedMessages.length;
+    await viewer.follow(target('big-a', bigIds.at(-1)));
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    const returned = lastPage();
+    assert.equal(returned.restoreFrame, true,
+        'a reported frame for unchanged content must be restored');
+    assert.equal(returned.html, undefined,
+        'a frame restore must put no conversation HTML on the wire');
+    assert.equal(returned.htmlSignature, appliedToken,
+        'the restore must name the exact content the Webview still holds');
+    assert.doesNotMatch(
+        JSON.stringify(panel.postedMessages.slice(beforeReturn)),
+        /Loading earlier messages/,
+        'a restored frame must never reintroduce the deferred placeholder'
+    );
+    await ack(returned, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'big-a',
+        token: appliedToken,
+    }]);
+    for (let attempt = 0; attempt < 12; attempt++) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(
+        panel.postedMessages.slice(beforeReturn).filter(message =>
+            message.type === 'conversation-viewer-history-chunk'
+        ).length,
+        0,
+        'a restored frame must not replay the backfill'
+    );
+    viewer.dispose();
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 never offers a frame the Webview stopped reporting', async () => {
     const ids = ['s-a', 's-b', 's-c', 's-d', 's-e', 's-f'];
     const { viewer, panel } = createViewer({

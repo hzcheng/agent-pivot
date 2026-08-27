@@ -1305,19 +1305,21 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         outline: [{
             interactionId: `${marker}-input`,
             userPreview: marker,
-            responseState: 'complete',
+            responseState: marker === 'alpha' ? 'inProgress' : 'complete',
         }],
         selectedInteractionId: `${marker}-input`,
-        selectedInput: 1,
-        totalInputs: 1,
-        previousCursor: undefined,
-        nextCursor: undefined,
+        selectedInput: marker === 'beta' ? 2 : 1,
+        totalInputs: marker === 'beta' ? 5 : 3,
+        previousCursor: marker === 'beta' ? 'previous' : undefined,
+        nextCursor: 'next',
         target: {
             projectId: 'project-1',
             provider: 'codex',
             sessionId,
             interactionId: `${marker}-input`,
             displayName: `${marker} session`,
+            workspaceName: `${marker} workspace`,
+            ...(marker === 'beta' ? { taskName: 'beta task' } : {}),
         },
         comments: { revision: 0, comments: [] },
         projectComments: { revision: 0, comments: [] },
@@ -1348,6 +1350,19 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
     // switch. The following loading notice must reattach beta immediately,
     // before any Host page for generation five is delivered.
     await sendPage(page, sessionPage(4, 'session-alpha', 'alpha', 'sig-alpha'));
+    await page.evaluate(() => {
+        document.querySelector('[data-conversation-telemetry]').hidden = false;
+        [
+            '[data-telemetry-provider]',
+            '[data-telemetry-model]',
+            '[data-telemetry-context]',
+            '[data-telemetry-limits]',
+        ].forEach((selector, index) => {
+            const element = document.querySelector(selector);
+            element.hidden = false;
+            element.textContent = `alpha telemetry ${index}`;
+        });
+    });
     await sendPage(page, loadingNotice(5, 'session-beta', true));
     await page.evaluate(() =>
         document.querySelector('[data-preview-control]').click()
@@ -1390,6 +1405,37 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         preview: document.body.getAttribute('data-conversation-frame-preview'),
         ariaBusy: document.body.getAttribute('aria-busy'),
         ariaDisabled: document.body.getAttribute('aria-disabled'),
+        displayName: document.querySelector('[data-conversation-display-name]')
+            .textContent,
+        workspaceName: document.querySelector('[data-conversation-workspace-name]')
+            .textContent,
+        taskName: document.querySelector('[data-conversation-task-name]')
+            .textContent,
+        taskNameHidden: document.querySelector('[data-conversation-task-name]')
+            .hidden,
+        taskSeparatorHidden: document.querySelector(
+            '[data-conversation-task-separator]'
+        ).hidden,
+        position: document.querySelector('[data-conversation-position]')
+            .textContent,
+        previousDisabled: document.querySelector('[data-action="previous"]')
+            .disabled,
+        nextDisabled: document.querySelector('[data-action="next"]').disabled,
+        latestDisabled: document.querySelector('[data-action="latest"]')
+            .disabled,
+        workingHidden: document.querySelector('[data-conversation-working]')
+            .hidden,
+        telemetryHidden: document.querySelector('[data-conversation-telemetry]')
+            .hidden,
+        telemetryPresentation: [
+            '[data-telemetry-provider]',
+            '[data-telemetry-model]',
+            '[data-telemetry-context]',
+            '[data-telemetry-limits]',
+        ].map(selector => {
+            const element = document.querySelector(selector);
+            return [element.style.visibility, element.getAttribute('aria-hidden')];
+        }),
         clickCount: window.__previewControlClicks,
     })), {
         content: 'betabeta action',
@@ -1399,6 +1445,23 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         preview: 'true',
         ariaBusy: 'true',
         ariaDisabled: 'true',
+        displayName: 'beta session',
+        workspaceName: 'beta workspace',
+        taskName: 'beta task',
+        taskNameHidden: false,
+        taskSeparatorHidden: false,
+        position: 'Input 2 of 5',
+        previousDisabled: false,
+        nextDisabled: false,
+        latestDisabled: false,
+        workingHidden: true,
+        telemetryHidden: false,
+        telemetryPresentation: [
+            ['hidden', 'true'],
+            ['hidden', 'true'],
+            ['hidden', 'true'],
+            ['hidden', 'true'],
+        ],
         clickCount: 0,
     });
     assert.deepEqual(loadingKeyboardGate, {
@@ -1431,9 +1494,84 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         loading: document.body.getAttribute('data-conversation-loading'),
         preview: document.body.getAttribute('data-conversation-frame-preview'),
         ariaBusy: document.body.getAttribute('aria-busy'),
+        displayName: document.querySelector('[data-conversation-display-name]')
+            .textContent,
+        workspaceName: document.querySelector('[data-conversation-workspace-name]')
+            .textContent,
+        taskName: document.querySelector('[data-conversation-task-name]')
+            .textContent,
+        taskNameHidden: document.querySelector('[data-conversation-task-name]')
+            .hidden,
+        taskSeparatorHidden: document.querySelector(
+            '[data-conversation-task-separator]'
+        ).hidden,
+        position: document.querySelector('[data-conversation-position]')
+            .textContent,
+        previousDisabled: document.querySelector('[data-action="previous"]')
+            .disabled,
+        nextDisabled: document.querySelector('[data-action="next"]').disabled,
+        latestDisabled: document.querySelector('[data-action="latest"]')
+            .disabled,
+        workingHidden: document.querySelector('[data-conversation-working]')
+            .hidden,
+        telemetryHidden: document.querySelector('[data-conversation-telemetry]')
+            .hidden,
+        telemetryPresentation: [
+            '[data-telemetry-provider]',
+            '[data-telemetry-model]',
+            '[data-telemetry-context]',
+            '[data-telemetry-limits]',
+        ].map(selector => {
+            const element = document.querySelector(selector);
+            return [element.style.visibility, element.getAttribute('aria-hidden')];
+        }),
     })), {
         content: 'alpha', loading: null, preview: null, ariaBusy: null,
+        displayName: 'alpha session',
+        workspaceName: 'alpha workspace',
+        taskName: '',
+        taskNameHidden: true,
+        taskSeparatorHidden: true,
+        position: 'Input 1 of 3',
+        previousDisabled: true,
+        nextDisabled: false,
+        latestDisabled: false,
+        workingHidden: false,
+        telemetryHidden: false,
+        telemetryPresentation: [
+            ['', null],
+            ['', null],
+            ['', null],
+            ['', null],
+        ],
     }, 'a cancelled preflight restores the previous interactive conversation');
+
+    // B can be adopted as an authoritative (but still pending) target before
+    // another cached preview C covers it. Cancelling C must retain B's
+    // telemetry mask: the only values available until B's page arrives still
+    // belong to alpha.
+    await sendPage(page, loadingNotice(7, 'session-beta', true));
+    await sendPage(page, loadingNotice(7, 'session-beta'));
+    await sendPage(page, loadingNotice(8, 'session-alpha', true));
+    await sendPage(page, {
+        type: 'conversation-viewer-loading-cancel',
+        version: 1,
+        subscriptionGeneration: 8,
+        target: { projectId: 'project-1', provider: 'codex', sessionId: 'session-alpha' },
+    });
+    assert.deepEqual(await page.evaluate(() => ({
+        loading: document.body.getAttribute('data-conversation-loading'),
+        telemetryProviderVisibility: document.querySelector(
+            '[data-telemetry-provider]'
+        ).style.visibility,
+    })), {
+        loading: 'true',
+        telemetryProviderVisibility: 'hidden',
+    }, 'cancelling a nested preflight keeps the covered loading target masked');
+    await sendPage(page, sessionPage(7, 'session-beta', 'beta', 'sig-beta'));
+    assert.equal(await page.evaluate(() => document.querySelector(
+        '[data-telemetry-provider]'
+    ).style.visibility), '', 'the authoritative page releases the telemetry mask');
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 preserves cached frames across rapid preview handoffs', async t => {
@@ -4860,6 +4998,25 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '        scheduleHistoryLoadWatchdog(state.earlierPageRequestId);\n',
             "        state.earlierPageStatus = 'Loading earlier messages.';\n"
         )
+        // Remove this presentation-only masking before the older preflight
+        // protocol transforms below, whose exact source shapes it would
+        // otherwise interrupt.
+        .replace(
+            '    // Telemetry belongs to the authoritative subscription and can therefore\n'
+                + '    // describe a different provider/model than a cached preview. Mask only\n'
+                + '    // those target-specific values while keeping the surrounding toolbar\n'
+                + '    // (position, comments, and controls) stable and usable for reading.\n'
+                + '    var preflightTelemetryPresentation;\n',
+            ''
+        )
+        .replace('            hideTelemetryForPreflight();\n', '')
+        .replaceAll('            restoreTelemetryAfterPreflight();\n', '')
+        .replaceAll('        restoreTelemetryAfterPreflight();\n', '')
+        .replace('                    telemetryMasked: !!preflightTelemetryPresentation,\n', '')
+        .replace(
+            /\n    function hideTelemetryForPreflight\(\) \{[\s\S]*?\n    \}\n\n    function restoreTelemetryAfterPreflight\(\) \{[\s\S]*?\n    \}\n(?=\n    function applySessionGeneration)/,
+            ''
+        )
         // Normalize the speculative preflight/cancel protocol back to the
         // previous cache-preview script. Older Webviews safely ignore these
         // outbound Host notices, but their historical fixture must remain
@@ -5164,6 +5321,62 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             '        while ((frameCache.size > FRAME_CACHE_LIMIT\n'
                 + '                || frameCacheNodes > FRAME_CACHE_NODE_BUDGET)\n'
                 + '            && frameCache.size > 1) {\n'
+        )
+        // Masking target-specific telemetry during a speculative preview is
+        // presentation-only. Strip it together with cached-frame identity
+        // capture before deriving the byte-identical previous Viewer.
+        .replace(
+            '    // Telemetry belongs to the authoritative subscription and can therefore\n'
+                + '    // describe a different provider/model than a cached preview. Mask only\n'
+                + '    // those target-specific values while keeping the surrounding toolbar\n'
+                + '    // (position, comments, and controls) stable and usable for reading.\n'
+                + '    var preflightTelemetryPresentation;\n',
+            ''
+        )
+        .replace('            hideTelemetryForPreflight();\n', '')
+        .replaceAll('            restoreTelemetryAfterPreflight();\n', '')
+        .replaceAll('        restoreTelemetryAfterPreflight();\n', '')
+        .replace('                    telemetryMasked: !!preflightTelemetryPresentation,\n', '')
+        .replace(
+            /\n    function hideTelemetryForPreflight\(\) \{[\s\S]*?\n    \}\n\n    function restoreTelemetryAfterPreflight\(\) \{[\s\S]*?\n    \}\n(?=\n    function applySessionGeneration)/,
+            ''
+        )
+        // A cached frame now preserves the sticky visual identity as well as
+        // its transcript. Remove that presentation-only addition before
+        // deriving the previous Viewer fixture.
+        .replace(
+            /\n    \/\/ A detached transcript frame is only visually credible[\s\S]*?\n    \}\n(?=\n    \/\/ Stash the live conversation)/,
+            ''
+        )
+        .replace(
+            '            presentation: captureFramePresentation(),\n',
+            ''
+        )
+        .replace(
+            '            restoreFramePresentation(outgoing);\n'
+                + '            messages.replaceChildren.apply(messages, outgoing.nodes);\n'
+                + '        }\n'
+                + '        frameCache.set(previewFrame.key, previewFrame.frame);\n',
+            '            messages.replaceChildren.apply(messages, outgoing.nodes);\n'
+                + '        }\n'
+                + '        frameCache.set(previewFrame.key, previewFrame.frame);\n'
+        )
+        .replace(
+            '        previewFrame = { key: key, frame: frame };\n'
+                + '        // A preflight is visual only. Its cached transcript/header may be\n'
+                + '        // shown immediately, but the live cursors and reconciliation maps\n'
+                + '        // remain owned by the authoritative session until its page applies.\n'
+                + '        restoreFramePresentation(frame);\n'
+                + '        messages.replaceChildren.apply(messages, frame.nodes);\n'
+                + '        if (frame.followingEnd) {\n',
+            '        previewFrame = { key: key, frame: frame };\n'
+                + '        messages.replaceChildren.apply(messages, frame.nodes);\n'
+                + '        if (frame.followingEnd) {\n'
+        )
+        .replace(
+            '        state.worklogExpanded = frame.worklogExpanded;\n'
+                + '        restoreFramePresentation(frame);\n',
+            '        state.worklogExpanded = frame.worklogExpanded;\n'
         )
         // Undo the cached-frame preview before stepping back through the
         // historical fixtures. Previewing is deliberately non-authoritative:

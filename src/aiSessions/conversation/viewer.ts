@@ -387,6 +387,10 @@ export interface ConversationViewerApplicationTiming {
     applicationMs: number;
     /** User target load to the first correlated Webview application. */
     loadMs?: number;
+    /** Bytes of HTML carried by the actual Host-to-Webview delivery (zero for a frame/delta reuse). */
+    contentBytes: number;
+    /** Whether the first visible page deferred older history for backfill. */
+    progressive: boolean;
 }
 
 export class ConversationViewer implements ConversationViewerApi {
@@ -489,6 +493,8 @@ export class ConversationViewer implements ConversationViewerApi {
         updateKind: ConversationViewerPageMessage['updateKind'];
         delivery: 'document' | 'message';
         publishedAt: number;
+        contentBytes: number;
+        progressive: boolean;
     };
     private pendingTargetLoadTiming?: {
         subscriptionGeneration: number;
@@ -2897,7 +2903,13 @@ export class ConversationViewer implements ConversationViewerApi {
                     : publication;
         let delivered = false;
         try {
-            this.recordPublicationDelivery(publication, 'message');
+            this.recordPublicationDelivery(
+                publication,
+                'message',
+                wire.html === undefined
+                    ? Buffer.byteLength(wire.tailHtml || '', 'utf8')
+                    : Buffer.byteLength(wire.html, 'utf8')
+            );
             delivered = await panel.webview.postMessage(wire);
         } catch (_error) {
             delivered = false;
@@ -3004,8 +3016,12 @@ export class ConversationViewer implements ConversationViewerApi {
             return undefined;
         }
         const allMessages = this.messages();
-        const deferredCount = deferredConversationMessageCount(allMessages);
-        if (deferredCount <= CONVERSATION_PROGRESSIVE_CHUNK_MIN_DEFERRED) {
+        const progressivePlan = createProgressiveRenderPlan(
+            allMessages,
+            this.showThinking()
+        );
+        const deferredCount = progressivePlan.deferredCount;
+        if (!shouldProgressivelyRenderPlan(progressivePlan)) {
             return undefined;
         }
         const interactionInfo = this.createInteractionInfo();
@@ -3028,9 +3044,10 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         const slices = conversationHistoryChunkSlices(
             allMessages.slice(0, deferredCount),
-            CONVERSATION_PROGRESSIVE_CHUNK_SIZE
+            CONVERSATION_PROGRESSIVE_CHUNK_SIZE,
+            this.showThinking()
         );
-        if (slices.length < 2) {
+        if (!slices.length) {
             return undefined;
         }
         const chunks: { html: string; htmlSignature: string }[] = [];
@@ -3295,7 +3312,8 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private recordPublicationDelivery(
         publication: ConversationViewerPageMessage,
-        delivery: ConversationViewerApplicationTiming['delivery']
+        delivery: ConversationViewerApplicationTiming['delivery'],
+        contentBytes = Buffer.byteLength(publication.html || '', 'utf8')
     ): void {
         this.pendingPublicationTiming = {
             subscriptionGeneration: publication.subscriptionGeneration,
@@ -3304,6 +3322,11 @@ export class ConversationViewer implements ConversationViewerApi {
             updateKind: publication.updateKind,
             delivery,
             publishedAt: this.now(),
+            contentBytes,
+            progressive: this.progressiveContentIncomplete?.generation
+                === publication.subscriptionGeneration
+                && this.progressiveContentIncomplete.partialHtmlSignature
+                    === publication.htmlSignature,
         };
         this.schedulePublicationAckTimeout(publication);
     }
@@ -3433,6 +3456,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 updateKind: timing.updateKind,
                 delivery: timing.delivery,
                 applicationMs: Math.max(0, now - timing.publishedAt),
+                contentBytes: timing.contentBytes,
+                progressive: timing.progressive,
                 ...(loadMs === undefined ? {} : { loadMs }),
             });
         } catch (_error) {
@@ -3845,7 +3870,10 @@ export class ConversationViewer implements ConversationViewerApi {
         const allMessages = this.messages();
         const deferredMessageCount = recentOnly && projection.atLatest
             && !projection.partial
-            ? deferredConversationMessageCount(allMessages)
+            ? createProgressiveRenderPlan(
+                allMessages,
+                this.showThinking()
+            ).deferredCount
             : 0;
         const rendered = renderMessages(
             deferredMessageCount
@@ -3905,16 +3933,13 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private shouldProgressivelyRender(): boolean {
         const projection = this.outlineController.createPublication();
-        return projection.atLatest
-            && !projection.partial
-            // A small deferred prefix used to paint a partial page, wait for
-            // its receipt, and immediately repaint the full transcript. That
-            // two-step path made ordinary 25+ message conversations visibly
-            // pause on “Loading earlier messages” without reducing work.
-            // Enter the progressive protocol only when it can send at least
-            // two bounded history chunks.
-            && deferredConversationMessageCount(this.messages())
-                > CONVERSATION_PROGRESSIVE_CHUNK_MIN_DEFERRED;
+        if (!projection.atLatest || projection.partial) {
+            return false;
+        }
+        return shouldProgressivelyRenderPlan(createProgressiveRenderPlan(
+            this.messages(),
+            this.showThinking()
+        ));
     }
 
     private createInteractionInfo(): Map<string, {
@@ -4486,27 +4511,139 @@ function renderMessages(
 
 const CONVERSATION_PROGRESSIVE_RENDER_THRESHOLD = 24;
 const CONVERSATION_PROGRESSIVE_RENDER_RECENT_COUNT = 12;
+// A single page can contain only a few messages yet still be expensive to
+// parse and lay out (for example, a tool result or a long reasoning turn).
+// In that case rendering the most recent conversational window first is a
+// material first-paint win even when the deferred history is small.
+const CONVERSATION_PROGRESSIVE_RENDER_BYTES_THRESHOLD = 96 * 1024;
+// The first visible window deliberately has its own smaller byte budget.
+// Keeping the newest complete interaction group is more useful than an
+// arbitrary character truncation, while capping adjacent older groups keeps
+// a heavy page from monopolising the Webview main thread before first paint.
+const CONVERSATION_PROGRESSIVE_RECENT_BYTES_BUDGET = 64 * 1024;
 // Backfill slices above the visible recent window. Small deferred windows
 // are cheaper to deliver as one full refresh; larger ones arrive in
 // ack-paced slices so no single Webview task renders the whole history.
 const CONVERSATION_PROGRESSIVE_CHUNK_SIZE = 24;
 const CONVERSATION_PROGRESSIVE_CHUNK_MIN_DEFERRED = 48;
 
-function deferredConversationMessageCount(
-    messages: readonly ConversationMessage[]
-): number {
-    if (messages.length <= CONVERSATION_PROGRESSIVE_RENDER_THRESHOLD) {
-        return 0;
+interface ConversationProgressiveRenderPlan {
+    deferredCount: number;
+    renderedBytes: number;
+}
+
+function createProgressiveRenderPlan(
+    messages: readonly ConversationMessage[],
+    showThinking: boolean
+): ConversationProgressiveRenderPlan {
+    const messageBytes = messages.map(message =>
+        renderedConversationMessageBytes(message, showThinking)
+    );
+    const totalBytes = messageBytes.reduce((total, bytes) => total + bytes, 0);
+    const visibleMessageCount = messageBytes.filter(bytes => bytes > 0).length;
+    if (visibleMessageCount <= CONVERSATION_PROGRESSIVE_RENDER_THRESHOLD
+        && totalBytes < CONVERSATION_PROGRESSIVE_RENDER_BYTES_THRESHOLD) {
+        return { deferredCount: 0, renderedBytes: totalBytes };
     }
     // Do not split one interaction's message group (tool/progress/thinking
     // entries can precede its final assistant response).
-    let firstVisible = messages.length - CONVERSATION_PROGRESSIVE_RENDER_RECENT_COUNT;
-    const interactionId = messages[firstVisible]?.interactionId;
-    while (firstVisible > 0
-        && messages[firstVisible - 1].interactionId === interactionId) {
-        firstVisible -= 1;
+    let firstVisible = interactionGroupStart(messages, Math.max(
+        0,
+        messages.length - CONVERSATION_PROGRESSIVE_RENDER_RECENT_COUNT
+    ));
+    if (totalBytes >= CONVERSATION_PROGRESSIVE_RENDER_BYTES_THRESHOLD) {
+        let visibleBytes = 0;
+        let byteBoundedStart = messages.length;
+        while (byteBoundedStart > 0) {
+            const groupStart = interactionGroupStart(
+                messages,
+                byteBoundedStart - 1
+            );
+            const groupBytes = sumMessageBytes(
+                messageBytes,
+                groupStart,
+                byteBoundedStart
+            );
+            // Always retain the latest complete interaction group, even if
+            // that one group exceeds the budget. It is the selected/latest
+            // conversational context and cannot be split safely here.
+            if (byteBoundedStart !== messages.length
+                && visibleBytes + groupBytes
+                    > CONVERSATION_PROGRESSIVE_RECENT_BYTES_BUDGET) {
+                break;
+            }
+            visibleBytes += groupBytes;
+            byteBoundedStart = groupStart;
+        }
+        firstVisible = Math.max(firstVisible, byteBoundedStart);
     }
-    return firstVisible;
+    return {
+        deferredCount: firstVisible,
+        renderedBytes: totalBytes,
+    };
+}
+
+function interactionGroupStart(
+    messages: readonly ConversationMessage[],
+    index: number
+): number {
+    let start = index;
+    const interactionId = messages[start]?.interactionId;
+    while (start > 0 && messages[start - 1].interactionId === interactionId) {
+        start -= 1;
+    }
+    return start;
+}
+
+function renderedConversationMessageBytes(
+    message: ConversationMessage,
+    showThinking: boolean
+): number {
+    if (message.role === 'thinking' && !showThinking) {
+        return 0;
+    }
+    // This intentionally estimates the rendered source instead of
+    // serialising the full message array. It keeps heavy hidden Thinking
+    // payloads out of the decision and avoids a multi-megabyte temporary
+    // allocation on the first-paint critical path.
+    return Buffer.byteLength(
+        `${message.id}\u0001${message.interactionId}\u0001${message.role}\u0001${message.markdown}`,
+        'utf8'
+    ) + optionalStructuredBytes(message.tool)
+        + optionalStructuredBytes(message.thinking)
+        + optionalStructuredBytes(message.plan)
+        + optionalStructuredBytes(message.question);
+}
+
+function optionalStructuredBytes(value: unknown): number {
+    return value === undefined
+        ? 0
+        : Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+function sumMessageBytes(
+    messageBytes: readonly number[],
+    start: number,
+    end: number
+): number {
+    let total = 0;
+    for (let index = start; index < end; index++) {
+        total += messageBytes[index] || 0;
+    }
+    return total;
+}
+
+function shouldProgressivelyRenderPlan(
+    plan: ConversationProgressiveRenderPlan
+): boolean {
+    if (!plan.deferredCount) {
+        return false;
+    }
+    // Preserve the old multi-chunk behaviour for very large histories, and
+    // extend it to heavy-but-shorter pages where the all-at-once Webview DOM
+    // application dominates switch latency.
+    return plan.deferredCount > CONVERSATION_PROGRESSIVE_CHUNK_MIN_DEFERRED
+        || plan.renderedBytes >= CONVERSATION_PROGRESSIVE_RENDER_BYTES_THRESHOLD;
 }
 
 /**
@@ -4516,17 +4653,28 @@ function deferredConversationMessageCount(
  */
 function conversationHistoryChunkSlices(
     messages: ConversationMessage[],
-    chunkSize: number
+    chunkSize: number,
+    showThinking: boolean
 ): ConversationMessage[][] {
+    const messageBytes = messages.map(message =>
+        renderedConversationMessageBytes(message, showThinking)
+    );
     const oldestFirst: ConversationMessage[][] = [];
     let end = messages.length;
     while (end > 0) {
-        let start = Math.max(0, end - chunkSize);
-        const interactionId = messages[start]?.interactionId;
-        // Do not split one interaction's message group across chunks.
-        while (start > 0
-            && messages[start - 1].interactionId === interactionId) {
-            start -= 1;
+        let start = end;
+        let chunkBytes = 0;
+        while (start > 0) {
+            const groupStart = interactionGroupStart(messages, start - 1);
+            const groupBytes = sumMessageBytes(messageBytes, groupStart, start);
+            if (start !== end
+                && (end - groupStart > chunkSize
+                    || chunkBytes + groupBytes
+                        > CONVERSATION_PROGRESSIVE_RECENT_BYTES_BUDGET)) {
+                break;
+            }
+            chunkBytes += groupBytes;
+            start = groupStart;
         }
         oldestFirst.unshift(messages.slice(start, end));
         end = start;

@@ -267,10 +267,10 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 paints the recent window before
         message.type === 'conversation-viewer-history-chunk'
     ).at(-1);
     assert.ok(chunk, 'the deferred prefix must backfill after the first paint');
-    assert.match(chunk.html, /message-3/);
+    assert.match(chunk.html, /message-4/);
     assert.doesNotMatch(chunk.html, /message-0/);
-    assert.doesNotMatch(chunk.html, /message-2/,
-        'a heavy deferred prefix must not return in one long Webview task');
+    assert.ok(Buffer.byteLength(chunk.html, 'utf8') <= 64 * 1024,
+        'each deferred slice must be bounded by its actual Webview HTML, not source estimates');
     let nextChunk = chunk;
     while (!nextChunk.complete) {
         await panel.receive({
@@ -320,6 +320,53 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 bounds the first paint of an un
     assert.match(partial.html, /message-29/);
     assert.doesNotMatch(partial.html, /message-26/,
         'the first paint must stay within its byte budget, not always render twelve messages');
+    assert.ok(Buffer.byteLength(partial.html, 'utf8') <= 64 * 1024,
+        'the first paint budget must apply to generated HTML, not only source messages');
+    viewer.dispose();
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 tightens a markdown-expanded first paint by rendered HTML bytes', async () => {
+    const sessionId = 'progressive-rendered-html-budget';
+    const interactionIds = Array.from(
+        { length: 10 },
+        (_item, index) => `input-${index}`
+    );
+    const codeBlock = `\`\`\`typescript\n${
+        'const value = Promise.resolve({ answer: 42 });\n'.repeat(180)
+    }\`\`\``;
+    const messages = interactionIds.map((interactionId, index) => ({
+        id: `expanded-${index}`,
+        interactionId,
+        role: 'assistant',
+        markdown: `marker-${index}\n${codeBlock}`,
+    }));
+    assert.ok(Buffer.byteLength(messages.map(message => message.markdown).join(''), 'utf8')
+        < 96 * 1024, 'the raw Markdown must remain below the source-size trigger');
+    const { viewer, panel } = createViewer({
+        readOutline: async () => outline(sessionId, interactionIds),
+        readPage: async () => ({
+            provider: 'codex',
+            sessionId,
+            sourceRevision: 'r1',
+            anchorInteractionId: interactionIds.at(-1),
+            messages,
+            interactionStates: interactionIds.map(interactionId => ({
+                interactionId,
+                responseState: 'complete',
+            })),
+            isStart: true,
+            isEnd: true,
+        }),
+    });
+
+    await viewer.open(target(sessionId, interactionIds.at(-1)));
+
+    const partial = decodeInitialPublication(panel.webview.html);
+    assert.match(partial.html, /marker-9/);
+    assert.doesNotMatch(partial.html, /marker-7/,
+        'syntax-highlighted HTML must shrink the source-sized recent window further');
+    assert.ok(Buffer.byteLength(partial.html, 'utf8') <= 64 * 1024,
+        'the visible first paint must remain bounded after Markdown expansion');
     viewer.dispose();
 });
 

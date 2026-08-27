@@ -363,8 +363,13 @@ interface ConversationProgressiveBackfill {
      * invalidates the plan: a stale slice receipt must never allocate
      * request ids or publish over the newer work. */
     anchorRequestId: number;
-    /** Remaining slices, in send order (nearest the visible tail first). */
-    chunks: { html: string; htmlSignature: string }[];
+    /** Oldest deferred-message boundary not yet sent. The next chunk is
+     * sized lazily after the prior receipt, so opening a huge page never
+     * renders all future chunks before its first backfill post. */
+    nextDeferredEnd: number;
+    messages: ConversationMessage[];
+    interactionInfo: Map<string, ConversationInteractionRenderInfo>;
+    sessionId: string;
     pending?: {
         requestId: number;
         htmlSignature: string;
@@ -479,7 +484,18 @@ export class ConversationViewer implements ConversationViewerApi {
     private progressiveContentIncomplete?: {
         generation: number;
         partialHtmlSignature: string;
+        /** The exact atomic boundary used for this rendered first paint. */
+        deferredMessageCount: number;
     };
+    // The source-size plan is deliberately only a cheap initial heuristic.
+    // Markdown rendering (especially syntax highlighting) can expand a small
+    // source window into much larger HTML. Keep the refined boundary next to
+    // the publication so its ack-paced backfill resumes from exactly what the
+    // Webview saw, without exposing an implementation detail on the wire.
+    private readonly progressiveDeferredMessageCounts = new WeakMap<
+        ConversationViewerPageMessage,
+        number
+    >();
     // Older history for a progressive page is backfilled in ack-paced
     // slices instead of one full-document refresh, so the Webview never
     // renders the whole history in a single task. Any superseding page
@@ -2565,19 +2581,23 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!this.canPublish(panel, target, generation, requestId)) {
                 return false;
             }
-            const progressive = updateKind === 'initial'
-                && this.shouldProgressivelyRender();
+            const progressiveCandidate = updateKind === 'initial'
+                && this.canProgressivelyRender();
             const publication = this.createPublication(
                 requestId,
                 generation,
                 updateKind,
-                progressive
+                progressiveCandidate
             );
+            const progressive = this.progressiveDeferredMessageCounts
+                .has(publication);
             if (progressive) {
                 this.progressivePublication = publication;
                 this.progressiveContentIncomplete = {
                     generation,
                     partialHtmlSignature: publication.htmlSignature,
+                    deferredMessageCount: this.progressiveDeferredMessageCounts
+                        .get(publication) || 0,
                 };
             }
             await this.deliverPublication(publication, replaceDocument);
@@ -3016,12 +3036,9 @@ export class ConversationViewer implements ConversationViewerApi {
             return undefined;
         }
         const allMessages = this.messages();
-        const progressivePlan = createProgressiveRenderPlan(
-            allMessages,
-            this.showThinking()
-        );
-        const deferredCount = progressivePlan.deferredCount;
-        if (!shouldProgressivelyRenderPlan(progressivePlan)) {
+        const deferredCount = this.progressiveContentIncomplete
+            .deferredMessageCount;
+        if (!deferredCount) {
             return undefined;
         }
         const interactionInfo = this.createInteractionInfo();
@@ -3042,47 +3059,13 @@ export class ConversationViewer implements ConversationViewerApi {
         if (partial.contentSignature !== publication.htmlSignature) {
             return undefined;
         }
-        const slices = conversationHistoryChunkSlices(
-            allMessages.slice(0, deferredCount),
-            CONVERSATION_PROGRESSIVE_CHUNK_SIZE,
-            this.showThinking()
-        );
-        if (!slices.length) {
-            return undefined;
-        }
-        const chunks: { html: string; htmlSignature: string }[] = [];
-        let covered = 0;
-        slices.forEach(slice => {
-            // The cumulative signature after this slice applies: the
-            // document then shows messages[start..] with `start` messages
-            // still deferred, matching the partial publication's scheme.
-            const start = deferredCount - covered - slice.length;
-            const cumulative = renderMessages(
-                allMessages.slice(start),
-                this.showThinking(),
-                interactionInfo,
-                this.renderCache,
-                this.contentSignatures,
-                sessionId,
-                start
-            );
-            covered += slice.length;
-            chunks.push({
-                html: renderMessages(
-                    slice,
-                    this.showThinking(),
-                    interactionInfo,
-                    this.renderCache,
-                    this.contentSignatures,
-                    sessionId
-                ).html,
-                htmlSignature: cumulative.contentSignature,
-            });
-        });
         return {
             generation,
             anchorRequestId: publication.requestId,
-            chunks,
+            nextDeferredEnd: deferredCount,
+            messages: allMessages,
+            interactionInfo,
+            sessionId,
             timerToken: 0,
         };
     }
@@ -3090,8 +3073,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private sendNextProgressiveBackfillChunk(): void {
         const plan = this.progressiveBackfill;
         const panel = this.panel;
-        const chunk = plan?.chunks[0];
-        if (!plan || !chunk || !panel || this.suspended) {
+        if (!plan || !panel || this.suspended) {
             return;
         }
         if (plan.generation !== this.subscriptionGeneration
@@ -3101,7 +3083,11 @@ export class ConversationViewer implements ConversationViewerApi {
             this.cancelProgressiveBackfill();
             return;
         }
-        plan.chunks.shift();
+        const chunk = this.createNextProgressiveBackfillChunk(plan);
+        if (!chunk) {
+            this.recoverProgressiveBackfill(plan, 'backfill-chunk-plan-failed');
+            return;
+        }
         const requestId = this.allocateRequestId();
         plan.pending = { requestId, htmlSignature: chunk.htmlSignature };
         this.scheduleProgressiveBackfillTimeout(plan);
@@ -3112,7 +3098,7 @@ export class ConversationViewer implements ConversationViewerApi {
             requestId,
             html: chunk.html,
             htmlSignature: chunk.htmlSignature,
-            complete: plan.chunks.length === 0,
+            complete: chunk.complete,
         };
         void Promise.resolve(panel.webview.postMessage(wire)).then(
             delivered => {
@@ -3128,6 +3114,54 @@ export class ConversationViewer implements ConversationViewerApi {
                 'backfill-chunk-delivery-failed'
             )
         );
+    }
+
+    private createNextProgressiveBackfillChunk(
+        plan: ConversationProgressiveBackfill
+    ): { html: string; htmlSignature: string; complete: boolean } | undefined {
+        const end = plan.nextDeferredEnd;
+        if (!end) {
+            return undefined;
+        }
+        let start = end;
+        let chunk: RenderedConversationMessages | undefined;
+        while (start > 0) {
+            const groupStart = interactionGroupStart(plan.messages, start - 1);
+            const candidate = renderMessages(
+                plan.messages.slice(groupStart, end),
+                this.showThinking(),
+                plan.interactionInfo,
+                this.renderCache,
+                this.contentSignatures,
+                plan.sessionId
+            );
+            if (start !== end
+                && (end - groupStart > CONVERSATION_PROGRESSIVE_CHUNK_SIZE
+                    || Buffer.byteLength(candidate.html, 'utf8')
+                        > CONVERSATION_PROGRESSIVE_RENDERED_HTML_BUDGET)) {
+                break;
+            }
+            start = groupStart;
+            chunk = candidate;
+        }
+        if (!chunk) {
+            return undefined;
+        }
+        const cumulative = renderMessages(
+            plan.messages.slice(start),
+            this.showThinking(),
+            plan.interactionInfo,
+            this.renderCache,
+            this.contentSignatures,
+            plan.sessionId,
+            start
+        );
+        plan.nextDeferredEnd = start;
+        return {
+            html: chunk.html,
+            htmlSignature: cumulative.contentSignature,
+            complete: start === 0,
+        };
     }
 
     private acknowledgeHistoryChunk(
@@ -3154,7 +3188,7 @@ export class ConversationViewer implements ConversationViewerApi {
         // signature it confirmed is what later publications may omit.
         this.appliedContentSignature = plan.pending.htmlSignature;
         plan.pending = undefined;
-        if (plan.chunks.length) {
+        if (plan.nextDeferredEnd > 0) {
             this.sendNextProgressiveBackfillChunk();
             return;
         }
@@ -3301,6 +3335,14 @@ export class ConversationViewer implements ConversationViewerApi {
                 && this.progressiveContentIncomplete.partialHtmlSignature
                     === publication.htmlSignature)) {
             this.progressivePublication = recovery;
+            const deferredMessageCount = this.progressiveDeferredMessageCounts
+                .get(publication);
+            if (deferredMessageCount) {
+                this.progressiveDeferredMessageCounts.set(
+                    recovery,
+                    deferredMessageCount
+                );
+            }
         }
         this.cancelProgressiveBackfill();
         this.currentRequestId = recovery.requestId;
@@ -3868,14 +3910,15 @@ export class ConversationViewer implements ConversationViewerApi {
         const first = this.pages[0]?.page;
         const last = this.pages[this.pages.length - 1]?.page;
         const allMessages = this.messages();
-        const deferredMessageCount = recentOnly && projection.atLatest
+        const progressivePlan = recentOnly && projection.atLatest
             && !projection.partial
-            ? createProgressiveRenderPlan(
-                allMessages,
-                this.showThinking()
-            ).deferredCount
+            ? createProgressiveRenderPlan(allMessages, this.showThinking())
+            : undefined;
+        let deferredMessageCount = progressivePlan
+            && shouldProgressivelyRenderPlan(progressivePlan)
+            ? progressivePlan.deferredCount
             : 0;
-        const rendered = renderMessages(
+        const render = () => renderMessages(
             deferredMessageCount
                 ? allMessages.slice(deferredMessageCount)
                 : allMessages,
@@ -3887,11 +3930,47 @@ export class ConversationViewer implements ConversationViewerApi {
             deferredMessageCount,
             deferredMessageCount === 0
         );
+        let rendered = render();
+        // The pre-render plan bounds source text only. Keep dropping complete
+        // oldest visible interactions until the generated HTML itself fits
+        // the Webview first-paint budget. One oversized latest interaction
+        // remains intact: renderMessages has group-level worklog semantics
+        // that cannot safely be reconstructed from partial groups.
+        // A small source page can still expand past the Webview budget after
+        // Markdown rendering. In that case start by hiding the oldest
+        // complete group, then use the same exact-HTML loop below. The Host
+        // pays one render to discover that expansion, but the Webview avoids
+        // the much more visible parse/layout stall.
+        if (recentOnly && deferredMessageCount === 0
+            && Buffer.byteLength(rendered.html, 'utf8')
+                > CONVERSATION_PROGRESSIVE_RENDERED_HTML_BUDGET) {
+            const firstDeferredMessageCount = interactionGroupEnd(
+                allMessages,
+                0
+            );
+            if (firstDeferredMessageCount < allMessages.length) {
+                deferredMessageCount = firstDeferredMessageCount;
+                rendered = render();
+            }
+        }
+        while (deferredMessageCount > 0
+            && Buffer.byteLength(rendered.html, 'utf8')
+                > CONVERSATION_PROGRESSIVE_RENDERED_HTML_BUDGET) {
+            const nextDeferredMessageCount = interactionGroupEnd(
+                allMessages,
+                deferredMessageCount
+            );
+            if (nextDeferredMessageCount >= allMessages.length) {
+                break;
+            }
+            deferredMessageCount = nextDeferredMessageCount;
+            rendered = render();
+        }
         // The split describes exactly this publication's render. It is read
         // synchronously by deliverPublication (the only caller path) before
         // anything else can create another publication.
         this.lastPublicationTailSplit = rendered.tailSplit;
-        return {
+        const publication: ConversationViewerPageMessage = {
             type: 'conversation-viewer-page',
             version: 1,
             requestId,
@@ -3929,17 +4008,18 @@ export class ConversationViewer implements ConversationViewerApi {
             projectComments: this.projectCommentController.snapshot,
             bookmarks: this.bookmarkController.snapshot,
         };
+        if (deferredMessageCount) {
+            this.progressiveDeferredMessageCounts.set(
+                publication,
+                deferredMessageCount
+            );
+        }
+        return publication;
     }
 
-    private shouldProgressivelyRender(): boolean {
+    private canProgressivelyRender(): boolean {
         const projection = this.outlineController.createPublication();
-        if (!projection.atLatest || projection.partial) {
-            return false;
-        }
-        return shouldProgressivelyRenderPlan(createProgressiveRenderPlan(
-            this.messages(),
-            this.showThinking()
-        ));
+        return projection.atLatest && !projection.partial;
     }
 
     private createInteractionInfo(): Map<string, {
@@ -4521,6 +4601,10 @@ const CONVERSATION_PROGRESSIVE_RENDER_BYTES_THRESHOLD = 96 * 1024;
 // arbitrary character truncation, while capping adjacent older groups keeps
 // a heavy page from monopolising the Webview main thread before first paint.
 const CONVERSATION_PROGRESSIVE_RECENT_BYTES_BUDGET = 64 * 1024;
+// Source bytes are only a cheap pre-render heuristic: Markdown decoration
+// can expand code and structured tool output substantially. The actual HTML
+// sent to the Webview is tightened to this same budget before publication.
+const CONVERSATION_PROGRESSIVE_RENDERED_HTML_BUDGET = 64 * 1024;
 // Backfill slices above the visible recent window. Small deferred windows
 // are cheaper to deliver as one full refresh; larger ones arrive in
 // ack-paced slices so no single Webview task renders the whole history.
@@ -4595,6 +4679,19 @@ function interactionGroupStart(
     return start;
 }
 
+function interactionGroupEnd(
+    messages: readonly ConversationMessage[],
+    start: number
+): number {
+    const interactionId = messages[start]?.interactionId;
+    let end = start + 1;
+    while (end < messages.length
+        && messages[end].interactionId === interactionId) {
+        end += 1;
+    }
+    return end;
+}
+
 function renderedConversationMessageBytes(
     message: ConversationMessage,
     showThinking: boolean
@@ -4636,48 +4733,6 @@ function sumMessageBytes(
 function shouldProgressivelyRenderPlan(
     plan: ConversationProgressiveRenderPlan
 ): boolean {
-    if (!plan.deferredCount) {
-        return false;
-    }
-    // Preserve the old multi-chunk behaviour for very large histories, and
-    // extend it to heavy-but-shorter pages where the all-at-once Webview DOM
-    // application dominates switch latency.
     return plan.deferredCount > CONVERSATION_PROGRESSIVE_CHUNK_MIN_DEFERRED
         || plan.renderedBytes >= CONVERSATION_PROGRESSIVE_RENDER_BYTES_THRESHOLD;
-}
-
-/**
- * Split the deferred (not yet rendered) message prefix into backfill slices
- * aligned to interaction-group boundaries, in send order: the slice nearest
- * the visible tail first, the oldest slice (flagged complete) last.
- */
-function conversationHistoryChunkSlices(
-    messages: ConversationMessage[],
-    chunkSize: number,
-    showThinking: boolean
-): ConversationMessage[][] {
-    const messageBytes = messages.map(message =>
-        renderedConversationMessageBytes(message, showThinking)
-    );
-    const oldestFirst: ConversationMessage[][] = [];
-    let end = messages.length;
-    while (end > 0) {
-        let start = end;
-        let chunkBytes = 0;
-        while (start > 0) {
-            const groupStart = interactionGroupStart(messages, start - 1);
-            const groupBytes = sumMessageBytes(messageBytes, groupStart, start);
-            if (start !== end
-                && (end - groupStart > chunkSize
-                    || chunkBytes + groupBytes
-                        > CONVERSATION_PROGRESSIVE_RECENT_BYTES_BUDGET)) {
-                break;
-            }
-            chunkBytes += groupBytes;
-            start = groupStart;
-        }
-        oldestFirst.unshift(messages.slice(start, end));
-        end = start;
-    }
-    return oldestFirst.reverse();
 }

@@ -11276,11 +11276,29 @@ function createDashboardAiPanel(injected) {
 }
 
 /* src/webview/webviewDashboardScripts.js */
+function readDashboardSessionValue(key) {
+    try {
+        return window.sessionStorage ? window.sessionStorage.getItem(key) : null;
+    } catch (_error) {
+        return null;
+    }
+}
+
+function writeDashboardSessionValue(key, value) {
+    try {
+        if (window.sessionStorage) {
+            window.sessionStorage.setItem(key, value);
+        }
+    } catch (_error) {
+        // Some sandboxed Webviews deny sessionStorage. Dashboard state remains local.
+    }
+}
+
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'agentPivot.activeDashboardTab';
     var scrollPositions = { open: 0, projects: 0, ai: 0 };
-    var activeTab = normalizeDashboardTab(sessionStorage.getItem(storageKey));
+    var activeTab = normalizeDashboardTab(readDashboardSessionValue(storageKey));
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
         ? Number(options.panelRequestTimeoutMs)
@@ -11403,7 +11421,7 @@ function initDashboard(options) {
                 scrollPositions[activeTab] = window.scrollY || 0;
             }
             activeTab = tab;
-            sessionStorage.setItem(storageKey, activeTab);
+            writeDashboardSessionValue(storageKey, activeTab);
         }
         renderActiveTab();
         if (searchQuery) {
@@ -13248,16 +13266,34 @@ function initFiltering(activeByDefault, dashboard) {
     const clearSearchElement = document.getElementById('clear');
     const filterWrapper = filterInput.parentElement;
 
+    function readStoredFilter() {
+        try {
+            return window.sessionStorage ? window.sessionStorage.getItem(storageKey) || '' : '';
+        } catch (_error) {
+            return '';
+        }
+    }
+
+    function writeStoredFilter(value) {
+        try {
+            if (window.sessionStorage) {
+                window.sessionStorage.setItem(storageKey, value);
+            }
+        } catch (_error) {
+            // Search remains available when a sandboxed Webview has no storage access.
+        }
+    }
+
     function apply() {
         var filterValue = filterInput.value || '';
         filterWrapper.classList.toggle(hasFilterValueClass, filterValue.length > 0);
-        sessionStorage.setItem(storageKey, filterValue);
+        writeStoredFilter(filterValue);
         dashboard.setSearchQuery(filterValue);
     }
 
     function clear() {
         filterInput.value = '';
-        sessionStorage.setItem(storageKey, '');
+        writeStoredFilter('');
         filterWrapper.classList.remove(hasFilterValueClass);
         dashboard.setSearchQuery('');
         filterInput.focus();
@@ -13283,7 +13319,7 @@ function initFiltering(activeByDefault, dashboard) {
         }
     });
 
-    var storedFilter = sessionStorage.getItem(storageKey) || '';
+    var storedFilter = readStoredFilter();
     filterInput.value = storedFilter;
     filterWrapper.classList.toggle(hasFilterValueClass, storedFilter.length > 0);
     document.body.classList.add('filtering-active');

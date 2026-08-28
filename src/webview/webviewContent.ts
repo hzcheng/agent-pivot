@@ -244,7 +244,12 @@ export function getStewardContent(
 
             window.onload = () => {
                 initProjects();
-                const storedFilter = sessionStorage.getItem('filterValue') || '';
+                let storedFilter = '';
+                try {
+                    storedFilter = sessionStorage.getItem('filterValue') || '';
+                } catch (_error) {
+                    // A sandboxed Webview may deny sessionStorage; search still starts empty.
+                }
                 let filtering;
                 const dashboard = initDashboard({
                     initialSearchQuery: storedFilter,

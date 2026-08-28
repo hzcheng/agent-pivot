@@ -26,6 +26,9 @@ const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), '
 const dashboardScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewDashboardScripts.js'), 'utf8'
 );
+const filterScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewFilterScripts.js'), 'utf8'
+);
 const skillPanelScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewSkillPanelScripts.js'), 'utf8'
 );
@@ -168,7 +171,7 @@ function projectsMarkup(ids) {
     });
 }
 
-async function openDashboardPage(t) {
+async function openDashboardPage(t, options = {}) {
     const page = await browser.newPage({ viewport: { width: 320, height: 320 } });
     t.after(() => page.close());
     page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
@@ -181,22 +184,28 @@ async function openDashboardPage(t) {
         <section id="dashboard-tab-projects"><div class="dashboard-projects-loading"></div></section>
         <section id="dashboard-panel-ai"><div class="dashboard-ai-loading"></div></section>
         <section id="dashboard-search-results"></section></main>
+        <div id="filter-wrapper"><input id="filter" type="search"></div><button id="clear" type="button"></button>
         <script id="dashboard-search-catalog" type="application/json">${JSON.stringify(catalog())}</script>
         </body></html>`);
-    await page.evaluate(() => {
+    await page.evaluate(sessionStorageAvailable => {
         const storage = new Map();
         Object.defineProperty(window, 'sessionStorage', {
             configurable: true,
-            value: {
-                getItem: key => storage.has(key) ? storage.get(key) : null,
-                setItem: (key, value) => storage.set(key, String(value)),
-                removeItem: key => storage.delete(key),
+            get: () => {
+                if (!sessionStorageAvailable) {
+                    throw new DOMException('Access is denied for this document.');
+                }
+                return {
+                    getItem: key => storage.has(key) ? storage.get(key) : null,
+                    setItem: (key, value) => storage.set(key, String(value)),
+                    removeItem: key => storage.delete(key),
+                };
             },
         });
         window.__messages = [];
         window.__projectsMountGeneration = 0;
         window.vscode = { postMessage: message => window.__messages.push(message) };
-    });
+    }, options.sessionStorageAvailable !== false);
     if (scrollStateScript) await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: skillPanelScript });
     await page.addScriptTag({ content: projectsPanelScript });
@@ -205,6 +214,7 @@ async function openDashboardPage(t) {
     await page.addScriptTag({ content: dashboardProjectsPanelScript });
     await page.addScriptTag({ content: dashboardAiPanelScript });
     await page.addScriptTag({ content: dashboardScript });
+    await page.addScriptTag({ content: filterScript });
     await page.evaluate(() => {
         window.__dashboard = initDashboard({
             postMessage: message => window.__messages.push(message),
@@ -218,6 +228,7 @@ async function openDashboardPage(t) {
                 });
             },
         });
+        window.__filtering = initFiltering(false, window.__dashboard);
     });
     return page;
 }
@@ -235,6 +246,17 @@ test('WEBVIEW-DASHBOARD-SEARCH-001 refreshes search results from the lazy Projec
         searchCatalog: catalogWithSavedProject('reddev-container'),
     });
     await page.evaluate(() => window.__dashboard.setSearchQuery('reddev'));
+
+    const result = page.locator('.dashboard-search-result');
+    assert.equal(await result.count(), 1);
+    assert.equal(await result.textContent(), 'reddev-container');
+    assert.equal(await page.locator('#dashboard-search-results').isVisible(), true);
+});
+
+test('WEBVIEW-DASHBOARD-SEARCH-001 keeps search usable when Webview sessionStorage is denied', async t => {
+    const page = await openDashboardPage(t, { sessionStorageAvailable: false });
+    await page.evaluate(nextCatalog => window.__dashboard.replaceSearchCatalog(nextCatalog), catalogWithSavedProject('reddev-container'));
+    await page.locator('#filter').fill('reddev');
 
     const result = page.locator('.dashboard-search-result');
     assert.equal(await result.count(), 1);

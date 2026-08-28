@@ -82,15 +82,14 @@ test('PROJECT-TAGS-RENDERING-001 includes tags in the card search text', () => {
     assert.ok(searchText.includes('urgent'));
 });
 
-test('PROJECT-ROW-LAYOUT-001 uses single-line list rows with name, path separator, and path', () => {
+test('PROJECT-ROW-LAYOUT-001 uses single-line list rows with name as the primary element', () => {
     const html = renderProjects([{
         id: 'a', name: 'agent-pivot', path: '/home/work/agent-pivot',
     }]);
 
     assert.ok(html.includes('class="project-row-main"'), 'row must use the list-row layout');
-    assert.ok(html.includes('class="project-path-sep"'), 'path separator must be present');
-    assert.ok(html.includes('class="project-path"'), 'path element must be present');
     assert.ok(html.includes('class="project-header"'), 'name element must be present');
+    // Path is hidden in the row — the project name is the sole identifier
     const rowCount = (html.match(/class="project-row-main"/g) || []).length;
     assert.equal(rowCount, 1, 'each project must have exactly one main row');
 });
@@ -131,7 +130,7 @@ test('PROJECT-ROW-TOOLTIP-001 shows description in tooltip only when present', (
         'project div without description must not fall back to path in tooltip');
 });
 
-test('GROUP-HEADER-001 renders refined group headers with name, count, and collapse arrow', () => {
+test('GROUP-HEADER-001 renders refined group headers with background distinction', () => {
     const html = renderProjects([
         { id: 'a', name: 'A', path: '/a' },
         { id: 'b', name: 'B', path: '/b' },
@@ -142,6 +141,8 @@ test('GROUP-HEADER-001 renders refined group headers with name, count, and colla
     assert.ok(html.includes('class="group-count"'), 'project count must be present');
     assert.ok(html.includes('class="group-collapse-arrow"'), 'collapse arrow must be present');
     assert.ok(!html.includes('class="group-title steward-section-header'), 'old group title class must not be used');
+    // Group header must have visual distinction from background (CSS provides background-color)
+    assert.ok(html.includes('class="group-header"'), 'group header must be present for CSS background styling');
 });
 
 test('TAG-FILTER-BAR-001 renders tag filter bar when projects have tags', () => {

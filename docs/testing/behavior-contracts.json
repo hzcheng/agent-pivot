@@ -3766,7 +3766,7 @@
   {
     "id": "PROJECT-ROW-LAYOUT-001",
     "domain": "project",
-    "title": "Project cards render as compact single-line list rows with name, path separator, and path; all rows share the same structure without wrapping",
+    "title": "Project cards render as compact single-line list rows with the project name as the primary element; the filesystem path is hidden",
     "priority": "P1",
     "status": "automated",
     "owners": [

@@ -37,6 +37,10 @@ function createFixture(overrides = {}) {
         postMessage: async message => { posted.push(message); return true; },
         getStewardInfos: () => ({ config: { get: (_key, fallback) => fallback } }),
         projectService: { getGroups: () => [{ id: 'group-a', name: 'Work', projects: [] }] },
+        getSearchCatalog: () => ({
+            version: 3, sessions: [], worktrees: [], openWorkspaces: [],
+            savedProjects: [], todos: [],
+        }),
         promptDashboardController: {
             getPanelContent: requestId => ({ type: 'ai-panel-content', requestId }),
             handle: record('promptHandle'),
@@ -137,6 +141,8 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 validates panel request envelopes and
     assert.equal(posted[0].type, 'projects-panel-content');
     assert.equal(posted[0].requestId, 7);
     assert.ok(posted[0].html.length > 0, 'the panel html renders from current groups');
+    assert.equal(posted[0].searchCatalog.version, 3,
+        'the lazy panel response refreshes the authoritative search catalog too');
 
     await handlers['request-projects-panel']({ version: 2, requestId: 8 });
     await handlers['request-projects-panel']({ version: 1, requestId: 0 });

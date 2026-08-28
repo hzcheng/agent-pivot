@@ -735,6 +735,7 @@
         "src/projects/projectOrderController.ts",
         "src/projects/projectPromptController.ts",
         "src/projects/projectRemovalController.ts",
+        "src/projects/projectTags.ts",
         "src/projects/remoteProjectResolver.ts",
         "src/projects/workspaceHelpers.ts",
         "src/services/colorService.ts",
@@ -758,7 +759,8 @@
             "src/projects/projectPathUtils.ts",
             "src/projects/favoriteProjectOrder.ts",
             "src/projects/projectNavigationProtocol.ts",
-            "src/projects/projectCatalogSync.ts"
+            "src/projects/projectCatalogSync.ts",
+            "src/projects/projectTags.ts"
           ]
         },
         {

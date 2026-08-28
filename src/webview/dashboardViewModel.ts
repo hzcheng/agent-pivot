@@ -3,6 +3,7 @@
 import type { AiSessionProviderId, Group, Project } from '../models';
 import type { WorktreeActivity, WorktreeRowViewModel } from '../aiSessions/types';
 import type { WorktreeKey } from '../worktrees';
+import { normalizeProjectTags } from '../projects/projectTags';
 
 export interface DashboardWorkspaceSearchSessionItem {
     key: string;
@@ -148,7 +149,7 @@ function buildSavedProjectSearchItems(groups: Group[]): DashboardSearchProjectIt
             item = {
                 key: `saved:${identity}`,
                 identity,
-                searchText: searchable(project.name, project.description, group.groupName),
+                searchText: searchable(project.name, project.description, group.groupName, ...normalizeProjectTags(project.tags)),
                 projectId: project.id,
                 name: project.name || '',
                 description: project.description || '',
@@ -163,7 +164,7 @@ function buildSavedProjectSearchItems(groups: Group[]): DashboardSearchProjectIt
         if (group.groupName && !item.groupLabels.includes(group.groupName)) {
             item.groupLabels.push(group.groupName);
         }
-        item.searchText = searchable(item.searchText, project.name, project.description, group.groupName);
+        item.searchText = searchable(item.searchText, project.name, project.description, group.groupName, ...normalizeProjectTags(project.tags));
     }));
 
     return Array.from(savedByIdentity.values());

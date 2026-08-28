@@ -314,6 +314,10 @@ function createDashboardHarness({
             scrollY: 0,
             scrollTo: (_x, y) => { context.window.scrollY = y; },
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
+            sessionStorage: {
+                getItem: key => storage.get(key) || null,
+                setItem: (key, value) => storage.set(key, value),
+            },
             __agentPivotPrompts: {
                 mount(root, message) {
                     promptMounts.push({ root, html: root.innerHTML, message });
@@ -409,7 +413,7 @@ const webviewModules = loadWebviewModules();
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [
-            { id: 'saved', name: 'Dashboard', path: '/work/dashboard', favorite: true },
+            { id: 'saved', name: 'Dashboard', path: '/work/dashboard', favorite: true, tags: ['Frontend'] },
             { id: 'duplicate', name: 'Dashboard copy', path: '/work/dashboard/' },
             { id: 'other', name: 'Other', path: '/work/other' },
         ],
@@ -451,6 +455,8 @@ test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes
     }]);
     assert.deepEqual(catalog.savedProjects.map(item => item.projectId), ['saved', 'other']);
     assert.deepEqual(catalog.savedProjects[0].groupLabels, ['FAVORITES', 'TOOLS']);
+    assert.match(catalog.savedProjects[0].searchText, /frontend/i,
+        'PROJECT-TAGS-001 project tags must be searchable from the dashboard-wide search catalog');
 });
 
 test('WEBVIEW-WEBVIEW-OPTIONS-001 enables scripts and limits local resources to media', () => {
@@ -1278,7 +1284,7 @@ test('WEBVIEW-FAVORITE-RENDERING-001 renders favorites in explicit order before 
         config: { get: (_key, fallback) => fallback },
         otherStorageHasData: false,
     });
-    const ids = Array.from(html.matchAll(/<div class="[^"]*project steward-item-card[^"]*"[^>]*data-id="([^"]+)"/g))
+    const ids = Array.from(html.matchAll(/<div class="[^"]*project[^"]*"[^>]*data-id="([^"]+)"/g))
         .map(match => match[1]);
     assert.deepEqual(ids, ['favorite-b', 'favorite-a', 'favorite-a', 'favorite-b', 'plain']);
 });

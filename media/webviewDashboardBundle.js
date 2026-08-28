@@ -7898,6 +7898,9 @@ function initProjects() {
         if (aiSessionControls.onTriggerAiSessionAction(e.target, dataId))
             return;
 
+        if (projectInlineEdit && projectInlineEdit.onProjectAction(e, projectDiv, dataId))
+            return;
+
         if (contextMenus.onTriggerProjectAction(e.target, dataId))
             return;
 
@@ -7923,6 +7926,10 @@ function initProjects() {
     }
 
 
+    var projectInlineEdit = typeof initProjectInlineEdit === 'function'
+        ? initProjectInlineEdit()
+        : null;
+    window.__agentPivotProjectInlineEdit = projectInlineEdit;
     var groupCollapse = initProjectGroupCollapse();
     var aiSessionPresentationStateStore = null;
     var aiSessionControls = initProjectAiSessionControls({
@@ -8800,6 +8807,319 @@ function initProjects() {
     window.vscode.postMessage({ type: 'request-active-ai-session-terminal' });
 
     observeStickyGroupHeaderOffset();
+}
+
+/* src/webview/webviewProjectEditScripts.js */
+function initProjectInlineEdit() {
+    var editingTarget = null;
+    var saveRequestSequence = 0;
+    var pendingRequestId = null;
+    var pendingAuthorityRevision = null;
+    var pendingSettlementStatus = null;
+    var authorityRevision = 0;
+
+    function getProjectGroupId(projectDiv) {
+        var sourceGroupId = projectDiv && projectDiv.getAttribute('data-source-group-id');
+        if (sourceGroupId) return sourceGroupId;
+        var group = projectDiv && projectDiv.closest('.group');
+        if (!group) return '';
+        return group.getAttribute('data-group-id')
+            || group.getAttribute('data-system-group')
+            || '';
+    }
+
+    function getProjectTarget(projectDiv) {
+        if (!projectDiv) return null;
+        var projectId = projectDiv.getAttribute('data-id');
+        var groupId = getProjectGroupId(projectDiv);
+        return projectId && groupId ? { projectId: projectId, groupId: groupId } : null;
+    }
+
+    function findProject(target) {
+        if (!target) return null;
+        var exact = Array.from(document.querySelectorAll('.project[data-id]')).find(function(projectDiv) {
+            return projectDiv.getAttribute('data-id') === target.projectId
+                && getProjectGroupId(projectDiv) === target.groupId
+                && !projectDiv.closest('[data-virtual-group]');
+        });
+        if (exact) return exact;
+
+        // A reorder or authoritative sync can move the source row while the
+        // editor is open. Fall back only to one real project row, never its
+        // Favorites mirror, then adopt its current authoritative group.
+        var matches = Array.from(document.querySelectorAll('.project[data-id]')).filter(function(projectDiv) {
+            return projectDiv.getAttribute('data-id') === target.projectId
+                && !projectDiv.closest('[data-virtual-group]');
+        });
+        if (matches.length === 1) {
+            target.groupId = getProjectGroupId(matches[0]);
+            return matches[0];
+        }
+        return null;
+    }
+
+    function setFeedback(projectDiv, message) {
+        var feedback = projectDiv && projectDiv.querySelector('[data-project-edit-feedback]');
+        if (!feedback) return;
+        feedback.textContent = message || '';
+        feedback.hidden = !message;
+    }
+
+    function setSaving(projectDiv, saving) {
+        if (!projectDiv) return;
+        projectDiv.toggleAttribute('data-saving', saving);
+        Array.from(projectDiv.querySelectorAll('.project-edit-input, .project-edit-actions button'))
+            .forEach(function(control) {
+                control.disabled = saving;
+            });
+    }
+
+    function focusEditField(projectDiv, fieldName, selectName) {
+        var input = projectDiv && projectDiv.querySelector(
+            '[data-edit-field="' + fieldName + '"]'
+        );
+        if (!input || typeof input.focus !== 'function') return;
+        input.focus({ preventScroll: true });
+        if (selectName && typeof input.select === 'function') {
+            input.select();
+        }
+    }
+
+    function showEditForm(projectDiv) {
+        var target = getProjectTarget(projectDiv);
+        if (!target) return;
+        if (editingTarget) {
+            cancelEdit();
+        }
+
+        if (!projectDiv || projectDiv.hasAttribute('data-readonly-project')) return;
+
+        editingTarget = target;
+        var form = projectDiv.querySelector('.project-edit-form');
+        if (form && typeof form.reset === 'function') {
+            form.reset();
+        }
+        setFeedback(projectDiv, '');
+        projectDiv.setAttribute('data-editing', '');
+
+        focusEditField(projectDiv, 'name', true);
+    }
+
+    function cancelEdit() {
+        if (!editingTarget) return;
+
+        var projectDiv = findProject(editingTarget);
+        if (projectDiv) {
+            var form = projectDiv.querySelector('.project-edit-form');
+            if (form && typeof form.reset === 'function') {
+                form.reset();
+            }
+            setFeedback(projectDiv, '');
+            projectDiv.removeAttribute('data-editing');
+            setSaving(projectDiv, false);
+        }
+        editingTarget = null;
+        pendingRequestId = null;
+        pendingAuthorityRevision = null;
+        pendingSettlementStatus = null;
+    }
+
+    function saveEdit() {
+        if (!editingTarget) return;
+
+        var projectDiv = findProject(editingTarget);
+        if (!projectDiv) return;
+        if (projectDiv.hasAttribute('data-saving')) return;
+
+        var nameInput = projectDiv.querySelector('[data-edit-field="name"]');
+        var descInput = projectDiv.querySelector('[data-edit-field="description"]');
+        var tagsInput = projectDiv.querySelector('[data-edit-field="tags"]');
+
+        var name = (nameInput && nameInput.value || '').trim();
+        if (!name) {
+            setFeedback(projectDiv, 'A project name is required.');
+            if (nameInput) nameInput.focus();
+            return;
+        }
+
+        saveRequestSequence += 1;
+        pendingRequestId = 'project-inline-edit-' + Date.now() + '-' + saveRequestSequence;
+        pendingAuthorityRevision = authorityRevision;
+        pendingSettlementStatus = null;
+        setSaving(projectDiv, true);
+        setFeedback(projectDiv, 'Saving…');
+        window.vscode.postMessage({
+            type: 'save-project-inline',
+            version: 1,
+            requestId: pendingRequestId,
+            projectId: editingTarget.projectId,
+            groupId: editingTarget.groupId,
+            name: name,
+            description: (descInput && descInput.value || '').trim(),
+            tags: (tagsInput && tagsInput.value || '').trim(),
+        });
+    }
+
+    function onProjectAction(e, projectDiv, projectId) {
+        var actionEl = e.target.closest('[data-action]');
+        if (!actionEl) return false;
+
+        var action = actionEl.getAttribute('data-action');
+        if (action === 'edit-inline') {
+            e.preventDefault();
+            e.stopPropagation();
+            showEditForm(projectDiv);
+            return true;
+        }
+
+        if (action === 'cancel-edit') {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelEdit();
+            return true;
+        }
+
+        if (action === 'save-edit') {
+            e.preventDefault();
+            e.stopPropagation();
+            saveEdit();
+            return true;
+        }
+        return false;
+    }
+
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && editingTarget) {
+            e.preventDefault();
+            cancelEdit();
+        }
+        if (e.key === 'Enter' && editingTarget && e.target && e.target.closest('.project-edit-form')) {
+            e.preventDefault();
+            saveEdit();
+        }
+    });
+
+    function settlePendingEdit(status) {
+        var projectDiv = findProject(editingTarget);
+        if (!projectDiv) return;
+        setSaving(projectDiv, false);
+        pendingRequestId = null;
+        pendingAuthorityRevision = null;
+        pendingSettlementStatus = null;
+        setFeedback(projectDiv, status === 'saved'
+            ? 'Saved.'
+            : 'Could not save the project. Try again.');
+    }
+
+    function settleSavedAfterAuthority() {
+        if (pendingSettlementStatus !== 'saved' || pendingAuthorityRevision === null
+            || authorityRevision <= pendingAuthorityRevision) {
+            return;
+        }
+        settlePendingEdit('saved');
+    }
+
+    window.addEventListener('message', function(event) {
+        var message = event && event.data;
+        if (!message || message.type !== 'project-inline-edit-settlement'
+            || message.version !== 1 || (message.status !== 'saved' && message.status !== 'failed')
+            || !editingTarget || message.projectId !== editingTarget.projectId
+            || message.requestId !== pendingRequestId) {
+            return;
+        }
+        if (message.status === 'failed') {
+            settlePendingEdit('failed');
+            return;
+        }
+        pendingSettlementStatus = 'saved';
+        settleSavedAfterAuthority();
+    });
+
+    function captureState() {
+        if (!editingTarget) return null;
+        var projectDiv = findProject(editingTarget);
+        if (!projectDiv || !projectDiv.hasAttribute('data-editing')) return null;
+        var activeElement = document.activeElement;
+        var focusedField = activeElement && projectDiv.contains(activeElement)
+            ? activeElement.getAttribute('data-edit-field')
+            : null;
+        var selectionStart = focusedField && typeof activeElement.selectionStart === 'number'
+            ? activeElement.selectionStart
+            : null;
+        var selectionEnd = focusedField && typeof activeElement.selectionEnd === 'number'
+            ? activeElement.selectionEnd
+            : null;
+        return {
+            projectId: editingTarget.projectId,
+            groupId: editingTarget.groupId,
+            name: (projectDiv.querySelector('[data-edit-field="name"]') || {}).value || '',
+            description: (projectDiv.querySelector('[data-edit-field="description"]') || {}).value || '',
+            tags: (projectDiv.querySelector('[data-edit-field="tags"]') || {}).value || '',
+            feedback: (projectDiv.querySelector('[data-project-edit-feedback]') || {}).textContent || '',
+            focusedField: typeof focusedField === 'string' ? focusedField : null,
+            selectionStart: selectionStart,
+            selectionEnd: selectionEnd,
+            pendingRequestId: pendingRequestId,
+            pendingAuthorityRevision: pendingAuthorityRevision,
+            pendingSettlementStatus: pendingSettlementStatus,
+        };
+    }
+
+    function restoreState(state) {
+        if (!state || typeof state.projectId !== 'string' || typeof state.groupId !== 'string'
+            || typeof state.name !== 'string' || typeof state.description !== 'string'
+            || typeof state.tags !== 'string') {
+            return;
+        }
+        var target = { projectId: state.projectId, groupId: state.groupId };
+        var projectDiv = findProject(target);
+        if (!projectDiv || projectDiv.hasAttribute('data-readonly-project')) {
+            return;
+        }
+        editingTarget = target;
+        var nameInput = projectDiv.querySelector('[data-edit-field="name"]');
+        var descInput = projectDiv.querySelector('[data-edit-field="description"]');
+        var tagsInput = projectDiv.querySelector('[data-edit-field="tags"]');
+        if (nameInput) nameInput.value = state.name;
+        if (descInput) descInput.value = state.description;
+        if (tagsInput) tagsInput.value = state.tags;
+        projectDiv.setAttribute('data-editing', '');
+        pendingRequestId = typeof state.pendingRequestId === 'string' && state.pendingRequestId
+            ? state.pendingRequestId
+            : null;
+        pendingAuthorityRevision = typeof state.pendingAuthorityRevision === 'number'
+            ? state.pendingAuthorityRevision
+            : null;
+        pendingSettlementStatus = state.pendingSettlementStatus === 'saved'
+            ? 'saved'
+            : null;
+        setSaving(projectDiv, Boolean(pendingRequestId));
+        setFeedback(projectDiv, typeof state.feedback === 'string' ? state.feedback : '');
+        if (state.focusedField === 'name' || state.focusedField === 'description'
+            || state.focusedField === 'tags') {
+            focusEditField(projectDiv, state.focusedField, false);
+            var focusedInput = document.activeElement;
+            if (focusedInput && typeof state.selectionStart === 'number'
+                && typeof state.selectionEnd === 'number'
+                && typeof focusedInput.setSelectionRange === 'function') {
+                focusedInput.setSelectionRange(state.selectionStart, state.selectionEnd);
+            }
+        }
+    }
+
+    function onAuthoritativeReplacement() {
+        authorityRevision += 1;
+        settleSavedAfterAuthority();
+    }
+
+    return {
+        onProjectAction: onProjectAction,
+        showEditForm: showEditForm,
+        cancelEdit: cancelEdit,
+        captureState: captureState,
+        restoreState: restoreState,
+        onAuthoritativeReplacement: onAuthoritativeReplacement,
+    };
 }
 
 /* src/webview/webviewSkillPanelScripts.js */
@@ -10249,6 +10569,10 @@ function captureProjectsPanelState(panel) {
     var state = {
         windowScrollY: window.scrollY,
         focus: getProjectsFocusTarget(panel),
+        inlineEdit: window.__agentPivotProjectInlineEdit
+            && typeof window.__agentPivotProjectInlineEdit.captureState === 'function'
+            ? window.__agentPivotProjectInlineEdit.captureState()
+            : null,
         groups: Array.from(panel.querySelectorAll(
             '.group[data-group-id]'
         )).map(function (group) {
@@ -10367,7 +10691,9 @@ function validateProjectsPanelMessage(message) {
         && message.version === 1
         && Number.isSafeInteger(message.requestId)
         && message.requestId > 0
-        && typeof message.html === 'string';
+        && typeof message.html === 'string'
+        && (message.searchCatalog === undefined
+            || normalizeDashboardSearchCatalog(message.searchCatalog) === message.searchCatalog);
 }
 
 function validateProjectsPanelUpdatedMessage(message) {
@@ -10722,6 +11048,9 @@ function createDashboardProjectsPanel(injected) {
         }
 
         acceptedProjectsRequestId = message.requestId;
+        if (message.searchCatalog) {
+            replaceSearchCatalog(message.searchCatalog);
+        }
         if (projectsRequestTimer !== null) {
             cancelTimeout(projectsRequestTimer);
             projectsRequestTimer = null;
@@ -10751,6 +11080,13 @@ function createDashboardProjectsPanel(injected) {
         }
         restoreProjectsPanelAnchors(panels.projects, panelState);
         restoreProjectsFocus(panels.projects, panelState.focus);
+        if (panelState.inlineEdit && window.__agentPivotProjectInlineEdit) {
+            window.__agentPivotProjectInlineEdit.restoreState(panelState.inlineEdit);
+        }
+        if (window.__agentPivotProjectInlineEdit
+            && typeof window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement === 'function') {
+            window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement();
+        }
         restoreProjectsWindowScroll(panelState);
         requestAnimationFrame(() => {
             if (replacementGeneration !== projectsPanelReplacementGeneration) {
@@ -11016,11 +11352,29 @@ function createDashboardAiPanel(injected) {
 }
 
 /* src/webview/webviewDashboardScripts.js */
+function readDashboardSessionValue(key) {
+    try {
+        return window.sessionStorage ? window.sessionStorage.getItem(key) : null;
+    } catch (_error) {
+        return null;
+    }
+}
+
+function writeDashboardSessionValue(key, value) {
+    try {
+        if (window.sessionStorage) {
+            window.sessionStorage.setItem(key, value);
+        }
+    } catch (_error) {
+        // Some sandboxed Webviews deny sessionStorage. Dashboard state remains local.
+    }
+}
+
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'agentPivot.activeDashboardTab';
     var scrollPositions = { open: 0, projects: 0, ai: 0 };
-    var activeTab = normalizeDashboardTab(sessionStorage.getItem(storageKey));
+    var activeTab = normalizeDashboardTab(readDashboardSessionValue(storageKey));
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
         ? Number(options.panelRequestTimeoutMs)
@@ -11143,7 +11497,7 @@ function initDashboard(options) {
                 scrollPositions[activeTab] = window.scrollY || 0;
             }
             activeTab = tab;
-            sessionStorage.setItem(storageKey, activeTab);
+            writeDashboardSessionValue(storageKey, activeTab);
         }
         renderActiveTab();
         if (searchQuery) {
@@ -12988,16 +13342,34 @@ function initFiltering(activeByDefault, dashboard) {
     const clearSearchElement = document.getElementById('clear');
     const filterWrapper = filterInput.parentElement;
 
+    function readStoredFilter() {
+        try {
+            return window.sessionStorage ? window.sessionStorage.getItem(storageKey) || '' : '';
+        } catch (_error) {
+            return '';
+        }
+    }
+
+    function writeStoredFilter(value) {
+        try {
+            if (window.sessionStorage) {
+                window.sessionStorage.setItem(storageKey, value);
+            }
+        } catch (_error) {
+            // Search remains available when a sandboxed Webview has no storage access.
+        }
+    }
+
     function apply() {
         var filterValue = filterInput.value || '';
         filterWrapper.classList.toggle(hasFilterValueClass, filterValue.length > 0);
-        sessionStorage.setItem(storageKey, filterValue);
+        writeStoredFilter(filterValue);
         dashboard.setSearchQuery(filterValue);
     }
 
     function clear() {
         filterInput.value = '';
-        sessionStorage.setItem(storageKey, '');
+        writeStoredFilter('');
         filterWrapper.classList.remove(hasFilterValueClass);
         dashboard.setSearchQuery('');
         filterInput.focus();
@@ -13023,7 +13395,7 @@ function initFiltering(activeByDefault, dashboard) {
         }
     });
 
-    var storedFilter = sessionStorage.getItem(storageKey) || '';
+    var storedFilter = readStoredFilter();
     filterInput.value = storedFilter;
     filterWrapper.classList.toggle(hasFilterValueClass, storedFilter.length > 0);
     document.body.classList.add('filtering-active');
@@ -13036,4 +13408,61 @@ function initFiltering(activeByDefault, dashboard) {
     }
 
     return { clear, focus, apply };
+}
+
+function initTagFiltering(previousActiveTags) {
+    var activeTags = new Set(previousActiveTags || []);
+    var tagBar = document.querySelector('.tag-filter-bar');
+    if (!tagBar) {
+        return { activeTags: activeTags };
+    }
+
+    function applyTagFilter() {
+        var projects = document.querySelectorAll('.project[data-id]');
+        var allChip = tagBar.querySelector('[data-tag-filter="all"]');
+        var tagChips = tagBar.querySelectorAll('[data-tag-filter]:not([data-tag-filter="all"])');
+
+        if (activeTags.size === 0) {
+            // No tag filter active — show all, highlight "All"
+            allChip.classList.add('active');
+            tagChips.forEach(function(chip) { chip.classList.remove('active'); });
+            projects.forEach(function(p) { p.classList.remove('tag-filtered'); });
+        } else {
+            allChip.classList.remove('active');
+            projects.forEach(function(p) {
+                var projectTags = (p.getAttribute('data-tags') || '').toLowerCase().split(',');
+                var hasAll = true;
+                activeTags.forEach(function(tag) {
+                    if (projectTags.indexOf(tag.toLowerCase()) === -1) {
+                        hasAll = false;
+                    }
+                });
+                p.classList.toggle('tag-filtered', !hasAll);
+            });
+        }
+    }
+
+    tagBar.addEventListener('click', function(e) {
+        var chip = e.target.closest('.tag-filter-chip');
+        if (!chip) return;
+
+        var tag = chip.getAttribute('data-tag-filter');
+        if (tag === 'all') {
+            activeTags.clear();
+            applyTagFilter();
+            return;
+        }
+
+        if (activeTags.has(tag)) {
+            activeTags.delete(tag);
+            chip.classList.remove('active');
+        } else {
+            activeTags.add(tag);
+            chip.classList.add('active');
+        }
+        applyTagFilter();
+    });
+
+    applyTagFilter();
+    return { activeTags: activeTags, applyTagFilter: applyTagFilter };
 }

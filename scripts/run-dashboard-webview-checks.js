@@ -2276,10 +2276,10 @@ function runSourceContractChecks(source) {
     assert.strictEqual(routerSource.includes('handleRawMessage'), false);
 
     assert.ok(source.includes("agentPivot.activeDashboardTab"));
-    assert.ok(webviewContentSource.includes('class="group steward-section'));
-    assert.ok(webviewContentSource.includes('class="group-title steward-section-header steward-group-header"'));
-    assert.ok(webviewContentSource.includes('class="project steward-item-card"'));
-    assert.ok(webviewContentSource.includes('class="project-border steward-item-accent"'));
+    assert.ok(webviewContentSource.includes('class="group'));
+    assert.ok(webviewContentSource.includes('class="group-header"'));
+    assert.ok(webviewContentSource.includes('class="project"'));
+    assert.ok(webviewContentSource.includes('class="project-border"'));
     const dashboardBundleInputs = dashboardBundleInputPaths.join('\n');
     assert.ok(webviewContentSource.includes("'webviewDashboardBundle.js'"));
     assert.ok(dashboardBundleInputs.includes('webviewScrollStateScripts.js'));

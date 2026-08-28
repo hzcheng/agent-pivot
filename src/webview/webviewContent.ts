@@ -17,6 +17,7 @@ import {
     INBUILT_COLOR_DEFAULTS,
 } from '../constants';
 import { getFavoriteProjectsInOrder } from '../projects/favoriteProjectOrder';
+import { normalizeProjectTags } from '../projects/projectTags';
 import {
     buildWorkspaceDashboardSearchCatalog,
     serializeDashboardSearchCatalog,
@@ -56,6 +57,7 @@ interface GroupSectionOptions {
     collapsible: boolean;
     className: string;
     systemBadge: string;
+    getSourceGroupId?: (project: Project) => string;
 }
 
 
@@ -241,35 +243,52 @@ export function getStewardContent(
         (function() {
             window.vscode = acquireVsCodeApi();
 
-            function fitProjectHeaders(root) {
-                if (!root || document.body.classList.contains('steward-sidebar')) {
-                    return;
-                }
-                Array.from(root.querySelectorAll('.project-header')).forEach(element =>
-                    fitty(element, ${JSON.stringify(FITTY_OPTIONS)})
-                );
-            }
-
             window.onload = () => {
-                initProjects();
-                const storedFilter = sessionStorage.getItem('filterValue') || '';
+                const fitDashboardProjectHeaders = panel => {
+                    if (typeof fitProjectHeaders === 'function') {
+                        fitProjectHeaders(panel);
+                    }
+                };
+                try {
+                    initProjects();
+                } catch (error) {
+                    console.error('[Agent Pivot] Project controls failed to initialize.', error);
+                }
+                let storedFilter = '';
+                try {
+                    storedFilter = sessionStorage.getItem('filterValue') || '';
+                } catch (_error) {
+                    // A sandboxed Webview may deny sessionStorage; search still starts empty.
+                }
                 let filtering;
+                let tagFiltering;
                 const dashboard = initDashboard({
                     initialSearchQuery: storedFilter,
                     clearSearch: () => filtering && filtering.clear(),
                     postMessage: message => window.vscode.postMessage(message),
                     onProjectsMounted: panel => {
-                        fitProjectHeaders(panel);
+                        fitDashboardProjectHeaders(panel);
                         disposeDnD(panel);
                         initDnD(panel);
-                        window.__agentPivotSyncCollapseButton();
+                        if (typeof window.__agentPivotSyncCollapseButton === 'function') {
+                            window.__agentPivotSyncCollapseButton();
+                        }
+                        tagFiltering = initTagFiltering(tagFiltering && tagFiltering.activeTags);
                     },
-                    onActiveTabChanged: () => window.__agentPivotSyncCollapseButton(),
+                    onActiveTabChanged: () => {
+                        if (typeof window.__agentPivotSyncCollapseButton === 'function') {
+                            window.__agentPivotSyncCollapseButton();
+                        }
+                    },
                 });
                 window.__agentPivotDashboard = dashboard;
-                fitProjectHeaders(document.getElementById('dashboard-tab-open'));
                 filtering = initFiltering(${infos.config.searchIsActiveByDefault}, dashboard);
                 filtering.apply();
+
+                // Project controls, header fitting, and tag filtering can evolve
+                // independently of dashboard search and must not prevent it from working.
+                fitDashboardProjectHeaders(document.getElementById('dashboard-tab-open'));
+                tagFiltering = initTagFiltering();
             };
         })();
     </script>
@@ -403,6 +422,25 @@ function getWorkspaceRemoteType(environment: WorkspaceCardViewModel['environment
     }
 }
 
+function getUniqueProjectTags(groups: Group[]): string[] {
+    var seen = new Set<string>();
+    var tags: string[] = [];
+    for (let group of (groups || [])) {
+        for (let project of (group.projects || [])) {
+            var normalized = normalizeProjectTags(project.tags);
+            for (let tag of normalized) {
+                var key = tag.toLowerCase();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    tags.push(tag);
+                }
+            }
+        }
+    }
+    tags.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    return tags;
+}
+
 export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): string {
     var configuredMaxVisibleProjects = infos.config.get(
         'maxVisibleProjectsPerGroup',
@@ -416,6 +454,10 @@ export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): s
     var favoriteProjects = getFavoriteProjectsInOrder(
         (groups || []).reduce((projects, group) => projects.concat(group.projects || []), [] as Project[])
     );
+    var sourceGroupIds = new Map<Project, string>();
+    (groups || []).forEach(group => (group.projects || []).forEach(project => {
+        sourceGroupIds.set(project, group.id);
+    }));
     var favoritesGroupCollapsed = infos.favoritesGroupCollapsed !== undefined
         ? infos.favoritesGroupCollapsed
         : (groups || []).every(group => group.collapsed);
@@ -430,6 +472,7 @@ export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): s
         collapsible: true,
         className: 'favorites-group',
         systemBadge: 'Pinned',
+        getSourceGroupId: project => sourceGroupIds.get(project) || '',
     };
     var projectOptions: GroupSectionOptions = {
         virtual: false,
@@ -440,11 +483,22 @@ export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): s
         systemBadge: '',
     };
 
-    return `<div class="groups-wrapper ${!infos.config.displayProjectPath ? 'hide-project-path' : ''}" style="--steward-max-visible-projects-per-group: ${maxVisibleProjectsPerGroup};">
+    var allTags = getUniqueProjectTags(groups);
+    var tagFilterBar = allTags.length
+        ? `<div class="tag-filter-bar">
+            <button class="tag-filter-chip active" data-tag-filter="all">All</button>
+            ${allTags.map(tag => `<button class="tag-filter-chip" data-tag-filter="${escapeAttribute(tag)}">${escapeAttribute(tag)}</button>`).join('\n')}
+        </div>`
+        : '';
+
+    return `${tagFilterBar}<div class="groups-wrapper ${!infos.config.displayProjectPath ? 'hide-project-path' : ''}" style="--steward-max-visible-projects-per-group: ${maxVisibleProjectsPerGroup};">
         ${mainGroups.length
             ? mainGroups.map(group => getGroupSection(
                 group,
-                group.id === FAVORITES_GROUP_ID ? favoriteOptions : projectOptions
+                group.id === FAVORITES_GROUP_ID ? favoriteOptions : {
+                    ...projectOptions,
+                    getSourceGroupId: () => group.id,
+                }
             )).join('\n')
             : (infos.otherStorageHasData ? getImportDiv() : getNoProjectsDiv())}
     </div>
@@ -580,11 +634,9 @@ function getGroupSection(
     options: GroupSectionOptions,
     emptyContent: string = ''
 ) {
-    // Apply changes to HTML here also to getTempGroupSection
-
     var groupActions = options.virtual
         ? ''
-        : `<div class="group-actions right">
+        : `<div class="group-actions">
             <span data-action="add" title="Add Project">${Icons.add}</span>
             <span data-action="edit" title="Edit Group">${Icons.edit}</span>
             <span data-action="remove" title="Remove Group">${Icons.remove
@@ -593,24 +645,27 @@ function getGroupSection(
     var dragAttribute = options.virtual ? '' : 'data-drag-group';
     var groupName = escapeAttribute(group.groupName || 'Unnamed Group');
     var systemGroupAttribute = options.virtual ? ` data-system-group="${group.id}"` : '';
-    var groupTitleText = options.collapsible
-        ? `<span class="group-title-text" data-action="collapse" ${dragAttribute}>
-            <span class="collapse-icon" title="Open/Collapse Group">${Icons.collapse}</span>
-            ${groupName}
-        </span>`
-        : `<span class="group-title-text">${groupName}</span>`;
+    var projectCount = group.projects.length;
+    var collapseArrow = options.collapsible
+        ? `<span class="group-collapse-arrow">${Icons.collapse}</span>`
+        : '';
+    var collapseAttrs = options.collapsible
+        ? ` data-action="collapse" ${dragAttribute}`
+        : '';
 
     return `
-<div class="group steward-section ${options.className} ${group.collapsed ? 'collapsed' : ''} ${group.projects.length === 0 ? 'no-projects' : ''
+<div class="group ${options.className} ${group.collapsed ? 'collapsed' : ''} ${projectCount === 0 ? 'no-projects' : ''
         }" data-group-id="${group.id}"${options.virtual ? ' data-virtual-group' : ''}${systemGroupAttribute}>
-    <div class="group-title steward-section-header steward-group-header">
-        ${groupTitleText}
-        ${options.systemBadge ? `<span class="group-title-badge">${options.systemBadge}</span>` : ''}
+    <div class="group-header"${collapseAttrs} title="${group.collapsed ? 'Expand' : 'Collapse'} Group">
+        ${collapseArrow}
+        <span class="group-name">${groupName}</span>
+        ${options.systemBadge ? `<span class="group-badge">${options.systemBadge}</span>` : ''}
+        <span class="group-count">${projectCount}</span>
         ${groupActions}
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>
-        ${group.projects.length
+        ${projectCount
             ? group.projects.map(project => getProjectDiv(project, options)).join('\n')
             : emptyContent}
     </div>       
@@ -628,8 +683,9 @@ function getFavoritesGroup(favoriteProjects: Project[], collapsed: boolean = fal
 function getTempGroupSection() {
     return `
 <div class="group" id="tempGroup">
-    <div class="group-title steward-section-header steward-group-header" data-action="add-group">
-        <span>${Icons.add} New Group</span>
+    <div class="group-header" data-action="add-group" title="Add New Group">
+        <span class="group-collapse-arrow">${Icons.add}</span>
+        <span class="group-name">New Group</span>
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>
@@ -647,24 +703,17 @@ function getProjectDiv(
     var projectName = escapeAttribute(sanitizeProjectName(project.name));
     var searchText = escapeAttribute(getProjectSearchText(project));
     var escapedDescription = escapeAttribute(description);
-    var projectIcon = getWorkspaceIcon(remoteType);
-    var projectIconTitle = getWorkspaceIconTitle(remoteType);
+    var projectPath = escapeAttribute(project.path || '');
+    var projectPathBase = projectPath ? projectPath.split(/[\\\/]/).pop() || projectPath : '';
     var favoriteTitle = project.favorite ? 'Remove From Favorites' : 'Add To Favorites';
     var projectActions = options.readOnlyProjects
         ? ''
         : `<span data-action="color" title="Edit Color">${Icons.palette
         }</span>
-                <span data-action="edit" title="Edit Project">${Icons.edit
+                <span data-action="edit-inline" title="Edit Project">${Icons.edit
         }</span>
                 <span data-action="remove" title="Remove Project">${Icons.remove
         }</span>`;
-    var projectActionsWrapper = projectActions
-        ? `<div class="project-actions-wrapper">
-            <div class="project-actions">
-                ${projectActions}
-            </div>
-        </div>`
-        : '';
     var favoriteBadgeIcon = project.favorite ? Icons.starFilled : Icons.star;
     var favoriteBadge = options.readOnlyProjects
         ? ''
@@ -673,32 +722,56 @@ function getProjectDiv(
         ? `<span data-action="save" class="project-save-badge" title="Save Current Project">${Icons.save}</span>`
         : '';
     var isRemote = remoteType !== ProjectRemoteType.None;
+    var tags = normalizeProjectTags(project.tags);
+    var tagsHtml = tags.length
+        ? `<div class="project-row-tags">${tags.map(tag => `<span class="project-tag" title="${escapeAttribute(`#${tag}`)}">${escapeAttribute(tag)}</span>`).join('')
+        }</div>`
+        : '';
 
     return `
 <div class="project-container"${options.virtual && !options.draggableVirtualProjects ? ' data-nodrag' : ''}>
-    <div class="project steward-item-card" style="${colorStyles.cardStyle}" data-id="${project.id}" data-name="${searchText}"${isRemote ? ' data-is-remote' : ''
+    <div class="project" style="${colorStyles.cardStyle}" data-id="${project.id}" data-name="${searchText}" ${escapedDescription ? ` title="${escapedDescription}"` : ""}${isRemote ? ' data-is-remote' : ''
         }${options.virtual ? ' data-virtual-project' : ''
         }${options.readOnlyProjects ? ' data-readonly-project' : ''
+        }${options.getSourceGroupId && options.getSourceGroupId(project)
+            ? ` data-source-group-id="${escapeAttribute(options.getSourceGroupId(project))}"`
+            : ''
         }${!options.readOnlyProjects ? ' data-has-favorite-toggle' : ''
         }${project.showSaveAction ? ' data-has-save-action' : ''
         }${project.favorite ? ' data-favorite-project' : ''
+        }${tags.length ? ' data-has-tags' : ''
+        }${tags.length ? ` data-tags="${escapeAttribute(tags.join(','))}"` : ''
         }>
-        <div class="project-aura"></div>
-        <div class="project-border steward-item-accent" style="${colorStyles.accentStyle}"></div>
-        ${favoriteBadge}
-        ${saveBadge}
-        ${projectActionsWrapper}
-        <div class="fitty-container project-title-row">
-            <span class="project-kind-icon" title="${projectIconTitle}">
-                ${projectIcon}
-            </span>
-            <h2 class="project-header">
-                ${projectName}
-            </h2>
+        <div class="project-border" style="${colorStyles.accentStyle}"></div>
+        <div class="project-row-main">
+            <span class="project-header" title="${projectName}">${projectName}</span>
+            <span class="project-path-sep">/</span><span class="project-path" title="${projectPath}">${projectPathBase}</span>
+            <div class="project-row-actions">
+                ${saveBadge}
+                ${favoriteBadge}
+                ${projectActions ? `<div class="project-actions">${projectActions}</div>` : ''}
+            </div>
         </div>
-        <p class="project-description" title="${escapedDescription}">
-            ${escapedDescription}
-        </p>
+        ${tagsHtml}
+        ${options.readOnlyProjects ? '' : `<div class="project-edit-form" hidden>
+            <div class="project-edit-field">
+                <label class="project-edit-label">Name</label>
+                <input class="project-edit-input" data-edit-field="name" type="text" value="${escapeAttribute(project.name || '')}" placeholder="Project name" required>
+            </div>
+            <div class="project-edit-field">
+                <label class="project-edit-label">Description</label>
+                <input class="project-edit-input" data-edit-field="description" type="text" value="${escapeAttribute(project.description || '')}" placeholder="Optional description">
+            </div>
+            <div class="project-edit-field">
+                <label class="project-edit-label">Tags</label>
+                <input class="project-edit-input" data-edit-field="tags" type="text" value="${escapeAttribute(tags.join(', '))}" placeholder="Comma-separated, e.g. frontend, urgent">
+            </div>
+            <div class="project-edit-actions">
+                <button type="button" class="project-edit-cancel steward-button" data-action="cancel-edit">Cancel</button>
+                <button type="button" class="project-edit-save steward-button steward-button-primary" data-action="save-edit">Save</button>
+            </div>
+            <p class="project-edit-feedback" data-project-edit-feedback role="status" hidden></p>
+        </div>`}
     </div>
 </div>`;
 }
@@ -722,8 +795,9 @@ export function getProjectSearchText(project: Project): string {
         .concat(claudeSessions)
         .map(session => session.name || '')
         .join(' ');
+    var tagsSearchText = normalizeProjectTags(project.tags).join(' ');
 
-    return `${project.name || ''} ${description} ${aiSessionSearchText}`.toLowerCase();
+    return `${project.name || ''} ${description} ${tagsSearchText} ${aiSessionSearchText}`.toLowerCase();
 }
 
 

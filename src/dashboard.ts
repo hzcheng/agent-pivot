@@ -612,6 +612,7 @@ async function initializeDashboard(
         'reordered-favorites',
         'remove-project',
         'edit-project',
+        'save-project-inline',
         'color-project',
         'favorite-project',
         'edit-group',
@@ -2243,6 +2244,7 @@ async function initializeDashboard(
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         acknowledgeAiSessionAttentionEventIds,
         refreshAfterMutation: projectSurface.refreshAfterMutation,
+        postMessage: message => provider.postMessage(message),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
 
@@ -2250,6 +2252,11 @@ async function initializeDashboard(
         postMessage: message => provider.postMessage(message),
         getStewardInfos: () => stewardInfos,
         projectService,
+        getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
+            projectService.getGroups(),
+            getOpenWorkspaceCards(),
+            skillPanel.getRecords(),
+        ),
         promptDashboardController,
         getPromptTerminalCommandController: () => promptTerminalCommandController,
         aiSessionCommandController,

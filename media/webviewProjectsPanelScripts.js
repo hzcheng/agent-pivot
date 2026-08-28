@@ -63,6 +63,10 @@ function captureProjectsPanelState(panel) {
     var state = {
         windowScrollY: window.scrollY,
         focus: getProjectsFocusTarget(panel),
+        inlineEdit: window.__agentPivotProjectInlineEdit
+            && typeof window.__agentPivotProjectInlineEdit.captureState === 'function'
+            ? window.__agentPivotProjectInlineEdit.captureState()
+            : null,
         groups: Array.from(panel.querySelectorAll(
             '.group[data-group-id]'
         )).map(function (group) {
@@ -150,4 +154,3 @@ function restoreProjectsFocus(panel, target) {
         focusTarget.focus({ preventScroll: true });
     }
 }
-

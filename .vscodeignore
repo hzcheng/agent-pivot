@@ -42,6 +42,7 @@ media/brand/**
 !media/webviewProjectAiUpdateScripts.js
 !media/webviewProjectAiSessionControlsScripts.js
 !media/webviewProjectScripts.js
+!media/webviewProjectEditScripts.js
 !media/webviewSkillPanelScripts.js
 !media/webviewProjectsPanelScripts.js
 !media/webviewDashboardValidationScripts.js

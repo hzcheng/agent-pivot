@@ -7,12 +7,14 @@ import { FixedColorOptions, PREDEFINED_COLORS, SAVE_CURRENT_PROJECT, SSH_REGEX, 
 import { Group, Project, ProjectRemoteType } from '../models';
 import { uriToProjectPath } from './openProjectMatcher';
 import { getLastPartOfPath, isUriString, parsePathAsUri } from './openProjectService';
+import { normalizeProjectTags, parseProjectTagsInput } from './projectTags';
 
 export interface ProjectPromptTemplate {
     name?: string;
     description?: string;
     path?: string;
     color?: string;
+    tags?: string[];
     remoteType?: ProjectRemoteType;
     favorite?: boolean;
 }
@@ -88,6 +90,9 @@ export class ProjectPromptController {
             }
 
             const projectDescription = await this.queryProjectDescription(defaultProjectDescription);
+            const tags = isEditing
+                ? await this.queryProjectTags(projectTemplate ? projectTemplate.tags : null)
+                : normalizeProjectTags(projectTemplate ? projectTemplate.tags : null);
 
             if (isEditing) {
                 const updatePathPicks: Array<QuickPickItemWithId<boolean>> = [
@@ -120,6 +125,7 @@ export class ProjectPromptController {
             project.isGitRepo = isGitRepo;
             project.remoteType = projectTemplate?.remoteType;
             project.favorite = projectTemplate?.favorite;
+            project.tags = tags.length ? tags : undefined;
 
             return [project, selectedGroupId, groupWasNewlyCreated];
         } catch (e) {
@@ -145,6 +151,23 @@ export class ProjectPromptController {
         }
 
         return projectDescription.trim();
+    }
+
+    async queryProjectTags(currentTags: string[] = null): Promise<string[]> {
+        const defaultValue = currentTags && currentTags.length ? currentTags.join(', ') : '';
+        const input = await this.options.showInputBox({
+            value: defaultValue || undefined,
+            valueSelection: defaultValue ? [0, defaultValue.length] : undefined,
+            placeHolder: 'Tags, comma-separated (optional)',
+            prompt: 'Optional tags used to filter projects, e.g. frontend, urgent. Clear the value to remove all tags.',
+            ignoreFocusOut: true,
+        });
+
+        if (input === null || input === undefined) {
+            throw new Error(USER_CANCELED);
+        }
+
+        return parseProjectTagsInput(input);
     }
 
     async queryGroup(groupId: string = null, optionForAdding: boolean = false): Promise<[string, boolean]> {

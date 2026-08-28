@@ -50,6 +50,140 @@ function loadProjectOpenController() {
 
 const ProjectOpenController = loadProjectOpenController();
 
+function loadProjectPromptController() {
+    const vscode = createFakeVscode({});
+    vscode.Uri = { parse: parseUri, file: parseUri };
+    const previousLoad = Module._load;
+    try {
+        Module._load = function (request, parent, isMain) {
+            if (request === 'vscode') {
+                return vscode;
+            }
+            return previousLoad.call(this, request, parent, isMain);
+        };
+        return require('../../../out/projects/projectPromptController').ProjectPromptController;
+    } finally {
+        Module._load = previousLoad;
+    }
+}
+
+const ProjectPromptController = loadProjectPromptController();
+const { FixedColorOptions } = require('../../../out/constants');
+
+function createPromptControllerFixture(responses) {
+    const inputBoxes = [];
+    const quickPicks = [];
+    const controller = new ProjectPromptController({
+        getGroups: () => [{ id: 'group-a', groupName: 'A', projects: [] }],
+        addGroup: async () => ({ id: 'group-new' }),
+        removeGroup: async () => undefined,
+        isFile: () => false,
+        isFolderGitRepo: () => false,
+        getRandomColor: () => '#ffffff',
+        getColorName: () => 'White',
+        getRecentColors: () => [],
+        getRemoteSshExtensionInstalled: () => false,
+        showInputBox: async options => {
+            inputBoxes.push(options);
+            const respond = responses.inputBox && responses.inputBox[options.placeHolder];
+            if (respond === undefined) {
+                throw new Error(`unexpected input box: ${options.placeHolder}`);
+            }
+            return typeof respond === 'function' ? respond(options) : respond;
+        },
+        showQuickPick: async (items, options) => {
+            quickPicks.push(options && options.placeHolder);
+            const respond = responses.quickPick && responses.quickPick[options && options.placeHolder];
+            if (respond === undefined) {
+                throw new Error(`unexpected quick pick: ${options && options.placeHolder}`);
+            }
+            return typeof respond === 'function' ? respond(items) : respond;
+        },
+        showOpenDialog: async () => undefined,
+    });
+    return { controller, inputBoxes, quickPicks };
+}
+
+test('PROJECT-TAGS-001 editing prompts for tags prefilled and normalized', async () => {
+    const { controller, inputBoxes } = createPromptControllerFixture({
+        inputBox: {
+            'Project Name': options => options.value,
+            'Project Description': options => options.value || '',
+            'Tags, comma-separated (optional)': options => `${options.value}, #Urgent, frontend`,
+        },
+        quickPick: {
+            'Edit Path?': items => items[0], // Keep Path
+        },
+    });
+
+    const template = {
+        name: 'API',
+        path: '/work/api',
+        description: 'Service',
+        color: '#aabbcc',
+        tags: ['frontend'],
+    };
+    const [project, groupId, groupWasNewlyCreated] = await controller.queryProjectFields('group-a', true, template);
+
+    assert.equal(groupId, 'group-a');
+    assert.equal(groupWasNewlyCreated, false);
+    assert.deepEqual(project.tags, ['frontend', 'Urgent']);
+    assert.deepEqual(inputBoxes.map(options => options.placeHolder), [
+        'Project Name',
+        'Project Description',
+        'Tags, comma-separated (optional)',
+    ], 'the edit flow must ask for tags exactly once, after the description');
+    const tagsBox = inputBoxes.find(options => options.placeHolder === 'Tags, comma-separated (optional)');
+    assert.equal(tagsBox.value, 'frontend', 'existing tags prefill the edit box');
+});
+
+test('PROJECT-TAGS-001 clearing the tags box removes every tag from the project', async () => {
+    const { controller } = createPromptControllerFixture({
+        inputBox: {
+            'Project Name': options => options.value,
+            'Project Description': () => '',
+            'Tags, comma-separated (optional)': () => '   ',
+        },
+        quickPick: {
+            'Edit Path?': items => items[0],
+        },
+    });
+
+    const [project] = await controller.queryProjectFields('group-a', true, {
+        name: 'API',
+        path: '/work/api',
+        color: '#aabbcc',
+        tags: ['frontend', 'urgent'],
+    });
+
+    assert.equal(project.tags, undefined, 'an empty tag list must not persist an empty array');
+});
+
+test('PROJECT-TAGS-001 creating a project never prompts for tags', async () => {
+    const { controller, inputBoxes } = createPromptControllerFixture({
+        inputBox: {
+            './': options => options.value,
+            'Project Name': options => options.value,
+            'Project Description': () => '',
+        },
+        quickPick: {
+            'Project Type': items => items.find(item => item.id === 'manual'),
+            'Project Color': items => items.find(item => item.id === FixedColorOptions.none),
+        },
+    });
+
+    const [project, groupId] = await controller.queryProjectFields('group-a', false, { path: '/work/api' });
+
+    assert.equal(groupId, 'group-a');
+    assert.equal(project.name, 'api');
+    assert.equal(project.tags, undefined);
+    assert.deepEqual(inputBoxes.map(options => options.placeHolder), [
+        './',
+        'Project Name',
+        'Project Description',
+    ], 'creation stays fast: path, name, description only');
+});
+
 test('PROJECT-ADD-PROJECTS-FROM-FOLDER-CONTROLLER-001 imports child folders and refreshes once', async () => {
     const actions = [];
     const vscode = createFakeVscode({

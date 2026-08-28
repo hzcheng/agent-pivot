@@ -11,6 +11,7 @@ const { getAttentionProjectKey } = require('../../../out/aiSessions/attentionPro
 
 function createFixture(overrides = {}) {
     const calls = [];
+    const outgoing = [];
     const record = name => (...args) => {
         calls.push([name, ...args]);
         return Promise.resolve();
@@ -24,11 +25,32 @@ function createFixture(overrides = {}) {
                     ? overrides.project
                     : project;
             },
+            getProjectAndGroup: (projectId, groupId) => {
+                calls.push(['getProjectAndGroup', projectId, groupId]);
+                const value = Object.prototype.hasOwnProperty.call(overrides, 'project')
+                    ? overrides.project
+                    : project;
+                return value && groupId === 'group-a' ? [value, { id: groupId }] : [null, null];
+            },
             copyProjectsFromFilledStorageOptionToEmptyStorageOption: async () => {
                 calls.push(['copyFromOtherStorage']);
             },
+            updateProject: async (projectId, updated) => {
+                calls.push(['updateProject', projectId]);
+                var p = Object.prototype.hasOwnProperty.call(overrides, 'project')
+                    ? overrides.project
+                    : project;
+                Object.assign(p, updated);
+            },
         },
-        projectOpenController: { openProject: record('openProject') },
+        projectOpenController: {
+            openProject: overrides.failOpen
+                ? async (...args) => {
+                    calls.push(['openProject', ...args]);
+                    throw new Error('open failed');
+                }
+                : record('openProject'),
+        },
         projectMutationController: {
             addProject: record('addProject'),
             editProject: record('editProject'),
@@ -51,10 +73,11 @@ function createFixture(overrides = {}) {
         getAttentionAggregate: () => overrides.attentionAggregate || null,
         acknowledgeAiSessionAttentionEventIds: record('acknowledgeAttention'),
         refreshAfterMutation: mode => { calls.push(['refreshAfterMutation', mode]); },
+        postMessage: message => { outgoing.push(message); return Promise.resolve(true); },
         showWarningMessage: message => { calls.push(['showWarningMessage', message]); },
     };
     const handlers = createProjectMessageHandlers(options);
-    return { handlers, calls, project };
+    return { handlers, calls, outgoing, project };
 }
 
 function createSurfaceFixture(options = {}) {
@@ -84,6 +107,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every production project/grou
         'reordered-favorites',
         'remove-project',
         'edit-project',
+        'save-project-inline',
         'color-project',
         'favorite-project',
         'edit-group',
@@ -146,7 +170,39 @@ test('OPEN-PROJECT-UI-HOST-NAVIGATION-001 acknowledges the card attention before
         ['getProject', 'project-a'],
         ['acknowledgeAttention', ['evt-1', 'evt-2']],
         ['openProject', project, 3],
-    ], 'the open flow must acknowledge every event the card represents before opening');
+    ], 'the open flow must not mutate the synchronized project catalog');
+});
+
+test('PROJECT-LAST-OPENED-001 opens without persisting nonessential activity metadata', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['selected-project']({
+        type: 'selected-project',
+        projectId: 'project-a',
+        projectOpenType: 3,
+    });
+
+    assert.deepEqual(calls, [
+        ['getProject', 'project-a'],
+        ['acknowledgeAttention', []],
+        ['openProject', calls[2][1], 3],
+    ], 'a successful open must not add a synchronized whole-record write');
+});
+
+test('PROJECT-LAST-OPENED-001 does not mutate metadata when the open throws', async () => {
+    const { handlers, calls } = createFixture({ failOpen: true });
+
+    await assert.rejects(handlers['selected-project']({
+        type: 'selected-project',
+        projectId: 'project-a',
+        projectOpenType: 3,
+    }), /open failed/);
+
+    assert.deepEqual(calls.map(call => call[0]), [
+        'getProject',
+        'acknowledgeAttention',
+        'openProject',
+    ], 'a failed open must never persist activity metadata');
 });
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates project mutations to their controllers', async () => {
@@ -269,4 +325,127 @@ test('PROJECT-INCREMENTAL-REFRESH-001 orders the mutation refresh: surfaces, col
     surface.applyProjectColorToCurrentWindow(project);
     assert.deepEqual(events, [['window-color', project]],
         'an explicit project colour sync must pass the project through');
+});
+
+test('PROJECT-INLINE-EDIT-001 saves name, description, and tags without losing synced project fields', async () => {
+    const { handlers, calls, outgoing, project } = createFixture();
+    project.color = '#abcdef';
+    project.favorite = true;
+    project.lastOpenedAt = 123456789;
+
+    await handlers['save-project-inline']({
+        type: 'save-project-inline',
+        version: 1,
+        requestId: 'inline-save-1',
+        projectId: 'project-a',
+        groupId: 'group-a',
+        name: '  New Name  ',
+        description: '  Updated desc  ',
+        tags: ' frontend , #urgent , FRONTEND ',
+    });
+
+    assert.deepEqual(calls, [
+        ['getProjectAndGroup', 'project-a', 'group-a'],
+        ['updateProject', 'project-a'],
+        ['refreshAfterMutation', undefined],
+    ], 'inline save must call updateProject then refresh');
+
+    // Verify the project was updated in-place
+    assert.equal(project.name, 'New Name', 'name must be trimmed');
+    assert.equal(project.description, 'Updated desc', 'description must be trimmed');
+    assert.deepEqual(project.tags, ['frontend', 'urgent'], 'tags must be normalized and deduplicated');
+    assert.equal(project.path, '/work/api', 'path must survive an inline edit');
+    assert.equal(project.color, '#abcdef', 'colour must survive an inline edit');
+    assert.equal(project.favorite, true, 'favorite state must survive an inline edit');
+    assert.equal(project.lastOpenedAt, 123456789, 'last-opened state must survive an inline edit');
+    assert.deepEqual(outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-save-1', projectId: 'project-a', status: 'saved',
+    }], 'the host must correlate the saved result to its originating form');
+});
+
+test('PROJECT-INLINE-EDIT-001 rejects empty names and missing projects without refreshing', async () => {
+    const { handlers, calls, outgoing } = createFixture();
+
+    // Empty name
+    await handlers['save-project-inline']({
+        type: 'save-project-inline',
+        version: 1,
+        requestId: 'inline-empty-name',
+        projectId: 'project-a',
+        groupId: 'group-a',
+        name: '   ',
+        description: '',
+        tags: '',
+    });
+
+    assert.deepEqual(calls, [
+        ['getProjectAndGroup', 'project-a', 'group-a'],
+    ], 'empty name must not trigger a refresh');
+    assert.deepEqual(outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-empty-name', projectId: 'project-a', status: 'failed',
+    }]);
+
+    const missing = createFixture({ project: null });
+    await missing.handlers['save-project-inline']({
+        type: 'save-project-inline',
+        version: 1,
+        requestId: 'inline-missing-project',
+        projectId: 'nonexistent',
+        groupId: 'group-a',
+        name: 'Test',
+        description: '',
+        tags: '',
+    });
+
+    assert.deepEqual(missing.calls, [
+        ['getProjectAndGroup', 'nonexistent', 'group-a'],
+    ], 'a missing project must not be updated or refresh the panel');
+    assert.deepEqual(missing.outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-missing-project', projectId: 'nonexistent', status: 'failed',
+    }]);
+});
+
+test('PROJECT-INLINE-EDIT-001 clears tags when the input is empty', async () => {
+    const { handlers, calls, outgoing, project } = createFixture();
+    project.tags = ['old-tag'];
+
+    await handlers['save-project-inline']({
+        type: 'save-project-inline',
+        version: 1,
+        requestId: 'inline-clear-tags',
+        projectId: 'project-a',
+        groupId: 'group-a',
+        name: 'API',
+        description: '',
+        tags: '',
+    });
+
+    assert.deepEqual(calls, [
+        ['getProjectAndGroup', 'project-a', 'group-a'],
+        ['updateProject', 'project-a'],
+        ['refreshAfterMutation', undefined],
+    ], 'empty tags must still call update then refresh');
+    assert.equal(project.tags, undefined, 'empty tags input must clear the tags field');
+    assert.deepEqual(outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-clear-tags', projectId: 'project-a', status: 'saved',
+    }]);
+});
+
+test('PROJECT-INLINE-EDIT-001 rejects malformed correlated requests before reading or mutating project data', async () => {
+    const { handlers, calls, outgoing } = createFixture();
+
+    await handlers['save-project-inline']({
+        type: 'save-project-inline', version: 1, requestId: 'inline-malformed',
+        projectId: 'project-a', name: 'API', description: 42, tags: '',
+    });
+
+    assert.deepEqual(calls, [], 'malformed values must not reach the project service');
+    assert.deepEqual(outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-malformed', projectId: 'project-a', status: 'failed',
+    }], 'a recognized correlated request must settle exactly once even when malformed');
 });

@@ -26,6 +26,9 @@ const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), '
 const dashboardScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewDashboardScripts.js'), 'utf8'
 );
+const filterScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewFilterScripts.js'), 'utf8'
+);
 const skillPanelScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewSkillPanelScripts.js'), 'utf8'
 );
@@ -144,6 +147,16 @@ function catalog() {
     return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] };
 }
 
+function catalogWithSavedProject(name) {
+    return {
+        version: 3, sessions: [], worktrees: [], openWorkspaces: [], todos: [],
+        savedProjects: [{
+            key: 'saved:' + name, identity: '/work/' + name, searchText: name,
+            projectId: name, name, description: '', action: 'open-saved', groupLabels: [],
+        }],
+    };
+}
+
 function project(id) {
     return { id, name: id, path: `/work/${id}`, description: `${id} description`, favorite: false };
 }
@@ -158,7 +171,7 @@ function projectsMarkup(ids) {
     });
 }
 
-async function openDashboardPage(t) {
+async function openDashboardPage(t, options = {}) {
     const page = await browser.newPage({ viewport: { width: 320, height: 320 } });
     t.after(() => page.close());
     page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
@@ -171,22 +184,28 @@ async function openDashboardPage(t) {
         <section id="dashboard-tab-projects"><div class="dashboard-projects-loading"></div></section>
         <section id="dashboard-panel-ai"><div class="dashboard-ai-loading"></div></section>
         <section id="dashboard-search-results"></section></main>
+        <div id="filter-wrapper"><input id="filter" type="search"></div><button id="clear" type="button"></button>
         <script id="dashboard-search-catalog" type="application/json">${JSON.stringify(catalog())}</script>
         </body></html>`);
-    await page.evaluate(() => {
+    await page.evaluate(sessionStorageAvailable => {
         const storage = new Map();
         Object.defineProperty(window, 'sessionStorage', {
             configurable: true,
-            value: {
-                getItem: key => storage.has(key) ? storage.get(key) : null,
-                setItem: (key, value) => storage.set(key, String(value)),
-                removeItem: key => storage.delete(key),
+            get: () => {
+                if (!sessionStorageAvailable) {
+                    throw new DOMException('Access is denied for this document.');
+                }
+                return {
+                    getItem: key => storage.has(key) ? storage.get(key) : null,
+                    setItem: (key, value) => storage.set(key, String(value)),
+                    removeItem: key => storage.delete(key),
+                };
             },
         });
         window.__messages = [];
         window.__projectsMountGeneration = 0;
         window.vscode = { postMessage: message => window.__messages.push(message) };
-    });
+    }, options.sessionStorageAvailable !== false);
     if (scrollStateScript) await page.addScriptTag({ content: scrollStateScript });
     await page.addScriptTag({ content: skillPanelScript });
     await page.addScriptTag({ content: projectsPanelScript });
@@ -195,6 +214,7 @@ async function openDashboardPage(t) {
     await page.addScriptTag({ content: dashboardProjectsPanelScript });
     await page.addScriptTag({ content: dashboardAiPanelScript });
     await page.addScriptTag({ content: dashboardScript });
+    await page.addScriptTag({ content: filterScript });
     await page.evaluate(() => {
         window.__dashboard = initDashboard({
             postMessage: message => window.__messages.push(message),
@@ -206,8 +226,13 @@ async function openDashboardPage(t) {
                         panel.setAttribute('data-header-fit-generation', String(mountGeneration));
                     }
                 });
+                window.__tagFiltering = initTagFiltering(
+                    window.__tagFiltering && window.__tagFiltering.activeTags
+                );
             },
         });
+        window.__filtering = initFiltering(false, window.__dashboard);
+        window.__tagFiltering = initTagFiltering();
     });
     return page;
 }
@@ -215,6 +240,68 @@ async function openDashboardPage(t) {
 async function post(page, message) {
     await page.evaluate(value => window.dispatchEvent(new MessageEvent('message', { data: value })), message);
 }
+
+test('WEBVIEW-DASHBOARD-SEARCH-001 refreshes search results from the lazy Projects panel authority', async t => {
+    const page = await openDashboardPage(t);
+    await page.evaluate(() => window.__dashboard.activateTab('projects'));
+    await post(page, {
+        type: 'projects-panel-content', version: 1, requestId: 1,
+        html: projectsMarkup(['reddev-container']),
+        searchCatalog: catalogWithSavedProject('reddev-container'),
+    });
+    await page.evaluate(() => window.__dashboard.setSearchQuery('reddev'));
+
+    const result = page.locator('.dashboard-search-result');
+    assert.equal(await result.count(), 1);
+    assert.equal(await result.textContent(), 'reddev-container');
+    assert.equal(await page.locator('#dashboard-search-results').isVisible(), true);
+});
+
+test('WEBVIEW-DASHBOARD-SEARCH-001 keeps search usable when Webview sessionStorage is denied', async t => {
+    const page = await openDashboardPage(t, { sessionStorageAvailable: false });
+    await page.evaluate(nextCatalog => window.__dashboard.replaceSearchCatalog(nextCatalog), catalogWithSavedProject('reddev-container'));
+    await page.locator('#filter').fill('reddev');
+
+    const result = page.locator('.dashboard-search-result');
+    assert.equal(await result.count(), 1);
+    assert.equal(await result.textContent(), 'reddev-container');
+    assert.equal(await page.locator('#dashboard-search-results').isVisible(), true);
+});
+
+test('TAG-FILTER-BAR-001 binds lazy tag chips again after an authoritative Projects replacement', async t => {
+    const page = await openDashboardPage(t);
+    await page.evaluate(() => window.__dashboard.activateTab('projects'));
+    const taggedMarkup = getProjectsPanelContent([{
+        id: 'group-a', groupName: 'Projects', collapsed: false, projects: [
+            { id: 'frontend', name: 'Frontend', path: '/work/frontend', tags: ['frontend'] },
+            { id: 'backend', name: 'Backend', path: '/work/backend', tags: ['backend'] },
+        ],
+    }], {
+        config: { get: (_key, fallback) => fallback },
+        favoritesGroupCollapsed: true,
+        otherStorageHasData: false,
+    });
+    await post(page, {
+        type: 'projects-panel-content', version: 1, requestId: 1, html: taggedMarkup,
+    });
+
+    await page.locator('[data-tag-filter="frontend"]').click();
+    assert.equal(await page.locator('.project[data-id="frontend"]').evaluate(node =>
+        node.classList.contains('tag-filtered')), false);
+    assert.equal(await page.locator('.project[data-id="backend"]').evaluate(node =>
+        node.classList.contains('tag-filtered')), true);
+
+    await post(page, {
+        type: 'projects-panel-updated', version: 1, sequence: 1, mode: 'replace',
+        html: taggedMarkup, searchCatalog: catalog(),
+        groupOrders: [{ groupId: 'group-a', projectIds: ['frontend', 'backend'] }],
+        favoriteProjectIds: [],
+    });
+    await page.locator('[data-tag-filter="all"]').click();
+    assert.equal(await page.locator('.project[data-id="backend"]').evaluate(node =>
+        node.classList.contains('tag-filtered')), false,
+    'the replacement must have a live All chip and reset the active tag filter');
+});
 
 test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and window position through required replacement and header fitting', async t => {
     const page = await openDashboardPage(t);
@@ -230,8 +317,8 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
     const before = await anchor.evaluate(node => {
         const list = node.closest('.group-list');
         list.scrollTop = node.offsetTop - list.offsetTop - 15;
-        node.querySelector('[data-action="edit"]').setAttribute('tabindex', '0');
-        node.querySelector('[data-action="edit"]').focus();
+        node.querySelector('[data-action="edit-inline"]').setAttribute('tabindex', '0');
+        node.querySelector('[data-action="edit-inline"]').focus();
         window.scrollTo(0, 80);
         return { offset: node.getBoundingClientRect().top - list.getBoundingClientRect().top, scrollY: window.scrollY };
     });
@@ -253,7 +340,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
         const list = node.closest('.group-list');
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
     })) - before.offset) <= 1);
-    assert.equal(await restored.locator('[data-action="edit"]').evaluate(node => document.activeElement === node), true);
+    assert.equal(await restored.locator('[data-action="edit-inline"]').evaluate(node => document.activeElement === node), true);
     assert.equal(await page.evaluate(() => window.scrollY), before.scrollY);
 });
 

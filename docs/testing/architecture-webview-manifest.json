@@ -25,6 +25,7 @@
         "src/webview/webviewGroupFormScripts.js",
         "src/webview/webviewProjectAiSessionControlsScripts.js",
         "src/webview/webviewProjectScripts.js",
+        "src/webview/webviewProjectEditScripts.js",
         "src/webview/webviewSkillPanelScripts.js",
         "src/webview/webviewProjectsPanelScripts.js",
         "src/webview/webviewDashboardValidationScripts.js",
@@ -93,6 +94,14 @@
       "producer": "src/webview/webviewProjectScripts.js",
       "consumers": [
         "src/webview/webviewProjectAiSessionControlsScripts.js"
+      ]
+    },
+    {
+      "symbol": "window.__agentPivotProjectInlineEdit",
+      "producer": "src/webview/webviewProjectScripts.js",
+      "consumers": [
+        "src/webview/webviewDashboardProjectsPanelScripts.js",
+        "src/webview/webviewProjectsPanelScripts.js"
       ]
     },
     {
@@ -271,6 +280,10 @@
     },
     {
       "symbol": "window.scrollY",
+      "producer": "builtin"
+    },
+    {
+      "symbol": "window.sessionStorage",
       "producer": "builtin"
     },
     {

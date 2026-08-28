@@ -2,11 +2,13 @@
 
 import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
 import { withAttentionProject } from '../aiSessions/attentionProject';
+import { normalizeProjectTags } from './projectTags';
+import { Project } from '../models';
 import type { GroupCollapseController } from '../dashboard/groupCollapseController';
 import type { DashboardMessageHandler } from '../dashboard/messageRouter';
 import type { ProjectsPanelController } from '../dashboard/projectsPanelController';
 import type { ProjectsPanelUpdateMode } from '../dashboard/webviewUpdateMessages';
-import type { GroupOrder, Project, ProjectOpenType } from '../models';
+import type { GroupOrder, ProjectOpenType } from '../models';
 import type { OpenWorkspaceDashboardController } from '../openWorkspaces/dashboardController';
 import type { WorkspaceNavigationController } from '../openWorkspaces/navigationController';
 import type { OpenWindowNavigationRequestController } from '../openWorkspaces/openWindowNavigationRequestController';
@@ -87,6 +89,7 @@ export interface ProjectMessageHandlersOptions {
     /** Owned by the AI session attention slice; injected, not extracted here. */
     acknowledgeAiSessionAttentionEventIds: (eventIds: string[]) => Promise<void>;
     refreshAfterMutation: (mode?: ProjectsPanelUpdateMode) => void;
+    postMessage: (message: Record<string, unknown>) => Thenable<boolean> | Promise<boolean> | boolean;
     showWarningMessage: (message: string) => unknown;
 }
 
@@ -117,6 +120,7 @@ export function createProjectMessageHandlers(
     const getAttentionAggregate = options.getAttentionAggregate;
     const acknowledgeAiSessionAttentionEventIds = options.acknowledgeAiSessionAttentionEventIds;
     const refreshAfterMutation = options.refreshAfterMutation;
+    const postMessage = options.postMessage;
     const showWarningMessage = options.showWarningMessage;
 
     return {
@@ -130,7 +134,7 @@ export function createProjectMessageHandlers(
             }
 
             const project = projectService.getProject(projectId);
-            if (project == null) {
+            if (project === null || project === undefined) {
                 showWarningMessage("Selected Project not found.");
                 return;
             }
@@ -162,6 +166,69 @@ export function createProjectMessageHandlers(
         },
         'edit-project': async e => {
             await projectMutationController.editProject(e.projectId as string);
+        },
+        'save-project-inline': async e => {
+            var requestId = typeof e.requestId === 'string' ? e.requestId : '';
+            var projectId = typeof e.projectId === 'string' ? e.projectId : '';
+            const settle = async (status: 'saved' | 'failed'): Promise<void> => {
+                if (!requestId || !projectId) {
+                    return;
+                }
+                await postMessage({
+                    type: 'project-inline-edit-settlement',
+                    version: 1,
+                    requestId,
+                    projectId,
+                    status,
+                });
+            };
+            if (e.version !== 1 || !requestId || !projectId
+                || typeof e.groupId !== 'string' || !e.groupId
+                || typeof e.name !== 'string' || typeof e.description !== 'string'
+                || typeof e.tags !== 'string') {
+                await settle('failed');
+                return;
+            }
+            var groupId = e.groupId;
+            var projectAndGroup = projectService.getProjectAndGroup(projectId, groupId);
+            var project = projectAndGroup && projectAndGroup[0];
+            if (project === null || project === undefined) {
+                await settle('failed');
+                return;
+            }
+
+            var name = e.name.trim();
+            var description = e.description.trim();
+            var tagsRaw = e.tags.trim();
+
+            if (!name) {
+                await settle('failed');
+                return;
+            }
+
+            var tagList = tagsRaw
+                ? tagsRaw.split(',').map(function(t: string) { return t.trim(); }).filter(function(t: string) { return t.length > 0; })
+                : [];
+            var tags = normalizeProjectTags(tagList);
+
+            const updatedProject = Object.assign(
+                new Project(project.name, project.path, project.description),
+                project,
+                {
+                name: name,
+                description: description,
+                tags: tags.length ? tags : undefined,
+                }
+            );
+
+            try {
+                await projectService.updateProject(projectId, updatedProject, groupId, false);
+                refreshAfterMutation();
+                await settle('saved');
+            } catch (error) {
+                await settle('failed');
+                throw error;
+            }
         },
         'color-project': async e => {
             await projectMutationController.editProjectColor(e.projectId as string);

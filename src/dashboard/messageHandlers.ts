@@ -10,6 +10,7 @@ import type { AiSessionProviderId, StewardInfos } from '../models';
 import type { PromptDashboardController } from '../prompts/dashboardController';
 import type { PromptTerminalCommandController } from '../prompts/terminalCommandController';
 import type ProjectService from '../services/projectService';
+import type { DashboardWorkspaceSearchCatalog } from '../webview/dashboardViewModel';
 import { getProjectsPanelContent } from '../webview/webviewContent';
 import type { DashboardMessageHandler } from './messageRouter';
 
@@ -18,6 +19,8 @@ export interface DashboardMessageHandlersOptions {
     /** Late-bound: stewardInfos is assembled after the message router. */
     getStewardInfos: () => StewardInfos;
     projectService: ProjectService;
+    /** Late-bound authoritative catalog returned with the lazy Projects panel. */
+    getSearchCatalog?: () => DashboardWorkspaceSearchCatalog;
     promptDashboardController: PromptDashboardController;
     /** Late-bound: the prompt terminal controller is constructed after the router. */
     getPromptTerminalCommandController: () => PromptTerminalCommandController;
@@ -66,6 +69,7 @@ export function createDashboardMessageHandlers(
     const postMessage = options.postMessage;
     const getStewardInfos = options.getStewardInfos;
     const projectService = options.projectService;
+    const getSearchCatalog = options.getSearchCatalog;
     const promptDashboardController = options.promptDashboardController;
     const getPromptTerminalCommandController = options.getPromptTerminalCommandController;
     const aiSessionCommandController = options.aiSessionCommandController;
@@ -108,6 +112,7 @@ export function createDashboardMessageHandlers(
                 version: 1,
                 requestId: e.requestId,
                 html: getProjectsPanelContent(projectService.getGroups(), getStewardInfos()),
+                ...(getSearchCatalog ? { searchCatalog: getSearchCatalog() } : {}),
             });
         },
         'request-ai-panel': async e => {

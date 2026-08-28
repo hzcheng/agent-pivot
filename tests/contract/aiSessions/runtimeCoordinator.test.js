@@ -538,10 +538,33 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes terminate to the owning backend 
         attached: false,
         tmux: { layout: 'project', sessionName: 'managed', windowName: 'codex-terminate-conflict' },
     }));
-    await createCoordinator(conflictDirect, conflictTmux)
-        .terminate(conflictDirect.active[0].identity);
+    await assert.rejects(
+        createCoordinator(conflictDirect, conflictTmux)
+            .terminate(conflictDirect.active[0].identity),
+        AiSessionRuntimeTargetChangedError,
+        'a conflicting identity must report that the selected target changed'
+    );
     assert.equal(conflictDirect.terminateCalls.length, 0,
         'a conflicting identity must not be terminated');
     assert.equal(conflictTmux.terminateCalls.length, 0,
         'a conflicting identity must not be terminated');
+});
+
+test('RUNTIME-TMUX-TERMINATE-SESSION-001 rejects direct terminate when refresh loses its cached target', async () => {
+    const direct = createFakeRuntimeBackend('vscode', {
+        onRefresh: backend => { backend.active = []; },
+    });
+    const tmux = createFakeRuntimeBackend('tmux');
+    const runtime = fakeRuntime('vscode', 'terminate-disappeared');
+    direct.active.push(runtime);
+
+    await assert.rejects(
+        createCoordinator(direct, tmux).terminate(runtime.identity),
+        AiSessionRuntimeTargetChangedError,
+        'a disappeared direct runtime must not be reported as a successful terminate'
+    );
+    assert.equal(direct.terminateCalls.length, 0,
+        'the disappeared cached runtime is never terminated');
+    assert.equal(tmux.terminateCalls.length, 0,
+        'reconciliation must not fall through to an unrelated tmux runtime');
 });

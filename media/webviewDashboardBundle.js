@@ -5109,6 +5109,8 @@ function initProjectAiSessionControls(options) {
                 };
                 if (terminalRow.hasAttribute('data-session-pending')) {
                     terminalMessage.pendingCreatedAt = terminalRow.getAttribute('data-pending-created-at');
+                    terminalMessage.pendingId = terminalRow.getAttribute('data-pending-id');
+                    terminalMessage.pendingRuntimeMarker = terminalRow.getAttribute('data-pending-runtime-marker');
                 } else {
                     terminalMessage.sessionId = terminalRow.getAttribute('data-session-id');
                 }

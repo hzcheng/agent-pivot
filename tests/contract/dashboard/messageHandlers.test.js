@@ -439,12 +439,13 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 routes the stop message with its render
     const { handlers, calls } = createFixture();
 
     await handlers['stop-ai-session-runtime']({
-        projectId: 'p1', provider: 'kimi', sessionId: 's9', pendingCreatedAt: 'pc9', backend: 'vscode',
+        projectId: 'p1', provider: 'kimi', pendingCreatedAt: 'pc9',
+        pendingId: 'pending-nine', pendingRuntimeMarker: '/tmp/pending-nine', backend: 'vscode',
     });
 
     assert.deepEqual(calls[0], ['stopSession', {
-        projectId: 'p1', providerId: 'kimi', sessionId: 's9',
-        pendingCreatedAt: 'pc9', expectedBackend: 'vscode',
+        projectId: 'p1', providerId: 'kimi', pendingCreatedAt: 'pc9',
+        pendingId: 'pending-nine', pendingRuntimeMarker: '/tmp/pending-nine', expectedBackend: 'vscode',
     }]);
 });
 

@@ -2939,6 +2939,7 @@ test('PENDING-CHAT-CANCEL-001 keeps Cancel Chat visible and targets only the sta
         backend: 'vscode',
         attached: true,
         createdAt: '2026-08-28T01:02:03.000Z',
+        pendingRuntimeMarkerPath: '/tmp/pending-claude',
     };
     const page = await openCardPage(t, [pending], { width: 170, height: 320 });
     const pendingRow = page.locator(
@@ -2963,22 +2964,37 @@ test('PENDING-CHAT-CANCEL-001 keeps Cancel Chat visible and targets only the sta
         const text = row.querySelector('.codex-session-text');
         return {
             documentWidth: document.documentElement.scrollWidth,
+            rowLeft: row.getBoundingClientRect().left,
+            rowRight: row.getBoundingClientRect().right,
             actionsLeft: actions.getBoundingClientRect().left,
+            actionsRight: actions.getBoundingClientRect().right,
             textRight: text.getBoundingClientRect().right,
+            titleWidth: row.querySelector('.codex-session-name').getBoundingClientRect().width,
+            buttonWidth: button.getBoundingClientRect().width,
+            buttonHeight: button.getBoundingClientRect().height,
         };
     });
     assert.equal(layout.documentWidth, 170,
         'the persistent Cancel action does not add horizontal overflow at the minimum sidebar width');
     assert.ok(layout.textRight <= layout.actionsLeft + 1,
         'the persistent Cancel action reserves room instead of covering the starting chat title');
+    assert.ok(layout.actionsLeft >= layout.rowLeft && layout.actionsRight <= layout.rowRight + 1,
+        'the Cancel action stays inside its starting-chat row at the minimum sidebar width');
+    assert.ok(layout.titleWidth >= 16,
+        'the starting chat title remains readable at the minimum sidebar width');
+    assert.ok(layout.buttonWidth >= 24 && layout.buttonHeight >= 24,
+        'the persistent Cancel action keeps a usable hit target');
 
-    await cancel.click();
+    await cancel.focus();
+    await page.keyboard.press('Enter');
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'stop-ai-session-runtime',
         projectId: 'project-a',
         provider: 'claude',
         backend: 'vscode',
         pendingCreatedAt: '2026-08-28T01:02:03.000Z',
+        pendingId: 'cancel-one',
+        pendingRuntimeMarker: '/tmp/pending-claude',
     });
 });
 

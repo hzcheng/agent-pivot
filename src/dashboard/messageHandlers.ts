@@ -245,8 +245,11 @@ export function createDashboardMessageHandlers(
             await aiSessionTerminalCommandController.closeTerminal({
                 projectId: e.projectId as string,
                 providerId: e.provider as string,
-                sessionId: e.sessionId as string,
+                ...(typeof e.sessionId === 'string' ? { sessionId: e.sessionId } : {}),
                 pendingCreatedAt: e.pendingCreatedAt as string,
+                ...(typeof e.pendingId === 'string' ? { pendingId: e.pendingId } : {}),
+                ...(typeof e.pendingRuntimeMarker === 'string'
+                    ? { pendingRuntimeMarker: e.pendingRuntimeMarker } : {}),
                 expectedBackend: 'vscode',
             });
         },
@@ -254,8 +257,11 @@ export function createDashboardMessageHandlers(
             await aiSessionTerminalCommandController.closeTerminal({
                 projectId: e.projectId as string,
                 providerId: e.provider as string,
-                sessionId: e.sessionId as string,
+                ...(typeof e.sessionId === 'string' ? { sessionId: e.sessionId } : {}),
                 pendingCreatedAt: e.pendingCreatedAt as string,
+                ...(typeof e.pendingId === 'string' ? { pendingId: e.pendingId } : {}),
+                ...(typeof e.pendingRuntimeMarker === 'string'
+                    ? { pendingRuntimeMarker: e.pendingRuntimeMarker } : {}),
                 expectedBackend: 'tmux',
             });
         },
@@ -271,8 +277,11 @@ export function createDashboardMessageHandlers(
             await aiSessionTerminalCommandController.stopSession({
                 projectId: e.projectId as string,
                 providerId: e.provider as string,
-                sessionId: e.sessionId as string,
+                ...(typeof e.sessionId === 'string' ? { sessionId: e.sessionId } : {}),
                 pendingCreatedAt: e.pendingCreatedAt as string,
+                ...(typeof e.pendingId === 'string' ? { pendingId: e.pendingId } : {}),
+                ...(typeof e.pendingRuntimeMarker === 'string'
+                    ? { pendingRuntimeMarker: e.pendingRuntimeMarker } : {}),
                 expectedBackend,
             });
         },

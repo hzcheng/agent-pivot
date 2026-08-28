@@ -1323,7 +1323,7 @@ function getActiveAiSessionRow(
         ? ''
         : `<button type="button" class="codex-session-more" data-action="open-ai-session-context-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionContextMenu" aria-label="More actions" data-tooltip="More actions">&#8943;</button>`;
     var pendingAttributes = model.pending
-        ? ` data-session-pending data-pending-id="${escapeAttribute(model.pendingId || '')}" data-pending-created-at="${escapeAttribute(model.createdAt || '')}"`
+        ? ` data-session-pending data-pending-id="${escapeAttribute(model.pendingId || '')}" data-pending-created-at="${escapeAttribute(model.createdAt || '')}" data-pending-runtime-marker="${escapeAttribute(model.pendingRuntimeMarkerPath || '')}"`
         : ` data-session-active data-session-id="${sessionId}"`;
     var attentionAttributes = model.needsAttention && model.attentionEventId
         ? ` data-ai-session-attention data-session-event-id="${escapeAttribute(model.attentionEventId)}"`

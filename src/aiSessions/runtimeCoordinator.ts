@@ -342,13 +342,14 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
             const directMatches = this.matchesInBackend(this.dependencies.direct, identity);
             if (directMatches.length === 1 && directMatches[0].state !== 'conflict') {
                 await this.dependencies.direct.terminate(cloneRuntime(directMatches[0]));
+                return;
             }
-            return;
+            throw new AiSessionRuntimeTargetChangedError();
         }
         await this.refreshForHost(true);
         const matches = this.matchesForIdentity(identity);
         if (matches.length !== 1 || matches[0].state === 'conflict') {
-            return;
+            throw new AiSessionRuntimeTargetChangedError();
         }
         await this.backendFor(matches[0]).terminate(cloneRuntime(matches[0]));
     }

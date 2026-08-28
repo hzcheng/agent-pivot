@@ -243,7 +243,16 @@ export function getStewardContent(
             window.vscode = acquireVsCodeApi();
 
             window.onload = () => {
-                initProjects();
+                const fitDashboardProjectHeaders = panel => {
+                    if (typeof fitProjectHeaders === 'function') {
+                        fitProjectHeaders(panel);
+                    }
+                };
+                try {
+                    initProjects();
+                } catch (error) {
+                    console.error('[Agent Pivot] Project controls failed to initialize.', error);
+                }
                 let storedFilter = '';
                 try {
                     storedFilter = sessionStorage.getItem('filterValue') || '';
@@ -256,18 +265,27 @@ export function getStewardContent(
                     clearSearch: () => filtering && filtering.clear(),
                     postMessage: message => window.vscode.postMessage(message),
                     onProjectsMounted: panel => {
-                        fitProjectHeaders(panel);
+                        fitDashboardProjectHeaders(panel);
                         disposeDnD(panel);
                         initDnD(panel);
-                        window.__agentPivotSyncCollapseButton();
+                        if (typeof window.__agentPivotSyncCollapseButton === 'function') {
+                            window.__agentPivotSyncCollapseButton();
+                        }
                     },
-                    onActiveTabChanged: () => window.__agentPivotSyncCollapseButton(),
+                    onActiveTabChanged: () => {
+                        if (typeof window.__agentPivotSyncCollapseButton === 'function') {
+                            window.__agentPivotSyncCollapseButton();
+                        }
+                    },
                 });
                 window.__agentPivotDashboard = dashboard;
-                fitProjectHeaders(document.getElementById('dashboard-tab-open'));
                 filtering = initFiltering(${infos.config.searchIsActiveByDefault}, dashboard);
-                initTagFiltering();
                 filtering.apply();
+
+                // Project controls, header fitting, and tag filtering can evolve
+                // independently of dashboard search and must not prevent it from working.
+                fitDashboardProjectHeaders(document.getElementById('dashboard-tab-open'));
+                initTagFiltering();
             };
         })();
     </script>

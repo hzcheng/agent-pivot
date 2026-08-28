@@ -161,3 +161,68 @@ test('WEBVIEW-NONBLOCKING-FIRST-PAINT-001 production Dashboard announces its doc
     }, pageErrors.join('\n'));
     assert.deepEqual(pageErrors, []);
 });
+
+test('WEBVIEW-DASHBOARD-SEARCH-001 keeps search available when project-card startup fails', async t => {
+    const page = await browser.newPage({ viewport: { width: 360, height: 640 } });
+    t.after(() => page.close());
+    const consoleErrors = [];
+    page.on('console', message => {
+        if (message.type() === 'error') {
+            consoleErrors.push(message.text());
+        }
+    });
+    await page.addInitScript(() => {
+        window.acquireVsCodeApi = () => ({ postMessage() {}, getState() { return {}; }, setState() {} });
+    });
+    await page.route('https://assets.test/**', route => {
+        const url = route.request().url();
+        if (url.includes('webviewDashboardBundle.js')) {
+            return route.fulfill({
+                status: 200,
+                contentType: 'application/javascript',
+                body: dashboardBundle.replace(
+                    'function initProjects() {',
+                    'function initProjects() { throw new Error("project startup failure");',
+                ),
+            });
+        }
+        if (url.includes('styles.css')) {
+            return route.fulfill({ status: 200, contentType: 'text/css', body: dashboardStyles });
+        }
+        return route.abort();
+    });
+    const html = getStewardContent(
+        { extensionPath: '/extension' },
+        {
+            cspSource: 'https://assets.test',
+            asWebviewUri: resource => ({
+                toString: () => `https://assets.test/${path.basename(resource.fsPath)}`,
+            }),
+        },
+        [{
+            id: 'projects', groupName: 'Projects', collapsed: false,
+            projects: [{
+                id: 'reddev-container', name: 'reddev-container', path: '/work/reddev-container',
+                description: '', favorite: false, tags: [],
+            }],
+        }],
+        {
+            config: { get: (_key, fallback) => fallback },
+            relevantExtensionsInstalls: { remoteSSH: true, remoteContainers: false },
+            otherStorageHasData: false,
+        },
+        true,
+    );
+    await page.route('https://dashboard.test/', route => route.fulfill({
+        status: 200,
+        contentType: 'text/html',
+        body: html,
+    }));
+    await page.goto('https://dashboard.test/', { waitUntil: 'load' });
+    await page.locator('#filter').fill('reddev');
+
+    const result = page.locator('.dashboard-search-result');
+    assert.equal(await result.count(), 1);
+    assert.equal(await result.locator('.dashboard-search-result-title').textContent(), 'reddev-container');
+    assert.ok(consoleErrors.some(message => message.includes('Project controls failed to initialize.')));
+});

@@ -28,6 +28,16 @@ function createFixture(overrides = {}) {
                 calls.push(['copyFromOtherStorage']);
             },
             touchProjectLastOpened: record('touchProjectLastOpened'),
+            updateProject: async (projectId, updated) => {
+                calls.push(['updateProject', projectId]);
+                // Simulate Object.assign behavior (including explicit undefined)
+                var p = Object.prototype.hasOwnProperty.call(overrides, 'project')
+                    ? overrides.project
+                    : project;
+                if ('name' in updated) p.name = updated.name;
+                if ('description' in updated) p.description = updated.description;
+                if ('tags' in updated) p.tags = updated.tags;
+            },
         },
         projectOpenController: {
             openProject: overrides.failOpen
@@ -92,6 +102,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every production project/grou
         'reordered-favorites',
         'remove-project',
         'edit-project',
+        'save-project-inline',
         'color-project',
         'favorite-project',
         'edit-group',
@@ -311,4 +322,80 @@ test('PROJECT-INCREMENTAL-REFRESH-001 orders the mutation refresh: surfaces, col
     surface.applyProjectColorToCurrentWindow(project);
     assert.deepEqual(events, [['window-color', project]],
         'an explicit project colour sync must pass the project through');
+});
+
+test('PROJECT-INLINE-EDIT-001 saves name, description, and tags via the inline edit handler', async () => {
+    const { handlers, calls, project } = createFixture();
+
+    await handlers['save-project-inline']({
+        type: 'save-project-inline',
+        projectId: 'project-a',
+        name: '  New Name  ',
+        description: '  Updated desc  ',
+        tags: ' frontend , #urgent , FRONTEND ',
+    });
+
+    assert.deepEqual(calls, [
+        ['getProject', 'project-a'],
+        ['updateProject', 'project-a'],
+        ['refreshAfterMutation', undefined],
+    ], 'inline save must call updateProject then refresh');
+
+    // Verify the project was updated in-place
+    assert.equal(project.name, 'New Name', 'name must be trimmed');
+    assert.equal(project.description, 'Updated desc', 'description must be trimmed');
+    assert.deepEqual(project.tags, ['frontend', 'urgent'], 'tags must be normalized and deduplicated');
+});
+
+test('PROJECT-INLINE-EDIT-001 rejects empty names and missing projects', async () => {
+    const { handlers, calls } = createFixture();
+
+    // Empty name
+    await handlers['save-project-inline']({
+        type: 'save-project-inline',
+        projectId: 'project-a',
+        name: '   ',
+        description: '',
+        tags: '',
+    });
+
+    assert.deepEqual(calls, [
+        ['getProject', 'project-a'],
+    ], 'empty name must not trigger a refresh');
+
+    // Missing project (mock returns the project object, so handler proceeds)
+    calls.length = 0;
+    await handlers['save-project-inline']({
+        type: 'save-project-inline',
+        projectId: 'nonexistent',
+        name: 'Test',
+        description: '',
+        tags: '',
+    });
+
+    assert.deepEqual(calls, [
+        ['getProject', 'nonexistent'],
+        ['updateProject', 'nonexistent'],
+        ['refreshAfterMutation', undefined],
+    ], 'handler proceeds with the mock project');
+});
+
+test('PROJECT-INLINE-EDIT-001 clears tags when the input is empty', async () => {
+    const { handlers, calls, project } = createFixture();
+    project.tags = ['old-tag'];
+
+    await handlers['save-project-inline']({
+        type: 'save-project-inline',
+        projectId: 'project-a',
+        name: 'API',
+        description: '',
+        tags: '',
+    });
+
+    assert.deepEqual(calls, [
+        ['getProject', 'project-a'],
+        ['updateProject', 'project-a'],
+        ['refreshAfterMutation', undefined],
+    ], 'empty tags must still call update then refresh');
+    assert.equal(project.tags, undefined, 'empty tags input must clear the tags field');
 });

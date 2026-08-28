@@ -262,6 +262,7 @@ export function getStewardContent(
                 fitProjectHeaders(document.getElementById('dashboard-tab-open'));
                 filtering = initFiltering(${infos.config.searchIsActiveByDefault}, dashboard);
                 initTagFiltering();
+                initProjectInlineEdit(dashboard);
                 filtering.apply();
             };
         })();
@@ -716,6 +717,24 @@ function getProjectDiv(
             </div>
         </div>
         ${tagsHtml}
+        ${options.readOnlyProjects ? '' : `<div class="project-edit-form" hidden>
+            <div class="project-edit-field">
+                <label class="project-edit-label">Name</label>
+                <input class="project-edit-input" data-edit-field="name" type="text" value="${escapeAttribute(project.name || '')}" placeholder="Project name" required>
+            </div>
+            <div class="project-edit-field">
+                <label class="project-edit-label">Description</label>
+                <input class="project-edit-input" data-edit-field="description" type="text" value="${escapeAttribute(project.description || '')}" placeholder="Optional description">
+            </div>
+            <div class="project-edit-field">
+                <label class="project-edit-label">Tags</label>
+                <input class="project-edit-input" data-edit-field="tags" type="text" value="${escapeAttribute((project.tags || []).join(', '))}" placeholder="Comma-separated, e.g. frontend, urgent">
+            </div>
+            <div class="project-edit-actions">
+                <button type="button" class="project-edit-cancel steward-button" data-action="cancel-edit">Cancel</button>
+                <button type="button" class="project-edit-save steward-button steward-button-primary" data-action="save-edit">Save</button>
+            </div>
+        </div>`}
     </div>
 </div>`;
 }

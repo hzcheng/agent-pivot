@@ -628,6 +628,112 @@ body .project {
 .project.tag-filtered {
     display: none !important;
 }
+// INLINE PROJECT EDIT FORM
+.project-edit-form {
+    padding: 8px 0 6px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.project-edit-form[hidden] {
+    display: none;
+}
+
+.project-edit-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.project-edit-label {
+    flex: 0 0 auto;
+    width: 60px;
+    color: var(--vscode-descriptionForeground);
+    font-family: var(--vscode-font-family);
+    font-size: 11px;
+    font-weight: 500;
+    text-align: right;
+    opacity: 0.7;
+}
+
+.project-edit-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 3px 7px;
+    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    border-radius: 5px;
+    color: var(--steward-foreground);
+    background: var(--vscode-input-background, rgba(255,255,255,0.04));
+    font-family: var(--vscode-font-family);
+    font-size: 12px;
+    line-height: 1.4;
+    outline: none;
+    transition: border-color 120ms ease;
+
+    &:focus {
+        border-color: var(--vscode-focusBorder);
+    }
+
+    &::placeholder {
+        color: var(--vscode-descriptionForeground);
+        opacity: 0.4;
+    }
+}
+
+.project-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    padding-top: 4px;
+}
+
+.project-edit-cancel,
+.project-edit-save {
+    padding: 3px 12px;
+    font-size: 11px;
+    line-height: 1.5;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.project-edit-cancel {
+    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+    color: var(--steward-foreground);
+    background: transparent;
+
+    &:hover {
+        background: var(--vscode-list-hoverBackground);
+    }
+}
+
+.project-edit-save {
+    border: 1px solid var(--vscode-focusBorder);
+    color: #fff;
+    background: var(--vscode-focusBorder);
+
+    &:hover {
+        opacity: 0.9;
+    }
+}
+
+.project[data-editing] {
+    .project-row-main,
+    .project-row-tags {
+        display: none;
+    }
+
+    .project-edit-form {
+        display: flex;
+    }
+
+    min-height: auto;
+    padding-bottom: 8px;
+    background: var(--vscode-list-inactiveSelectionBackground, rgba(255,255,255,0.03));
+    border-radius: 8px;
+}
+
+
 
 // CONTEXT MENU
 .ai-session-fast-tooltip {

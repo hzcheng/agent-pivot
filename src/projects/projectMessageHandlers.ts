@@ -2,6 +2,7 @@
 
 import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
 import { withAttentionProject } from '../aiSessions/attentionProject';
+import { normalizeProjectTags } from './projectTags';
 import type { GroupCollapseController } from '../dashboard/groupCollapseController';
 import type { DashboardMessageHandler } from '../dashboard/messageRouter';
 import type { ProjectsPanelController } from '../dashboard/projectsPanelController';
@@ -163,6 +164,34 @@ export function createProjectMessageHandlers(
         },
         'edit-project': async e => {
             await projectMutationController.editProject(e.projectId as string);
+        },
+        'save-project-inline': async e => {
+            var projectId = e.projectId as string;
+            var project = projectService.getProject(projectId);
+            if (project == null) {
+                return;
+            }
+
+            var name = (e.name as string || '').trim();
+            var description = (e.description as string || '').trim();
+            var tagsRaw = (e.tags as string || '').trim();
+
+            if (!name) {
+                return;
+            }
+
+            var tagList = tagsRaw
+                ? tagsRaw.split(',').map(function(t: string) { return t.trim(); }).filter(function(t: string) { return t.length > 0; })
+                : [];
+            var tags = normalizeProjectTags(tagList);
+
+            await projectService.updateProject(projectId, {
+                name: name,
+                description: description,
+                tags: tags.length ? tags : undefined,
+            } as any);
+
+            refreshAfterMutation();
         },
         'color-project': async e => {
             await projectMutationController.editProjectColor(e.projectId as string);

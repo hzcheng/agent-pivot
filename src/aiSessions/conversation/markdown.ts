@@ -50,6 +50,12 @@ function renderCodeBlock(value: string, info: string): string {
             return renderConversationDiffs(diffs);
         }
     }
+    if (/^(?:chart|bar-chart)$/i.test(lang)) {
+        const chart = renderBarChart(value);
+        if (chart) {
+            return chart;
+        }
+    }
     const runnable = /^(?:bash|sh|shell|zsh)$/i.test(lang)
         && value.length > 0
         && value.length <= CONVERSATION_RUN_COMMAND_MAX_TEXT_LENGTH
@@ -70,6 +76,39 @@ function renderCodeBlock(value: string, info: string): string {
         + '</button></span></section>'
         + highlightCode(value, lang)
         + '</section>\n';
+}
+
+function renderBarChart(value: string): string | undefined {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(value);
+    } catch (_error) {
+        return undefined;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return undefined;
+    }
+    const record = parsed as { title?: unknown; labels?: unknown; values?: unknown };
+    if (!Array.isArray(record.labels) || !Array.isArray(record.values)
+        || !record.labels.length || record.labels.length !== record.values.length
+        || record.labels.length > 20
+        || !record.labels.every(label => typeof label === 'string'
+            && label.length <= 120)
+        || !record.values.every(item => typeof item === 'number'
+            && Number.isFinite(item) && item >= 0)) {
+        return undefined;
+    }
+    const values = record.values as number[];
+    const maximum = Math.max(...values, 1);
+    const title = typeof record.title === 'string' && record.title.trim()
+        ? `<span class="conversation-chart-title">${escapeHtml(record.title.slice(0, 160))}</span>`
+        : '';
+    const rows = (record.labels as string[]).map((label, index) => {
+        const valueNumber = values[index];
+        const percent = Math.round(valueNumber / maximum * 1000) / 10;
+        return `<span class="conversation-chart-row"><span class="conversation-chart-label">${escapeHtml(label)}</span><progress class="conversation-chart-bar" max="100" value="${percent}">${percent}%</progress><span class="conversation-chart-value">${valueNumber}</span></span>`;
+    }).join('');
+    return `<section class="conversation-chart" role="img" aria-label="${escapeHtml(typeof record.title === 'string' ? record.title : 'Bar chart')}">${title}${rows}</section>`;
 }
 
 const markdown = new MarkdownIt({
@@ -136,5 +175,22 @@ markdown.validateLink = (url: string): boolean => {
 };
 
 export function renderConversationMarkdown(value: string): string {
-    return markdown.render(value);
+    return renderAdmonitions(renderTaskLists(markdown.render(value)));
+}
+
+function renderTaskLists(html: string): string {
+    return html.replace(
+        /<li>\s*\[([ xX])\]\s+/g,
+        (_match, state: string) => `<li class="conversation-task-item"><span class="conversation-task-checkbox${state.toLowerCase() === 'x' ? ' conversation-task-checkbox-checked' : ''}" aria-hidden="true">${state.toLowerCase() === 'x' ? '✓' : ''}</span>`
+    );
+}
+
+function renderAdmonitions(html: string): string {
+    return html.replace(
+        /<blockquote>\s*<p>\[!(NOTE|TIP|WARNING|CAUTION|IMPORTANT)\]\s*([\s\S]*?)<\/p>\s*<\/blockquote>/gi,
+        (_match, kind: string, body: string) => {
+            const normalized = kind.toLowerCase();
+            return `<section class="conversation-callout conversation-callout-${normalized}"><span class="conversation-callout-label">${escapeHtml(kind)}</span><section class="conversation-callout-body">${body}</section></section>`;
+        }
+    );
 }

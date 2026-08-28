@@ -128,3 +128,22 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff fences as escaped side-by-si
     assert.match(html, /&lt;new&gt;/, 'diff source is escaped before rendering');
     assert.equal(html.includes('<new>'), false);
 });
+
+test('CONVERSATION-RICH-MARKDOWN-004 renders task lists, callouts, and bounded bar charts as controlled markup', () => {
+    const html = renderConversationMarkdown([
+        '- [x] done',
+        '- [ ] pending',
+        '',
+        '> [!WARNING]',
+        '> Check the migration.',
+        '',
+        '```chart',
+        '{"title":"Results","labels":["Pass","Fail"],"values":[9,1]}',
+        '```',
+    ].join('\n'));
+
+    assert.match(html, /conversation-task-checkbox-checked/);
+    assert.match(html, /conversation-callout-warning/);
+    assert.match(html, /conversation-chart/);
+    assert.match(html, /<progress class="conversation-chart-bar" max="100" value="100">/);
+});

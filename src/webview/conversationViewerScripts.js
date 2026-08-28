@@ -4,11 +4,11 @@
     var allowedTags = [
         'p', 'br', 'pre', 'code', 'blockquote', 'ul', 'ol', 'li',
         'strong', 'em', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'a', 'img', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+        'a', 'img', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'progress',
         'span', 'section', 'article', 'details', 'summary', 'button',
     ];
     var allowedAttributes = [
-        'href', 'src', 'alt', 'title', 'class', 'start',
+        'href', 'src', 'alt', 'title', 'class', 'start', 'max', 'value',
         'data-message-id', 'data-conversation-message-id',
         'data-interaction-id', 'data-conversation-run-command',
     ];

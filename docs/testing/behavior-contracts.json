@@ -4391,6 +4391,22 @@
     ]
   },
   {
+    "id": "PENDING-CHAT-CANCEL-001",
+    "domain": "runtime",
+    "title": "A newly created chat keeps a visible Cancel Chat control that terminates only its pending runtime",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/browser/activeSessionCardInteraction.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewAiSessionContent.ts",
+      "src/webview/webviewProjectAiSessionControlsScripts.js",
+      "media/styles.scss"
+    ]
+  },
+  {
     "id": "RUNTIME-TMUX-TERMINATE-SESSION-001",
     "domain": "runtime",
     "title": "Close Chat terminates only the selected runtime target after confirmation",

@@ -2925,6 +2925,63 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes a direct close control for ever
     });
 });
 
+test('PENDING-CHAT-CANCEL-001 keeps Cancel Chat visible and targets only the starting runtime', async t => {
+    const pending = {
+        key: 'pending:claude:cancel-one',
+        provider: 'claude',
+        pendingId: 'cancel-one',
+        name: 'New Claude session',
+        executionState: 'starting',
+        status: 'starting',
+        focused: false,
+        needsAttention: false,
+        pending: true,
+        backend: 'vscode',
+        attached: true,
+        createdAt: '2026-08-28T01:02:03.000Z',
+    };
+    const page = await openCardPage(t, [pending], { width: 170, height: 320 });
+    const pendingRow = page.locator(
+        '.active-ai-session-row[data-session-provider="claude"][data-pending-id="cancel-one"]'
+    );
+    const cancel = pendingRow.locator('[data-action="stop-ai-session-runtime"]');
+
+    assert.equal(await cancel.count(), 1,
+        'a newly created chat offers Cancel before it has a durable session ID');
+    assert.equal(await cancel.getAttribute('aria-label'),
+        'Cancel starting Claude chat New Claude session');
+    assert.equal(await cancel.getAttribute('data-tooltip'), 'Cancel Chat');
+    assert.deepEqual(await cancel.evaluate(button => {
+        const actions = button.closest('.codex-session-actions');
+        const style = getComputedStyle(actions);
+        return { opacity: style.opacity, pointerEvents: style.pointerEvents };
+    }), { opacity: '1', pointerEvents: 'auto' },
+    'Cancel remains reachable without hover while the chat is starting');
+    const layout = await cancel.evaluate(button => {
+        const row = button.closest('.codex-session-row');
+        const actions = button.closest('.codex-session-actions');
+        const text = row.querySelector('.codex-session-text');
+        return {
+            documentWidth: document.documentElement.scrollWidth,
+            actionsLeft: actions.getBoundingClientRect().left,
+            textRight: text.getBoundingClientRect().right,
+        };
+    });
+    assert.equal(layout.documentWidth, 170,
+        'the persistent Cancel action does not add horizontal overflow at the minimum sidebar width');
+    assert.ok(layout.textRight <= layout.actionsLeft + 1,
+        'the persistent Cancel action reserves room instead of covering the starting chat title');
+
+    await cancel.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'stop-ai-session-runtime',
+        projectId: 'project-a',
+        provider: 'claude',
+        backend: 'vscode',
+        pendingCreatedAt: '2026-08-28T01:02:03.000Z',
+    });
+});
+
 test('RUNTIME-TMUX-TERMINATE-SESSION-001 exposes Close in ALL for active chat history rows', async t => {
     const active = session('codex', 'all-active', false);
     const page = await openListPage(t, [active], [{

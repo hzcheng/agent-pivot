@@ -1361,8 +1361,8 @@ function getActiveAiSessionRow(
     var profileBadge = getAiSessionProfileBadge(model.profile, model.profileUnavailable);
     const profileTooltip = getAiSessionProfileTooltip(model.profile, model.profileUnavailable);
     var profileAriaLabel = `, ${profileTooltip}`;
-    var stopAction = !model.pending && !conflict
-        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Close ${providerLabel} chat ${sessionName}" data-tooltip="Close Chat">${Icons.remove}</button>`
+    var stopAction = !conflict
+        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="${model.pending ? `Cancel starting ${providerLabel} chat ${sessionName}` : `Close ${providerLabel} chat ${sessionName}`}" data-tooltip="${model.pending ? 'Cancel Chat' : 'Close Chat'}">${Icons.remove}</button>`
         : '';
     const statusState = model.needsAttention
         ? 'waiting'

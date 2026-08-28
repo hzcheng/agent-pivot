@@ -677,7 +677,7 @@ function getProjectDiv(
         ? ''
         : `<span data-action="color" title="Edit Color">${Icons.palette
         }</span>
-                <span data-action="edit" title="Edit Project">${Icons.edit
+                <span data-action="edit-inline" title="Edit Project">${Icons.edit
         }</span>
                 <span data-action="remove" title="Remove Project">${Icons.remove
         }</span>`;

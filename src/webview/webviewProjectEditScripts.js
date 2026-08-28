@@ -1,21 +1,6 @@
 function initProjectInlineEdit(dashboard) {
     var editingProjectId = null;
 
-    // Intercept the context menu's onTriggerProjectAction to catch edit clicks.
-    // window.__agentPivotContextMenus is set by initProjects() before this runs.
-    var contextMenus = window.__agentPivotContextMenus;
-    if (contextMenus) {
-        var originalOnTrigger = contextMenus.onTriggerProjectAction;
-        contextMenus.onTriggerProjectAction = function(target, projectId) {
-            var actionDiv = target.closest('[data-action]');
-            if (actionDiv && actionDiv.getAttribute('data-action') === 'edit') {
-                showEditForm(projectId);
-                return true;
-            }
-            return originalOnTrigger.call(contextMenus, target, projectId);
-        };
-    }
-
     function showEditForm(projectId) {
         if (editingProjectId) {
             cancelEdit();
@@ -77,20 +62,24 @@ function initProjectInlineEdit(dashboard) {
         if (!actionEl) return;
 
         var action = actionEl.getAttribute('data-action');
+        if (action === 'edit-inline') {
+            var projectDiv = actionEl.closest('.project[data-id]');
+            if (projectDiv) {
+                showEditForm(projectDiv.getAttribute('data-id'));
+            }
+            return;
+        }
+
         if (action === 'cancel-edit') {
-            e.preventDefault();
-            e.stopPropagation();
             cancelEdit();
             return;
         }
 
         if (action === 'save-edit') {
-            e.preventDefault();
-            e.stopPropagation();
             saveEdit();
             return;
         }
-    }, true);
+    });
 
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && editingProjectId) {

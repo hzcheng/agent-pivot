@@ -1920,9 +1920,9 @@ async function initializeDashboard(
             }
         },
         changes: {
-            // PRD §4.1: the session's persisted identity first — view
-            // models carry worktreeKey/cwd; a tool call's transient cwd
-            // never participates.
+            // PRD §4.1 fallback identity: a valid telemetry worktree takes
+            // precedence in the live Changes view; this persisted session
+            // worktree/cwd remains the stable fallback.
             resolveSessionIdentity: async target => {
                 const actionTarget = getCurrentWorkspaceActionTarget(target.projectId);
                 if (!actionTarget) {

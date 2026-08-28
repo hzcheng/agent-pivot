@@ -149,6 +149,13 @@ export class ConversationChangesController {
     private pendingCollect = false;
     private state?: ConversationChangesState;
     private activationEpoch = 0;
+    /** Invalidates an older telemetry rebind before it can replace the view. */
+    private rebindEpoch = 0;
+    /** Telemetry can arrive while the initial session identity resolves. */
+    private pendingTelemetryWorktree?: {
+        target: ConversationViewerTarget;
+        path: string;
+    };
     /** Last selected member per session identity (PRD §5.3 选中持久化). */
     private readonly lastSelectionBySession = new Map<string, string>();
     private readonly collector: ChangesCollector;
@@ -167,10 +174,12 @@ export class ConversationChangesController {
 
     reset(): void {
         this.activationEpoch += 1;
+        this.rebindEpoch += 1;
         this.active?.watcher?.dispose();
         this.active = undefined;
         this.state = undefined;
         this.pendingCollect = false;
+        this.pendingTelemetryWorktree = undefined;
     }
 
     /** Target switch / initial load: resolve, collect, publish (PRD §5.4). */
@@ -183,6 +192,7 @@ export class ConversationChangesController {
         }
         this.active?.watcher?.dispose();
         const activationEpoch = ++this.activationEpoch;
+        this.rebindEpoch += 1;
         const changeSet = await this.resolveChangeSet(target);
         if (activationEpoch !== this.activationEpoch) {
             return;
@@ -203,15 +213,25 @@ export class ConversationChangesController {
             ?? changeSet.members[0]?.memberId;
         this.active = active;
         this.state = undefined;
-        if (changeSet.kind !== 'ready') {
+        const pending = this.pendingTelemetryWorktree;
+        if (pending && targetsEqual(pending.target, target)) {
+            this.pendingTelemetryWorktree = undefined;
+            await this.rebindToActiveWorktree(target, pending.path);
+        }
+        const current = this.active;
+        if (!current || !this.matchesActive(target)) {
+            return;
+        }
+        if (current.changeSet.kind !== 'ready') {
             // Terminal kinds publish immediately; a ready change set first
             // collects real snapshots so transient unknown states never
             // render as misleading counts (PRD §4.3).
-            this.publishState(active);
+            this.publishState(current);
         }
-        if (changeSet.kind === 'ready' && changeSet.members.length) {
-            active.watcher = this.options.watchRepositoryChanges?.(
-                changeSet.members.map(member => member.worktreePath),
+        if (current.changeSet.kind === 'ready'
+            && current.changeSet.members.length && !current.watcher) {
+            current.watcher = this.options.watchRepositoryChanges?.(
+                current.changeSet.members.map(member => member.worktreePath),
                 () => this.handleExternalChange(target));
         }
         await this.collectAndPublish(target);
@@ -227,6 +247,12 @@ export class ConversationChangesController {
         activeWorktreePath?: string
     ): Promise<void> {
         if (!this.matchesActive(target)) {
+            if (activeWorktreePath) {
+                this.pendingTelemetryWorktree = {
+                    target,
+                    path: activeWorktreePath,
+                };
+            }
             return;
         }
         if (activeWorktreePath) {
@@ -250,7 +276,8 @@ export class ConversationChangesController {
         }
         // Membership is re-resolved on refresh: add-repo, group merge, or
         // adopt changes the member set without any session switch.
-        const changeSet = await this.resolveChangeSet(active.target);
+        const changeSet = await this.resolveChangeSet(
+            active.target, active.changeSet.worktreeKey);
         if (this.active !== active) {
             return;
         }
@@ -602,10 +629,7 @@ export class ConversationChangesController {
     }
 
     private matchesActive(target: ConversationViewerTarget): boolean {
-        return !!this.active
-            && this.active.target.projectId === target.projectId
-            && this.active.target.provider === target.provider
-            && this.active.target.sessionId === target.sessionId;
+        return !!this.active && targetsEqual(this.active.target, target);
     }
 
     /**
@@ -622,24 +646,30 @@ export class ConversationChangesController {
         if (!active || !this.matchesActive(target)) {
             return;
         }
+        const rebindEpoch = ++this.rebindEpoch;
         let worktreeKey: WorktreeKey | undefined;
         try {
             worktreeKey = await this.options.resolveWorktreeKey(activeWorktreePath);
         } catch (_error) {
             return;
         }
-        if (!worktreeKey || (active.changeSet.worktreeKey
+        if (rebindEpoch !== this.rebindEpoch || this.active !== active
+            || !worktreeKey || (active.changeSet.worktreeKey
             && worktreeKeysEqual(active.changeSet.worktreeKey, worktreeKey))) {
             return;
         }
         const changeSet = await this.resolveChangeSet(target, worktreeKey);
-        if (this.active !== active || !this.matchesActive(target)) {
+        if (rebindEpoch !== this.rebindEpoch || this.active !== active
+            || !this.matchesActive(target)) {
             return;
         }
         active.watcher?.dispose();
-        active.changeSet = changeSet;
-        active.snapshots.clear();
-        active.selectedMemberId = changeSet.members.find(member =>
+        const rebound: ActiveChanges = {
+            target,
+            changeSet,
+            snapshots: new Map(),
+        };
+        rebound.selectedMemberId = changeSet.members.find(member =>
             member.worktreeKey
             && worktreeKeysEqual(member.worktreeKey, worktreeKey))?.memberId
             ?? (changeSet.primaryMemberId && changeSet.members.some(member =>
@@ -647,13 +677,14 @@ export class ConversationChangesController {
                 ? changeSet.primaryMemberId
                 : undefined)
             ?? changeSet.members[0]?.memberId;
-        active.watcher = changeSet.kind === 'ready' && changeSet.members.length
+        rebound.watcher = changeSet.kind === 'ready' && changeSet.members.length
             ? this.options.watchRepositoryChanges?.(
                 changeSet.members.map(member => member.worktreePath),
                 () => this.handleExternalChange(target))
             : undefined;
+        this.active = rebound;
         if (changeSet.kind !== 'ready') {
-            this.publishState(active);
+            this.publishState(rebound);
         }
     }
 
@@ -900,4 +931,13 @@ function isContainedIn(root: string, candidate: string): boolean {
 
 function sessionKey(target: ConversationViewerTarget): string {
     return `${target.projectId}:${target.provider}:${target.sessionId}`;
+}
+
+function targetsEqual(
+    left: ConversationViewerTarget,
+    right: ConversationViewerTarget
+): boolean {
+    return left.projectId === right.projectId
+        && left.provider === right.provider
+        && left.sessionId === right.sessionId;
 }

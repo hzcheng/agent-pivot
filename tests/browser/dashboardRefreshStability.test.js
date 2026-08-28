@@ -144,6 +144,16 @@ function catalog() {
     return { version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] };
 }
 
+function catalogWithSavedProject(name) {
+    return {
+        version: 3, sessions: [], worktrees: [], openWorkspaces: [], todos: [],
+        savedProjects: [{
+            key: 'saved:' + name, identity: '/work/' + name, searchText: name,
+            projectId: name, name, description: '', action: 'open-saved', groupLabels: [],
+        }],
+    };
+}
+
 function project(id) {
     return { id, name: id, path: `/work/${id}`, description: `${id} description`, favorite: false };
 }
@@ -215,6 +225,22 @@ async function openDashboardPage(t) {
 async function post(page, message) {
     await page.evaluate(value => window.dispatchEvent(new MessageEvent('message', { data: value })), message);
 }
+
+test('WEBVIEW-DASHBOARD-SEARCH-001 refreshes search results from the lazy Projects panel authority', async t => {
+    const page = await openDashboardPage(t);
+    await page.evaluate(() => window.__dashboard.activateTab('projects'));
+    await post(page, {
+        type: 'projects-panel-content', version: 1, requestId: 1,
+        html: projectsMarkup(['reddev-container']),
+        searchCatalog: catalogWithSavedProject('reddev-container'),
+    });
+    await page.evaluate(() => window.__dashboard.setSearchQuery('reddev'));
+
+    const result = page.locator('.dashboard-search-result');
+    assert.equal(await result.count(), 1);
+    assert.equal(await result.textContent(), 'reddev-container');
+    assert.equal(await page.locator('#dashboard-search-results').isVisible(), true);
+});
 
 test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and window position through required replacement and header fitting', async t => {
     const page = await openDashboardPage(t);

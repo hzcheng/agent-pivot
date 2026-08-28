@@ -10619,7 +10619,9 @@ function validateProjectsPanelMessage(message) {
         && message.version === 1
         && Number.isSafeInteger(message.requestId)
         && message.requestId > 0
-        && typeof message.html === 'string';
+        && typeof message.html === 'string'
+        && (message.searchCatalog === undefined
+            || normalizeDashboardSearchCatalog(message.searchCatalog) === message.searchCatalog);
 }
 
 function validateProjectsPanelUpdatedMessage(message) {
@@ -10974,6 +10976,9 @@ function createDashboardProjectsPanel(injected) {
         }
 
         acceptedProjectsRequestId = message.requestId;
+        if (message.searchCatalog) {
+            replaceSearchCatalog(message.searchCatalog);
+        }
         if (projectsRequestTimer !== null) {
             cancelTimeout(projectsRequestTimer);
             projectsRequestTimer = null;

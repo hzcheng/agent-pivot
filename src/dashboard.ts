@@ -2252,6 +2252,11 @@ async function initializeDashboard(
         postMessage: message => provider.postMessage(message),
         getStewardInfos: () => stewardInfos,
         projectService,
+        getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
+            projectService.getGroups(),
+            getOpenWorkspaceCards(),
+            skillPanel.getRecords(),
+        ),
         promptDashboardController,
         getPromptTerminalCommandController: () => promptTerminalCommandController,
         aiSessionCommandController,

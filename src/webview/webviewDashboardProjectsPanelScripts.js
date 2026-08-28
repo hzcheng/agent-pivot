@@ -69,6 +69,9 @@ function createDashboardProjectsPanel(injected) {
         }
 
         acceptedProjectsRequestId = message.requestId;
+        if (message.searchCatalog) {
+            replaceSearchCatalog(message.searchCatalog);
+        }
         if (projectsRequestTimer !== null) {
             cancelTimeout(projectsRequestTimer);
             projectsRequestTimer = null;

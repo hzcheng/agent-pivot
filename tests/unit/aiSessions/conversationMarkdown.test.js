@@ -110,3 +110,21 @@ test('CONVERSATION-VIEWER-MARKDOWN-003 emits rich content only with safe image s
         /<pre><code class="hljs language-mermaid">flowchart LR\n    A --&gt; B\n<\/code><\/pre>/
     );
 });
+
+test('CONVERSATION-DIFF-VISIBILITY-001 renders diff fences as escaped side-by-side changes', () => {
+    const html = renderConversationMarkdown([
+        '```diff',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -3 +3 @@',
+        '-const value = "old";',
+        '+const value = "<new>";',
+        '```',
+    ].join('\n'));
+
+    assert.match(html, /conversation-diff-grid/);
+    assert.match(html, /conversation-diff-side-old conversation-diff-line conversation-diff-line-del/);
+    assert.match(html, /conversation-diff-side-new conversation-diff-line conversation-diff-line-add/);
+    assert.match(html, /&lt;new&gt;/, 'diff source is escaped before rendering');
+    assert.equal(html.includes('<new>'), false);
+});

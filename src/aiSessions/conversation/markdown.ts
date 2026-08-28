@@ -2,6 +2,8 @@
 
 import MarkdownIt = require('markdown-it');
 import { URL } from 'url';
+import { parseUnifiedDiff } from './diffs';
+import { renderConversationDiffs } from './diffRenderer';
 import { CONVERSATION_RUN_COMMAND_MAX_TEXT_LENGTH } from './viewerProtocol';
 
 // highlight.js 11 ships .d.ts syntax this repo's TS 4.0 toolchain cannot
@@ -42,6 +44,12 @@ function highlightCode(value: string, lang: string): string {
 
 function renderCodeBlock(value: string, info: string): string {
     const lang = (info || '').trim().split(/\s+/)[0] || '';
+    if (/^(?:diff|patch|udiff|unified-diff)$/i.test(lang)) {
+        const diffs = parseUnifiedDiff(value, 'Proposed changes');
+        if (diffs.length) {
+            return renderConversationDiffs(diffs);
+        }
+    }
     const runnable = /^(?:bash|sh|shell|zsh)$/i.test(lang)
         && value.length > 0
         && value.length <= CONVERSATION_RUN_COMMAND_MAX_TEXT_LENGTH

@@ -11478,7 +11478,10 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup 
                         <span class="conversation-diff-kind conversation-diff-kind-update">update</span>
                         <span class="conversation-diff-counts"><span class="conversation-diff-count-add">+1</span> <span class="conversation-diff-count-del">−1</span></span>
                     </section>
-                    <pre class="conversation-diff-hunks"><code><span class="conversation-diff-line conversation-diff-line-hunk">@@ -3 +3 @@</span><span class="conversation-diff-line conversation-diff-line-del">-const a = 1;</span><span class="conversation-diff-line conversation-diff-line-add">+const a = 2;</span></code></pre>
+                    <section class="conversation-diff-hunk">
+                        <span class="conversation-diff-line-hunk">@@ -3 +3 @@</span>
+                        <section class="conversation-diff-grid"><span class="conversation-diff-row"><span class="conversation-diff-side conversation-diff-side-old conversation-diff-line conversation-diff-line-del"><span class="conversation-diff-line-number">3</span><span class="conversation-diff-line-text">-const a = 1;</span></span><span class="conversation-diff-side conversation-diff-side-new conversation-diff-line conversation-diff-line-add"><span class="conversation-diff-line-number">3</span><span class="conversation-diff-line-text">+const a = 2;</span></span></span></section>
+                    </section>
                 </section>
             </section>
         </details>
@@ -11575,13 +11578,28 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup 
         delStyle.background,
         'add and del lines use different backgrounds'
     );
-    const preText = await page.locator('.conversation-diff-hunks code')
-        .evaluate(element => element.textContent);
-    assert.equal(
-        /\n/.test(preText),
-        false,
-        'block diff lines must not carry newline text nodes (blank lines)'
+    const sides = await page.locator('.conversation-diff-side').evaluateAll(
+        elements => elements.map(element => {
+            const box = element.getBoundingClientRect();
+            return { left: box.left, width: box.width };
+        })
     );
+    assert.equal(sides.length, 2);
+    assert.ok(sides[0].left < sides[1].left, 'old and new lines are side-by-side');
+    assert.ok(sides.every(side => side.width > 0), 'both diff panes remain visible');
+    await page.setViewportSize({ width: 360, height: 500 });
+    const narrow = await page.locator('.conversation-diff-hunk').evaluate(
+        element => {
+            const panes = [...element.querySelectorAll('.conversation-diff-side')]
+                .map(pane => pane.getBoundingClientRect());
+            return {
+                scrollable: element.scrollWidth > element.clientWidth,
+                sameRow: panes.length === 2 && panes[0].top === panes[1].top,
+            };
+        }
+    );
+    assert.equal(narrow.sameRow, true, 'narrow views retain the two-pane layout');
+    assert.equal(narrow.scrollable, true, 'narrow views can scroll the full diff');
 });
 
 test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and collapses it when the answer lands', async t => {

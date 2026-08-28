@@ -1021,19 +1021,43 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     white-space: nowrap;
 }
 
-.conversation-diff-hunks {
-    margin: 0;
-    padding: 0.3rem 0;
+.conversation-diff-hunk {
     overflow-x: auto;
     color: var(--vscode-editor-foreground);
     font-size: 0.82rem;
     line-height: 1.45;
 }
 
-.conversation-diff-line {
-    display: block;
-    padding: 0 0.6rem 0 0.35rem;
+.conversation-diff-grid {
+    min-width: 32rem;
+}
+
+.conversation-diff-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.conversation-diff-side {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 3.5rem minmax(0, 1fr);
     border-left: 3px solid transparent;
+}
+
+.conversation-diff-side-empty {
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.conversation-diff-line-number {
+    padding: 0 0.35rem;
+    color: var(--vscode-editorLineNumber-foreground, var(--vscode-descriptionForeground));
+    text-align: right;
+    user-select: none;
+}
+
+.conversation-diff-line-text {
+    min-width: 0;
+    padding: 0 0.6rem 0 0.35rem;
     white-space: pre;
 }
 
@@ -1055,6 +1079,8 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
 .conversation-diff-line-hunk,
 .conversation-diff-line-truncated {
+    display: block;
+    padding: 0.15rem 0.6rem;
     color: var(--vscode-descriptionForeground);
     font-style: italic;
 }

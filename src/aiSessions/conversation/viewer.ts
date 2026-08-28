@@ -43,6 +43,7 @@ import {
     parseConversationLocalFileLink,
     renderConversationMarkdown,
 } from './markdown';
+import { renderConversationDiffs } from './diffRenderer';
 import { parseConversationViewerMessage } from './viewerProtocol';
 import type {
     ConversationSessionSwitchDirection,
@@ -71,7 +72,6 @@ import {
     ConversationAbortController,
     ConversationAbortSignal,
     ConversationError,
-    ConversationFileDiff,
     ConversationMessage,
     ConversationOutline,
     ConversationPage,
@@ -4360,45 +4360,6 @@ function isStaleRevision(error: unknown): error is ConversationError {
 
 function copyMessage(message: ConversationMessage): ConversationMessage {
     return copyConversationMessage(message);
-}
-
-function renderConversationDiffFile(
-    diff: ConversationFileDiff
-): string {
-    const kind = diff.kind
-        ? `<span class="conversation-diff-kind conversation-diff-kind-${escapeAttribute(diff.kind)}">${escapeAttribute(diff.kind)}</span>`
-        : '';
-    const hunks = diff.hunks.map(hunk => {
-        const header = hunk.oldStart !== undefined
-            && hunk.newStart !== undefined
-            ? `<span class="conversation-diff-line conversation-diff-line-hunk">@@ -${hunk.oldStart} +${hunk.newStart} @@</span>`
-            : '';
-        // Block-level spans stack on their own; newline text nodes inside
-        // the <pre> would render as extra blank lines.
-        const lines = hunk.lines.map(line =>
-            `<span class="conversation-diff-line conversation-diff-line-${line.type}">${line.type === 'add'
-                ? '+'
-                : line.type === 'del'
-                    ? '-'
-                    : ' '}${escapeAttribute(line.text)}</span>`
-        ).join('');
-        const truncated = hunk.truncatedLines
-            ? `<span class="conversation-diff-line conversation-diff-line-truncated">… ${hunk.truncatedLines} more lines</span>`
-            : '';
-        return `${header}${lines}${truncated}`;
-    }).join('');
-    return `<section class="conversation-diff-file">
-        <section class="conversation-diff-file-header"><span class="conversation-diff-path" title="${escapeAttribute(diff.path)}">${escapeAttribute(diff.path)}</span>${kind}<span class="conversation-diff-counts"><span class="conversation-diff-count-add">+${diff.additions}</span> <span class="conversation-diff-count-del">−${diff.deletions}</span></span></section>
-        ${hunks
-            ? `<pre class="conversation-diff-hunks"><code>${hunks}</code></pre>`
-            : ''}
-    </section>`;
-}
-
-function renderConversationDiffs(diffs: ConversationFileDiff[]): string {
-    return `<section class="conversation-diff">${diffs.map(
-        renderConversationDiffFile
-    ).join('')}</section>`;
 }
 
 function renderToolMessage(message: ConversationMessage): string {

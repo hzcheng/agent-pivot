@@ -81,3 +81,98 @@ test('PROJECT-TAGS-RENDERING-001 includes tags in the card search text', () => {
     assert.ok(searchText.includes('frontend'));
     assert.ok(searchText.includes('urgent'));
 });
+
+test('PROJECT-ROW-LAYOUT-001 uses single-line list rows with name, path separator, and path', () => {
+    const html = renderProjects([{
+        id: 'a', name: 'agent-pivot', path: '/home/work/agent-pivot',
+    }]);
+
+    assert.ok(html.includes('class="project-row-main"'), 'row must use the list-row layout');
+    assert.ok(html.includes('class="project-path-sep"'), 'path separator must be present');
+    assert.ok(html.includes('class="project-path"'), 'path element must be present');
+    assert.ok(html.includes('class="project-header"'), 'name element must be present');
+    const rowCount = (html.match(/class="project-row-main"/g) || []).length;
+    assert.equal(rowCount, 1, 'each project must have exactly one main row');
+});
+
+test('PROJECT-ROW-LAYOUT-001 keeps all rows at consistent height with single-line truncation', () => {
+    const html = renderProjects([
+        { id: 'short', name: 'API', path: '/a' },
+        { id: 'long', name: 'very-long-project-name-that-should-be-truncated', path: '/home/work/very-long-path/that/goes/deep' },
+    ]);
+
+    const shortSection = html.slice(html.indexOf('data-id="short"'), html.indexOf('data-id="long"'));
+    const longSection = html.slice(html.indexOf('data-id="long"'));
+
+    assert.ok(shortSection.includes('class="project-row-main"'), 'short-name row must have main row');
+    assert.ok(longSection.includes('class="project-row-main"'), 'long-name row must have main row');
+    assert.ok(shortSection.includes('class="project-header"'), 'short row must have header');
+    assert.ok(longSection.includes('class="project-header"'), 'long row must have header');
+});
+
+test('PROJECT-ROW-TOOLTIP-001 shows description in tooltip only when present', () => {
+    const html = renderProjects([
+        { id: 'with-desc', name: 'API', path: '/api', description: 'Backend service' },
+        { id: 'no-desc', name: 'UI', path: '/ui' },
+    ]);
+
+    // Extract the project div opening tag for each row
+    const withDescTag = html.slice(html.indexOf('data-id="with-desc"') - 80, html.indexOf('data-id="with-desc"') + 200);
+    const noDescTag = html.slice(html.indexOf('data-id="no-desc"') - 80, html.indexOf('data-id="no-desc"') + 200);
+
+    // Project with description: the project div must carry the description as title
+    assert.ok(withDescTag.includes('title="Backend service"'),
+        'row with description must include it in the title attribute on the project div');
+
+    // Project without description: the project div must NOT have a title with the path
+    // (the project-path span has its own title, but the project div should not)
+    const noDescDivTag = noDescTag.slice(0, noDescTag.indexOf('>') + 1);
+    assert.ok(!noDescDivTag.includes('title="/ui"'),
+        'project div without description must not fall back to path in tooltip');
+});
+
+test('GROUP-HEADER-001 renders refined group headers with name, count, and collapse arrow', () => {
+    const html = renderProjects([
+        { id: 'a', name: 'A', path: '/a' },
+        { id: 'b', name: 'B', path: '/b' },
+    ]);
+
+    assert.ok(html.includes('class="group-header"'), 'group must use refined header');
+    assert.ok(html.includes('class="group-name"'), 'group name must be present');
+    assert.ok(html.includes('class="group-count"'), 'project count must be present');
+    assert.ok(html.includes('class="group-collapse-arrow"'), 'collapse arrow must be present');
+    assert.ok(!html.includes('class="group-title steward-section-header'), 'old group title class must not be used');
+});
+
+test('TAG-FILTER-BAR-001 renders tag filter bar when projects have tags', () => {
+    const html = renderProjects([
+        { id: 'a', name: 'A', path: '/a', tags: ['frontend', 'urgent'] },
+    ]);
+
+    assert.ok(html.includes('class="tag-filter-bar"'), 'tag filter bar must render when tags exist');
+    assert.ok(html.includes('data-tag-filter="all"'), 'All button must be present');
+    assert.ok(html.includes('data-tag-filter="frontend"'), 'frontend tag chip must be present');
+    assert.ok(html.includes('data-tag-filter="urgent"'), 'urgent tag chip must be present');
+});
+
+test('TAG-FILTER-BAR-001 does not render tag filter bar when no projects have tags', () => {
+    const html = renderProjects([
+        { id: 'a', name: 'A', path: '/a' },
+        { id: 'b', name: 'B', path: '/b' },
+    ]);
+
+    assert.ok(!html.includes('class="tag-filter-bar"'), 'tag filter bar must not render when no tags exist');
+});
+
+test('TAG-FILTER-BAR-001 deduplicates and sorts tags case-insensitively', () => {
+    const html = renderProjects([
+        { id: 'a', name: 'A', path: '/a', tags: ['Backend', 'frontend', 'backend'] },
+    ]);
+
+    const tagChips = [...html.matchAll(/data-tag-filter="([^"]+)"/g)]
+        .map(m => m[1])
+        .filter(t => t !== 'all');
+
+    assert.deepEqual(tagChips, ['Backend', 'frontend'],
+        'tags must be deduplicated case-insensitively (first spelling wins), sorted alphabetically');
+});

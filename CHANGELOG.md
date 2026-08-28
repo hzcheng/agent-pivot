@@ -4,6 +4,16 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-28
+
+### Fixed
+
+- Keep a newly started AI chat cancellable until it becomes a formal session,
+  including safe handoff when its runtime promotes during the confirmation flow.
+- Keep the existing VS Code Marketplace distribution and Workspace Trust
+  boundaries intact while cached AI Conversations continue to render
+  progressively.
+
 ## [1.2.0] - 2026-08-27
 
 ### Added

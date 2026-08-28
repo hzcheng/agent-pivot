@@ -525,6 +525,7 @@ function buildActiveSessions<TTerminal>(input: {
             key,
             provider: providerId,
             pendingId,
+            ...(runtime.markerPath ? { pendingRuntimeMarkerPath: runtime.markerPath } : {}),
             ...profileMetadata(
                 input.input.pendingProfiles?.[runtime.identity.pendingId || ''],
                 input.input.profileAvailability

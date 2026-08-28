@@ -4732,6 +4732,19 @@ body.steward-sidebar {
             &::before {
                 opacity: .45;
             }
+
+            // A pending runtime has no durable session ID yet, so its only
+            // safe card action is Cancel. Keep that one action reachable
+            // without hover while the new chat is starting.
+            .codex-session-actions {
+                opacity: 1;
+                pointer-events: auto;
+                transform: translateY(-50%) translateX(0);
+            }
+
+            .ai-session-primary-action {
+                padding-right: 40px;
+            }
         }
 
         .codex-session-actions {

@@ -157,6 +157,11 @@ test('PROJECT-ACTIVE-AI-SESSION-PROJECTION-001 OPEN-OPEN-PROJECT-AI-SESSION-VIEW
         needsAttention: false, attached: false,
         conflict: false, stale: false,
     }]);
+    const pending = projected.activeSessions.find(runtime => runtime.pending);
+    assert.equal(pending?.pendingId, 'pending',
+        'the pending runtime identity remains available to the Webview action protocol');
+    assert.equal(pending?.pendingRuntimeMarkerPath, '/tmp/pending.done',
+        'the pending runtime marker remains available to bind Cancel across promotion');
     assert.equal(projected.attentionCount, 1,
         'a running Active Session suppresses its stale Attention from the card summary too');
     assert.equal(projected.sessionsByProvider.codex[0].active, true);

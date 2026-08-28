@@ -1323,7 +1323,7 @@ function getActiveAiSessionRow(
         ? ''
         : `<button type="button" class="codex-session-more" data-action="open-ai-session-context-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="aiSessionContextMenu" aria-label="More actions" data-tooltip="More actions">&#8943;</button>`;
     var pendingAttributes = model.pending
-        ? ` data-session-pending data-pending-id="${escapeAttribute(model.pendingId || '')}" data-pending-created-at="${escapeAttribute(model.createdAt || '')}"`
+        ? ` data-session-pending data-pending-id="${escapeAttribute(model.pendingId || '')}" data-pending-created-at="${escapeAttribute(model.createdAt || '')}" data-pending-runtime-marker="${escapeAttribute(model.pendingRuntimeMarkerPath || '')}"`
         : ` data-session-active data-session-id="${sessionId}"`;
     var attentionAttributes = model.needsAttention && model.attentionEventId
         ? ` data-ai-session-attention data-session-event-id="${escapeAttribute(model.attentionEventId)}"`
@@ -1361,8 +1361,8 @@ function getActiveAiSessionRow(
     var profileBadge = getAiSessionProfileBadge(model.profile, model.profileUnavailable);
     const profileTooltip = getAiSessionProfileTooltip(model.profile, model.profileUnavailable);
     var profileAriaLabel = `, ${profileTooltip}`;
-    var stopAction = !model.pending && !conflict
-        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="Close ${providerLabel} chat ${sessionName}" data-tooltip="Close Chat">${Icons.remove}</button>`
+    var stopAction = !conflict
+        ? `<button type="button" class="ai-session-stop-runtime" data-action="stop-ai-session-runtime" aria-label="${model.pending ? `Cancel starting ${providerLabel} chat ${sessionName}` : `Close ${providerLabel} chat ${sessionName}`}" data-tooltip="${model.pending ? 'Cancel Chat' : 'Close Chat'}">${Icons.remove}</button>`
         : '';
     const statusState = model.needsAttention
         ? 'waiting'

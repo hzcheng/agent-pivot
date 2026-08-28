@@ -5,6 +5,7 @@ const test = require('node:test');
 const { AiSessionCreationController } = require('../../../out/aiSessions/creationController');
 const { AiSessionResumeController } = require('../../../out/aiSessions/resumeController');
 const { AiSessionTerminalCommandController } = require('../../../out/aiSessions/terminalCommandController');
+const { AiSessionRuntimeTargetChangedError } = require('../../../out/aiSessions/runtimeTypes');
 const { AiSessionExecutionController } = require('../../../out/aiSessions/executionController');
 const {
     AiSessionLifecycleSignalReader,
@@ -1408,6 +1409,244 @@ test('RUNTIME-TMUX-TERMINATE-SESSION-001 closes a direct runtime only after conf
     assert.deepEqual(effects, [
         'close-start:4', 'terminate-direct', 'close-end:4:true', 'refresh',
     ]);
+});
+
+test('PENDING-CHAT-CANCEL-001 cancels the selected pending runtime and follows its unique promoted successor', async () => {
+    const createdAt = '2026-08-28T01:02:03.000Z';
+    const terminal = { show() {}, dispose() {} };
+    const pendingIdentity = {
+        provider: 'codex',
+        pendingId: 'pending-cancel',
+        workspaceScopeIdentity: 'scope:fixture',
+        workspaceNavigationIdentity: 'navigation:fixture',
+        workspaceRootHostPaths: ['/work'],
+        cwd: '/work',
+    };
+    const pending = {
+        backend: 'vscode', state: 'pending', identity: pendingIdentity,
+        terminal, markerPath: '/tmp/pending-cancel',
+        runStartedAtMs: Date.parse(createdAt), attached: true, stale: false,
+        createdAt, excludedSessionIds: [],
+    };
+    const otherPending = {
+        ...pending,
+        identity: { ...pendingIdentity, pendingId: 'pending-other' },
+        terminal: { show() {}, dispose() {} },
+        markerPath: '/tmp/pending-other',
+        createdAt: '2026-08-28T01:02:04.000Z',
+        runStartedAtMs: Date.parse('2026-08-28T01:02:04.000Z'),
+    };
+    const promoted = {
+        ...pending,
+        state: 'active',
+        identity: { ...pendingIdentity, pendingId: undefined, sessionId: 'promoted-session' },
+    };
+    let pendingRuntimes = [pending, otherPending];
+    let activeRuntimes = [];
+    const confirmations = [];
+    const terminated = [];
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p'
+            ? makeWorkspaceTarget([{ id: 'promoted-session' }]) : null,
+        showErrorMessage: async () => undefined,
+        getProviderLabel: () => 'Codex',
+        refresh: () => undefined,
+        runtimeCoordinator: {
+            getById: () => null,
+            getActive: () => activeRuntimes,
+            getPending: () => pendingRuntimes,
+            focus: async () => undefined,
+            detach: async () => undefined,
+            terminate: async identity => terminated.push(identity),
+        },
+        confirmRuntimeClose: async (message, action) => {
+            confirmations.push([message, action]);
+            return action;
+        },
+        announceStatus: async () => undefined,
+    });
+
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', pendingCreatedAt: createdAt,
+        pendingId: 'pending-cancel', pendingRuntimeMarker: '/tmp/pending-cancel',
+        expectedBackend: 'vscode',
+    });
+    assert.deepEqual(confirmations, [[
+        'Cancelling this Codex chat may interrupt its startup.', 'Cancel Chat',
+    ]]);
+    assert.deepEqual(terminated, [pendingIdentity],
+        'Cancel must target only the selected pending runtime');
+
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', pendingCreatedAt: createdAt,
+        pendingId: 'pending-cancel', expectedBackend: 'vscode',
+    });
+    assert.deepEqual(terminated.at(-1), pendingIdentity,
+        'a uniquely identified legacy pending runtime remains cancellable without a marker');
+
+    pendingRuntimes = [];
+    activeRuntimes = [promoted];
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', pendingCreatedAt: createdAt,
+        pendingId: 'pending-cancel', pendingRuntimeMarker: '/tmp/pending-cancel',
+        expectedBackend: 'vscode',
+    });
+    assert.deepEqual(confirmations.at(-1), [
+        'Closing this Codex chat may interrupt a running AI task.', 'Close Chat',
+    ], 'a chat promoted before Host handling uses the established Close confirmation');
+    assert.deepEqual(terminated.at(-1), promoted.identity,
+        'a unique promoted successor receives the original Cancel request');
+
+    const unrelated = {
+        ...promoted,
+        identity: { ...promoted.identity, sessionId: 'unrelated-session' },
+        markerPath: '/tmp/unrelated-runtime',
+    };
+    const confirmationsBeforeUnrelatedRuntime = confirmations.length;
+    const terminationsBeforeUnrelatedRuntime = terminated.length;
+    activeRuntimes = [unrelated];
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', pendingCreatedAt: createdAt,
+        pendingId: 'pending-cancel', pendingRuntimeMarker: '/tmp/pending-cancel',
+        expectedBackend: 'vscode',
+    });
+    assert.equal(confirmations.length, confirmationsBeforeUnrelatedRuntime,
+        'a promoted runtime with a different marker must not reach confirmation');
+    assert.equal(terminated.length, terminationsBeforeUnrelatedRuntime,
+        'a promoted runtime with a different marker must never be terminated');
+
+    pendingRuntimes = [pending];
+    activeRuntimes = [];
+    const promotionDuringConfirmation = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p'
+            ? makeWorkspaceTarget([{ id: 'promoted-session' }]) : null,
+        showErrorMessage: async () => undefined,
+        getProviderLabel: () => 'Codex',
+        refresh: () => undefined,
+        runtimeCoordinator: {
+            getById: () => null,
+            getActive: () => activeRuntimes,
+            getPending: () => pendingRuntimes,
+            focus: async () => undefined,
+            detach: async () => undefined,
+            terminate: async identity => terminated.push(identity),
+        },
+        confirmRuntimeClose: async (message, action) => {
+            assert.deepEqual([message, action], [
+                'Cancelling this Codex chat may interrupt its startup.', 'Cancel Chat',
+            ]);
+            pendingRuntimes = [];
+            activeRuntimes = [promoted];
+            return action;
+        },
+        announceStatus: async () => undefined,
+    });
+    await promotionDuringConfirmation.stopSession({
+        projectId: 'p', providerId: 'codex', pendingCreatedAt: createdAt,
+        pendingId: 'pending-cancel', pendingRuntimeMarker: '/tmp/pending-cancel',
+        expectedBackend: 'vscode',
+    });
+    assert.deepEqual(terminated.at(-1), promoted.identity,
+        'promotion during confirmation must still close the same runtime');
+});
+
+test('PENDING-CHAT-CANCEL-001 follows a uniquely marked tmux promotion', async () => {
+    const createdAt = '2026-08-28T01:02:03.000Z';
+    const pendingIdentity = {
+        provider: 'codex', pendingId: 'pending-tmux-cancel',
+        workspaceScopeIdentity: 'scope:fixture', workspaceNavigationIdentity: 'navigation:fixture',
+        workspaceRootHostPaths: ['/work'], cwd: '/work',
+    };
+    const pending = {
+        backend: 'tmux', state: 'pending', identity: pendingIdentity,
+        markerPath: '/tmp/pending-tmux-cancel', runStartedAtMs: Date.parse(createdAt),
+        attached: true, stale: false, createdAt, excludedSessionIds: [],
+        tmux: { layout: 'project', sessionName: 'project', windowName: 'pending' },
+    };
+    const promoted = {
+        ...pending, state: 'active',
+        identity: { ...pendingIdentity, pendingId: undefined, sessionId: 'promoted-tmux-session' },
+        tmux: { layout: 'project', sessionName: 'project', windowName: 'promoted' },
+    };
+    const terminated = [];
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p'
+            ? makeWorkspaceTarget([{ id: 'promoted-tmux-session' }]) : null,
+        showErrorMessage: async () => undefined,
+        getProviderLabel: () => 'Codex', refresh: () => undefined,
+        runtimeCoordinator: {
+            getById: () => null, getActive: () => [promoted], getPending: () => [],
+            focus: async () => undefined, detach: async () => undefined,
+            terminate: async identity => terminated.push(identity),
+        },
+        confirmRuntimeClose: async (message, action) => {
+            assert.deepEqual([message, action], [
+                'Closing this Codex chat will terminate the AI task running in tmux.', 'Close Chat',
+            ]);
+            return action;
+        },
+        announceStatus: async () => undefined,
+    });
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', pendingCreatedAt: createdAt,
+        pendingId: 'pending-tmux-cancel', pendingRuntimeMarker: '/tmp/pending-tmux-cancel',
+        expectedBackend: 'tmux',
+    });
+    assert.deepEqual(terminated, [promoted.identity],
+        'the renamed tmux runtime is terminated only after its marker binds it to the pending chat');
+});
+
+test('PENDING-CHAT-CANCEL-001 retries once when coordinator refresh promotes the pending runtime', async () => {
+    const createdAt = '2026-08-28T01:02:03.000Z';
+    const terminal = { show() {}, dispose() {} };
+    const pendingIdentity = {
+        provider: 'codex', pendingId: 'pending-refresh-promotion',
+        workspaceScopeIdentity: 'scope:fixture', workspaceNavigationIdentity: 'navigation:fixture',
+        workspaceRootHostPaths: ['/work'], cwd: '/work',
+    };
+    const pending = {
+        backend: 'vscode', state: 'pending', identity: pendingIdentity, terminal,
+        markerPath: '/tmp/pending-refresh-promotion', runStartedAtMs: Date.parse(createdAt),
+        attached: true, stale: false, createdAt, excludedSessionIds: [],
+    };
+    const promoted = {
+        ...pending, state: 'active',
+        identity: { ...pendingIdentity, pendingId: undefined, sessionId: 'refresh-promoted' },
+    };
+    let pendingRuntimes = [pending];
+    let activeRuntimes = [];
+    const terminationAttempts = [];
+    const controller = new AiSessionTerminalCommandController({
+        isProviderId: value => value === 'codex',
+        getWorkspaceTarget: id => id === 'p'
+            ? makeWorkspaceTarget([{ id: 'refresh-promoted' }]) : null,
+        showErrorMessage: async () => undefined,
+        getProviderLabel: () => 'Codex', refresh: () => undefined,
+        runtimeCoordinator: {
+            getById: () => null, getActive: () => activeRuntimes, getPending: () => pendingRuntimes,
+            focus: async () => undefined, detach: async () => undefined,
+            terminate: async identity => {
+                terminationAttempts.push(identity);
+                if (identity.pendingId) {
+                    pendingRuntimes = [];
+                    activeRuntimes = [promoted];
+                    throw new AiSessionRuntimeTargetChangedError();
+                }
+            },
+        },
+        confirmRuntimeClose: async (_message, action) => action,
+        announceStatus: async () => undefined,
+    });
+    await controller.stopSession({
+        projectId: 'p', providerId: 'codex', pendingCreatedAt: createdAt,
+        pendingId: 'pending-refresh-promotion', pendingRuntimeMarker: '/tmp/pending-refresh-promotion',
+        expectedBackend: 'vscode',
+    });
+    assert.deepEqual(terminationAttempts, [pendingIdentity, promoted.identity],
+        'a target change caused by this pending runtime promotion retries exactly once on its successor');
 });
 
 test('RUNTIME-TMUX-TERMINATE-SESSION-001 rejects forged backends, cancelled confirmations, and changed runtimes without terminating', async () => {

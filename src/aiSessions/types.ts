@@ -178,6 +178,8 @@ export interface ActiveAiSessionViewModel {
     provider: AiSessionProviderId;
     sessionId?: string;
     pendingId?: string;
+    /** Host-owned marker used to keep a pending runtime bound across promotion. */
+    pendingRuntimeMarkerPath?: string;
     name: string;
     /** Codex config profile name recorded for this runtime, when any. */
     profile?: string;

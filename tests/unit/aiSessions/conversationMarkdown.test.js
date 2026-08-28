@@ -148,7 +148,7 @@ test('CONVERSATION-RICH-MARKDOWN-004 renders task lists, callouts, and bounded b
     assert.match(html, /conversation-task-state">Not completed<\/span>/);
     assert.match(html, /conversation-callout-warning/);
     assert.match(html, /conversation-chart conversation-chart-bar" role="group"/);
-    assert.match(html, /<progress class="conversation-chart-bar" max="100" value="100" aria-hidden="true">/);
+    assert.match(html, /<progress class="conversation-chart-progress" max="100" value="100" aria-hidden="true">/);
 });
 
 test('CONVERSATION-RICH-MARKDOWN-005 renders workspace references, folded structured data, math, and bounded SVG charts', () => {

@@ -5281,21 +5281,23 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
         panel.createArguments[3].localResourceRoots[0].toString(),
         'file:///extension/media/'
     );
+    // Each asset URL carries a per-document cache-busting revision, so match the
+    // resource path and allow the query rather than pinning the whole URL.
     assert.match(
         panel.webview.html,
-        /src="webview:\/\/fixture\/\/extension\/media\/purify\.min\.js"/
+        /src="webview:\/\/fixture\/\/extension\/media\/purify\.min\.js\?[^"]*"/
     );
     assert.match(
         panel.webview.html,
-        /data-mermaid-src="webview:\/\/fixture\/\/extension\/media\/mermaid\.min\.js"/
+        /data-mermaid-src="webview:\/\/fixture\/\/extension\/media\/mermaid\.min\.js\?[^"]*"/
     );
     assert.match(
         panel.webview.html,
-        /href="webview:\/\/fixture\/\/extension\/media\/conversationViewer\.css"/
+        /href="webview:\/\/fixture\/\/extension\/media\/conversationViewer\.css\?[^"]*"/
     );
     assert.match(
         panel.webview.html,
-        /href="webview:\/\/fixture\/\/extension\/media\/katex\.min\.css"/
+        /href="webview:\/\/fixture\/\/extension\/media\/katex\.min\.css\?[^"]*"/
     );
     const purifyIndex = panel.webview.html.indexOf('purify.min.js');
     const readingAnchorIndex = panel.webview.html.indexOf(

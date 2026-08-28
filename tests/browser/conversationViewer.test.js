@@ -11409,6 +11409,29 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structure
     assert.ok(chartBounds.every((bounds, index) => index === 0
         || chartBounds[index - 1].bottom <= bounds.top),
     'adjacent chart cards never overlap at the minimum supported conversation width');
+    // A card box that does not contain its own body still satisfies the
+    // adjacency check above, because a collapsed card has a small bottom edge.
+    // Assert containment so a card can never paint its rows over what follows.
+    const chartContainment = await page.locator('.conversation-chart').evaluateAll(
+        charts => charts.map(chart => {
+            const card = chart.getBoundingClientRect();
+            const body = chart.querySelector('.conversation-chart-body')
+                .getBoundingClientRect();
+            return {
+                type: chart.className,
+                cardHeight: Math.round(card.height),
+                bodyHeight: Math.round(body.height),
+                overflowBelow: Math.round(body.bottom - card.bottom),
+            };
+        }));
+    for (const chart of chartContainment) {
+        assert.ok(
+            chart.overflowBelow <= 1,
+            `${chart.type} must contain its own body inside the card `
+                + `(card ${chart.cardHeight}px, body ${chart.bodyHeight}px, `
+                + `overflowing ${chart.overflowBelow}px below the card)`
+        );
+    }
 });
 
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-004 restores local table and diff controls across an authoritative refresh', async t => {

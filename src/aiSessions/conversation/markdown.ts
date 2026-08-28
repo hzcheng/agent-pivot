@@ -293,7 +293,7 @@ function renderBarChartGraphic(chart: ConversationChartData): string {
     return chart.labels.map((label, index) => {
         const valueNumber = values[index];
         const percent = Math.round(valueNumber / maximum * 1000) / 10;
-        return `<span class="conversation-chart-row"><span class="conversation-chart-label">${escapeHtml(label)}</span><progress class="conversation-chart-bar" max="100" value="${percent}" aria-hidden="true">${percent}%</progress><span class="conversation-chart-value">${valueNumber}</span></span>`;
+        return `<span class="conversation-chart-row"><span class="conversation-chart-label">${escapeHtml(label)}</span><progress class="conversation-chart-progress" max="100" value="${percent}" aria-hidden="true">${percent}%</progress><span class="conversation-chart-value">${valueNumber}</span></span>`;
     }).join('');
 }
 

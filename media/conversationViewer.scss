@@ -761,7 +761,10 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     align-items: center;
 }
 .conversation-chart-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-chart-bar { width: 100%; height: 0.75rem; accent-color: var(--vscode-charts-blue, var(--vscode-button-background)); }
+// Named for the element, not the chart type: the card carries the type
+// modifier `conversation-chart-bar`, so a bar-named element class here would
+// also match the card and collapse it to the bar's height.
+.conversation-chart-progress { width: 100%; height: 0.75rem; accent-color: var(--vscode-charts-blue, var(--vscode-button-background)); }
 .conversation-chart-value { font-variant-numeric: tabular-nums; }
 
 .conversation-chart-graphic {

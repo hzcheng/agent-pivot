@@ -12388,7 +12388,9 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only
         return image && image.complete && image.naturalWidth > 0;
     });
     assert.equal(
-        await page.locator('script[src$="/mermaid.min.js"]').count(),
+        // Asset URLs carry a per-document cache-busting query, so match the path
+        // rather than the whole URL suffix.
+        await page.locator('script[src*="/mermaid.min.js"]').count(),
         1
     );
     assert.match(await diagram.getAttribute('src'), /^blob:/);

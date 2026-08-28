@@ -16,7 +16,15 @@ const repoRoot = path.resolve(__dirname, '..', '..', '..');
  * Synthetic webview fixture: two dashboard scripts and one conversation
  * script, with the builders mirroring the manifest order.
  */
-function makeFixture({ manifestBundles, scripts = {}, globals, builderOrder, viewerOrder, version = 2 }) {
+function makeFixture({
+    manifestBundles,
+    scripts = {},
+    globals,
+    builderOrder,
+    viewerOrder,
+    viewerEmitter = 'options.mediaUri',
+    version = 2,
+}) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-webview-'));
     const write = (relative, content) => {
         fs.mkdirSync(path.join(root, path.dirname(relative)), { recursive: true });
@@ -43,7 +51,7 @@ function makeFixture({ manifestBundles, scripts = {}, globals, builderOrder, vie
         .map(file => `    '${file}',`).join('\n');
     write('scripts/build-dashboard-webview-bundle.js', `const inputPaths = [\n${builder}\n];\n`);
     const viewer = (viewerOrder || ['src/webview/conversationCScripts.js'])
-        .map(file => `options.mediaUri('${path.basename(file)}')`).join('\n');
+        .map(file => `${viewerEmitter}('${path.basename(file)}')`).join('\n');
     write('src/aiSessions/conversation/viewerDocument.ts', viewer + '\n');
     for (const [file, content] of Object.entries(scripts)) {
         write(file, content);
@@ -99,6 +107,29 @@ test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: load-order drift from the b
     });
     assert.ok(runWebviewManifestCheck(root).errors
         .some(error => error.includes('dashboard bundle order differs')));
+});
+
+test('ARCH-WEBVIEW-MANIFEST-001 the viewer emission scrape follows the cache-busting asset helper', () => {
+    const root = makeFixture({
+        manifestBundles: baseBundles,
+        scripts: baseScripts,
+        viewerEmitter: 'assetUri',
+    });
+    assert.deepEqual(runWebviewManifestCheck(root).errors, []);
+});
+
+test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: a viewer with no recognizable emissions fails as unreadable', () => {
+    const root = makeFixture({
+        manifestBundles: baseBundles,
+        scripts: baseScripts,
+        viewerEmitter: 'someRenamedHelper',
+    });
+    const { errors } = runWebviewManifestCheck(root);
+    assert.ok(
+        errors.some(error => error.includes('no conversation-viewer script emissions')),
+        'a scrape that sees nothing must name that, not report an order mismatch: '
+            + JSON.stringify(errors)
+    );
 });
 
 test('ARCH-WEBVIEW-MANIFEST-001 controlled mutation: a manifest entry for a missing file fails', () => {

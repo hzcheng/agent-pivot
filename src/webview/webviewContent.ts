@@ -242,15 +242,6 @@ export function getStewardContent(
         (function() {
             window.vscode = acquireVsCodeApi();
 
-            function fitProjectHeaders(root) {
-                if (!root || document.body.classList.contains('steward-sidebar')) {
-                    return;
-                }
-                Array.from(root.querySelectorAll('.project-header')).forEach(element =>
-                    fitty(element, ${JSON.stringify(FITTY_OPTIONS)})
-                );
-            }
-
             window.onload = () => {
                 initProjects();
                 const storedFilter = sessionStorage.getItem('filterValue') || '';
@@ -270,6 +261,7 @@ export function getStewardContent(
                 window.__agentPivotDashboard = dashboard;
                 fitProjectHeaders(document.getElementById('dashboard-tab-open'));
                 filtering = initFiltering(${infos.config.searchIsActiveByDefault}, dashboard);
+                initTagFiltering();
                 filtering.apply();
             };
         })();
@@ -404,6 +396,25 @@ function getWorkspaceRemoteType(environment: WorkspaceCardViewModel['environment
     }
 }
 
+function getUniqueProjectTags(groups: Group[]): string[] {
+    var seen = new Set<string>();
+    var tags: string[] = [];
+    for (let group of (groups || [])) {
+        for (let project of (group.projects || [])) {
+            var normalized = normalizeProjectTags(project.tags);
+            for (let tag of normalized) {
+                var key = tag.toLowerCase();
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    tags.push(tag);
+                }
+            }
+        }
+    }
+    tags.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    return tags;
+}
+
 export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): string {
     var configuredMaxVisibleProjects = infos.config.get(
         'maxVisibleProjectsPerGroup',
@@ -441,7 +452,15 @@ export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): s
         systemBadge: '',
     };
 
-    return `<div class="groups-wrapper ${!infos.config.displayProjectPath ? 'hide-project-path' : ''}" style="--steward-max-visible-projects-per-group: ${maxVisibleProjectsPerGroup};">
+    var allTags = getUniqueProjectTags(groups);
+    var tagFilterBar = allTags.length
+        ? `<div class="tag-filter-bar">
+            <button class="tag-filter-chip active" data-tag-filter="all">All</button>
+            ${allTags.map(tag => `<button class="tag-filter-chip" data-tag-filter="${escapeAttribute(tag)}">${escapeAttribute(tag)}</button>`).join('\n')}
+        </div>`
+        : '';
+
+    return `${tagFilterBar}<div class="groups-wrapper ${!infos.config.displayProjectPath ? 'hide-project-path' : ''}" style="--steward-max-visible-projects-per-group: ${maxVisibleProjectsPerGroup};">
         ${mainGroups.length
             ? mainGroups.map(group => getGroupSection(
                 group,
@@ -581,11 +600,9 @@ function getGroupSection(
     options: GroupSectionOptions,
     emptyContent: string = ''
 ) {
-    // Apply changes to HTML here also to getTempGroupSection
-
     var groupActions = options.virtual
         ? ''
-        : `<div class="group-actions right">
+        : `<div class="group-actions">
             <span data-action="add" title="Add Project">${Icons.add}</span>
             <span data-action="edit" title="Edit Group">${Icons.edit}</span>
             <span data-action="remove" title="Remove Group">${Icons.remove
@@ -594,24 +611,24 @@ function getGroupSection(
     var dragAttribute = options.virtual ? '' : 'data-drag-group';
     var groupName = escapeAttribute(group.groupName || 'Unnamed Group');
     var systemGroupAttribute = options.virtual ? ` data-system-group="${group.id}"` : '';
-    var groupTitleText = options.collapsible
-        ? `<span class="group-title-text" data-action="collapse" ${dragAttribute}>
-            <span class="collapse-icon" title="Open/Collapse Group">${Icons.collapse}</span>
-            ${groupName}
-        </span>`
-        : `<span class="group-title-text">${groupName}</span>`;
+    var projectCount = group.projects.length;
+    var collapseArrow = options.collapsible
+        ? `<span class="group-collapse-arrow" data-action="collapse" ${dragAttribute} title="${group.collapsed ? 'Expand' : 'Collapse'} Group">${Icons.collapse}</span>`
+        : '';
 
     return `
-<div class="group steward-section ${options.className} ${group.collapsed ? 'collapsed' : ''} ${group.projects.length === 0 ? 'no-projects' : ''
+<div class="group ${options.className} ${group.collapsed ? 'collapsed' : ''} ${projectCount === 0 ? 'no-projects' : ''
         }" data-group-id="${group.id}"${options.virtual ? ' data-virtual-group' : ''}${systemGroupAttribute}>
-    <div class="group-title steward-section-header steward-group-header">
-        ${groupTitleText}
-        ${options.systemBadge ? `<span class="group-title-badge">${options.systemBadge}</span>` : ''}
+    <div class="group-header">
+        ${collapseArrow}
+        <span class="group-name">${groupName}</span>
+        ${options.systemBadge ? `<span class="group-badge">${options.systemBadge}</span>` : ''}
+        <span class="group-count">${projectCount}</span>
         ${groupActions}
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>
-        ${group.projects.length
+        ${projectCount
             ? group.projects.map(project => getProjectDiv(project, options)).join('\n')
             : emptyContent}
     </div>       
@@ -629,8 +646,9 @@ function getFavoritesGroup(favoriteProjects: Project[], collapsed: boolean = fal
 function getTempGroupSection() {
     return `
 <div class="group" id="tempGroup">
-    <div class="group-title steward-section-header steward-group-header" data-action="add-group">
-        <span>${Icons.add} New Group</span>
+    <div class="group-header" data-action="add-group">
+        <span class="group-collapse-arrow">${Icons.add}</span>
+        <span class="group-name">New Group</span>
     </div>
     <div class="group-list">
         <div class="drop-signal"></div>
@@ -648,8 +666,8 @@ function getProjectDiv(
     var projectName = escapeAttribute(sanitizeProjectName(project.name));
     var searchText = escapeAttribute(getProjectSearchText(project));
     var escapedDescription = escapeAttribute(description);
-    var projectIcon = getWorkspaceIcon(remoteType);
-    var projectIconTitle = getWorkspaceIconTitle(remoteType);
+    var projectPath = escapeAttribute(project.path || '');
+    var projectPathBase = projectPath ? projectPath.split(/[\\\/]/).pop() || projectPath : '';
     var favoriteTitle = project.favorite ? 'Remove From Favorites' : 'Add To Favorites';
     var projectActions = options.readOnlyProjects
         ? ''
@@ -659,13 +677,6 @@ function getProjectDiv(
         }</span>
                 <span data-action="remove" title="Remove Project">${Icons.remove
         }</span>`;
-    var projectActionsWrapper = projectActions
-        ? `<div class="project-actions-wrapper">
-            <div class="project-actions">
-                ${projectActions}
-            </div>
-        </div>`
-        : '';
     var favoriteBadgeIcon = project.favorite ? Icons.starFilled : Icons.star;
     var favoriteBadge = options.readOnlyProjects
         ? ''
@@ -676,36 +687,31 @@ function getProjectDiv(
     var isRemote = remoteType !== ProjectRemoteType.None;
     var tags = normalizeProjectTags(project.tags);
     var tagsHtml = tags.length
-        ? `<div class="project-tags">${tags.map(tag => `<span class="project-tag" title="${escapeAttribute(`#${tag}`)}">${escapeAttribute(tag)}</span>`).join('')
+        ? `<div class="project-row-tags">${tags.map(tag => `<span class="project-tag" title="${escapeAttribute(`#${tag}`)}">${escapeAttribute(tag)}</span>`).join('')
         }</div>`
         : '';
 
     return `
 <div class="project-container"${options.virtual && !options.draggableVirtualProjects ? ' data-nodrag' : ''}>
-    <div class="project steward-item-card" style="${colorStyles.cardStyle}" data-id="${project.id}" data-name="${searchText}"${isRemote ? ' data-is-remote' : ''
+    <div class="project" style="${colorStyles.cardStyle}" data-id="${project.id}" data-name="${searchText}" title="${escapedDescription || projectPath}"${isRemote ? ' data-is-remote' : ''
         }${options.virtual ? ' data-virtual-project' : ''
         }${options.readOnlyProjects ? ' data-readonly-project' : ''
         }${!options.readOnlyProjects ? ' data-has-favorite-toggle' : ''
         }${project.showSaveAction ? ' data-has-save-action' : ''
         }${project.favorite ? ' data-favorite-project' : ''
         }${tags.length ? ' data-has-tags' : ''
+        }${tags.length ? ` data-tags="${escapeAttribute(tags.join(','))}"` : ''
         }>
-        <div class="project-aura"></div>
-        <div class="project-border steward-item-accent" style="${colorStyles.accentStyle}"></div>
-        ${favoriteBadge}
-        ${saveBadge}
-        ${projectActionsWrapper}
-        <div class="fitty-container project-title-row">
-            <span class="project-kind-icon" title="${projectIconTitle}">
-                ${projectIcon}
-            </span>
-            <h2 class="project-header">
-                ${projectName}
-            </h2>
+        <div class="project-border" style="${colorStyles.accentStyle}"></div>
+        <div class="project-row-main">
+            <span class="project-header" title="${projectName}">${projectName}</span>
+            <span class="project-path" title="${projectPath}">${projectPathBase}</span>
+            <div class="project-row-actions">
+                ${saveBadge}
+                ${favoriteBadge}
+                ${projectActions ? `<div class="project-actions">${projectActions}</div>` : ''}
+            </div>
         </div>
-        <p class="project-description" title="${escapedDescription}">
-            ${escapedDescription}
-        </p>
         ${tagsHtml}
     </div>
 </div>`;

@@ -13037,3 +13037,59 @@ function initFiltering(activeByDefault, dashboard) {
 
     return { clear, focus, apply };
 }
+
+function initTagFiltering() {
+    var activeTags = new Set();
+    var tagBar = document.querySelector('.tag-filter-bar');
+    if (!tagBar) {
+        return { activeTags: activeTags };
+    }
+
+    function applyTagFilter() {
+        var projects = document.querySelectorAll('.project[data-id]');
+        var allChip = tagBar.querySelector('[data-tag-filter="all"]');
+        var tagChips = tagBar.querySelectorAll('[data-tag-filter]:not([data-tag-filter="all"])');
+
+        if (activeTags.size === 0) {
+            // No tag filter active — show all, highlight "All"
+            allChip.classList.add('active');
+            tagChips.forEach(function(chip) { chip.classList.remove('active'); });
+            projects.forEach(function(p) { p.classList.remove('tag-filtered'); });
+        } else {
+            allChip.classList.remove('active');
+            projects.forEach(function(p) {
+                var projectTags = (p.getAttribute('data-tags') || '').toLowerCase().split(',');
+                var hasAll = true;
+                activeTags.forEach(function(tag) {
+                    if (projectTags.indexOf(tag.toLowerCase()) === -1) {
+                        hasAll = false;
+                    }
+                });
+                p.classList.toggle('tag-filtered', !hasAll);
+            });
+        }
+    }
+
+    tagBar.addEventListener('click', function(e) {
+        var chip = e.target.closest('.tag-filter-chip');
+        if (!chip) return;
+
+        var tag = chip.getAttribute('data-tag-filter');
+        if (tag === 'all') {
+            activeTags.clear();
+            applyTagFilter();
+            return;
+        }
+
+        if (activeTags.has(tag)) {
+            activeTags.delete(tag);
+            chip.classList.remove('active');
+        } else {
+            activeTags.add(tag);
+            chip.classList.add('active');
+        }
+        applyTagFilter();
+    });
+
+    return { activeTags: activeTags, applyTagFilter: applyTagFilter };
+}

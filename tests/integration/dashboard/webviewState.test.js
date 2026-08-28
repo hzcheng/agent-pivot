@@ -1280,7 +1280,7 @@ test('WEBVIEW-FAVORITE-RENDERING-001 renders favorites in explicit order before 
         config: { get: (_key, fallback) => fallback },
         otherStorageHasData: false,
     });
-    const ids = Array.from(html.matchAll(/<div class="[^"]*project steward-item-card[^"]*"[^>]*data-id="([^"]+)"/g))
+    const ids = Array.from(html.matchAll(/<div class="[^"]*project[^"]*"[^>]*data-id="([^"]+)"/g))
         .map(match => match[1]);
     assert.deepEqual(ids, ['favorite-b', 'favorite-a', 'favorite-a', 'favorite-b', 'plain']);
 });

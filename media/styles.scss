@@ -66,106 +66,142 @@ body {
 
 // RULES
 .group {
-    margin-top: $defaultPadding * 0.5;
-    margin-right: -$defaultPadding;
-    overflow: hidden;
+    margin-top: 18px;
+    margin-right: 0;
+    overflow: visible;
+
+    &:first-child {
+        margin-top: 4px;
+    }
 
     &.collapsed {
         .group-list {
-            height: 0 !important;
-            min-height: 0 !important;
+            height: 0;
+            min-height: 0;
             margin-top: 0;
+            padding-top: 0;
+            overflow: hidden;
         }
 
-        .collapse-icon svg {
+        .group-collapse-arrow svg {
             transform: rotate(-90deg);
         }
     }
 
     &#tempGroup {
-        .group-title {
+        .group-header {
             transition: opacity $defaultTransition;
-            opacity: 0.5;
+            opacity: 0.45;
 
             &:hover {
-                opacity: 1;
+                opacity: 0.8;
             }
         }
+    }
+
+    .group-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 0 6px;
+        color: var(--vscode-descriptionForeground);
+        font-family: var(--vscode-font-family);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        user-select: none;
+    }
+
+    .group-collapse-arrow {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        width: 14px;
+        height: 14px;
+        cursor: pointer;
+        opacity: 0.5;
+        transition: opacity $defaultTransition;
 
         svg {
-            width: 0.75em;
-            fill: var(--steward-foreground);
+            width: 10px;
+            height: 10px;
+            fill: currentColor;
+            transition: transform 180ms ease;
+        }
+
+        &:hover {
+            opacity: 0.9;
         }
     }
 
-    &:first-child {
-        margin-top: math.div($defaultPadding, 2);
+    .group-name {
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
-    .group-title {
-        min-width: calc(var(--column-width) - 19px);
-        display: inline-block;
-        color: var(--steward-foreground);
-        font-family: var(--vscode-font-family);
-        font-size: $groupHeaderSize;
-        font-weight: 700;
-        line-height: 1.25;
-        margin-left: 0;
-
-        > span {
-            cursor: pointer;
-        }
-
-        .collapse-icon {
-            @include actions(0.6em, 0);
-
-            padding-right: 2px;
-
-            svg {
-                fill: currentColor;
-                transition: transform $defaultTransition;
-                margin-bottom: -2px;
-            }
-        }
+    .group-badge {
+        flex: 0 0 auto;
+        padding: 1px 6px;
+        border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.08));
+        border-radius: 999px;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        opacity: 0.7;
     }
 
-    .group-title-text {
-        margin-right: 2em;
+    .group-count {
+        flex: 0 0 auto;
+        margin-left: auto;
+        opacity: 0.45;
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0;
+
+        &::before {
+            content: '';
+        }
     }
 
     .group-actions {
-        transition: opacity $defaultTransition $actionTransitionDelay;
+        display: flex;
+        align-items: center;
+        gap: 1px;
+        flex: 0 0 auto;
         opacity: 0;
-        pointer-events: none;
+        transition: opacity $defaultTransition;
 
-        @include actions($dataActionIconSize - 1, 4px);
+        @include actions(13px, 2px);
 
-        &.left {
-            display: inline;
-            padding-left: 0.5em;
-        }
+        [data-action] {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            color: var(--steward-path);
+            transition: color $defaultTransition, background $defaultTransition;
 
-        &.right {
-            float: right;
-        }
-
-        // Custom spacing so that different icons look correctly aligned
-        [data-action="add"] svg {
-            margin-right: 2px;
-        }
-
-        :last-child svg {
-            margin-right: 6px;
+            &:hover {
+                color: var(--vscode-focusBorder);
+                background: var(--vscode-list-inactiveSelectionBackground, transparent);
+            }
         }
     }
 
-    .group-title:hover .group-actions {
-        opacity: 1;
-        pointer-events: all;
+    .group-header:hover .group-actions {
+        opacity: 0.7;
     }
 
     &[data-virtual-group] {
-        .group-title-text {
+        .group-name {
             cursor: pointer;
         }
 
@@ -179,9 +215,7 @@ body {
         flex-wrap: wrap;
         align-items: flex-start;
         position: relative;
-
-        padding-top: math.div($defaultPadding, 2);
-        //min-height: $projectListMinHeight;
+        padding-top: 2px;
     }
 
     .drop-signal {
@@ -194,7 +228,7 @@ body {
         margin-bottom: $defaultPadding;
 
         position: absolute;
-        top: math.div($defaultPadding, 2);
+        top: 2px;
         height: calc(100% - #{1.5 * $defaultPadding});
 
         &:not(:only-of-type) {
@@ -204,151 +238,140 @@ body {
 }
 
 .project-container {
-    display: inline-block;
-    width: var(--column-width);
+    display: block;
+    width: 100%;
 
     &.slim {
-        width: calc(var(--column-width) / 5);
-        min-width: 40px;
+        width: 100%;
     }
 }
 
 body .project {
     cursor: pointer;
-
     position: relative;
     display: flex;
     flex-direction: column;
-    justify-content: flex-start;
-    align-items: flex-start;
+    margin: 0 0 2px 0;
+    padding: 5px 10px;
+    min-height: 36px;
+    border-radius: 8px;
+    background: transparent;
+    transition:
+        background $defaultTransition,
+        box-shadow $defaultTransition;
 
-    margin: 0 $defaultPadding $defaultPadding 0;
-    padding: $defaultPadding;
-    padding-top: $defaultPadding + $borderTopSize;
-    height: $projectTileHeight;
-
-    background: var(--steward-project-card-bg);
+    &:hover {
+        background: var(--vscode-list-hoverBackground);
+    }
 
     .project-border {
         position: absolute;
-        left: 0;
-        top: 0;
-        width: 100%;
-        height: $borderTopSize;
+        left: 10px;
+        top: 14px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
         background: transparent;
-        z-index: 50;
+        z-index: 1;
+        flex: 0 0 auto;
     }
 
     .project-favorite-badge {
-        position: absolute;
-        right: 13px;
-        bottom: 13px;
-        z-index: 45;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 18px;
-        height: 18px;
-        color: var(--vscode-descriptionForeground);
+        flex: 0 0 auto;
+        width: 16px;
+        height: 16px;
+        color: var(--steward-path);
         cursor: pointer;
-        opacity: 0.55;
+        opacity: 0;
         transition:
             color $defaultTransition,
-            filter $defaultTransition,
-            opacity $defaultTransition,
-            transform $defaultTransition;
+            opacity $defaultTransition;
 
         svg {
-            width: 16px;
-            height: 16px;
+            width: 14px;
+            height: 14px;
             fill: currentColor;
         }
 
         &.active {
             color: #f2c94c;
             opacity: 1;
-            filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
         }
 
         &:hover {
             color: #f2c94c;
             opacity: 1;
-            transform: scale(1.08);
         }
     }
 
+    &:hover .project-favorite-badge {
+        opacity: 0.55;
+    }
+
+    &[data-favorite-project] .project-favorite-badge {
+        opacity: 1;
+    }
+
     .project-save-badge {
-        position: absolute;
-        right: 13px;
-        top: 50%;
-        z-index: 45;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 18px;
-        height: 18px;
-        color: var(--vscode-descriptionForeground);
+        flex: 0 0 auto;
+        width: 16px;
+        height: 16px;
+        color: var(--steward-path);
         cursor: pointer;
         opacity: 0.72;
-        transform: translateY(-50%);
         transition:
             color $defaultTransition,
-            opacity $defaultTransition,
-            transform $defaultTransition;
+            opacity $defaultTransition;
 
         svg {
-            width: 16px;
-            height: 16px;
+            width: 14px;
+            height: 14px;
             fill: currentColor;
         }
 
         &:hover {
             color: var(--vscode-focusBorder);
             opacity: 1;
-            transform: translateY(-50%) scale(1.08);
         }
     }
 
     .project-pin-badge {
-        position: absolute;
-        right: 13px;
-        bottom: 13px;
-        z-index: 45;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 20px;
-        height: 20px;
+        flex: 0 0 auto;
+        width: 16px;
+        height: 16px;
         padding: 0;
         border: 0;
         border-radius: 999px;
-        color: var(--vscode-descriptionForeground);
+        color: var(--steward-path);
         background: transparent;
         cursor: pointer;
         opacity: 0.62;
         transition:
             color $defaultTransition,
             background $defaultTransition,
-            opacity $defaultTransition,
-            transform $defaultTransition;
+            opacity $defaultTransition;
 
         svg {
-            width: 15px;
-            height: 15px;
+            width: 13px;
+            height: 13px;
             fill: none;
             stroke: currentColor;
         }
 
-        &:hover,
         &:focus-visible,
         &.active {
             color: var(--vscode-focusBorder);
             background: var(--vscode-list-inactiveSelectionBackground, transparent);
             opacity: 1;
-        }
-
-        &:hover {
-            transform: scale(1.08);
         }
 
         &:focus-visible {
@@ -359,99 +382,126 @@ body .project {
         &[data-pin-pending] {
             cursor: progress;
             opacity: 0.5;
-            transform: none;
         }
     }
 
-    &[data-has-favorite-toggle],
-    &[data-has-pin-action] {
-        .project-description {
-            width: calc(100% - 30px);
-        }
-    }
-
-    &[data-has-save-action] {
-        .fitty-container,
-        .project-description {
-            width: calc(100% - 30px);
-        }
-    }
-
-    .fitty-container {
-        width: 100%;
-        max-width: 100%;
-        min-height: $projectHeaderMinHeight;
+    .project-row-main {
         display: flex;
-        justify-content: flex-start;
         align-items: center;
+        gap: 6px;
+        width: 100%;
+        min-height: 26px;
+        padding-left: 14px;
     }
 
-    .project-title-row {
-        gap: 8px;
+    .project-row-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding-left: 14px;
+        padding-bottom: 2px;
     }
 
     .project-kind-icon {
-        flex: 0 0 auto;
-        width: 20px;
-        height: 20px;
-        color: var(--steward-foreground);
-
-        svg {
-            width: 20px;
-            height: 20px;
-            fill: currentColor;
-        }
+        display: none;
     }
 
     .project-header {
-        color: var(--steward-foreground);
-        font-family: var(--vscode-font-family);
-        margin: 0;
-        font-size: $projectHeaderSize;
-        font-weight: 600;
-        text-align: left;
-    }
-
-    .project-description {
-        color: var(--steward-foreground);
-        opacity: 0.82;
-        max-width: 100%;
-        min-height: 2.8em;
-        margin: 8px 0 0 0;
-        overflow: hidden;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-        text-align: left;
-        line-height: 1.4;
-    }
-
-    &[data-has-tags] .project-description {
-        min-height: 1.4em;
-        -webkit-line-clamp: 1;
-    }
-
-    .project-tags {
-        display: flex;
-        flex-wrap: wrap;
-        margin-top: 6px;
-        max-height: 18px;
-        overflow: hidden;
-    }
-
-    .project-tag {
-        flex: 0 0 auto;
-        max-width: 120px;
-        margin: 0 4px 0 0;
-        padding: 2px 6px;
-        border: 1px solid var(--vscode-panel-border);
-        border-radius: 999px;
-        color: var(--vscode-descriptionForeground);
-        font-size: 10px;
-        line-height: 1.2;
+        flex: 0 1 auto;
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        color: var(--steward-foreground);
+        font-family: var(--vscode-font-family);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.2;
+        margin: 0;
+    }
+
+    .project-path {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--steward-foreground);
+        opacity: 0.55;
+        font-family: var(--vscode-font-family);
+        font-size: 11px;
+        font-weight: 400;
+        line-height: 1.2;
+        margin: 0;
+        margin-left: 2px;
+    }
+
+    .project-row-actions {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex: 0 0 auto;
+        margin-left: auto;
+    }
+
+    .project-description {
+        display: none;
+    }
+
+    .project-tags {
+        display: contents;
+    }
+
+    .project-tag {
+        display: inline-flex;
+        align-items: center;
+        flex: 0 0 auto;
+        max-width: 140px;
+        padding: 1px 6px;
+        border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.08));
+        border-radius: 999px;
+        color: var(--vscode-descriptionForeground);
+        font-size: 10px;
+        line-height: 1.3;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .project-more-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        width: 16px;
+        height: 16px;
+        padding: 0;
+        border: 0;
+        border-radius: 4px;
+        color: var(--steward-path);
+        background: transparent;
+        cursor: pointer;
+        opacity: 0;
+        transition:
+            color $defaultTransition,
+            background $defaultTransition,
+            opacity $defaultTransition;
+
+        svg {
+            width: 14px;
+            height: 14px;
+            fill: currentColor;
+        }
+
+        &:hover {
+            color: var(--vscode-focusBorder);
+            background: var(--vscode-list-inactiveSelectionBackground, transparent);
+            opacity: 1;
+        }
+    }
+
+    &:hover .project-more-button {
+        opacity: 0.55;
     }
 
     .project-codex-badge,
@@ -461,7 +511,7 @@ body .project {
 
     .project-ai-attention-badge {
         position: absolute;
-        left: 4px;
+        left: 2px;
         top: 4px;
         z-index: 65;
         display: inline-flex;
@@ -481,10 +531,10 @@ body .project {
     }
 
     &.no-projects {
-        height: $projectCardMinHeight;
+        min-height: 40px;
         background: none;
-        font-size: 1.5em;
-        opacity: 0.6;
+        font-size: 1.2em;
+        opacity: 0.5;
         transition: opacity $defaultTransition;
 
         &:hover {
@@ -492,33 +542,86 @@ body .project {
         }
     }
 
-    &.no-projects {
-        opacity: 1;
-        text-align: center;
-    }
-
     &.import-data {
         width: calc(2 * var(--column-width));
     }
 
+    .project-row-actions {
+        .project-actions {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            opacity: 0;
+            transition: opacity $defaultTransition;
+
+            @include actions(14px, 2px);
+
+            [data-action] {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 20px;
+                height: 20px;
+                border-radius: 4px;
+                cursor: pointer;
+                color: var(--steward-path);
+                transition: color $defaultTransition, background $defaultTransition;
+
+                &:hover {
+                    color: var(--vscode-focusBorder);
+                    background: var(--vscode-list-inactiveSelectionBackground, transparent);
+                }
+            }
+        }
+    }
+
+    &:hover .project-row-actions .project-actions {
+        opacity: 0.65;
+    }
+
     .project-actions-wrapper {
-        position: absolute;
-        right: 0;
-        top: 0;
-        padding-top: calc(0.6em + #{$borderTopSize});
-        overflow-y: hidden;
+        display: none;
+    }
+}
+
+// TAG FILTER BAR
+.tag-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 0 8px;
+}
+
+.tag-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    padding: 2px 10px;
+    border: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.08));
+    border-radius: 999px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font-family: var(--vscode-font-family);
+    font-size: 11px;
+    line-height: 1.4;
+    cursor: pointer;
+    transition: background $defaultTransition, border-color $defaultTransition, color $defaultTransition;
+
+    &:hover {
+        border-color: var(--vscode-focusBorder);
+        color: var(--steward-foreground);
     }
 
-    .project-actions {
-        margin-top: calc(-2em - #{$borderTopSize});
-        transition: margin-top $defaultTransition $actionTransitionDelay;
-
-        @include actions($dataActionIconSize);
+    &.active {
+        border-color: var(--vscode-focusBorder);
+        color: var(--vscode-focusBorder);
+        background: var(--vscode-list-inactiveSelectionBackground, rgba(255,255,255,0.06));
     }
+}
 
-    &:hover .project-actions {
-        margin-top: 0;
-    }
+.project.tag-filtered {
+    display: none !important;
 }
 
 // CONTEXT MENU
@@ -627,7 +730,7 @@ body .project {
     position: sticky;
     width: calc(100% - #{2 * $defaultPadding});
     z-index: 200;
-    padding-bottom: math.div($defaultPadding, 2);
+    padding-bottom: 4px;
     background: var(--vscode-editor-background);
 }
 
@@ -639,7 +742,7 @@ body .project {
     align-items: center;
     justify-content: center;
 
-    padding-top: $defaultPadding;
+    padding-top: 14px;
 
     .search-box {
         display: flex;

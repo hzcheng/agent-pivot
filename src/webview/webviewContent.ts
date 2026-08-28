@@ -693,7 +693,7 @@ function getProjectDiv(
 
     return `
 <div class="project-container"${options.virtual && !options.draggableVirtualProjects ? ' data-nodrag' : ''}>
-    <div class="project" style="${colorStyles.cardStyle}" data-id="${project.id}" data-name="${searchText}" title="${escapedDescription || projectPath}"${isRemote ? ' data-is-remote' : ''
+    <div class="project" style="${colorStyles.cardStyle}" data-id="${project.id}" data-name="${searchText}" ${escapedDescription ? ` title="${escapedDescription}"` : ""}${isRemote ? ' data-is-remote' : ''
         }${options.virtual ? ' data-virtual-project' : ''
         }${options.readOnlyProjects ? ' data-readonly-project' : ''
         }${!options.readOnlyProjects ? ' data-has-favorite-toggle' : ''
@@ -705,7 +705,7 @@ function getProjectDiv(
         <div class="project-border" style="${colorStyles.accentStyle}"></div>
         <div class="project-row-main">
             <span class="project-header" title="${projectName}">${projectName}</span>
-            <span class="project-path" title="${projectPath}">${projectPathBase}</span>
+            <span class="project-path-sep">/</span><span class="project-path" title="${projectPath}">${projectPathBase}</span>
             <div class="project-row-actions">
                 ${saveBadge}
                 ${favoriteBadge}

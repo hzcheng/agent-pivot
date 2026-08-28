@@ -103,7 +103,9 @@ body {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 3px 0 6px;
+        padding: 4px 0 7px;
+        margin-bottom: 2px;
+        border-bottom: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.06));
         color: var(--vscode-descriptionForeground);
         font-family: var(--vscode-font-family);
         font-size: 11px;
@@ -387,8 +389,9 @@ body .project {
 
     .project-row-main {
         display: flex;
-        align-items: center;
-        gap: 6px;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 0 6px;
         width: 100%;
         min-height: 26px;
         padding-left: 14px;
@@ -407,17 +410,25 @@ body .project {
     }
 
     .project-header {
-        flex: 0 1 auto;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        flex: 0 0 auto;
         color: var(--steward-foreground);
         font-family: var(--vscode-font-family);
         font-size: 13px;
         font-weight: 600;
-        line-height: 1.2;
+        line-height: 1.3;
         margin: 0;
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    .project-path-sep {
+        flex: 0 0 auto;
+        color: var(--steward-foreground);
+        opacity: 0.3;
+        font-size: 13px;
+        font-weight: 300;
+        line-height: 1.3;
+        margin: 0 2px;
     }
 
     .project-path {
@@ -427,13 +438,12 @@ body .project {
         text-overflow: ellipsis;
         white-space: nowrap;
         color: var(--steward-foreground);
-        opacity: 0.55;
+        opacity: 0.45;
         font-family: var(--vscode-font-family);
         font-size: 11px;
         font-weight: 400;
-        line-height: 1.2;
+        line-height: 1.3;
         margin: 0;
-        margin-left: 2px;
     }
 
     .project-row-actions {

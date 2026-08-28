@@ -274,7 +274,7 @@ function renderChart(value: string, lang: string): string | undefined {
             ? renderPieChartGraphic(chart)
             : renderBarChartGraphic(chart);
     const rows = renderChartRows(chart);
-    return `<section class="conversation-chart conversation-chart-${chart.type}" role="img" aria-label="${escapeHtml(chart.title || `${chart.type} chart`)}">${title}${graphic}${rows}</section>`;
+    return `<section class="conversation-chart conversation-chart-${chart.type}" role="group" aria-label="${escapeHtml(chart.title || `${chart.type} chart`)}">${title}${graphic}${rows}</section>`;
 }
 
 function renderBarChartGraphic(chart: ConversationChartData): string {
@@ -585,7 +585,10 @@ function tableAlignmentClass(attributes: string): string {
 function renderTaskLists(html: string): string {
     return html.replace(
         /<li>\s*\[([ xX])\]\s+/g,
-        (_match, state: string) => `<li class="conversation-task-item"><span class="conversation-task-checkbox${state.toLowerCase() === 'x' ? ' conversation-task-checkbox-checked' : ''}" aria-hidden="true">${state.toLowerCase() === 'x' ? '✓' : ''}</span>`
+        (_match, state: string) => {
+            const completed = state.toLowerCase() === 'x';
+            return `<li class="conversation-task-item"><span class="conversation-task-checkbox${completed ? ' conversation-task-checkbox-checked' : ''}" aria-hidden="true">${completed ? '✓' : ''}</span><span class="conversation-task-state">${completed ? 'Completed' : 'Not completed'}</span>`;
+        }
     );
 }
 

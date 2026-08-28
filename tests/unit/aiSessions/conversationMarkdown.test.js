@@ -144,8 +144,10 @@ test('CONVERSATION-RICH-MARKDOWN-004 renders task lists, callouts, and bounded b
     ].join('\n'));
 
     assert.match(html, /conversation-task-checkbox-checked/);
+    assert.match(html, /conversation-task-state">Completed<\/span>/);
+    assert.match(html, /conversation-task-state">Not completed<\/span>/);
     assert.match(html, /conversation-callout-warning/);
-    assert.match(html, /conversation-chart/);
+    assert.match(html, /conversation-chart conversation-chart-bar" role="group"/);
     assert.match(html, /<progress class="conversation-chart-bar" max="100" value="100">/);
 });
 

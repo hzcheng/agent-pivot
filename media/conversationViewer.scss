@@ -773,7 +773,8 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     color: var(--vscode-descriptionForeground);
 }
 
-.conversation-progress-label {
+.conversation-progress-label,
+.conversation-task-state {
     position: absolute;
     width: 1px;
     height: 1px;

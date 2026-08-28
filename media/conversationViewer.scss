@@ -749,6 +749,11 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 }
 
 .conversation-chart-title { font-weight: 600; }
+.conversation-chart-body {
+    display: grid;
+    min-width: 0;
+    gap: 0.35rem;
+}
 .conversation-chart-row {
     display: grid;
     grid-template-columns: minmax(5rem, 1fr) minmax(4rem, 3fr) max-content;

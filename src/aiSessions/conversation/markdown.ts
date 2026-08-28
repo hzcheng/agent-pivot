@@ -284,7 +284,7 @@ function renderChart(value: string, lang: string): string | undefined {
             ? renderPieChartGraphic(chart)
             : renderBarChartGraphic(chart);
     const rows = renderChartRows(chart);
-    return `<section class="conversation-chart conversation-chart-${chart.type}" role="group">${title}${graphic}${rows}</section>`;
+    return `<section class="conversation-chart conversation-chart-${chart.type}" role="group">${title}<span class="conversation-chart-body">${graphic}${rows}</span></section>`;
 }
 
 function renderBarChartGraphic(chart: ConversationChartData): string {

@@ -232,6 +232,18 @@ test('CONVERSATION-RICH-MARKDOWN-008 preserves prose, task-list structure, and b
     renderConversationMarkdown('a *b* '.repeat(9_000));
     assert.ok(performance.now() - started < 500,
         'plain Markdown text stays linear enough for a bounded live message');
+
+    const adjacentCharts = renderConversationMarkdown([
+        '```chart',
+        '{"title":"Rendering coverage","labels":["Markdown","Math"],"values":[10,9]}',
+        '```',
+        '',
+        '```pie-chart',
+        '{"title":"Feature state","labels":["Ready","Preview"],"values":[8,1]}',
+        '```',
+    ].join('\n'));
+    assert.equal((adjacentCharts.match(/conversation-chart-body/g) || []).length, 2,
+        'every chart keeps its graphic and labels inside one card body');
 });
 
 test('CONVERSATION-RICH-MARKDOWN-006 renders controlled reference cards and explicit code line highlights', () => {

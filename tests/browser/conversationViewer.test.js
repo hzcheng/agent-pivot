@@ -11265,11 +11265,15 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structure
             '$$',
             '',
             '```chart',
+            '{"title":"Rendering coverage","labels":["Markdown","Math","Charts","Diffs"],"values":[10,9,8,10]}',
+            '```',
+            '',
+            '```chart',
             '{"type":"line","labels":["Start","Finish"],"values":[1,3]}',
             '```',
             '',
             '```pie-chart',
-            '{"labels":["Pass","Fail"],"values":[9,1]}',
+            '{"title":"Feature state","labels":["Ready","Preview"],"values":[8,1]}',
             '```',
             '',
             '```typescript {2}',
@@ -11349,6 +11353,8 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structure
         'model-supplied HTML remains text, never a styled DOM node');
     assert.equal(await page.locator('.conversation-chart-line polyline').count(), 1);
     assert.equal(await page.locator('.conversation-chart-pie circle').count(), 2);
+    assert.equal(await page.locator('.conversation-chart-body').count(), 3,
+        'each chart keeps its visual and labels in one explicit card body');
     assert.equal(await page.locator('.conversation-code-line-highlighted').count(), 1);
     assert.equal(await page.locator('.conversation-reference-card').count(), 1);
     const sortButton = page.locator('.conversation-table-sort').nth(1);
@@ -11370,6 +11376,13 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structure
         .evaluate(element => element.getBoundingClientRect().width);
     assert.ok(chartWidth <= 360,
         'charts fit the minimum supported conversation width');
+    const chartBounds = await page.locator('.conversation-chart').evaluateAll(charts => charts.map(chart => {
+        const bounds = chart.getBoundingClientRect();
+        return { top: bounds.top, bottom: bounds.bottom };
+    }));
+    assert.ok(chartBounds.every((bounds, index) => index === 0
+        || chartBounds[index - 1].bottom <= bounds.top),
+    'adjacent chart cards never overlap at the minimum supported conversation width');
 });
 
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-004 restores local table and diff controls across an authoritative refresh', async t => {

@@ -1,13 +1,22 @@
 function initProjectInlineEdit(dashboard) {
     var editingProjectId = null;
+    var originalPostMessage = window.vscode.postMessage.bind(window.vscode);
 
-    function showEditForm(projectDiv) {
+    window.vscode.postMessage = function(message) {
+        if (message && message.type === 'edit-project') {
+            showEditForm(message.projectId);
+            return;
+        }
+        return originalPostMessage(message);
+    };
+
+    function showEditForm(projectId) {
         if (editingProjectId) {
             cancelEdit();
         }
 
-        var projectId = projectDiv.getAttribute('data-id');
-        if (!projectId) return;
+        var projectDiv = document.querySelector('.project[data-id="' + CSS.escape(projectId) + '"]');
+        if (!projectDiv || projectDiv.hasAttribute('data-readonly-project')) return;
 
         editingProjectId = projectId;
         projectDiv.setAttribute('data-editing', '');
@@ -45,7 +54,7 @@ function initProjectInlineEdit(dashboard) {
             return;
         }
 
-        window.vscode.postMessage({
+        originalPostMessage({
             type: 'save-project-inline',
             projectId: editingProjectId,
             name: name,
@@ -62,16 +71,6 @@ function initProjectInlineEdit(dashboard) {
         if (!actionEl) return;
 
         var action = actionEl.getAttribute('data-action');
-        if (action === 'edit') {
-            var projectDiv = actionEl.closest('.project[data-id]');
-            if (projectDiv && !projectDiv.hasAttribute('data-readonly-project')) {
-                e.preventDefault();
-                e.stopPropagation();
-                showEditForm(projectDiv);
-                return;
-            }
-        }
-
         if (action === 'cancel-edit') {
             e.preventDefault();
             e.stopPropagation();

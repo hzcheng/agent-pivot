@@ -2473,6 +2473,32 @@ async function renderHostViewerDocument(options = {}) {
     return panel.webview.html;
 }
 
+test('WEBVIEW-RESOURCE-RECOVERY-001 gives every Conversation Viewer document fresh versioned asset URLs', async () => {
+    const first = await renderHostViewerDocument();
+    const second = await renderHostViewerDocument();
+    const revisionPattern = /https:\/\/viewer\.test\/conversationViewer\.css\?conversationViewerAssetRevision=([a-z0-9]+-\d+)/;
+    const firstRevision = first.match(revisionPattern);
+    const secondRevision = second.match(revisionPattern);
+
+    assert.ok(firstRevision,
+        'Conversation Viewer stylesheet URL must carry a document-scoped asset revision');
+    assert.ok(secondRevision,
+        'a refreshed Conversation Viewer document must carry an asset revision');
+    assert.notEqual(firstRevision[1], secondRevision[1],
+        'a refreshed document must not reuse a possibly stale cached stylesheet');
+    for (const asset of [
+        'conversationTelemetry.css',
+        'katex.min.css',
+        'purify.min.js',
+        'mermaid.min.js',
+        'conversationViewerScripts.js',
+    ]) {
+        assert.match(first, new RegExp(
+            `https:\\/\\/viewer\\.test\\/${asset.replace(/\./g, '\\.')}\\?conversationViewerAssetRevision=${firstRevision[1]}`
+        ), `${asset} must share the document asset revision`);
+    }
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 publishes content before local metadata restoration settles', async () => {
     let panel;
     let releaseCommentRestore;

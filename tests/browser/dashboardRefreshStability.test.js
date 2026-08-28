@@ -230,8 +230,8 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
     const before = await anchor.evaluate(node => {
         const list = node.closest('.group-list');
         list.scrollTop = node.offsetTop - list.offsetTop - 15;
-        node.querySelector('[data-action="edit"]').setAttribute('tabindex', '0');
-        node.querySelector('[data-action="edit"]').focus();
+        node.querySelector('[data-action="edit-inline"]').setAttribute('tabindex', '0');
+        node.querySelector('[data-action="edit-inline"]').focus();
         window.scrollTo(0, 80);
         return { offset: node.getBoundingClientRect().top - list.getBoundingClientRect().top, scrollY: window.scrollY };
     });
@@ -253,7 +253,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
         const list = node.closest('.group-list');
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
     })) - before.offset) <= 1);
-    assert.equal(await restored.locator('[data-action="edit"]').evaluate(node => document.activeElement === node), true);
+    assert.equal(await restored.locator('[data-action="edit-inline"]').evaluate(node => document.activeElement === node), true);
     assert.equal(await page.evaluate(() => window.scrollY), before.scrollY);
 });
 

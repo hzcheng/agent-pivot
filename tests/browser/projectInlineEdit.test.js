@@ -50,6 +50,20 @@ function projectsMarkup() {
     });
 }
 
+function projectsMarkupWithFavoriteMirror() {
+    return getProjectsPanelContent([{
+        id: 'reddev-container', groupName: 'reddev container', collapsed: false,
+        projects: [{
+            id: 'agent-pivot', name: 'agent-pivot', path: '/work/agent-pivot',
+            description: 'Original description', tags: ['frontend'], favorite: true,
+        }],
+    }], {
+        config: { get: (_key, fallback) => fallback },
+        favoritesGroupCollapsed: false,
+        otherStorageHasData: false,
+    });
+}
+
 async function openInlineEditPage(t) {
     const page = await browser.newPage({ viewport: { width: 480, height: 480 } });
     t.after(() => page.close());
@@ -112,6 +126,14 @@ test('PROJECT-INLINE-EDIT-001 opens and saves in the row without invoking the le
     });
     assert.equal(await form.locator('[data-edit-field="name"]').isDisabled(), true,
         'the form remains pending until the Host applies authoritative state');
+
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: request.requestId, projectId: 'project-a', status: 'saved',
+    });
+    assert.equal(await form.locator('[data-edit-field="name"]').isDisabled(), false,
+        'the authoritative saved settlement keeps the restored form usable');
+    assert.equal(await form.locator('[data-project-edit-feedback]').textContent(), 'Saved.');
 });
 
 test('PROJECT-INLINE-EDIT-001 restores only the matching failed save for retry', async t => {
@@ -138,4 +160,59 @@ test('PROJECT-INLINE-EDIT-001 restores only the matching failed save for retry',
         'the matching failed settlement restores form controls');
     assert.equal(await page.locator('[data-project-edit-feedback]').textContent(),
         'Could not save the project. Try again.');
+});
+
+test('PROJECT-INLINE-EDIT-001 edits the clicked source card rather than its Favorites mirror', async t => {
+    const page = await openInlineEditPage(t);
+    await page.locator('#dashboard-tab-projects').evaluate((panel, html) => {
+        panel.innerHTML = html;
+    }, projectsMarkupWithFavoriteMirror());
+
+    const sourceProject = page.locator(
+        '.group[data-group-id="reddev-container"] .project[data-id="agent-pivot"]'
+    );
+    const favoriteProject = page.locator(
+        '.group[data-system-group="__favorites"] .project[data-id="agent-pivot"]'
+    );
+    await sourceProject.locator('[data-action="edit-inline"]').evaluate(button => button.click());
+
+    assert.equal(await sourceProject.locator('.project-edit-form').isVisible(), true,
+        'the source card entered edit mode');
+    assert.equal(await favoriteProject.locator('.project-edit-form').isVisible(), false,
+        'the Favorites mirror remains a read-only view of the source edit');
+    assert.equal(await page.evaluate(() => window.__postedMessages.some(
+        message => message.type === 'selected-project'
+    )), false, 'the edit click does not fall through into project opening');
+});
+
+test('PROJECT-INLINE-EDIT-001 preserves the active source form through an authoritative panel replacement', async t => {
+    const page = await openInlineEditPage(t);
+    await page.locator('#dashboard-tab-projects').evaluate((panel, html) => {
+        panel.innerHTML = html;
+    }, projectsMarkupWithFavoriteMirror());
+
+    const sourceProject = page.locator(
+        '.group[data-group-id="reddev-container"] .project[data-id="agent-pivot"]'
+    );
+    await sourceProject.locator('[data-action="edit-inline"]').evaluate(button => button.click());
+    await sourceProject.locator('[data-edit-field="description"]').fill('Still editing');
+    const state = await page.evaluate(() => window.__agentPivotProjectInlineEdit.captureState());
+
+    await page.locator('#dashboard-tab-projects').evaluate((panel, html) => {
+        panel.innerHTML = html;
+    }, projectsMarkupWithFavoriteMirror());
+    await page.evaluate(value => window.__agentPivotProjectInlineEdit.restoreState(value), state);
+
+    const restoredSource = page.locator(
+        '.group[data-group-id="reddev-container"] .project[data-id="agent-pivot"]'
+    );
+    assert.equal(await restoredSource.locator('.project-edit-form').isVisible(), true);
+    assert.equal(await restoredSource.locator('[data-edit-field="description"]').inputValue(),
+        'Still editing');
+    assert.equal(await page.locator(
+        '.group[data-system-group="__favorites"] .project[data-id="agent-pivot"]'
+    ).locator('.project-edit-form').isVisible(), false);
+    assert.equal(await restoredSource.locator('[data-edit-field="description"]')
+        .evaluate(input => document.activeElement === input), true,
+        'the editor focus returns to the same field after replacement');
 });

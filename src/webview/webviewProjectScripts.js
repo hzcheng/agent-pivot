@@ -307,6 +307,7 @@ function initProjects() {
     var projectInlineEdit = typeof initProjectInlineEdit === 'function'
         ? initProjectInlineEdit()
         : null;
+    window.__agentPivotProjectInlineEdit = projectInlineEdit;
     var groupCollapse = initProjectGroupCollapse();
     var aiSessionPresentationStateStore = null;
     var aiSessionControls = initProjectAiSessionControls({

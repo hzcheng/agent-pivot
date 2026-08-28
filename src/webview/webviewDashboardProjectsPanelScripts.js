@@ -98,6 +98,9 @@ function createDashboardProjectsPanel(injected) {
         }
         restoreProjectsPanelAnchors(panels.projects, panelState);
         restoreProjectsFocus(panels.projects, panelState.focus);
+        if (panelState.inlineEdit && window.__agentPivotProjectInlineEdit) {
+            window.__agentPivotProjectInlineEdit.restoreState(panelState.inlineEdit);
+        }
         restoreProjectsWindowScroll(panelState);
         requestAnimationFrame(() => {
             if (replacementGeneration !== projectsPanelReplacementGeneration) {

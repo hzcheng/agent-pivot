@@ -97,6 +97,14 @@
       ]
     },
     {
+      "symbol": "window.__agentPivotProjectInlineEdit",
+      "producer": "src/webview/webviewProjectScripts.js",
+      "consumers": [
+        "src/webview/webviewDashboardProjectsPanelScripts.js",
+        "src/webview/webviewProjectsPanelScripts.js"
+      ]
+    },
+    {
       "symbol": "window.__agentPivotDashboard",
       "producer": "host"
     },

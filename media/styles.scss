@@ -2058,6 +2058,11 @@ body.steward-sidebar {
             overflow: hidden;
         }
 
+        .groups-wrapper > .group:not(#tempGroup) .steward-group-header,
+        .ai-tablist {
+            top: 4px;
+        }
+
     }
 
     .open-session-surface {
@@ -2155,7 +2160,7 @@ body.steward-sidebar {
 
         > .group:not(#tempGroup) .steward-group-header {
             position: sticky;
-            top: 4px;
+            top: calc(var(--steward-sticky-header-height) + 4px);
             z-index: 160;
             box-shadow: 0 2px 4px rgba(0, 0, 0, .12);
         }
@@ -6732,7 +6737,7 @@ body.steward-sidebar .open-session-surface .ai-session-attention-indicator {
 
 body.steward-sidebar .ai-tablist {
     position: sticky;
-    top: 4px;
+    top: calc(var(--steward-sticky-header-height) + 4px);
     z-index: 170;
     padding-top: 2px;
     background: var(--vscode-editor-background);

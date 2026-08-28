@@ -186,9 +186,11 @@ function createForm(document, kind, promptId) {
     return form;
 }
 
-function createPromptRoot(document, initialHtml) {
+function createPromptRoot(document, initialHtml, rootId = '') {
     const listeners = {};
     const root = {
+        id: rootId,
+        scrollTop: 0,
         _html: '',
         surface: null,
         list: null,
@@ -399,7 +401,7 @@ function createPromptHarness(options = {}) {
     const messages = [];
     const windowListeners = {};
     const document = { activeElement: null, body: {} };
-    const root = createPromptRoot(document, initialHtml);
+    const root = createPromptRoot(document, initialHtml, options.rootId);
     let uuid = 0;
     const context = {
         console,
@@ -1135,6 +1137,24 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores list scroll and semantic Prompt
     assert.equal(restored.getAttribute('data-prompt-id'), 'prompt-b');
     assert.equal(restored.getAttribute('data-action'), 'prompt-edit');
     assert.notEqual(restored, focused);
+});
+
+test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores the owning AI panel scroll after a Prompt replacement', () => {
+    const harness = createPromptHarness({ rootId: 'dashboard-panel-ai' });
+    harness.root.scrollTop = 91;
+    harness.context.window.scrollY = 17;
+    harness.controller.applyRefresh({
+        type: 'prompt-panel-updated',
+        version: 1,
+        authoritySequence: 2,
+        target: 'global-prompt-library',
+        snapshot: snapshotAt(1),
+        html: surfaceHtml(1),
+    });
+
+    assert.equal(harness.root.scrollTop, 91);
+    assert.equal(harness.context.window.scrollY, 17,
+        'Dashboard Prompt replacement must not attempt to restore obsolete root scrolling');
 });
 
 test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores the real viewport and semantic create edit and New focus', () => {

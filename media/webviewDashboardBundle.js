@@ -11508,7 +11508,8 @@ function initDashboard(options) {
     function activateTab(tab, saveScroll) {
         tab = normalizeDashboardTab(tab);
         saveScroll = saveScroll !== false;
-        if (tab !== activeTab) {
+        var tabChanged = tab !== activeTab;
+        if (tabChanged) {
             if (saveScroll) {
                 scrollPositions[activeTab] = readTabScrollPosition(activeTab);
             }
@@ -11523,19 +11524,23 @@ function initDashboard(options) {
         }
         if (activeTab === 'projects') {
             if (projectsPanel.getProjectsState() === 'mounted') {
-                restoreScroll('projects');
+                if (tabChanged) {
+                    restoreScroll('projects');
+                }
             } else {
                 pendingScrollRestoreTab = 'projects';
                 projectsPanel.ensureProjectsPanel();
             }
         } else if (activeTab === 'ai') {
             if (aiPanel.getAiState() === 'mounted') {
-                restoreScroll('ai');
+                if (tabChanged) {
+                    restoreScroll('ai');
+                }
             } else {
                 pendingScrollRestoreTab = 'ai';
                 aiPanel.ensureAiPanel();
             }
-        } else {
+        } else if (tabChanged) {
             restoreScroll(activeTab);
         }
         notifyActiveTabChanged();
@@ -11547,8 +11552,12 @@ function initDashboard(options) {
         if (!wasActive && nextQuery) {
             scrollPositions[activeTab] = readTabScrollPosition(activeTab);
         }
+        var queryChanged = nextQuery !== searchQuery;
         searchQuery = nextQuery;
         renderSearchMode();
+        if (queryChanged && searchQuery && searchResults) {
+            searchResults.scrollTop = 0;
+        }
         if (!searchQuery && wasActive) {
             renderActiveTab();
             if (activeTab === 'projects' && projectsPanel.getProjectsState() !== 'mounted') {
@@ -12474,12 +12483,22 @@ function tabName(tab) {
             : null;
     }
 
+    function getPromptPanelScrollPort() {
+        return root
+            && root.id === 'dashboard-panel-ai'
+            && typeof root.scrollTop === 'number'
+            ? root
+            : null;
+    }
+
     function captureLocalState() {
         var list = getPromptList();
+        var panelScrollPort = getPromptPanelScrollPort();
         return {
             focus: captureSemanticFocus(),
             scrollTop: list && typeof list.scrollTop === 'number' ? list.scrollTop : 0,
-            scrollY: typeof window.scrollY === 'number' ? window.scrollY : 0,
+            panelScrollTop: panelScrollPort ? panelScrollPort.scrollTop : null,
+            scrollY: panelScrollPort ? null : (typeof window.scrollY === 'number' ? window.scrollY : 0),
             draft: clonePromptValue(state.draft),
             activeSubtab: state.activeSubtab,
         };
@@ -12490,12 +12509,15 @@ function tabName(tab) {
             return;
         }
         activateSubtab(local.activeSubtab, false);
+        restoreSemanticFocus(local.focus);
         var list = getPromptList();
         if (list) {
             list.scrollTop = local.scrollTop;
         }
-        restoreSemanticFocus(local.focus);
-        if (typeof window.scrollTo === 'function') {
+        var panelScrollPort = getPromptPanelScrollPort();
+        if (panelScrollPort && Number.isFinite(local.panelScrollTop)) {
+            panelScrollPort.scrollTop = local.panelScrollTop;
+        } else if (typeof window.scrollTo === 'function') {
             window.scrollTo(0, local.scrollY);
         }
     }
@@ -12644,6 +12666,7 @@ function tabName(tab) {
             draft: local.draft,
             focus: local.focus,
             scrollTop: local.scrollTop,
+            panelScrollTop: local.panelScrollTop,
             scrollY: local.scrollY,
             activeSubtab: local.activeSubtab,
         });
@@ -13291,7 +13314,10 @@ function initDnD(root) {
     });
     groupsDrake.on('drop', onReordered);
 
-    const scroll = autoScroll(window, {
+    // Projects owns the vertical scrollport in the shell. Scrolling
+    // the window leaves offscreen drop targets unreachable once the shell
+    // suppresses document scrolling.
+    const scroll = autoScroll(root, {
         margin: 20,
         autoScroll: function () {
             return this.down && (projectDrake.dragging || groupsDrake.dragging);

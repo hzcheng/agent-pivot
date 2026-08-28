@@ -2005,6 +2005,11 @@ test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent 
         type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>stale</p>',
     }), false);
     assert.equal(harness.projectsPanel.innerHTML, '<p>current</p>');
+    harness.controller.activateTab('projects');
+    harness.projectsPanel.scrollTop = 27;
+    harness.controller.activateTab('projects');
+    assert.equal(harness.projectsPanel.scrollTop, 27,
+        'reselecting the active Projects tab must not restore stale scroll state');
 
 });
 
@@ -2661,6 +2666,7 @@ test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 maps ctrl meta and middle-click proje
 function createDndHarness({ projectContainers = [], groupElements = [] } = {}) {
     const drakes = [];
     const messages = [];
+    const scrollTargets = [];
     const windowListeners = {};
     const context = {
         document: {
@@ -2687,7 +2693,10 @@ function createDndHarness({ projectContainers = [], groupElements = [] } = {}) {
             drakes.push({ containers, options, handlers, drake });
             return drake;
         },
-        autoScroll: () => ({ destroy: () => undefined }),
+        autoScroll: target => {
+            scrollTargets.push(target);
+            return { destroy: () => undefined };
+        },
     };
     vm.runInNewContext(dndSource, context);
     const rootElement = {
@@ -2699,7 +2708,7 @@ function createDndHarness({ projectContainers = [], groupElements = [] } = {}) {
             return [];
         },
     };
-    return { context, rootElement, drakes, messages, windowListeners };
+    return { context, rootElement, drakes, messages, scrollTargets, windowListeners };
 }
 
 test('WEBVIEW-FAVORITE-DND-001 limits favorite drag to the same virtual container and posts exact order', () => {
@@ -2730,6 +2739,8 @@ test('WEBVIEW-FAVORITE-DND-001 limits favorite drag to the same virtual containe
     harness.context.initDnD(harness.rootElement);
     assert.equal(harness.rootElement.__agentPivotDnDInitialized, true);
     assert.equal(harness.drakes.length, 2);
+    assert.deepEqual(harness.scrollTargets, [harness.rootElement],
+        'drag autoscroll must target the Projects panel rather than the root window');
     harness.drakes[0].handlers.drop({}, favorites, favorites);
     assert.deepEqual(toPlain(harness.messages), [{
         type: 'reordered-favorites', projectIds: ['favorite-b', 'favorite-a'],

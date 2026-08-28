@@ -152,7 +152,8 @@ function initDashboard(options) {
     function activateTab(tab, saveScroll) {
         tab = normalizeDashboardTab(tab);
         saveScroll = saveScroll !== false;
-        if (tab !== activeTab) {
+        var tabChanged = tab !== activeTab;
+        if (tabChanged) {
             if (saveScroll) {
                 scrollPositions[activeTab] = readTabScrollPosition(activeTab);
             }
@@ -167,19 +168,23 @@ function initDashboard(options) {
         }
         if (activeTab === 'projects') {
             if (projectsPanel.getProjectsState() === 'mounted') {
-                restoreScroll('projects');
+                if (tabChanged) {
+                    restoreScroll('projects');
+                }
             } else {
                 pendingScrollRestoreTab = 'projects';
                 projectsPanel.ensureProjectsPanel();
             }
         } else if (activeTab === 'ai') {
             if (aiPanel.getAiState() === 'mounted') {
-                restoreScroll('ai');
+                if (tabChanged) {
+                    restoreScroll('ai');
+                }
             } else {
                 pendingScrollRestoreTab = 'ai';
                 aiPanel.ensureAiPanel();
             }
-        } else {
+        } else if (tabChanged) {
             restoreScroll(activeTab);
         }
         notifyActiveTabChanged();
@@ -191,8 +196,12 @@ function initDashboard(options) {
         if (!wasActive && nextQuery) {
             scrollPositions[activeTab] = readTabScrollPosition(activeTab);
         }
+        var queryChanged = nextQuery !== searchQuery;
         searchQuery = nextQuery;
         renderSearchMode();
+        if (queryChanged && searchQuery && searchResults) {
+            searchResults.scrollTop = 0;
+        }
         if (!searchQuery && wasActive) {
             renderActiveTab();
             if (activeTab === 'projects' && projectsPanel.getProjectsState() !== 'mounted') {

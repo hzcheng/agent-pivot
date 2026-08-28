@@ -38,6 +38,7 @@ function target(sessionId = 'session-telemetry') {
 
 test('CONVERSATION-TELEMETRY-CONTROLLER-001 publishes only current correlated reads', async () => {
     const posted = [];
+    const published = [];
     const activeTarget = target();
     let resolveRead;
     let generation = 2;
@@ -59,6 +60,9 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 publishes only current correlated re
         getCurrentRequestId: () => requestId,
         isSuspended: () => false,
         rebuildLatestDocument() {},
+        onDidPublish: (publishedTarget, telemetry) => {
+            published.push({ publishedTarget, telemetry });
+        },
     });
     const refresh = controller.refresh(activeTarget, generation);
     requestId = 8;
@@ -78,6 +82,10 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 publishes only current correlated re
         subscriptionGeneration: 2,
         telemetry: controller.snapshot,
     }]);
+    assert.deepEqual(published, [{
+        publishedTarget: activeTarget,
+        telemetry: controller.snapshot,
+    }], 'consumers receive the resolved telemetry worktree with the refresh');
 
     generation = 3;
     controller.reset();

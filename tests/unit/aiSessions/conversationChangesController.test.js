@@ -12,6 +12,7 @@ const {
 
 const REPO_KEY = '/repos/api/.git';
 const WT_PATH = '/repos/api/.worktrees/fix-login';
+const ACTIVE_WT_PATH = '/repos/api/.worktrees/refactor-auth';
 const BASELINE = {
     commitSha: 'a'.repeat(40),
     capturedAt: 1724000000000,
@@ -562,6 +563,52 @@ test('WORKTREE-CHANGES-PANEL-001 refresh re-resolves membership changes', async 
         'a member swap surfaces without reopening the conversation');
     assert.equal(state.selectedMemberId, 'member-2',
         'a vanished selection falls back to a live member');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 follows the worktree currently modified by the conversation', async () => {
+    const activeKey = {
+        repositoryKey: REPO_KEY,
+        canonicalWorktreePath: ACTIVE_WT_PATH,
+    };
+    const { posted, controller } = fixture({
+        resolveWorktreeKey: async candidate =>
+            candidate === ACTIVE_WT_PATH ? activeKey : undefined,
+        findGroupByWorktreeKey: () => ({
+            groupId: 'group-1',
+            primaryMemberId: 'member-1',
+            members: [{
+                memberId: 'member-1',
+                repositoryKey: REPO_KEY,
+                worktreeKey: {
+                    repositoryKey: REPO_KEY,
+                    canonicalWorktreePath: WT_PATH,
+                },
+                branchName: 'agent-pivot/fix-login',
+                path: WT_PATH,
+                state: 'ready',
+                baseline: BASELINE,
+            }, {
+                memberId: 'member-2',
+                repositoryKey: REPO_KEY,
+                worktreeKey: activeKey,
+                branchName: 'agent-pivot/refactor-auth',
+                path: ACTIVE_WT_PATH,
+                state: 'ready',
+                baseline: BASELINE,
+            }],
+        }),
+    });
+
+    await controller.activate(TARGET);
+    assert.equal(lastChanges(posted).selectedMemberId, 'member-1',
+        'the persisted session worktree supplies the initial selection');
+
+    await controller.onTelemetryRefreshed(TARGET, ACTIVE_WT_PATH);
+
+    const state = lastChanges(posted);
+    assert.equal(state.selectedMemberId, 'member-2');
+    assert.equal(state.detail.memberId, 'member-2',
+        'the Git sidebar switches to the worktree where the conversation is working');
 });
 
 test('WORKTREE-CHANGES-COMMITS-001 commits list responds with the stamped generation and member correlation', async () => {

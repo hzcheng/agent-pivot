@@ -39,7 +39,10 @@ export interface ConversationTelemetryControllerOptions {
     rebuildLatestDocument: () => void;
     /** Fires after each successful telemetry publish (changes-panel PRD
      * §5.4: the telemetry cycle is the changes collector's fallback). */
-    onDidPublish?: (target: ConversationViewerTarget) => void;
+    onDidPublish?: (
+        target: ConversationViewerTarget,
+        telemetry: ConversationTelemetry | undefined
+    ) => void;
     setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
     clearTimer?: (handle: TimerHandle) => void;
 }
@@ -186,7 +189,7 @@ export class ConversationTelemetryController {
             && this.options.getSubscriptionGeneration() === generation) {
             this.options.rebuildLatestDocument();
         }
-        this.options.onDidPublish?.(target);
+        this.options.onDidPublish?.(target, telemetry);
     }
 
     private scheduleRefresh(): void {

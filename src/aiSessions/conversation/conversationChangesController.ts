@@ -3,6 +3,7 @@
 import * as path from 'path';
 import { createHash } from 'crypto';
 import type * as vscode from 'vscode';
+import { worktreeKeysEqual } from '../../worktreeIdentity';
 import {
     aggregateMemberChanges,
     ChangesCollector,
@@ -43,12 +44,15 @@ interface ChangesMemberSource {
     repoLabel: string;
     branchName: string;
     worktreePath: string;
+    worktreeKey?: WorktreeKey;
     baseline?: MemberBaseline;
     detached?: boolean;
 }
 
 interface ResolvedChangeSet {
     kind: 'ready' | 'retired' | 'unavailable';
+    /** The worktree that determined this view's member set. */
+    worktreeKey?: WorktreeKey;
     members: ChangesMemberSource[];
     /** Primary member of the owning group (default selection anchor). */
     primaryMemberId?: string;
@@ -213,10 +217,20 @@ export class ConversationChangesController {
         await this.collectAndPublish(target);
     }
 
-    /** Piggyback refresh (telemetry cycle fallback, PRD §5.4). */
-    async onTelemetryRefreshed(target: ConversationViewerTarget): Promise<void> {
+    /**
+     * Piggyback refresh (telemetry cycle fallback, PRD §5.4). A resolved
+     * telemetry worktree is the conversation's latest working location and
+     * supersedes its launch-time identity for this live Git view.
+     */
+    async onTelemetryRefreshed(
+        target: ConversationViewerTarget,
+        activeWorktreePath?: string
+    ): Promise<void> {
         if (!this.matchesActive(target)) {
             return;
+        }
+        if (activeWorktreePath) {
+            await this.rebindToActiveWorktree(target, activeWorktreePath);
         }
         await this.collectAndPublish(target);
     }
@@ -596,15 +610,60 @@ export class ConversationChangesController {
 
     /**
      * Authoritative resolution order (PRD §4.1): persisted identity →
-     * manifest → retired identity → live fallback → hidden. A tool
-     * call's cwd never overrides the session's persisted identity.
+     * manifest → retired identity → live fallback → hidden. A resolved
+     * telemetry worktree, when supplied, is the current working location;
+     * otherwise the persisted session identity remains authoritative.
      */
+    private async rebindToActiveWorktree(
+        target: ConversationViewerTarget,
+        activeWorktreePath: string
+    ): Promise<void> {
+        const active = this.active;
+        if (!active || !this.matchesActive(target)) {
+            return;
+        }
+        let worktreeKey: WorktreeKey | undefined;
+        try {
+            worktreeKey = await this.options.resolveWorktreeKey(activeWorktreePath);
+        } catch (_error) {
+            return;
+        }
+        if (!worktreeKey || (active.changeSet.worktreeKey
+            && worktreeKeysEqual(active.changeSet.worktreeKey, worktreeKey))) {
+            return;
+        }
+        const changeSet = await this.resolveChangeSet(target, worktreeKey);
+        if (this.active !== active || !this.matchesActive(target)) {
+            return;
+        }
+        active.watcher?.dispose();
+        active.changeSet = changeSet;
+        active.snapshots.clear();
+        active.selectedMemberId = changeSet.members.find(member =>
+            member.worktreeKey
+            && worktreeKeysEqual(member.worktreeKey, worktreeKey))?.memberId
+            ?? (changeSet.primaryMemberId && changeSet.members.some(member =>
+                member.memberId === changeSet.primaryMemberId)
+                ? changeSet.primaryMemberId
+                : undefined)
+            ?? changeSet.members[0]?.memberId;
+        active.watcher = changeSet.kind === 'ready' && changeSet.members.length
+            ? this.options.watchRepositoryChanges?.(
+                changeSet.members.map(member => member.worktreePath),
+                () => this.handleExternalChange(target))
+            : undefined;
+        if (changeSet.kind !== 'ready') {
+            this.publishState(active);
+        }
+    }
+
     private async resolveChangeSet(
-        target: ConversationViewerTarget
+        target: ConversationViewerTarget,
+        activeWorktreeKey?: WorktreeKey
     ): Promise<ResolvedChangeSet> {
         const identity = await this.options.resolveSessionIdentity(target);
         const navigationIdentity = identity?.navigationIdentity;
-        let key = identity?.worktreeKey;
+        let key = activeWorktreeKey || identity?.worktreeKey;
         if (!key && identity?.cwd) {
             key = await this.options.resolveWorktreeKey(identity.cwd);
         }
@@ -620,12 +679,13 @@ export class ConversationChangesController {
             return members.length
                 ? {
                     kind: 'ready',
+                    worktreeKey: key,
                     members,
                     ...(group.primaryMemberId
                         ? { primaryMemberId: group.primaryMemberId }
                         : {}),
                 }
-                : { kind: 'unavailable', members: [] };
+                : { kind: 'unavailable', worktreeKey: key, members: [] };
         }
         // Retired check must precede the live fallback (PRD §4.1): a
         // deleted worktree's session is retired, not unmanaged.
@@ -634,11 +694,12 @@ export class ConversationChangesController {
                 record.repositoryKey === key!.repositoryKey
                 && record.canonicalWorktreePath === key!.canonicalWorktreePath);
         if (retired) {
-            return { kind: 'retired', members: [] };
+            return { kind: 'retired', worktreeKey: key, members: [] };
         }
         // Degraded single-member view for unmanaged / legacy sessions.
         return {
             kind: 'ready',
+            worktreeKey: key,
             members: [{
                 // Protocol member ids are charset-restricted; hash the
                 // repository key (paths contain separators).
@@ -758,6 +819,7 @@ function memberSource(member: WorktreeGroupMember): ChangesMemberSource {
         repoLabel: repoLabelFromKey(member.repositoryKey),
         branchName: member.branchName,
         worktreePath: member.worktreeKey!.canonicalWorktreePath,
+        worktreeKey: member.worktreeKey,
         ...(member.baseline ? { baseline: member.baseline } : {}),
         ...(member.detached ? { detached: true } : {}),
     };

@@ -576,8 +576,11 @@ export class ConversationViewer implements ConversationViewerApi {
             getCurrentRequestId: () => this.currentRequestId,
             isSuspended: () => this.suspended,
             rebuildLatestDocument: () => this.rebuildLatestDocument(),
-            onDidPublish: target => {
-                void this.changesController?.onTelemetryRefreshed(target);
+            onDidPublish: (target, telemetry) => {
+                void this.changesController?.onTelemetryRefreshed(
+                    target,
+                    telemetry?.worktree?.worktreeRoot
+                );
             },
             setTimer: options.setTimer,
             clearTimer: options.clearTimer,

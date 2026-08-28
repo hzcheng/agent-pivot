@@ -8805,15 +8805,21 @@ function initProjects() {
 /* src/webview/webviewProjectEditScripts.js */
 function initProjectInlineEdit(dashboard) {
     var editingProjectId = null;
-    var originalPostMessage = window.vscode.postMessage.bind(window.vscode);
 
-    window.vscode.postMessage = function(message) {
-        if (message && message.type === 'edit-project') {
-            showEditForm(message.projectId);
-            return;
-        }
-        return originalPostMessage(message);
-    };
+    // Intercept the context menu's onTriggerProjectAction to catch edit clicks.
+    // window.__agentPivotContextMenus is set by initProjects() before this runs.
+    var contextMenus = window.__agentPivotContextMenus;
+    if (contextMenus) {
+        var originalOnTrigger = contextMenus.onTriggerProjectAction;
+        contextMenus.onTriggerProjectAction = function(target, projectId) {
+            var actionDiv = target.closest('[data-action]');
+            if (actionDiv && actionDiv.getAttribute('data-action') === 'edit') {
+                showEditForm(projectId);
+                return true;
+            }
+            return originalOnTrigger.call(contextMenus, target, projectId);
+        };
+    }
 
     function showEditForm(projectId) {
         if (editingProjectId) {
@@ -8859,7 +8865,7 @@ function initProjectInlineEdit(dashboard) {
             return;
         }
 
-        originalPostMessage({
+        window.vscode.postMessage({
             type: 'save-project-inline',
             projectId: editingProjectId,
             name: name,

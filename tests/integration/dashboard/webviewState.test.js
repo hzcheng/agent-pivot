@@ -314,6 +314,10 @@ function createDashboardHarness({
             scrollY: 0,
             scrollTo: (_x, y) => { context.window.scrollY = y; },
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
+            sessionStorage: {
+                getItem: key => storage.get(key) || null,
+                setItem: (key, value) => storage.set(key, value),
+            },
             __agentPivotPrompts: {
                 mount(root, message) {
                     promptMounts.push({ root, html: root.innerHTML, message });

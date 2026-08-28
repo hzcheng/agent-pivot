@@ -226,9 +226,13 @@ async function openDashboardPage(t, options = {}) {
                         panel.setAttribute('data-header-fit-generation', String(mountGeneration));
                     }
                 });
+                window.__tagFiltering = initTagFiltering(
+                    window.__tagFiltering && window.__tagFiltering.activeTags
+                );
             },
         });
         window.__filtering = initFiltering(false, window.__dashboard);
+        window.__tagFiltering = initTagFiltering();
     });
     return page;
 }
@@ -262,6 +266,41 @@ test('WEBVIEW-DASHBOARD-SEARCH-001 keeps search usable when Webview sessionStora
     assert.equal(await result.count(), 1);
     assert.equal(await result.textContent(), 'reddev-container');
     assert.equal(await page.locator('#dashboard-search-results').isVisible(), true);
+});
+
+test('TAG-FILTER-BAR-001 binds lazy tag chips again after an authoritative Projects replacement', async t => {
+    const page = await openDashboardPage(t);
+    await page.evaluate(() => window.__dashboard.activateTab('projects'));
+    const taggedMarkup = getProjectsPanelContent([{
+        id: 'group-a', groupName: 'Projects', collapsed: false, projects: [
+            { id: 'frontend', name: 'Frontend', path: '/work/frontend', tags: ['frontend'] },
+            { id: 'backend', name: 'Backend', path: '/work/backend', tags: ['backend'] },
+        ],
+    }], {
+        config: { get: (_key, fallback) => fallback },
+        favoritesGroupCollapsed: true,
+        otherStorageHasData: false,
+    });
+    await post(page, {
+        type: 'projects-panel-content', version: 1, requestId: 1, html: taggedMarkup,
+    });
+
+    await page.locator('[data-tag-filter="frontend"]').click();
+    assert.equal(await page.locator('.project[data-id="frontend"]').evaluate(node =>
+        node.classList.contains('tag-filtered')), false);
+    assert.equal(await page.locator('.project[data-id="backend"]').evaluate(node =>
+        node.classList.contains('tag-filtered')), true);
+
+    await post(page, {
+        type: 'projects-panel-updated', version: 1, sequence: 1, mode: 'replace',
+        html: taggedMarkup, searchCatalog: catalog(),
+        groupOrders: [{ groupId: 'group-a', projectIds: ['frontend', 'backend'] }],
+        favoriteProjectIds: [],
+    });
+    await page.locator('[data-tag-filter="all"]').click();
+    assert.equal(await page.locator('.project[data-id="backend"]').evaluate(node =>
+        node.classList.contains('tag-filtered')), false,
+    'the replacement must have a live All chip and reset the active tag filter');
 });
 
 test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and window position through required replacement and header fitting', async t => {

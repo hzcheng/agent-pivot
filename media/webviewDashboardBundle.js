@@ -8814,8 +8814,13 @@ function initProjectInlineEdit() {
     var editingTarget = null;
     var saveRequestSequence = 0;
     var pendingRequestId = null;
+    var pendingAuthorityRevision = null;
+    var pendingSettlementStatus = null;
+    var authorityRevision = 0;
 
     function getProjectGroupId(projectDiv) {
+        var sourceGroupId = projectDiv && projectDiv.getAttribute('data-source-group-id');
+        if (sourceGroupId) return sourceGroupId;
         var group = projectDiv && projectDiv.closest('.group');
         if (!group) return '';
         return group.getAttribute('data-group-id')
@@ -8832,10 +8837,25 @@ function initProjectInlineEdit() {
 
     function findProject(target) {
         if (!target) return null;
-        return Array.from(document.querySelectorAll('.project[data-id]')).find(function(projectDiv) {
+        var exact = Array.from(document.querySelectorAll('.project[data-id]')).find(function(projectDiv) {
             return projectDiv.getAttribute('data-id') === target.projectId
-                && getProjectGroupId(projectDiv) === target.groupId;
-        }) || null;
+                && getProjectGroupId(projectDiv) === target.groupId
+                && !projectDiv.closest('[data-virtual-group]');
+        });
+        if (exact) return exact;
+
+        // A reorder or authoritative sync can move the source row while the
+        // editor is open. Fall back only to one real project row, never its
+        // Favorites mirror, then adopt its current authoritative group.
+        var matches = Array.from(document.querySelectorAll('.project[data-id]')).filter(function(projectDiv) {
+            return projectDiv.getAttribute('data-id') === target.projectId
+                && !projectDiv.closest('[data-virtual-group]');
+        });
+        if (matches.length === 1) {
+            target.groupId = getProjectGroupId(matches[0]);
+            return matches[0];
+        }
+        return null;
     }
 
     function setFeedback(projectDiv, message) {
@@ -8900,6 +8920,8 @@ function initProjectInlineEdit() {
         }
         editingTarget = null;
         pendingRequestId = null;
+        pendingAuthorityRevision = null;
+        pendingSettlementStatus = null;
     }
 
     function saveEdit() {
@@ -8922,6 +8944,8 @@ function initProjectInlineEdit() {
 
         saveRequestSequence += 1;
         pendingRequestId = 'project-inline-edit-' + Date.now() + '-' + saveRequestSequence;
+        pendingAuthorityRevision = authorityRevision;
+        pendingSettlementStatus = null;
         setSaving(projectDiv, true);
         setFeedback(projectDiv, 'Saving…');
         window.vscode.postMessage({
@@ -8929,6 +8953,7 @@ function initProjectInlineEdit() {
             version: 1,
             requestId: pendingRequestId,
             projectId: editingTarget.projectId,
+            groupId: editingTarget.groupId,
             name: name,
             description: (descInput && descInput.value || '').trim(),
             tags: (tagsInput && tagsInput.value || '').trim(),
@@ -8974,6 +8999,26 @@ function initProjectInlineEdit() {
         }
     });
 
+    function settlePendingEdit(status) {
+        var projectDiv = findProject(editingTarget);
+        if (!projectDiv) return;
+        setSaving(projectDiv, false);
+        pendingRequestId = null;
+        pendingAuthorityRevision = null;
+        pendingSettlementStatus = null;
+        setFeedback(projectDiv, status === 'saved'
+            ? 'Saved.'
+            : 'Could not save the project. Try again.');
+    }
+
+    function settleSavedAfterAuthority() {
+        if (pendingSettlementStatus !== 'saved' || pendingAuthorityRevision === null
+            || authorityRevision <= pendingAuthorityRevision) {
+            return;
+        }
+        settlePendingEdit('saved');
+    }
+
     window.addEventListener('message', function(event) {
         var message = event && event.data;
         if (!message || message.type !== 'project-inline-edit-settlement'
@@ -8982,13 +9027,12 @@ function initProjectInlineEdit() {
             || message.requestId !== pendingRequestId) {
             return;
         }
-        var projectDiv = findProject(editingTarget);
-        if (!projectDiv) return;
-        setSaving(projectDiv, false);
-        pendingRequestId = null;
-        setFeedback(projectDiv, message.status === 'saved'
-            ? 'Saved.'
-            : 'Could not save the project. Try again.');
+        if (message.status === 'failed') {
+            settlePendingEdit('failed');
+            return;
+        }
+        pendingSettlementStatus = 'saved';
+        settleSavedAfterAuthority();
     });
 
     function captureState() {
@@ -8999,6 +9043,12 @@ function initProjectInlineEdit() {
         var focusedField = activeElement && projectDiv.contains(activeElement)
             ? activeElement.getAttribute('data-edit-field')
             : null;
+        var selectionStart = focusedField && typeof activeElement.selectionStart === 'number'
+            ? activeElement.selectionStart
+            : null;
+        var selectionEnd = focusedField && typeof activeElement.selectionEnd === 'number'
+            ? activeElement.selectionEnd
+            : null;
         return {
             projectId: editingTarget.projectId,
             groupId: editingTarget.groupId,
@@ -9007,7 +9057,11 @@ function initProjectInlineEdit() {
             tags: (projectDiv.querySelector('[data-edit-field="tags"]') || {}).value || '',
             feedback: (projectDiv.querySelector('[data-project-edit-feedback]') || {}).textContent || '',
             focusedField: typeof focusedField === 'string' ? focusedField : null,
+            selectionStart: selectionStart,
+            selectionEnd: selectionEnd,
             pendingRequestId: pendingRequestId,
+            pendingAuthorityRevision: pendingAuthorityRevision,
+            pendingSettlementStatus: pendingSettlementStatus,
         };
     }
 
@@ -9033,12 +9087,29 @@ function initProjectInlineEdit() {
         pendingRequestId = typeof state.pendingRequestId === 'string' && state.pendingRequestId
             ? state.pendingRequestId
             : null;
+        pendingAuthorityRevision = typeof state.pendingAuthorityRevision === 'number'
+            ? state.pendingAuthorityRevision
+            : null;
+        pendingSettlementStatus = state.pendingSettlementStatus === 'saved'
+            ? 'saved'
+            : null;
         setSaving(projectDiv, Boolean(pendingRequestId));
         setFeedback(projectDiv, typeof state.feedback === 'string' ? state.feedback : '');
         if (state.focusedField === 'name' || state.focusedField === 'description'
             || state.focusedField === 'tags') {
             focusEditField(projectDiv, state.focusedField, false);
+            var focusedInput = document.activeElement;
+            if (focusedInput && typeof state.selectionStart === 'number'
+                && typeof state.selectionEnd === 'number'
+                && typeof focusedInput.setSelectionRange === 'function') {
+                focusedInput.setSelectionRange(state.selectionStart, state.selectionEnd);
+            }
         }
+    }
+
+    function onAuthoritativeReplacement() {
+        authorityRevision += 1;
+        settleSavedAfterAuthority();
     }
 
     return {
@@ -9047,6 +9118,7 @@ function initProjectInlineEdit() {
         cancelEdit: cancelEdit,
         captureState: captureState,
         restoreState: restoreState,
+        onAuthoritativeReplacement: onAuthoritativeReplacement,
     };
 }
 
@@ -11010,6 +11082,10 @@ function createDashboardProjectsPanel(injected) {
         restoreProjectsFocus(panels.projects, panelState.focus);
         if (panelState.inlineEdit && window.__agentPivotProjectInlineEdit) {
             window.__agentPivotProjectInlineEdit.restoreState(panelState.inlineEdit);
+        }
+        if (window.__agentPivotProjectInlineEdit
+            && typeof window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement === 'function') {
+            window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement();
         }
         restoreProjectsWindowScroll(panelState);
         requestAnimationFrame(() => {
@@ -13334,8 +13410,8 @@ function initFiltering(activeByDefault, dashboard) {
     return { clear, focus, apply };
 }
 
-function initTagFiltering() {
-    var activeTags = new Set();
+function initTagFiltering(previousActiveTags) {
+    var activeTags = new Set(previousActiveTags || []);
     var tagBar = document.querySelector('.tag-filter-bar');
     if (!tagBar) {
         return { activeTags: activeTags };
@@ -13387,5 +13463,6 @@ function initTagFiltering() {
         applyTagFilter();
     });
 
+    applyTagFilter();
     return { activeTags: activeTags, applyTagFilter: applyTagFilter };
 }

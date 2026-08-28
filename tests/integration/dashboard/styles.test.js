@@ -269,7 +269,7 @@ function validateDangerActions(source) {
 
 function validateCollapsePresentation(source) {
     const id = 'WEBVIEW-COLLAPSE-PRESENTATION-001';
-    assertDeclarations(ruleForSelector(source, '.group.collapsed .collapse-icon svg'), id,
+    assertDeclarations(ruleForSelector(source, '.group.collapsed .group-collapse-arrow svg'), id,
         ['transform: rotate(-90deg)']);
 }
 

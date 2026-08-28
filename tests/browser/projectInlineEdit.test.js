@@ -85,10 +85,38 @@ async function openInlineEditPage(t) {
         'webviewProjectAiSessionControlsScripts.js',
         'webviewProjectScripts.js',
         'webviewProjectEditScripts.js',
+        'webviewProjectsPanelScripts.js',
+        'webviewDashboardValidationScripts.js',
+        'webviewDashboardProjectsPanelScripts.js',
     ]) {
         await page.addScriptTag({ content: readScript(name) });
     }
-    await page.evaluate(() => initProjects());
+    await page.evaluate(markup => {
+        window.__testProjectsPanel = createDashboardProjectsPanel({
+            options: {
+                postMessage: () => undefined,
+                onProjectsMounted: () => initProjects(),
+            },
+            panels: { projects: document.getElementById('dashboard-tab-projects') },
+            scheduleTimeout: () => null,
+            cancelTimeout: () => undefined,
+            panelRequestTimeoutMs: 0,
+            showPanelLoading: () => undefined,
+            showPanelUnavailable: () => undefined,
+            restoreScroll: () => undefined,
+            replaceSearchCatalog: () => undefined,
+            getActiveTab: () => 'projects',
+            getSearchQuery: () => '',
+            getPendingScrollRestoreTab: () => null,
+            setPendingScrollRestoreTab: () => undefined,
+        });
+        window.__testProjectsPanel.ensureProjectsPanel();
+        if (!window.__testProjectsPanel.applyProjectsPanelMessage({
+            type: 'projects-panel-content', version: 1, requestId: 1, html: markup,
+        })) {
+            throw new Error('The inline-edit test setup could not mount its Projects panel.');
+        }
+    }, projectsMarkup());
     await page.evaluate(() => { window.__postedMessages.length = 0; });
     return page;
 }
@@ -115,11 +143,13 @@ test('PROJECT-INLINE-EDIT-001 opens and saves in the row without invoking the le
     assert.match(request.requestId, /^project-inline-edit-/);
     assert.deepEqual({
         projectId: request.projectId,
+        groupId: request.groupId,
         name: request.name,
         description: request.description,
         tags: request.tags,
     }, {
         projectId: 'project-a',
+        groupId: 'group-a',
         name: 'Renamed Project',
         description: 'Updated description',
         tags: 'frontend, urgent',
@@ -131,8 +161,20 @@ test('PROJECT-INLINE-EDIT-001 opens and saves in the row without invoking the le
         type: 'project-inline-edit-settlement', version: 1,
         requestId: request.requestId, projectId: 'project-a', status: 'saved',
     });
+    assert.equal(await form.locator('[data-edit-field="name"]').isDisabled(), true,
+        'a settlement alone must not clear pending state before authority is applied');
+    assert.equal(await page.evaluate(markup => window.__testProjectsPanel.applyProjectsPanelUpdatedMessage({
+        type: 'projects-panel-updated', version: 1, sequence: 1, mode: 'replace',
+        html: markup,
+        searchCatalog: {
+            version: 3, sessions: [], worktrees: [], openWorkspaces: [],
+            savedProjects: [], todos: [], skills: [],
+        },
+        groupOrders: [{ groupId: 'group-a', projectIds: ['project-a'] }],
+        favoriteProjectIds: [],
+    }), projectsMarkup()), true, 'the production Projects panel must accept the authority update');
     assert.equal(await form.locator('[data-edit-field="name"]').isDisabled(), false,
-        'the authoritative saved settlement keeps the restored form usable');
+        'the authoritative replacement following settlement unlocks the form');
     assert.equal(await form.locator('[data-project-edit-feedback]').textContent(), 'Saved.');
 });
 
@@ -196,6 +238,9 @@ test('PROJECT-INLINE-EDIT-001 preserves the active source form through an author
     );
     await sourceProject.locator('[data-action="edit-inline"]').evaluate(button => button.click());
     await sourceProject.locator('[data-edit-field="description"]').fill('Still editing');
+    await sourceProject.locator('[data-edit-field="description"]').evaluate(input => {
+        input.setSelectionRange(3, 8);
+    });
     const state = await page.evaluate(() => window.__agentPivotProjectInlineEdit.captureState());
 
     await page.locator('#dashboard-tab-projects').evaluate((panel, html) => {
@@ -215,4 +260,7 @@ test('PROJECT-INLINE-EDIT-001 preserves the active source form through an author
     assert.equal(await restoredSource.locator('[data-edit-field="description"]')
         .evaluate(input => document.activeElement === input), true,
         'the editor focus returns to the same field after replacement');
+    assert.deepEqual(await restoredSource.locator('[data-edit-field="description"]')
+        .evaluate(input => [input.selectionStart, input.selectionEnd]), [3, 8],
+    'the editor selection returns to the same semantic field after replacement');
 });

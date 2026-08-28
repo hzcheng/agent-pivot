@@ -93,13 +93,16 @@ export default class ProjectService extends BaseService {
         return project;
     }
 
-    getProjectAndGroup(projectId: string): [Project, Group] {
+    getProjectAndGroup(projectId: string, groupId?: string): [Project, Group] {
         if (projectId == null) {
             return null;
         }
 
         var groups = this.getGroups();
         for (let group of groups) {
+            if (groupId && group.id !== groupId) {
+                continue;
+            }
             let project = group.projects.find(p => p.id === projectId);
             if (project != null) {
                 return [project, group];
@@ -160,13 +163,21 @@ export default class ProjectService extends BaseService {
     }
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ UPDATE ~~~~~~~~~~~~~~~~~~~~~~~~~
-    async updateProject(projectId: string, updatedProject: Project) {
+    async updateProject(
+        projectId: string,
+        updatedProject: Project,
+        groupId?: string,
+        rememberColor: boolean = true
+    ) {
         if (!projectId || updatedProject == null) {
             return;
         }
 
         var groups = this.getGroups();
         for (let group of groups) {
+            if (groupId && group.id !== groupId) {
+                continue;
+            }
             let project = group.projects.find(p => p.id === projectId);
             if (project != null) {
                 Object.assign(project, updatedProject, { id: projectId });
@@ -174,35 +185,25 @@ export default class ProjectService extends BaseService {
             }
         }
 
-
-        // Add to recent colors
-        try {
-            await this.colorService.addRecentColor(updatedProject.color);
-        } catch (e) {
-            console.error(e);
+        if (rememberColor) {
+            // Colour edits retain their existing recent-colour bookkeeping; inline
+            // metadata edits opt out so they cannot trigger a configuration refresh.
+            try {
+                await this.colorService.addRecentColor(updatedProject.color);
+            } catch (e) {
+                console.error(e);
+            }
         }
         await this.saveGroups(groups);
     }
 
     /**
-     * Record that a saved project was opened just now. Persists quietly: no
-     * surface refresh and no recent-color bookkeeping, so the click-to-open
-     * path stays side-effect free apart from the stored timestamp.
+     * Opening a project must not write a whole synchronized Project record.
+     * The old timestamp was never consumed and could win a concurrent
+     * name/tag edit during catalog conflict resolution.
      */
-    async touchProjectLastOpened(projectId: string, openedAt: number = Date.now()): Promise<void> {
-        if (!projectId) {
-            return;
-        }
-
-        var groups = this.getGroups();
-        for (let group of groups) {
-            let project = group.projects.find(p => p.id === projectId);
-            if (project !== null && project !== undefined) {
-                project.lastOpenedAt = openedAt;
-                await this.saveGroups(groups);
-                return;
-            }
-        }
+    async touchProjectLastOpened(_projectId: string, _openedAt: number = Date.now()): Promise<void> {
+        return;
     }
 
     async updateGroup(groupId: string, updatedGroup: Group) {

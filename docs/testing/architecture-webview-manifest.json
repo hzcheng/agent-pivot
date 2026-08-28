@@ -283,6 +283,10 @@
       "producer": "builtin"
     },
     {
+      "symbol": "window.sessionStorage",
+      "producer": "builtin"
+    },
+    {
       "symbol": "window.setTimeout",
       "producer": "builtin"
     },

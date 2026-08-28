@@ -19,6 +19,7 @@ function loadWebviewContent() {
 }
 
 const { getProjectsPanelContent, getProjectSearchText } = loadWebviewContent();
+const { buildWorkspaceDashboardSearchCatalog } = require('../../../out/webview/dashboardViewModel');
 
 function renderProjects(projects) {
     const config = {
@@ -80,6 +81,26 @@ test('PROJECT-TAGS-RENDERING-001 includes tags in the card search text', () => {
 
     assert.ok(searchText.includes('frontend'));
     assert.ok(searchText.includes('urgent'));
+});
+
+test('PROJECT-TAGS-RENDERING-001 tolerates malformed persisted tag values in rendering', () => {
+    const html = renderProjects([{
+        id: 'legacy', name: 'Legacy', path: '/work/legacy', tags: { malformed: true },
+    }]);
+
+    assert.match(html, /data-id="legacy"/);
+    assert.ok(!html.includes('data-has-tags'), 'non-array persisted tags must render as no tags');
+});
+
+test('PROJECT-TAGS-RENDERING-001 tolerates malformed persisted tag values in the search catalog', () => {
+    const catalog = buildWorkspaceDashboardSearchCatalog([{
+        id: 'group', groupName: 'Work', projects: [{
+            id: 'legacy', name: 'Legacy', path: '/work/legacy', tags: { malformed: true },
+        }],
+    }], []);
+
+    assert.equal(catalog.savedProjects.length, 1);
+    assert.match(catalog.savedProjects[0].searchText, /legacy/);
 });
 
 test('PROJECT-ROW-LAYOUT-001 uses single-line list rows with name as the primary element', () => {

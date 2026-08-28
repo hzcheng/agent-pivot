@@ -57,6 +57,7 @@ interface GroupSectionOptions {
     collapsible: boolean;
     className: string;
     systemBadge: string;
+    getSourceGroupId?: (project: Project) => string;
 }
 
 
@@ -260,6 +261,7 @@ export function getStewardContent(
                     // A sandboxed Webview may deny sessionStorage; search still starts empty.
                 }
                 let filtering;
+                let tagFiltering;
                 const dashboard = initDashboard({
                     initialSearchQuery: storedFilter,
                     clearSearch: () => filtering && filtering.clear(),
@@ -271,6 +273,7 @@ export function getStewardContent(
                         if (typeof window.__agentPivotSyncCollapseButton === 'function') {
                             window.__agentPivotSyncCollapseButton();
                         }
+                        tagFiltering = initTagFiltering(tagFiltering && tagFiltering.activeTags);
                     },
                     onActiveTabChanged: () => {
                         if (typeof window.__agentPivotSyncCollapseButton === 'function') {
@@ -285,7 +288,7 @@ export function getStewardContent(
                 // Project controls, header fitting, and tag filtering can evolve
                 // independently of dashboard search and must not prevent it from working.
                 fitDashboardProjectHeaders(document.getElementById('dashboard-tab-open'));
-                initTagFiltering();
+                tagFiltering = initTagFiltering();
             };
         })();
     </script>
@@ -451,6 +454,10 @@ export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): s
     var favoriteProjects = getFavoriteProjectsInOrder(
         (groups || []).reduce((projects, group) => projects.concat(group.projects || []), [] as Project[])
     );
+    var sourceGroupIds = new Map<Project, string>();
+    (groups || []).forEach(group => (group.projects || []).forEach(project => {
+        sourceGroupIds.set(project, group.id);
+    }));
     var favoritesGroupCollapsed = infos.favoritesGroupCollapsed !== undefined
         ? infos.favoritesGroupCollapsed
         : (groups || []).every(group => group.collapsed);
@@ -465,6 +472,7 @@ export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): s
         collapsible: true,
         className: 'favorites-group',
         systemBadge: 'Pinned',
+        getSourceGroupId: project => sourceGroupIds.get(project) || '',
     };
     var projectOptions: GroupSectionOptions = {
         virtual: false,
@@ -487,7 +495,10 @@ export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): s
         ${mainGroups.length
             ? mainGroups.map(group => getGroupSection(
                 group,
-                group.id === FAVORITES_GROUP_ID ? favoriteOptions : projectOptions
+                group.id === FAVORITES_GROUP_ID ? favoriteOptions : {
+                    ...projectOptions,
+                    getSourceGroupId: () => group.id,
+                }
             )).join('\n')
             : (infos.otherStorageHasData ? getImportDiv() : getNoProjectsDiv())}
     </div>
@@ -722,6 +733,9 @@ function getProjectDiv(
     <div class="project" style="${colorStyles.cardStyle}" data-id="${project.id}" data-name="${searchText}" ${escapedDescription ? ` title="${escapedDescription}"` : ""}${isRemote ? ' data-is-remote' : ''
         }${options.virtual ? ' data-virtual-project' : ''
         }${options.readOnlyProjects ? ' data-readonly-project' : ''
+        }${options.getSourceGroupId && options.getSourceGroupId(project)
+            ? ` data-source-group-id="${escapeAttribute(options.getSourceGroupId(project))}"`
+            : ''
         }${!options.readOnlyProjects ? ' data-has-favorite-toggle' : ''
         }${project.showSaveAction ? ' data-has-save-action' : ''
         }${project.favorite ? ' data-favorite-project' : ''
@@ -750,7 +764,7 @@ function getProjectDiv(
             </div>
             <div class="project-edit-field">
                 <label class="project-edit-label">Tags</label>
-                <input class="project-edit-input" data-edit-field="tags" type="text" value="${escapeAttribute((project.tags || []).join(', '))}" placeholder="Comma-separated, e.g. frontend, urgent">
+                <input class="project-edit-input" data-edit-field="tags" type="text" value="${escapeAttribute(tags.join(', '))}" placeholder="Comma-separated, e.g. frontend, urgent">
             </div>
             <div class="project-edit-actions">
                 <button type="button" class="project-edit-cancel steward-button" data-action="cancel-edit">Cancel</button>

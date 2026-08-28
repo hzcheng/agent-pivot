@@ -25,10 +25,16 @@ function createFixture(overrides = {}) {
                     ? overrides.project
                     : project;
             },
+            getProjectAndGroup: (projectId, groupId) => {
+                calls.push(['getProjectAndGroup', projectId, groupId]);
+                const value = Object.prototype.hasOwnProperty.call(overrides, 'project')
+                    ? overrides.project
+                    : project;
+                return value && groupId === 'group-a' ? [value, { id: groupId }] : [null, null];
+            },
             copyProjectsFromFilledStorageOptionToEmptyStorageOption: async () => {
                 calls.push(['copyFromOtherStorage']);
             },
-            touchProjectLastOpened: record('touchProjectLastOpened'),
             updateProject: async (projectId, updated) => {
                 calls.push(['updateProject', projectId]);
                 var p = Object.prototype.hasOwnProperty.call(overrides, 'project')
@@ -164,11 +170,10 @@ test('OPEN-PROJECT-UI-HOST-NAVIGATION-001 acknowledges the card attention before
         ['getProject', 'project-a'],
         ['acknowledgeAttention', ['evt-1', 'evt-2']],
         ['openProject', project, 3],
-        ['touchProjectLastOpened', 'project-a'],
-    ], 'the open flow must acknowledge every event the card represents before opening');
+    ], 'the open flow must not mutate the synchronized project catalog');
 });
 
-test('PROJECT-LAST-OPENED-001 records the open timestamp only after a successful open', async () => {
+test('PROJECT-LAST-OPENED-001 opens without persisting nonessential activity metadata', async () => {
     const { handlers, calls } = createFixture();
 
     await handlers['selected-project']({
@@ -181,11 +186,10 @@ test('PROJECT-LAST-OPENED-001 records the open timestamp only after a successful
         ['getProject', 'project-a'],
         ['acknowledgeAttention', []],
         ['openProject', calls[2][1], 3],
-        ['touchProjectLastOpened', 'project-a'],
-    ], 'a successful open must persist lastOpenedAt exactly once, after the open resolves');
+    ], 'a successful open must not add a synchronized whole-record write');
 });
 
-test('PROJECT-LAST-OPENED-001 does not record a timestamp when the open throws', async () => {
+test('PROJECT-LAST-OPENED-001 does not mutate metadata when the open throws', async () => {
     const { handlers, calls } = createFixture({ failOpen: true });
 
     await assert.rejects(handlers['selected-project']({
@@ -198,7 +202,7 @@ test('PROJECT-LAST-OPENED-001 does not record a timestamp when the open throws',
         'getProject',
         'acknowledgeAttention',
         'openProject',
-    ], 'a failed open must never persist lastOpenedAt');
+    ], 'a failed open must never persist activity metadata');
 });
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates project mutations to their controllers', async () => {
@@ -334,13 +338,14 @@ test('PROJECT-INLINE-EDIT-001 saves name, description, and tags without losing s
         version: 1,
         requestId: 'inline-save-1',
         projectId: 'project-a',
+        groupId: 'group-a',
         name: '  New Name  ',
         description: '  Updated desc  ',
         tags: ' frontend , #urgent , FRONTEND ',
     });
 
     assert.deepEqual(calls, [
-        ['getProject', 'project-a'],
+        ['getProjectAndGroup', 'project-a', 'group-a'],
         ['updateProject', 'project-a'],
         ['refreshAfterMutation', undefined],
     ], 'inline save must call updateProject then refresh');
@@ -368,13 +373,14 @@ test('PROJECT-INLINE-EDIT-001 rejects empty names and missing projects without r
         version: 1,
         requestId: 'inline-empty-name',
         projectId: 'project-a',
+        groupId: 'group-a',
         name: '   ',
         description: '',
         tags: '',
     });
 
     assert.deepEqual(calls, [
-        ['getProject', 'project-a'],
+        ['getProjectAndGroup', 'project-a', 'group-a'],
     ], 'empty name must not trigger a refresh');
     assert.deepEqual(outgoing, [{
         type: 'project-inline-edit-settlement', version: 1,
@@ -387,13 +393,14 @@ test('PROJECT-INLINE-EDIT-001 rejects empty names and missing projects without r
         version: 1,
         requestId: 'inline-missing-project',
         projectId: 'nonexistent',
+        groupId: 'group-a',
         name: 'Test',
         description: '',
         tags: '',
     });
 
     assert.deepEqual(missing.calls, [
-        ['getProject', 'nonexistent'],
+        ['getProjectAndGroup', 'nonexistent', 'group-a'],
     ], 'a missing project must not be updated or refresh the panel');
     assert.deepEqual(missing.outgoing, [{
         type: 'project-inline-edit-settlement', version: 1,
@@ -410,13 +417,14 @@ test('PROJECT-INLINE-EDIT-001 clears tags when the input is empty', async () => 
         version: 1,
         requestId: 'inline-clear-tags',
         projectId: 'project-a',
+        groupId: 'group-a',
         name: 'API',
         description: '',
         tags: '',
     });
 
     assert.deepEqual(calls, [
-        ['getProject', 'project-a'],
+        ['getProjectAndGroup', 'project-a', 'group-a'],
         ['updateProject', 'project-a'],
         ['refreshAfterMutation', undefined],
     ], 'empty tags must still call update then refresh');
@@ -427,7 +435,7 @@ test('PROJECT-INLINE-EDIT-001 clears tags when the input is empty', async () => 
     }]);
 });
 
-test('PROJECT-INLINE-EDIT-001 rejects malformed requests before reading or mutating project data', async () => {
+test('PROJECT-INLINE-EDIT-001 rejects malformed correlated requests before reading or mutating project data', async () => {
     const { handlers, calls, outgoing } = createFixture();
 
     await handlers['save-project-inline']({
@@ -436,5 +444,8 @@ test('PROJECT-INLINE-EDIT-001 rejects malformed requests before reading or mutat
     });
 
     assert.deepEqual(calls, [], 'malformed values must not reach the project service');
-    assert.deepEqual(outgoing, [], 'malformed requests are ignored without a settlement');
+    assert.deepEqual(outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-malformed', projectId: 'project-a', status: 'failed',
+    }], 'a recognized correlated request must settle exactly once even when malformed');
 });

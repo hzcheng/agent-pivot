@@ -104,6 +104,10 @@ function createDashboardProjectsPanel(injected) {
         if (panelState.inlineEdit && window.__agentPivotProjectInlineEdit) {
             window.__agentPivotProjectInlineEdit.restoreState(panelState.inlineEdit);
         }
+        if (window.__agentPivotProjectInlineEdit
+            && typeof window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement === 'function') {
+            window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement();
+        }
         restoreProjectsWindowScroll(panelState);
         requestAnimationFrame(() => {
             if (replacementGeneration !== projectsPanelReplacementGeneration) {

@@ -25,7 +25,7 @@ function makeGlobalState(initial = {}) {
     };
 }
 
-function makeProjectService(globalState) {
+function makeProjectService(globalState, colorService = { addRecentColor: async () => undefined }) {
     const vscode = createFakeVscode({
         workspace: {
             getConfiguration: () => ({
@@ -42,7 +42,7 @@ function makeProjectService(globalState) {
     ).default;
     return new ProjectService(
         { globalState },
-        { addRecentColor: async () => undefined }
+        colorService
     );
 }
 
@@ -58,22 +58,16 @@ function makeGroups() {
     }];
 }
 
-test('PROJECT-LAST-OPENED-001 persists the timestamp on the opened project only', async () => {
+test('PROJECT-LAST-OPENED-001 opening metadata is not persisted into the synchronized project catalog', async () => {
     const globalState = makeGlobalState({ projects: makeGroups() });
     const service = makeProjectService(globalState);
 
     await service.touchProjectLastOpened('project-a', 1234567890);
 
-    assert.deepEqual(globalState.updates, ['projects'], 'the touch must persist exactly one write');
-    const stored = globalState.get('projects');
-    const touched = stored[0].projects.find(project => project.id === 'project-a');
-    const other = stored[0].projects.find(project => project.id === 'project-b');
-    assert.equal(touched.lastOpenedAt, 1234567890);
-    assert.deepEqual(touched.tags, ['backend'], 'unrelated fields must survive the touch');
-    assert.equal(other.lastOpenedAt, undefined);
+    assert.deepEqual(globalState.updates, [], 'opening must not write a whole synchronized project record');
 });
 
-test('PROJECT-LAST-OPENED-001 ignores unknown and empty project ids without writing', async () => {
+test('PROJECT-LAST-OPENED-001 ignores all activity timestamp writes', async () => {
     const globalState = makeGlobalState({ projects: makeGroups() });
     const service = makeProjectService(globalState);
 
@@ -82,4 +76,18 @@ test('PROJECT-LAST-OPENED-001 ignores unknown and empty project ids without writ
     await service.touchProjectLastOpened(undefined);
 
     assert.deepEqual(globalState.updates, [], 'a no-op touch must not churn persisted state');
+});
+
+test('PROJECT-INCREMENTAL-REFRESH-001 inline metadata updates do not rewrite recent colors', async () => {
+    const globalState = makeGlobalState({ projects: makeGroups() });
+    const colors = [];
+    const service = makeProjectService(globalState, {
+        addRecentColor: async color => colors.push(color),
+    });
+
+    await service.updateProject('project-a', {
+        id: 'project-a', name: 'Renamed', path: '/work/api', color: '#112233', tags: ['frontend'],
+    }, undefined, false);
+
+    assert.deepEqual(colors, [], 'inline edits must not change recent-colour configuration');
 });

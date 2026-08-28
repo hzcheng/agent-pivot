@@ -73,8 +73,8 @@ function initFiltering(activeByDefault, dashboard) {
     return { clear, focus, apply };
 }
 
-function initTagFiltering() {
-    var activeTags = new Set();
+function initTagFiltering(previousActiveTags) {
+    var activeTags = new Set(previousActiveTags || []);
     var tagBar = document.querySelector('.tag-filter-bar');
     if (!tagBar) {
         return { activeTags: activeTags };
@@ -126,5 +126,6 @@ function initTagFiltering() {
         applyTagFilter();
     });
 
+    applyTagFilter();
     return { activeTags: activeTags, applyTagFilter: applyTagFilter };
 }

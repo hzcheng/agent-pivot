@@ -3643,7 +3643,7 @@
   {
     "id": "PROJECT-LAST-OPENED-001",
     "domain": "project",
-    "title": "Opening a saved project quietly persists lastOpenedAt after the open resolves",
+    "title": "Opening a saved project does not write unused activity metadata into the synchronized catalog",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -3766,7 +3766,7 @@
   {
     "id": "PROJECT-INLINE-EDIT-001",
     "domain": "project",
-    "title": "Project inline editing opens from the pencil without the legacy VS Code prompt, preserves unrelated synced fields, and uses correlated save settlements for retry-safe failure recovery",
+    "title": "Project inline editing preserves its authoritative source identity, input selection, and pending state through replacements, and settles only after the correlated authority is applied",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -5288,15 +5288,17 @@
   {
     "id": "TAG-FILTER-BAR-001",
     "domain": "project",
-    "title": "A tag filter bar renders above the group list when projects have tags, with an All button and deduplicated case-insensitive sorted tag chips; it does not render when no tags exist",
+    "title": "A tag filter bar renders above the group list when projects have tags, supports All and AND chip filtering after lazy mount and replacement, and omits itself when no tags exist",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/webview/projectTagRendering.test.js"
+      "tests/unit/webview/projectTagRendering.test.js",
+      "tests/browser/dashboardRefreshStability.test.js"
     ],
     "evidence": [
       "src/webview/webviewContent.ts",
-      "src/webview/webviewFilterScripts.js"
+      "src/webview/webviewFilterScripts.js",
+      "src/webview/webviewDashboardProjectsPanelScripts.js"
     ]
   },
   {
@@ -5645,6 +5647,23 @@
       "src/dashboard/messageRouter.ts",
       "src/projects/projectMessageHandlers.ts",
       "src/dashboard/messageHandlers.ts"
+    ]
+  },
+  {
+    "id": "WEBVIEW-DASHBOARD-SEARCH-001",
+    "domain": "webview",
+    "title": "Dashboard search remains interactive through production startup, unavailable session storage, and lazy Projects catalog updates",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/dashboardRefreshStability.test.js",
+      "tests/browser/dashboardStylesheetStartup.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewDashboardScripts.js",
+      "src/webview/webviewFilterScripts.js",
+      "src/webview/webviewDashboardSearchScripts.js"
     ]
   },
   {

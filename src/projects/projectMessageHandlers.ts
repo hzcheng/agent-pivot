@@ -145,7 +145,6 @@ export function createProjectMessageHandlers(
             );
             await acknowledgeAiSessionAttentionEventIds(attentionProject.aiSessionAttentionEventIds);
             await projectOpenController.openProject(project, projectOpenType);
-            await projectService.touchProjectLastOpened(projectId);
         },
         'set-open-workspace-pin': e => getOpenWorkspacePinController().handle(e),
         'open-window-navigation-request': e => getOpenWindowNavigationRequestController().handle(e),
@@ -169,15 +168,12 @@ export function createProjectMessageHandlers(
             await projectMutationController.editProject(e.projectId as string);
         },
         'save-project-inline': async e => {
-            if (e.version !== 1 || typeof e.requestId !== 'string' || !e.requestId
-                || typeof e.projectId !== 'string' || !e.projectId
-                || typeof e.name !== 'string' || typeof e.description !== 'string'
-                || typeof e.tags !== 'string') {
-                return;
-            }
-            var projectId = e.projectId;
-            var requestId = e.requestId;
+            var requestId = typeof e.requestId === 'string' ? e.requestId : '';
+            var projectId = typeof e.projectId === 'string' ? e.projectId : '';
             const settle = async (status: 'saved' | 'failed'): Promise<void> => {
+                if (!requestId || !projectId) {
+                    return;
+                }
                 await postMessage({
                     type: 'project-inline-edit-settlement',
                     version: 1,
@@ -186,7 +182,16 @@ export function createProjectMessageHandlers(
                     status,
                 });
             };
-            var project = projectService.getProject(projectId);
+            if (e.version !== 1 || !requestId || !projectId
+                || typeof e.groupId !== 'string' || !e.groupId
+                || typeof e.name !== 'string' || typeof e.description !== 'string'
+                || typeof e.tags !== 'string') {
+                await settle('failed');
+                return;
+            }
+            var groupId = e.groupId;
+            var projectAndGroup = projectService.getProjectAndGroup(projectId, groupId);
+            var project = projectAndGroup && projectAndGroup[0];
             if (project === null || project === undefined) {
                 await settle('failed');
                 return;
@@ -217,7 +222,7 @@ export function createProjectMessageHandlers(
             );
 
             try {
-                await projectService.updateProject(projectId, updatedProject);
+                await projectService.updateProject(projectId, updatedProject, groupId, false);
                 refreshAfterMutation();
                 await settle('saved');
             } catch (error) {

@@ -36,10 +36,32 @@ function escapeHtml(value: string): string {
         .replace(/"/g, '&quot;');
 }
 
-function highlightCode(value: string, lang: string): string {
+function highlightCode(
+    value: string,
+    lang: string,
+    highlightedLines?: ReadonlySet<number>
+): string {
     const safeLang = escapeHtml(lang || '');
     const className = `hljs${safeLang ? ` language-${safeLang}` : ''}`;
     const language = lang && hljs.getLanguage(lang) ? lang : '';
+    if (highlightedLines && highlightedLines.size) {
+        const lines = (value.endsWith('\n') ? value.slice(0, -1) : value).split('\n');
+        return `<pre class="conversation-code-numbered"><code class="${className}">${lines.map((line, index) => {
+            const lineNumber = index + 1;
+            let rendered = escapeHtml(line);
+            if (language) {
+                try {
+                    rendered = hljs.highlight(line, {
+                        language,
+                        ignoreIllegals: true,
+                    }).value;
+                } catch (_error) {
+                    // Keep the escaped source for an invalid single line.
+                }
+            }
+            return `<span class="conversation-code-line${highlightedLines.has(lineNumber) ? ' conversation-code-line-highlighted' : ''}" data-conversation-code-line="${lineNumber}"><span class="conversation-code-line-number" aria-hidden="true">${lineNumber}</span><span class="conversation-code-line-content">${rendered}</span></span>`;
+        }).join('')}</code></pre>`;
+    }
     if (language) {
         try {
             const highlighted = hljs.highlight(value, {
@@ -55,7 +77,8 @@ function highlightCode(value: string, lang: string): string {
 }
 
 function renderCodeBlock(value: string, info: string): string {
-    const lang = (info || '').trim().split(/\s+/)[0] || '';
+    const parsedInfo = parseCodeBlockInfo(info);
+    const lang = parsedInfo.lang;
     if (/^(?:diff|patch|udiff|unified-diff)$/i.test(lang)) {
         const diffs = parseUnifiedDiff(value, 'Proposed changes');
         if (diffs.length) {
@@ -73,6 +96,12 @@ function renderCodeBlock(value: string, info: string): string {
     }
     if (/^(?:math|latex|tex)$/i.test(lang)) {
         return renderMath(value, true);
+    }
+    if (/^(?:references|sources|evidence)$/i.test(lang)) {
+        const references = renderReferences(value);
+        if (references) {
+            return references;
+        }
     }
     const runnable = /^(?:bash|sh|shell|zsh)$/i.test(lang)
         && value.length > 0
@@ -92,8 +121,81 @@ function renderCodeBlock(value: string, info: string): string {
             : '')
         + '<button class="conversation-code-copy" title="Copy code">'
         + '</button></span></section>'
-        + highlightCode(value, lang)
+        + highlightCode(value, lang, parsedInfo.highlightedLines)
         + '</section>\n';
+}
+
+function parseCodeBlockInfo(info: string): {
+    lang: string;
+    highlightedLines?: ReadonlySet<number>;
+} {
+    const normalized = (info || '').trim();
+    const lang = normalized.split(/\s+/)[0] || '';
+    const specification = /\{([0-9,\s-]+)\}/.exec(normalized);
+    if (!specification) {
+        return { lang };
+    }
+    const highlightedLines = new Set<number>();
+    for (const range of specification[1].split(',')) {
+        const match = /^\s*(\d{1,5})(?:\s*-\s*(\d{1,5}))?\s*$/.exec(range);
+        if (!match) {
+            continue;
+        }
+        const first = Number(match[1]);
+        const last = match[2] ? Number(match[2]) : first;
+        if (!first || last < first || last - first > 200) {
+            continue;
+        }
+        for (let line = first; line <= last && highlightedLines.size < 200; line += 1) {
+            highlightedLines.add(line);
+        }
+    }
+    return highlightedLines.size ? { lang, highlightedLines } : { lang };
+}
+
+interface ConversationReference {
+    title: string;
+    href: string;
+    note?: string;
+}
+
+function renderReferences(value: string): string | undefined {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(value);
+    } catch (_error) {
+        return undefined;
+    }
+    const items = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === 'object'
+            ? (parsed as { items?: unknown }).items
+            : undefined;
+    if (!Array.isArray(items) || !items.length || items.length > 12) {
+        return undefined;
+    }
+    const references: ConversationReference[] = [];
+    for (const item of items) {
+        if (!item || typeof item !== 'object') {
+            return undefined;
+        }
+        const record = item as { title?: unknown; href?: unknown; note?: unknown };
+        if (typeof record.title !== 'string' || !record.title.trim()
+            || record.title.length > 160 || typeof record.href !== 'string'
+            || !markdown.validateLink(record.href)
+            || (record.note !== undefined && (typeof record.note !== 'string'
+                || record.note.length > 480))) {
+            return undefined;
+        }
+        references.push({
+            title: record.title,
+            href: record.href,
+            ...(typeof record.note === 'string' ? { note: record.note } : {}),
+        });
+    }
+    return `<section class="conversation-references" aria-label="References">${references.map(reference =>
+        `<article class="conversation-reference-card"><a class="conversation-reference-link" href="${escapeHtml(reference.href)}">${escapeHtml(reference.title)}</a>${reference.note ? `<span class="conversation-reference-note">${escapeHtml(reference.note)}</span>` : ''}</article>`
+    ).join('')}</section>`;
 }
 
 function renderStructuredCodeBlock(value: string, lang: string): string {
@@ -453,7 +555,31 @@ markdown.validateLink = (url: string): boolean => {
 };
 
 export function renderConversationMarkdown(value: string): string {
-    return renderAdmonitions(renderTaskLists(markdown.render(value)));
+    return renderAdmonitions(renderTaskLists(renderSortableTables(markdown.render(value))));
+}
+
+function renderSortableTables(html: string): string {
+    return html.replace(/<table>([\s\S]*?)<\/table>/g, (_match, content: string) => {
+        let column = 0;
+        const headers = content.replace(/<th\b([^>]*)>([\s\S]*?)<\/th>/g, (
+            _header,
+            attributes: string,
+            label: string
+        ) => {
+            const index = column;
+            column += 1;
+            return `<th class="${tableAlignmentClass(attributes)}" aria-sort="none"><button class="conversation-table-sort" type="button" data-conversation-sort-column="${index}" title="Sort column">${label}<span aria-hidden="true">↕</span></button></th>`;
+        });
+        return `<table class="conversation-data-table">${headers.replace(
+            /<td\b([^>]*)>/g,
+            (_cell, attributes: string) => `<td class="${tableAlignmentClass(attributes)}">`
+        )}</table>`;
+    });
+}
+
+function tableAlignmentClass(attributes: string): string {
+    const alignment = /text-align\s*:\s*(left|center|right)/i.exec(attributes);
+    return alignment ? `conversation-table-align-${alignment[1].toLowerCase()}` : '';
 }
 
 function renderTaskLists(html: string): string {

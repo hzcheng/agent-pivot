@@ -9,8 +9,10 @@
         'svg', 'polyline', 'circle',
     ];
     var allowedAttributes = [
-        'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open',
+        'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open', 'type',
         'role', 'aria-label', 'aria-hidden', 'viewBox', 'preserveAspectRatio',
+        'aria-sort', 'aria-pressed', 'data-conversation-sort-column', 'data-conversation-sort-direction',
+        'data-conversation-diff-context-toggle',
         'fill', 'stroke', 'stroke-width', 'points', 'cx', 'cy', 'r',
         'pathLength', 'stroke-dasharray', 'stroke-dashoffset', 'transform',
         'data-message-id', 'data-conversation-message-id',
@@ -1721,6 +1723,14 @@
         });
     }
 
+    function codeBlockText(code) {
+        var lines = code.querySelectorAll('.conversation-code-line-content');
+        if (!lines.length) return code.textContent || '';
+        return Array.prototype.map.call(lines, function (line) {
+            return line.textContent || '';
+        }).join('\n');
+    }
+
     function validCopyResult(value) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) {
             return false;
@@ -3048,6 +3058,57 @@
         outlineController.toggleBookmark(interactionId, 'card');
     });
     messages.addEventListener('click', function (event) {
+        var contextToggle = event.target && event.target.closest
+            ? event.target.closest('[data-conversation-diff-context-toggle]')
+            : null;
+        if (contextToggle && messages.contains(contextToggle)) {
+            var diffFile = contextToggle.closest('.conversation-diff-file');
+            if (!diffFile) return;
+            var changesOnly = diffFile.classList.toggle('conversation-diff-changes-only');
+            contextToggle.setAttribute('aria-pressed', String(changesOnly));
+            contextToggle.textContent = changesOnly ? 'Show context' : 'Changes only';
+            contextToggle.title = changesOnly ? 'Show all context' : 'Show changes only';
+            return;
+        }
+        var sortButton = event.target && event.target.closest
+            ? event.target.closest('[data-conversation-sort-column]')
+            : null;
+        if (sortButton && messages.contains(sortButton)) {
+            var table = sortButton.closest('table.conversation-data-table');
+            var body = table ? table.querySelector('tbody') : null;
+            var column = Number(sortButton.getAttribute('data-conversation-sort-column'));
+            if (!body || !Number.isInteger(column) || column < 0) return;
+            var direction = sortButton.getAttribute('data-conversation-sort-direction') === 'ascending'
+                ? 'descending'
+                : 'ascending';
+            var rows = Array.prototype.map.call(body.querySelectorAll('tr'), function (row, index) {
+                return { row: row, index: index, value: (row.cells[column] && row.cells[column].textContent || '').trim() };
+            });
+            rows.sort(function (left, right) {
+                var leftNumber = Number(left.value);
+                var rightNumber = Number(right.value);
+                var numberPattern = /^[+-]?(?:\d+|\d*\.\d+)$/;
+                var comparison = numberPattern.test(left.value) && numberPattern.test(right.value)
+                    && Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
+                    ? leftNumber - rightNumber
+                    : left.value.localeCompare(right.value);
+                return (direction === 'descending' ? -comparison : comparison)
+                    || left.index - right.index;
+            });
+            Array.prototype.forEach.call(
+                table.querySelectorAll('[data-conversation-sort-column]'),
+                function (button) {
+                    button.setAttribute('data-conversation-sort-direction', '');
+                    var header = button.closest('th');
+                    if (header) header.setAttribute('aria-sort', 'none');
+                }
+            );
+            sortButton.setAttribute('data-conversation-sort-direction', direction);
+            var activeHeader = sortButton.closest('th');
+            if (activeHeader) activeHeader.setAttribute('aria-sort', direction);
+            rows.forEach(function (entry) { body.appendChild(entry.row); });
+            return;
+        }
         var codeRun = event.target && event.target.closest
             ? event.target.closest('[data-conversation-run-command]')
             : null;
@@ -3055,7 +3116,7 @@
             var runBlock = codeRun.closest('.conversation-code-block');
             var runCode = runBlock ? runBlock.querySelector('pre code') : null;
             if (!runCode) return;
-            postRunCommand(runCode.textContent || '');
+            postRunCommand(codeBlockText(runCode));
             return;
         }
         var codeCopy = event.target && event.target.closest
@@ -3067,7 +3128,7 @@
             if (!code) return;
             postCopyRequest(codeCopy, {
                 kind: 'code',
-                text: code.textContent || '',
+                text: codeBlockText(code),
             });
             return;
         }

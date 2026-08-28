@@ -104,7 +104,7 @@ test('CONVERSATION-VIEWER-MARKDOWN-003 emits rich content only with safe image s
         /<img src="https:\/\/example\.test\/icon\.svg" alt="safe icon" title="Status">/
     );
     assert.equal((html.match(/<img /g) || []).length, 1);
-    assert.match(html, /<table>[\s\S]*<th>State<\/th>[\s\S]*<td>Ready<\/td>/);
+    assert.match(html, /<table class="conversation-data-table">[\s\S]*data-conversation-sort-column="0"[\s\S]*<td class="">Ready<\/td>/);
     assert.match(
         html,
         /<pre><code class="hljs language-mermaid">flowchart LR\n    A --&gt; B\n<\/code><\/pre>/
@@ -125,6 +125,7 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff fences as escaped side-by-si
     assert.match(html, /conversation-diff-grid/);
     assert.match(html, /conversation-diff-side-old conversation-diff-line conversation-diff-line-del/);
     assert.match(html, /conversation-diff-side-new conversation-diff-line conversation-diff-line-add/);
+    assert.match(html, /data-conversation-diff-context-toggle/);
     assert.match(html, /&lt;new&gt;/, 'diff source is escaped before rendering');
     assert.equal(html.includes('<new>'), false);
 });
@@ -181,6 +182,61 @@ test('CONVERSATION-RICH-MARKDOWN-005 renders workspace references, folded struct
     assert.match(html, /<polyline /);
     assert.match(html, /conversation-chart-pie/);
     assert.match(html, /<circle /);
+});
+
+test('CONVERSATION-RICH-MARKDOWN-006 renders controlled reference cards and explicit code line highlights', () => {
+    const html = renderConversationMarkdown([
+        '```typescript {2, 4-5}',
+        'const one = 1;',
+        'const two = 2;',
+        'const three = 3;',
+        'const four = 4;',
+        'const five = 5;',
+        '```',
+        '',
+        '```references',
+        '[{"title":"Implementation","href":"src/aiSessions/conversation/markdown.ts:42","note":"Host-controlled renderer."},{"title":"Guide","href":"https://example.test/guide"}]',
+        '```',
+    ].join('\n'));
+
+    assert.match(html, /conversation-code-numbered/);
+    assert.match(html, /data-conversation-code-line="2"/);
+    assert.match(html, /conversation-code-line-highlighted/);
+    assert.match(html, /conversation-references/);
+    assert.match(html, /href="src\/aiSessions\/conversation\/markdown\.ts:42"/);
+    assert.match(html, /href="https:\/\/example\.test\/guide"/);
+});
+
+test('CONVERSATION-RICH-MARKDOWN-007 preserves aligned sortable Markdown tables', () => {
+    const html = renderConversationMarkdown([
+        '| Name | Score |',
+        '| :--- | ---: |',
+        '| Zebra | 2 |',
+    ].join('\n'));
+
+    assert.match(html, /conversation-table-sort/);
+    assert.match(html, /conversation-table-align-left/);
+    assert.match(html, /conversation-table-align-right/);
+    assert.match(html, /data-conversation-sort-column="1"/);
+});
+
+test('CONVERSATION-DIFF-VISIBILITY-002 collapses only long unchanged diff context', () => {
+    const context = Array.from({ length: 10 }, (_value, index) => ` line ${index + 1}`);
+    const html = renderConversationMarkdown([
+        '```diff',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -1,12 +1,12 @@',
+        ...context,
+        '-const oldValue = 1;',
+        '+const newValue = 2;',
+        '```',
+    ].join('\n'));
+
+    assert.match(html, /<details class="conversation-diff-context">/);
+    assert.match(html, /… 4 unchanged lines/);
+    assert.match(html, /conversation-diff-context-grid/);
+    assert.match(html, /Changes only/);
 });
 
 test('CONVERSATION-LOCAL-FILE-LINKS-002 rejects traversal and unsafe workspace references', () => {

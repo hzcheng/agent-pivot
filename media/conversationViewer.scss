@@ -560,6 +560,35 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     white-space: pre-wrap;
 }
 
+.conversation-references {
+    display: grid;
+    gap: 0.45rem;
+    margin: 0.75rem 0;
+}
+
+.conversation-reference-card {
+    display: grid;
+    gap: 0.2rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-textLink-foreground);
+    border-radius: 4px;
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.conversation-reference-link {
+    overflow: hidden;
+    color: var(--vscode-textLink-foreground);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-reference-note {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+}
+
 /* Outspecific .conversation-markdown pre: the card supplies the chrome. */
 .conversation-markdown .conversation-code-block > pre {
     margin: 0;
@@ -603,6 +632,32 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     &.is-failed {
         color: var(--vscode-errorForeground);
     }
+}
+
+.conversation-code-numbered {
+    counter-reset: conversation-code-line;
+}
+
+.conversation-code-numbered .conversation-code-line {
+    display: grid;
+    grid-template-columns: 3.25rem minmax(0, 1fr);
+    min-width: 100%;
+}
+
+.conversation-code-line-number {
+    padding: 0 0.65rem;
+    color: var(--vscode-editorLineNumber-foreground, var(--vscode-descriptionForeground));
+    text-align: end;
+    user-select: none;
+}
+
+.conversation-code-line-content {
+    padding-right: 0.75rem;
+}
+
+.conversation-code-line-highlighted {
+    background: var(--vscode-editor-lineHighlightBackground, rgba(128, 128, 128, 0.18));
+    box-shadow: inset 2px 0 var(--vscode-editorOverviewRuler-rangeHighlightForeground, var(--vscode-focusBorder));
 }
 
 .conversation-progress .conversation-markdown {
@@ -1172,6 +1227,33 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     white-space: nowrap;
 }
 
+.conversation-diff-context-toggle {
+    flex: 0 0 auto;
+    padding: 0.1rem 0.35rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 3px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font: inherit;
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+
+.conversation-diff-context-toggle:hover {
+    color: var(--vscode-foreground);
+    background: var(--vscode-toolbar-hoverBackground, transparent);
+}
+
+.conversation-diff-context-toggle:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
+}
+
+.conversation-diff-changes-only .conversation-diff-line-context,
+.conversation-diff-changes-only .conversation-diff-context {
+    display: none;
+}
+
 .conversation-diff-count-add {
     color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
 }
@@ -1195,6 +1277,23 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
 .conversation-diff-grid {
     min-width: 32rem;
+}
+
+.conversation-diff-context {
+    display: block;
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.conversation-diff-context > summary {
+    padding: 0.15rem 0.6rem;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    font-style: italic;
+    user-select: none;
+}
+
+.conversation-diff-context-grid {
+    display: block;
 }
 
 .conversation-diff-row {
@@ -1348,6 +1447,33 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     th {
         background: var(--vscode-textCodeBlock-background);
         font-weight: 600;
+    }
+
+    .conversation-table-align-center { text-align: center; }
+    .conversation-table-align-right { text-align: right; }
+
+    .conversation-table-sort {
+        display: inline-flex;
+        max-width: 100%;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: inherit;
+        text-align: start;
+        cursor: pointer;
+
+        &:hover {
+            color: var(--vscode-textLink-foreground);
+        }
+
+        &:focus-visible {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: 2px;
+        }
     }
 }
 

@@ -4220,6 +4220,28 @@ test('CONVERSATION-RUN-COMMAND-001 runs Bash blocks and selected Bash commands i
     });
 });
 
+test('CONVERSATION-RUN-COMMAND-002 preserves source text when highlighted Bash lines have visible numbers', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:assistant:0',
+                interactionId: 'input-1',
+                role: 'assistant',
+                markdown: '```bash {2}\necho first\n\necho second\n```',
+            }],
+        },
+    });
+    await page.locator('[data-conversation-run-command]').click();
+    assert.equal((await postedMessages(page)).at(-1).command,
+        'echo first\n\necho second');
+
+    await page.locator('.conversation-code-copy').click();
+    assert.equal((await postedMessages(page)).at(-1).payload.text,
+        'echo first\n\necho second');
+});
+
 test('CONVERSATION-RUN-COMMAND-001 keeps a long Unicode comment selection available but non-runnable', async t => {
     const emoji = '😀'.repeat(3000);
     const { page } = await openHostViewerDocument(t, {
@@ -4926,6 +4948,88 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Strip this generation's local rendering controls before replaying
+        // the frozen adjacent Viewer generation below.
+        .replace(
+            "        'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open', 'type',\n"
+                + "        'role', 'aria-label', 'aria-hidden', 'viewBox', 'preserveAspectRatio',\n"
+                + "        'aria-sort', 'aria-pressed', 'data-conversation-sort-column', 'data-conversation-sort-direction',\n"
+                + "        'data-conversation-diff-context-toggle',\n",
+            "        'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open',\n"
+                + "        'role', 'aria-label', 'aria-hidden', 'viewBox', 'preserveAspectRatio',\n"
+        )
+        .replace(
+            '    function codeBlockText(code) {\n'
+                + "        var lines = code.querySelectorAll('.conversation-code-line-content');\n"
+                + "        if (!lines.length) return code.textContent || '';\n"
+                + '        return Array.prototype.map.call(lines, function (line) {\n'
+                + "            return line.textContent || '';\n"
+                + "        }).join('\\n');\n"
+                + '    }\n\n',
+            ''
+        )
+        .replace(
+            "        var contextToggle = event.target && event.target.closest\n"
+                + "            ? event.target.closest('[data-conversation-diff-context-toggle]')\n"
+                + '            : null;\n'
+                + '        if (contextToggle && messages.contains(contextToggle)) {\n'
+                + "            var diffFile = contextToggle.closest('.conversation-diff-file');\n"
+                + '            if (!diffFile) return;\n'
+                + "            var changesOnly = diffFile.classList.toggle('conversation-diff-changes-only');\n"
+                + "            contextToggle.setAttribute('aria-pressed', String(changesOnly));\n"
+                + "            contextToggle.textContent = changesOnly ? 'Show context' : 'Changes only';\n"
+                + "            contextToggle.title = changesOnly ? 'Show all context' : 'Show changes only';\n"
+                + '            return;\n'
+                + '        }\n'
+                + '        var sortButton = event.target && event.target.closest\n'
+                + "            ? event.target.closest('[data-conversation-sort-column]')\n"
+                + '            : null;\n'
+                + '        if (sortButton && messages.contains(sortButton)) {\n'
+                + "            var table = sortButton.closest('table.conversation-data-table');\n"
+                + "            var body = table ? table.querySelector('tbody') : null;\n"
+                + "            var column = Number(sortButton.getAttribute('data-conversation-sort-column'));\n"
+                + '            if (!body || !Number.isInteger(column) || column < 0) return;\n'
+                + "            var direction = sortButton.getAttribute('data-conversation-sort-direction') === 'ascending'\n"
+                + "                ? 'descending'\n"
+                + "                : 'ascending';\n"
+                + "            var rows = Array.prototype.map.call(body.querySelectorAll('tr'), function (row, index) {\n"
+                + "                return { row: row, index: index, value: (row.cells[column] && row.cells[column].textContent || '').trim() };\n"
+                + '            });\n'
+                + '            rows.sort(function (left, right) {\n'
+                + '                var leftNumber = Number(left.value);\n'
+                + '                var rightNumber = Number(right.value);\n'
+                + '                var numberPattern = /^[+-]?(?:\\d+|\\d*\\.\\d+)$/;\n'
+                + '                var comparison = numberPattern.test(left.value) && numberPattern.test(right.value)\n'
+                + '                    && Number.isFinite(leftNumber) && Number.isFinite(rightNumber)\n'
+                + '                    ? leftNumber - rightNumber\n'
+                + '                    : left.value.localeCompare(right.value);\n'
+                + "                return (direction === 'descending' ? -comparison : comparison)\n"
+                + '                    || left.index - right.index;\n'
+                + '            });\n'
+                + '            Array.prototype.forEach.call(\n'
+                + "                table.querySelectorAll('[data-conversation-sort-column]'),\n"
+                + '                function (button) {\n'
+                + "                    button.setAttribute('data-conversation-sort-direction', '');\n"
+                + "                    var header = button.closest('th');\n"
+                + "                    if (header) header.setAttribute('aria-sort', 'none');\n"
+                + '                }\n'
+                + '            );\n'
+                + "            sortButton.setAttribute('data-conversation-sort-direction', direction);\n"
+                + "            var activeHeader = sortButton.closest('th');\n"
+                + "            if (activeHeader) activeHeader.setAttribute('aria-sort', direction);\n"
+                + '            rows.forEach(function (entry) { body.appendChild(entry.row); });\n'
+                + '            return;\n'
+                + '        }\n',
+            ''
+        )
+        .replace(
+            '            postRunCommand(codeBlockText(runCode));\n',
+            "            postRunCommand(runCode.textContent || '');\n"
+        )
+        .replace(
+            '                text: codeBlockText(code),\n',
+            "                text: code.textContent || '',\n"
+        )
         // The current script carries independent Webview-side history
         // watchdogs. The adjacent generation predates them; remove every
         // coupled state transition before asserting the frozen fixture.
@@ -11159,6 +11263,28 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structure
             '{"labels":["Pass","Fail"],"values":[9,1]}',
             '```',
             '',
+            '```typescript {2}',
+            'const first = 1;',
+            'const second = 2;',
+            '```',
+            '',
+            '| Name | Score |',
+            '| --- | ---: |',
+            '| Zebra | 2 |',
+            '| Alpha | 10 |',
+            '',
+            '```references',
+            '[{"title":"Renderer","href":"src/aiSessions/conversation/markdown.ts:42","note":"Host controlled."}]',
+            '```',
+            '',
+            '```diff',
+            '--- a/src/a.ts',
+            '+++ b/src/a.ts',
+            '@@ -1 +1 @@',
+            '-const oldValue = 1;',
+            '+const newValue = 2;',
+            '```',
+            '',
             '<span class="conversation-math"><span class="katex" style="color:red">unsafe HTML</span></span>',
         ].join('\n'),
     });
@@ -11192,6 +11318,23 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structure
         'model-supplied HTML remains text, never a styled DOM node');
     assert.equal(await page.locator('.conversation-chart-line polyline').count(), 1);
     assert.equal(await page.locator('.conversation-chart-pie circle').count(), 2);
+    assert.equal(await page.locator('.conversation-code-line-highlighted').count(), 1);
+    assert.equal(await page.locator('.conversation-reference-card').count(), 1);
+    const sortButton = page.locator('.conversation-table-sort').nth(1);
+    await sortButton.click();
+    assert.equal(await page.locator('.conversation-data-table tbody tr').first()
+        .locator('td').first().textContent(), 'Zebra',
+        'the first click sorts scores ascending');
+    await sortButton.click();
+    assert.equal(await page.locator('.conversation-data-table tbody tr').first()
+        .locator('td').first().textContent(), 'Alpha',
+        'the second click reverses the sort direction');
+    assert.equal(await sortButton.locator('xpath=ancestor::th').getAttribute('aria-sort'), 'descending');
+    const diffToggle = page.locator('.conversation-diff-context-toggle');
+    await diffToggle.click();
+    assert.equal(await diffToggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('.conversation-diff-file')
+        .evaluate(element => element.classList.contains('conversation-diff-changes-only')), true);
     const chartWidth = await page.locator('.conversation-chart').first()
         .evaluate(element => element.getBoundingClientRect().width);
     assert.ok(chartWidth <= 360,

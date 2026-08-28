@@ -19,6 +19,8 @@ interface DiffSide {
     number?: number;
 }
 
+const DIFF_VISIBLE_CONTEXT_LINES = 3;
+
 function renderDiffSide(side: DiffSide, position: 'old' | 'new'): string {
     if (!side.line) {
         return `<span class="conversation-diff-side conversation-diff-side-${position} conversation-diff-side-empty" aria-hidden="true"></span>`;
@@ -36,6 +38,17 @@ function renderDiffRow(oldSide: DiffSide, newSide: DiffSide): string {
     return `<span class="conversation-diff-row">${renderDiffSide(oldSide, 'old')}${renderDiffSide(newSide, 'new')}</span>`;
 }
 
+function renderContextRows(
+    lines: ConversationDiffLine[],
+    oldStart: number | undefined,
+    newStart: number | undefined
+): string {
+    return lines.map((line, index) => renderDiffRow(
+        { line, number: oldStart === undefined ? undefined : oldStart + index },
+        { line, number: newStart === undefined ? undefined : newStart + index }
+    )).join('');
+}
+
 function renderDiffHunk(hunk: ConversationDiffHunk): string {
     let oldLine = hunk.oldStart;
     let newLine = hunk.newStart;
@@ -44,17 +57,41 @@ function renderDiffHunk(hunk: ConversationDiffHunk): string {
     while (index < hunk.lines.length) {
         const line = hunk.lines[index];
         if (line.type === 'context') {
-            rows.push(renderDiffRow(
-                { line, number: oldLine },
-                { line, number: newLine }
-            ));
+            const context: ConversationDiffLine[] = [];
+            while (index < hunk.lines.length
+                && hunk.lines[index].type === 'context') {
+                context.push(hunk.lines[index]);
+                index += 1;
+            }
+            const currentOldLine = oldLine;
+            const currentNewLine = newLine;
+            if (context.length <= DIFF_VISIBLE_CONTEXT_LINES * 2) {
+                rows.push(renderContextRows(context, currentOldLine, currentNewLine));
+            } else {
+                const leading = context.slice(0, DIFF_VISIBLE_CONTEXT_LINES);
+                const hidden = context.slice(
+                    DIFF_VISIBLE_CONTEXT_LINES,
+                    -DIFF_VISIBLE_CONTEXT_LINES
+                );
+                const trailing = context.slice(-DIFF_VISIBLE_CONTEXT_LINES);
+                rows.push(renderContextRows(leading, currentOldLine, currentNewLine));
+                rows.push(`<details class="conversation-diff-context"><summary>… ${hidden.length} unchanged lines</summary><section class="conversation-diff-context-grid">${renderContextRows(hidden, currentOldLine === undefined ? undefined : currentOldLine + leading.length, currentNewLine === undefined ? undefined : currentNewLine + leading.length)}</section></details>`);
+                rows.push(renderContextRows(
+                    trailing,
+                    currentOldLine === undefined
+                        ? undefined
+                        : currentOldLine + leading.length + hidden.length,
+                    currentNewLine === undefined
+                        ? undefined
+                        : currentNewLine + leading.length + hidden.length
+                ));
+            }
             if (oldLine !== undefined) {
-                oldLine += 1;
+                oldLine += context.length;
             }
             if (newLine !== undefined) {
-                newLine += 1;
+                newLine += context.length;
             }
-            index += 1;
             continue;
         }
 
@@ -101,7 +138,7 @@ function renderConversationDiffFile(diff: ConversationFileDiff): string {
         ? `<span class="conversation-diff-kind conversation-diff-kind-${escapeHtml(diff.kind)}">${escapeHtml(diff.kind)}</span>`
         : '';
     const hunks = diff.hunks.map(renderDiffHunk).join('');
-    return `<section class="conversation-diff-file"><section class="conversation-diff-file-header"><span class="conversation-diff-path" title="${escapeHtml(diff.path)}">${escapeHtml(diff.path)}</span>${kind}<span class="conversation-diff-counts"><span class="conversation-diff-count-add">+${diff.additions}</span> <span class="conversation-diff-count-del">−${diff.deletions}</span></span></section>${hunks}</section>`;
+    return `<section class="conversation-diff-file"><section class="conversation-diff-file-header"><span class="conversation-diff-path" title="${escapeHtml(diff.path)}">${escapeHtml(diff.path)}</span>${kind}<span class="conversation-diff-counts"><span class="conversation-diff-count-add">+${diff.additions}</span> <span class="conversation-diff-count-del">−${diff.deletions}</span></span><button class="conversation-diff-context-toggle" type="button" data-conversation-diff-context-toggle aria-pressed="false" title="Show changes only">Changes only</button></section>${hunks}</section>`;
 }
 
 export function renderConversationDiffs(diffs: ConversationFileDiff[]): string {

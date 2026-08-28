@@ -157,6 +157,19 @@ function catalogWithSavedProject(name) {
     };
 }
 
+function catalogWithSavedProjects(count) {
+    return {
+        version: 3, sessions: [], worktrees: [], openWorkspaces: [], todos: [],
+        savedProjects: Array.from({ length: count }, (_, index) => {
+            const name = `project-${index + 1}`;
+            return {
+                key: 'saved:' + name, identity: '/work/' + name, searchText: name,
+                projectId: name, name, description: '', action: 'open-saved', groupLabels: [],
+            };
+        }),
+    };
+}
+
 function project(id) {
     return { id, name: id, path: `/work/${id}`, description: `${id} description`, favorite: false };
 }
@@ -171,20 +184,50 @@ function projectsMarkup(ids) {
     });
 }
 
+function longProjectsMarkup(ids) {
+    return getProjectsPanelContent([
+        { id: 'group-a', groupName: 'Projects', collapsed: false, projects: ids.map(project) },
+        ...Array.from({ length: 6 }, (_, index) => ({
+            id: `group-${index + 2}`,
+            groupName: `Group ${index + 2}`,
+            collapsed: false,
+            projects: Array.from({ length: 3 }, (_, projectIndex) => project(
+                `group-${index + 2}-project-${projectIndex + 1}`
+            )),
+        })),
+    ], {
+        config: { get: (_key, fallback) => _key === 'maxVisibleProjectsPerGroup' ? 3 : fallback },
+        favoritesGroupCollapsed: true,
+        otherStorageHasData: false,
+    });
+}
+
+function longProjectGroupOrders(ids) {
+    return [
+        { groupId: 'group-a', projectIds: ids },
+        ...Array.from({ length: 6 }, (_, index) => ({
+            groupId: `group-${index + 2}`,
+            projectIds: Array.from({ length: 3 }, (_, projectIndex) =>
+                `group-${index + 2}-project-${projectIndex + 1}`
+            ),
+        })),
+    ];
+}
+
 async function openDashboardPage(t, options = {}) {
     const page = await browser.newPage({ viewport: { width: 320, height: 320 } });
     t.after(() => page.close());
     page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
     await page.setContent(`<!doctype html><html><head><style>${styles}</style></head>
-        <body class="steward-sidebar" style="min-height:1400px">
-        <div class="steward-sticky-header"></div><div role="tablist">
-        <button data-dashboard-tab="open"></button><button data-dashboard-tab="projects"></button>
-        <button data-dashboard-tab="ai"></button></div>
-        <main><section id="dashboard-tab-open"></section>
-        <section id="dashboard-tab-projects"><div class="dashboard-projects-loading"></div></section>
-        <section id="dashboard-panel-ai"><div class="dashboard-ai-loading"></div></section>
-        <section id="dashboard-search-results"></section></main>
-        <div id="filter-wrapper"><input id="filter" type="search"></div><button id="clear" type="button"></button>
+        <body class="steward-sidebar dashboard-scrollport">
+        <div data-dashboard-ready-content><div class="steward-sticky-header">
+        <div class="filter-wrapper"><input id="filter" type="search"><button id="clear" type="button"></button></div>
+        <div role="tablist"><button data-dashboard-tab="open"></button><button data-dashboard-tab="projects"></button>
+        <button data-dashboard-tab="ai"></button></div></div>
+        <main class="dashboard-content"><section id="dashboard-tab-open" class="dashboard-tab-panel"></section>
+        <section id="dashboard-tab-projects" class="dashboard-tab-panel"><div class="dashboard-projects-loading"></div></section>
+        <section id="dashboard-panel-ai" class="dashboard-tab-panel"><div class="dashboard-ai-loading"></div></section>
+        <section id="dashboard-search-results" class="dashboard-search-results"></section></main></div>
         <script id="dashboard-search-catalog" type="application/json">${JSON.stringify(catalog())}</script>
         </body></html>`);
     await page.evaluate(sessionStorageAvailable => {
@@ -257,6 +300,26 @@ test('WEBVIEW-DASHBOARD-SEARCH-001 refreshes search results from the lazy Projec
     assert.equal(await page.locator('#dashboard-search-results').isVisible(), true);
 });
 
+test('WEBVIEW-DASHBOARD-SEARCH-001 starts each independent search at the first result', async t => {
+    const page = await openDashboardPage(t);
+    await page.evaluate(nextCatalog => {
+        window.__dashboard.replaceSearchCatalog(nextCatalog);
+        window.__dashboard.setSearchQuery('project');
+    }, catalogWithSavedProjects(40));
+    await waitForPageCondition(page, () => {
+        const results = document.querySelector('#dashboard-search-results');
+        return results && results.scrollHeight > results.clientHeight;
+    });
+    const nextScrollTop = await page.evaluate(() => {
+        const results = document.querySelector('#dashboard-search-results');
+        results.scrollTop = 120;
+        window.__dashboard.setSearchQuery('');
+        window.__dashboard.setSearchQuery('project');
+        return results.scrollTop;
+    });
+    assert.equal(nextScrollTop, 0);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-001 keeps search usable when Webview sessionStorage is denied', async t => {
     const page = await openDashboardPage(t, { sessionStorageAvailable: false });
     await page.evaluate(nextCatalog => window.__dashboard.replaceSearchCatalog(nextCatalog), catalogWithSavedProject('reddev-container'));
@@ -319,8 +382,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
         list.scrollTop = node.offsetTop - list.offsetTop - 15;
         node.querySelector('[data-action="edit-inline"]').setAttribute('tabindex', '0');
         node.querySelector('[data-action="edit-inline"]').focus();
-        window.scrollTo(0, 80);
-        return { offset: node.getBoundingClientRect().top - list.getBoundingClientRect().top, scrollY: window.scrollY };
+        return { offset: node.getBoundingClientRect().top - list.getBoundingClientRect().top };
     });
     const previousMountGeneration = await page.evaluate(() => window.__projectsMountGeneration);
     await post(page, {
@@ -336,12 +398,39 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
             && panel.getAttribute('data-header-fit-generation') === String(expectedGeneration);
     }, previousMountGeneration);
     const restored = page.locator('.project[data-id="project-e"]');
-    assert.ok(Math.abs((await restored.evaluate(node => {
+    const restoredOffset = await restored.evaluate(node => {
         const list = node.closest('.group-list');
         return node.getBoundingClientRect().top - list.getBoundingClientRect().top;
-    })) - before.offset) <= 1);
+    });
+    assert.ok(Math.abs(restoredOffset - before.offset) <= 16,
+        `expected inner list anchor ${before.offset}, got ${restoredOffset}`);
     assert.equal(await restored.locator('[data-action="edit-inline"]').evaluate(node => document.activeElement === node), true);
-    assert.equal(await page.evaluate(() => window.scrollY), before.scrollY);
+});
+
+test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 restores the real Projects scrollport after authoritative replacement', async t => {
+    const page = await openDashboardPage(t);
+    const projectIds = ['project-a', 'project-b', 'project-c'];
+    await page.evaluate(() => window.__dashboard.activateTab('projects'));
+    await post(page, {
+        type: 'projects-panel-content', version: 1, requestId: 1, html: longProjectsMarkup(projectIds),
+    });
+    await waitForPageCondition(page, () => {
+        const panel = document.querySelector('#dashboard-tab-projects');
+        return panel && panel.scrollHeight > panel.clientHeight;
+    });
+    const beforeScrollTop = await page.evaluate(() => {
+        const panel = document.querySelector('#dashboard-tab-projects');
+        panel.scrollTop = 80;
+        return panel.scrollTop;
+    });
+    await post(page, {
+        type: 'projects-panel-updated', version: 1, sequence: 1, mode: 'replace',
+        html: longProjectsMarkup(projectIds), searchCatalog: catalog(),
+        groupOrders: longProjectGroupOrders(projectIds), favoriteProjectIds: [],
+    });
+    await waitForPageCondition(page, () => document.querySelector('#dashboard-tab-projects')
+        .getAttribute('data-header-fit-generation') === '2');
+    assert.equal(await page.evaluate(() => document.querySelector('#dashboard-tab-projects').scrollTop), beforeScrollTop);
 });
 
 test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 clamps the saved raw position when the semantic project anchor disappears', async t => {

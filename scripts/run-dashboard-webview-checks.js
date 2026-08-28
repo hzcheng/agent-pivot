@@ -2012,6 +2012,7 @@ function createElement(id) {
     return {
         id,
         hidden: false,
+        scrollTop: 0,
         innerHTML: '',
         classList: createClassList(),
         addEventListener: (type, listener) => { listeners[type] = listener; },
@@ -2141,7 +2142,7 @@ function runControllerChecks(source) {
     assert.strictEqual(openButton.getAttribute('aria-selected'), 'true');
     assert.strictEqual(projectsButton.getAttribute('tabindex'), '-1');
 
-    context.window.scrollY = 37;
+    openPanel.scrollTop = 37;
     controller.activateTab('projects');
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages)), [
         { type: 'request-projects-panel', version: 1, requestId: 1 },
@@ -2155,11 +2156,11 @@ function runControllerChecks(source) {
     }), false);
     assert.strictEqual(projectsPanel.innerHTML, '');
     controller.activateTab('open');
-    const openScrollBeforeResponse = context.window.scrollY;
+    const openScrollBeforeResponse = openPanel.scrollTop;
     assert.strictEqual(controller.applyProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 1, html: '<div>projects</div>',
     }), true);
-    assert.strictEqual(context.window.scrollY, openScrollBeforeResponse, 'background PROJECTS mount must not move OPEN scroll');
+    assert.strictEqual(openPanel.scrollTop, openScrollBeforeResponse, 'background PROJECTS mount must not move OPEN scroll');
     assert.strictEqual(projectsPanel.innerHTML, '<div>projects</div>');
     assert.strictEqual(controller.getProjectsState(), 'mounted');
     assert.strictEqual(mounted, 1);

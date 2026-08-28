@@ -61,7 +61,7 @@ function getProjectScrollItemKey(project) {
 
 function captureProjectsPanelState(panel) {
     var state = {
-        windowScrollY: window.scrollY,
+        panelScrollTop: panel && typeof panel.scrollTop === 'number' ? panel.scrollTop : 0,
         focus: getProjectsFocusTarget(panel),
         inlineEdit: window.__agentPivotProjectInlineEdit
             && typeof window.__agentPivotProjectInlineEdit.captureState === 'function'
@@ -126,9 +126,9 @@ function restoreProjectsPanelAnchors(panel, state) {
     });
 }
 
-function restoreProjectsWindowScroll(state) {
-    if (state && Number.isFinite(state.windowScrollY)) {
-        window.scrollTo(0, state.windowScrollY);
+function restoreProjectsPanelScroll(panel, state) {
+    if (panel && state && Number.isFinite(state.panelScrollTop)) {
+        panel.scrollTop = state.panelScrollTop;
     }
 }
 

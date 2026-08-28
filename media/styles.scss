@@ -2015,6 +2015,56 @@ body.steward-sidebar {
     padding-left: 10px;
     padding-right: 10px;
 
+    // Only this document owns the persistent header plus top-level Tabs.
+    // Other sidebar surfaces (such as the Skills standalone panel) manage their
+    // own scroll layout and must retain their existing document geometry.
+    &.dashboard-scrollport {
+        height: 100vh;
+        min-height: 0;
+        overflow: hidden;
+        box-sizing: border-box;
+
+        // The shell, not the document, owns the visible viewport. This keeps the
+        // header width invariant while Projects or AI gain a vertical scrollbar.
+        [data-dashboard-ready-content] {
+            height: 100%;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .steward-sticky-header {
+            flex: 0 0 auto;
+        }
+
+        .dashboard-content {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .dashboard-tab-panel:not([hidden]),
+        .dashboard-search-results:not([hidden]) {
+            height: 100%;
+            min-height: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scrollbar-gutter: stable;
+        }
+
+        #dashboard-tab-open:not([hidden]) {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .groups-wrapper > .group:not(#tempGroup) .steward-group-header,
+        .ai-tablist {
+            top: 4px;
+        }
+
+    }
+
     .open-session-surface {
         // This surface replaces the expandable project card. Keep its
         // session region visible even when it is rendered outside the OPEN

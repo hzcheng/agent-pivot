@@ -76,7 +76,10 @@ function initDnD(root) {
     });
     groupsDrake.on('drop', onReordered);
 
-    const scroll = autoScroll(window, {
+    // Projects owns the vertical scrollport in the shell. Scrolling
+    // the window leaves offscreen drop targets unreachable once the shell
+    // suppresses document scrolling.
+    const scroll = autoScroll(root, {
         margin: 20,
         autoScroll: function () {
             return this.down && (projectDrake.dragging || groupsDrake.dragging);

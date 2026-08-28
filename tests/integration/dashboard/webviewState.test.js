@@ -76,6 +76,7 @@ function createElement(id = '') {
     return {
         id,
         hidden: false,
+        scrollTop: 0,
         innerHTML: '',
         children: [],
         classList: createClassList(),
@@ -1855,7 +1856,7 @@ test('PROJECT-INCREMENTAL-REFRESH-001 replaces only Projects and rejects stale u
         type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>initial</p>',
     }), true);
     harness.openPanel.innerHTML = '<p>open-state</p>';
-    harness.context.window.scrollY = 73;
+    harness.projectsPanel.scrollTop = 73;
     const openIdentity = harness.openPanel;
 
     assert.equal(harness.controller.applyProjectsPanelUpdatedMessage({
@@ -1872,7 +1873,7 @@ test('PROJECT-INCREMENTAL-REFRESH-001 replaces only Projects and rejects stale u
     assert.equal(harness.openPanel, openIdentity);
     assert.equal(harness.openPanel.innerHTML, '<p>open-state</p>');
     assert.equal(harness.controller.getActiveTab(), 'projects');
-    assert.equal(harness.context.window.scrollY, 73);
+    assert.equal(harness.projectsPanel.scrollTop, 73);
 
     assert.equal(harness.controller.applyProjectsPanelUpdatedMessage({
         type: 'projects-panel-updated',
@@ -1940,7 +1941,7 @@ test('PROJECT-INCREMENTAL-REFRESH-001 preserves matching drag DOM and replaces a
 test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 captures semantic Projects state and ignores stale post-fit restoration', () => {
     assert.match(projectsPanelSource, /function getProjectScrollItemKey\(project\)/);
     assert.match(projectsPanelSource, /function captureProjectsPanelState\(panel\)/);
-    assert.match(projectsPanelSource, /windowScrollY:\s*window\.scrollY/);
+    assert.match(projectsPanelSource, /panelScrollTop:\s*panel && typeof panel\.scrollTop/);
     assert.match(projectsPanelSource, /itemSelector:\s*'\.project\[data-id\]'/);
     assert.match(projectsPanelSource, /getKey:\s*getProjectScrollItemKey/);
     assert.match(projectsPanelSource, /focus\(\{ preventScroll: true \}\)/);
@@ -1986,13 +1987,13 @@ test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent 
     assert.equal(harness.context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 2, requestId: 1, html: '',
     }), false);
-    harness.context.window.scrollY = 41;
+    harness.openPanel.scrollTop = 41;
     harness.controller.activateTab('projects');
-    harness.context.window.scrollY = 9;
+    harness.projectsPanel.scrollTop = 9;
     harness.controller.activateTab('open');
     assert.equal(harness.controller.getScrollPosition('open'), 41);
     assert.equal(harness.controller.getScrollPosition('projects'), 9);
-    assert.equal(harness.context.window.scrollY, 41);
+    assert.equal(harness.openPanel.scrollTop, 41);
 
     assert.equal(harness.controller.applyProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 2, html: '<p>future</p>',
@@ -2004,6 +2005,11 @@ test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent 
         type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>stale</p>',
     }), false);
     assert.equal(harness.projectsPanel.innerHTML, '<p>current</p>');
+    harness.controller.activateTab('projects');
+    harness.projectsPanel.scrollTop = 27;
+    harness.controller.activateTab('projects');
+    assert.equal(harness.projectsPanel.scrollTop, 27,
+        'reselecting the active Projects tab must not restore stale scroll state');
 
 });
 
@@ -2660,6 +2666,7 @@ test('WEBVIEW-BATCH-AI-SESSION-WEBVIEW-001 maps ctrl meta and middle-click proje
 function createDndHarness({ projectContainers = [], groupElements = [] } = {}) {
     const drakes = [];
     const messages = [];
+    const scrollTargets = [];
     const windowListeners = {};
     const context = {
         document: {
@@ -2686,7 +2693,10 @@ function createDndHarness({ projectContainers = [], groupElements = [] } = {}) {
             drakes.push({ containers, options, handlers, drake });
             return drake;
         },
-        autoScroll: () => ({ destroy: () => undefined }),
+        autoScroll: target => {
+            scrollTargets.push(target);
+            return { destroy: () => undefined };
+        },
     };
     vm.runInNewContext(dndSource, context);
     const rootElement = {
@@ -2698,7 +2708,7 @@ function createDndHarness({ projectContainers = [], groupElements = [] } = {}) {
             return [];
         },
     };
-    return { context, rootElement, drakes, messages, windowListeners };
+    return { context, rootElement, drakes, messages, scrollTargets, windowListeners };
 }
 
 test('WEBVIEW-FAVORITE-DND-001 limits favorite drag to the same virtual container and posts exact order', () => {
@@ -2729,6 +2739,8 @@ test('WEBVIEW-FAVORITE-DND-001 limits favorite drag to the same virtual containe
     harness.context.initDnD(harness.rootElement);
     assert.equal(harness.rootElement.__agentPivotDnDInitialized, true);
     assert.equal(harness.drakes.length, 2);
+    assert.deepEqual(harness.scrollTargets, [harness.rootElement],
+        'drag autoscroll must target the Projects panel rather than the root window');
     harness.drakes[0].handlers.drop({}, favorites, favorites);
     assert.deepEqual(toPlain(harness.messages), [{
         type: 'reordered-favorites', projectIds: ['favorite-b', 'favorite-a'],

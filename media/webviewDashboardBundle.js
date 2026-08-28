@@ -10569,7 +10569,7 @@ function getProjectScrollItemKey(project) {
 
 function captureProjectsPanelState(panel) {
     var state = {
-        windowScrollY: window.scrollY,
+        panelScrollTop: panel && typeof panel.scrollTop === 'number' ? panel.scrollTop : 0,
         focus: getProjectsFocusTarget(panel),
         inlineEdit: window.__agentPivotProjectInlineEdit
             && typeof window.__agentPivotProjectInlineEdit.captureState === 'function'
@@ -10634,9 +10634,9 @@ function restoreProjectsPanelAnchors(panel, state) {
     });
 }
 
-function restoreProjectsWindowScroll(state) {
-    if (state && Number.isFinite(state.windowScrollY)) {
-        window.scrollTo(0, state.windowScrollY);
+function restoreProjectsPanelScroll(panel, state) {
+    if (panel && state && Number.isFinite(state.panelScrollTop)) {
+        panel.scrollTop = state.panelScrollTop;
     }
 }
 
@@ -11089,13 +11089,13 @@ function createDashboardProjectsPanel(injected) {
             && typeof window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement === 'function') {
             window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement();
         }
-        restoreProjectsWindowScroll(panelState);
+        restoreProjectsPanelScroll(panels.projects, panelState);
         requestAnimationFrame(() => {
             if (replacementGeneration !== projectsPanelReplacementGeneration) {
                 return;
             }
             restoreProjectsPanelAnchors(panels.projects, panelState);
-            restoreProjectsWindowScroll(panelState);
+            restoreProjectsPanelScroll(panels.projects, panelState);
         });
     }
 
@@ -11397,9 +11397,23 @@ function initDashboard(options) {
     var collapseButton = document.querySelector ? document.querySelector('[data-action="toggle-all-groups"]') : null;
     var searchResults = document.getElementById('dashboard-search-results');
 
+    function getTabScrollPort(tab) {
+        return panels[normalizeDashboardTab(tab)] || null;
+    }
+
+    function readTabScrollPosition(tab) {
+        var scrollPort = getTabScrollPort(tab);
+        return scrollPort && typeof scrollPort.scrollTop === 'number'
+            ? scrollPort.scrollTop
+            : 0;
+    }
+
     function restoreScroll(tab) {
         requestAnimationFrame(() => {
-            window.scrollTo(0, scrollPositions[normalizeDashboardTab(tab)] || 0);
+            var scrollPort = getTabScrollPort(tab);
+            if (scrollPort) {
+                scrollPort.scrollTop = scrollPositions[normalizeDashboardTab(tab)] || 0;
+            }
         });
     }
 
@@ -11494,9 +11508,10 @@ function initDashboard(options) {
     function activateTab(tab, saveScroll) {
         tab = normalizeDashboardTab(tab);
         saveScroll = saveScroll !== false;
-        if (tab !== activeTab) {
+        var tabChanged = tab !== activeTab;
+        if (tabChanged) {
             if (saveScroll) {
-                scrollPositions[activeTab] = window.scrollY || 0;
+                scrollPositions[activeTab] = readTabScrollPosition(activeTab);
             }
             activeTab = tab;
             writeDashboardSessionValue(storageKey, activeTab);
@@ -11509,19 +11524,23 @@ function initDashboard(options) {
         }
         if (activeTab === 'projects') {
             if (projectsPanel.getProjectsState() === 'mounted') {
-                restoreScroll('projects');
+                if (tabChanged) {
+                    restoreScroll('projects');
+                }
             } else {
                 pendingScrollRestoreTab = 'projects';
                 projectsPanel.ensureProjectsPanel();
             }
         } else if (activeTab === 'ai') {
             if (aiPanel.getAiState() === 'mounted') {
-                restoreScroll('ai');
+                if (tabChanged) {
+                    restoreScroll('ai');
+                }
             } else {
                 pendingScrollRestoreTab = 'ai';
                 aiPanel.ensureAiPanel();
             }
-        } else {
+        } else if (tabChanged) {
             restoreScroll(activeTab);
         }
         notifyActiveTabChanged();
@@ -11531,10 +11550,14 @@ function initDashboard(options) {
         var nextQuery = String(query || '').trim();
         var wasActive = searchQuery.length > 0;
         if (!wasActive && nextQuery) {
-            scrollPositions[activeTab] = window.scrollY || 0;
+            scrollPositions[activeTab] = readTabScrollPosition(activeTab);
         }
+        var queryChanged = nextQuery !== searchQuery;
         searchQuery = nextQuery;
         renderSearchMode();
+        if (queryChanged && searchQuery && searchResults) {
+            searchResults.scrollTop = 0;
+        }
         if (!searchQuery && wasActive) {
             renderActiveTab();
             if (activeTab === 'projects' && projectsPanel.getProjectsState() !== 'mounted') {
@@ -12460,12 +12483,22 @@ function tabName(tab) {
             : null;
     }
 
+    function getPromptPanelScrollPort() {
+        return root
+            && root.id === 'dashboard-panel-ai'
+            && typeof root.scrollTop === 'number'
+            ? root
+            : null;
+    }
+
     function captureLocalState() {
         var list = getPromptList();
+        var panelScrollPort = getPromptPanelScrollPort();
         return {
             focus: captureSemanticFocus(),
             scrollTop: list && typeof list.scrollTop === 'number' ? list.scrollTop : 0,
-            scrollY: typeof window.scrollY === 'number' ? window.scrollY : 0,
+            panelScrollTop: panelScrollPort ? panelScrollPort.scrollTop : null,
+            scrollY: panelScrollPort ? null : (typeof window.scrollY === 'number' ? window.scrollY : 0),
             draft: clonePromptValue(state.draft),
             activeSubtab: state.activeSubtab,
         };
@@ -12476,12 +12509,15 @@ function tabName(tab) {
             return;
         }
         activateSubtab(local.activeSubtab, false);
+        restoreSemanticFocus(local.focus);
         var list = getPromptList();
         if (list) {
             list.scrollTop = local.scrollTop;
         }
-        restoreSemanticFocus(local.focus);
-        if (typeof window.scrollTo === 'function') {
+        var panelScrollPort = getPromptPanelScrollPort();
+        if (panelScrollPort && Number.isFinite(local.panelScrollTop)) {
+            panelScrollPort.scrollTop = local.panelScrollTop;
+        } else if (typeof window.scrollTo === 'function') {
             window.scrollTo(0, local.scrollY);
         }
     }
@@ -12630,6 +12666,7 @@ function tabName(tab) {
             draft: local.draft,
             focus: local.focus,
             scrollTop: local.scrollTop,
+            panelScrollTop: local.panelScrollTop,
             scrollY: local.scrollY,
             activeSubtab: local.activeSubtab,
         });
@@ -13277,7 +13314,10 @@ function initDnD(root) {
     });
     groupsDrake.on('drop', onReordered);
 
-    const scroll = autoScroll(window, {
+    // Projects owns the vertical scrollport in the shell. Scrolling
+    // the window leaves offscreen drop targets unreachable once the shell
+    // suppresses document scrolling.
+    const scroll = autoScroll(root, {
         margin: 20,
         autoScroll: function () {
             return this.down && (projectDrake.dragging || groupsDrake.dragging);

@@ -41,9 +41,23 @@ function initDashboard(options) {
     var collapseButton = document.querySelector ? document.querySelector('[data-action="toggle-all-groups"]') : null;
     var searchResults = document.getElementById('dashboard-search-results');
 
+    function getTabScrollPort(tab) {
+        return panels[normalizeDashboardTab(tab)] || null;
+    }
+
+    function readTabScrollPosition(tab) {
+        var scrollPort = getTabScrollPort(tab);
+        return scrollPort && typeof scrollPort.scrollTop === 'number'
+            ? scrollPort.scrollTop
+            : 0;
+    }
+
     function restoreScroll(tab) {
         requestAnimationFrame(() => {
-            window.scrollTo(0, scrollPositions[normalizeDashboardTab(tab)] || 0);
+            var scrollPort = getTabScrollPort(tab);
+            if (scrollPort) {
+                scrollPort.scrollTop = scrollPositions[normalizeDashboardTab(tab)] || 0;
+            }
         });
     }
 
@@ -138,9 +152,10 @@ function initDashboard(options) {
     function activateTab(tab, saveScroll) {
         tab = normalizeDashboardTab(tab);
         saveScroll = saveScroll !== false;
-        if (tab !== activeTab) {
+        var tabChanged = tab !== activeTab;
+        if (tabChanged) {
             if (saveScroll) {
-                scrollPositions[activeTab] = window.scrollY || 0;
+                scrollPositions[activeTab] = readTabScrollPosition(activeTab);
             }
             activeTab = tab;
             writeDashboardSessionValue(storageKey, activeTab);
@@ -153,19 +168,23 @@ function initDashboard(options) {
         }
         if (activeTab === 'projects') {
             if (projectsPanel.getProjectsState() === 'mounted') {
-                restoreScroll('projects');
+                if (tabChanged) {
+                    restoreScroll('projects');
+                }
             } else {
                 pendingScrollRestoreTab = 'projects';
                 projectsPanel.ensureProjectsPanel();
             }
         } else if (activeTab === 'ai') {
             if (aiPanel.getAiState() === 'mounted') {
-                restoreScroll('ai');
+                if (tabChanged) {
+                    restoreScroll('ai');
+                }
             } else {
                 pendingScrollRestoreTab = 'ai';
                 aiPanel.ensureAiPanel();
             }
-        } else {
+        } else if (tabChanged) {
             restoreScroll(activeTab);
         }
         notifyActiveTabChanged();
@@ -175,10 +194,14 @@ function initDashboard(options) {
         var nextQuery = String(query || '').trim();
         var wasActive = searchQuery.length > 0;
         if (!wasActive && nextQuery) {
-            scrollPositions[activeTab] = window.scrollY || 0;
+            scrollPositions[activeTab] = readTabScrollPosition(activeTab);
         }
+        var queryChanged = nextQuery !== searchQuery;
         searchQuery = nextQuery;
         renderSearchMode();
+        if (queryChanged && searchQuery && searchResults) {
+            searchResults.scrollTop = 0;
+        }
         if (!searchQuery && wasActive) {
             renderActiveTab();
             if (activeTab === 'projects' && projectsPanel.getProjectsState() !== 'mounted') {

@@ -372,6 +372,25 @@ var agentPivotOpenWindowNavigation = (function () {
 
     if (typeof document !== 'undefined' && document.addEventListener) {
         document.addEventListener('click', function (e) {
+            // The current-window row owns the workspace and therefore can
+            // expose a direct save affordance. Other hosts cannot save a
+            // workspace owned by another VS Code window.
+            var saveButton = e.target.closest
+                && e.target.closest('[data-action="save-current-workspace"]');
+            var saveRow = saveButton && saveButton.closest
+                && saveButton.closest('[data-open-window-row]');
+            if (saveRow) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (saveRow.getAttribute('data-window-kind') === 'current'
+                    && window.vscode && typeof window.vscode.postMessage === 'function') {
+                    window.vscode.postMessage({
+                        type: 'save-current-workspace',
+                        projectId: saveRow.getAttribute('data-id'),
+                    });
+                }
+                return;
+            }
             var menu = document.getElementById('openWindowMenu');
             if (!menu || !menu.classList.contains('visible')) {
                 return;

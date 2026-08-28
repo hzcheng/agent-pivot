@@ -96,6 +96,7 @@ test('window row view models: maps counts, pin, kind and disambiguated names', (
     assert.equal(rows[0].runningCount, 2);
     assert.equal(rows[0].attentionCount, 1);
     assert.equal(rows[0].pinned, true);
+    assert.equal(rows[0].showSaveAction, false);
     assert.equal(rows[0].remoteType, 0);
     assert.equal(rows[1].displayName, 'app — wt');
     assert.equal(rows[1].pinned, false);
@@ -107,4 +108,11 @@ test('window row view models: negative counts clamp to zero', () => {
     ]);
     assert.equal(rows[0].runningCount, 0);
     assert.equal(rows[0].attentionCount, 0);
+});
+
+test('window row view models: preserves the current workspace save affordance', () => {
+    const [row] = buildOpenWindowRowViewModels([
+        card('current', { kind: 'current', showSaveAction: true }),
+    ]);
+    assert.equal(row.showSaveAction, true);
 });

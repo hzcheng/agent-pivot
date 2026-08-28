@@ -69,6 +69,7 @@ function renderSwitcherHtml() {
     const rows = buildOpenWindowRowViewModels([
         makeCard('__currentWorkspace-' + 'a'.repeat(24), 'current', {
             name: 'alpha', runningSessionCount: 2, attentionCount: 1, pinned: true,
+            showSaveAction: true,
         }),
         makeCard('__openWorkspaceNavigation-' + 'b'.repeat(24), 'navigation', {
             name: 'beta', runningSessionCount: 1, environment: 'ssh', environmentLabel: 'SSH',
@@ -142,6 +143,10 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
             environmentChipCount: document.querySelectorAll('.open-window-env-chip').length,
             pinPressed: rows.map(row => row.querySelector('[data-action="toggle-open-workspace-pin"]').getAttribute('aria-pressed')),
             moreHaspopup: rows.map(row => row.querySelector('[data-action="open-window-menu"]').getAttribute('aria-haspopup')),
+            saveButtons: rows.map(row => {
+                const button = row.querySelector('[data-action="save-current-workspace"]');
+                return button && { title: button.getAttribute('title'), ariaLabel: button.getAttribute('aria-label') };
+            }),
         };
     });
     assert.equal(structure.groupRole, 'list');
@@ -164,6 +169,20 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
     assert.equal(structure.environmentChipCount, 0);
     assert.deepEqual(structure.pinPressed, ['true', 'false', 'false']);
     assert.deepEqual(structure.moreHaspopup, ['menu', 'menu', 'menu']);
+    assert.deepEqual(structure.saveButtons, [
+        { title: 'Save Workspace', ariaLabel: 'Save Workspace' },
+        null,
+        null,
+    ]);
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 saves an unsaved current workspace from its row button', async t => {
+    const page = await openSwitcherPage(t);
+    await page.locator('[data-open-window-row][data-window-kind="current"] [data-action="save-current-workspace"]').click();
+    assert.deepEqual(await page.evaluate(() => window.__postedMessages), [{
+        type: 'save-current-workspace',
+        projectId: '__currentWorkspace-' + 'a'.repeat(24),
+    }]);
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 keeps window rows quiet by default and reserves emphasis for the current window', async t => {
@@ -490,6 +509,14 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
         const row = document.querySelectorAll('[data-open-window-row]')[1];
         return getComputedStyle(row.querySelector('[data-action="toggle-open-workspace-pin"]')).display !== 'none';
     });
+    const narrowSave = await narrow.evaluate(() => {
+        const row = document.querySelector('[data-open-window-row][data-window-kind="current"]');
+        const button = row.querySelector('[data-action="save-current-workspace"]');
+        return {
+            visible: getComputedStyle(button).display !== 'none',
+            overflows: row.scrollWidth > row.clientWidth,
+        };
+    });
     const compactLayout = await compact.evaluate(() =>
         Array.from(document.querySelectorAll('[data-open-window-row]')).map(row => {
             const pin = row.querySelector('[data-action="toggle-open-workspace-pin"]');
@@ -506,6 +533,8 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
     // ≥360px：未 pin 的 ★ 在 DOM 中（hover 显示）；<280px：所有 Pin 槽位统一收起。
     assert.equal(widePinVisible, true);
     assert.equal(narrowPinVisible, false);
+    assert.deepEqual(narrowSave, { visible: true, overflows: false },
+        'an unsaved current workspace keeps Save Workspace available without horizontal overflow');
     assert.ok(compactLayout.every(item => item.pinDisplay !== 'none'),
         'every row retains its fixed Pin slot at compact widths');
     assert.deepEqual(compactLayout.map(item => item.pinVisibility), ['visible', 'hidden', 'hidden']);

@@ -1772,6 +1772,7 @@ body .project {
     &:focus-visible,
     .open-window-focus:focus-visible,
     .open-window-pin:focus-visible,
+    .open-window-save:focus-visible,
     .open-window-more:focus-visible,
     .open-window-retry:focus-visible {
         outline: 1px solid var(--vscode-focusBorder);
@@ -1840,6 +1841,8 @@ body .project {
 
     .open-window-pin,
     .open-window-pin-slot,
+    .open-window-save,
+    .open-window-save-slot,
     .open-window-more {
         flex: 0 0 auto;
         min-width: 24px;
@@ -1869,6 +1872,10 @@ body .project {
     &:focus-within .open-window-pin:not(.active) {
         opacity: 1;
     }
+
+    .open-window-save {
+        color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+    }
 }
 
 // 响应式宽度矩阵（webview 视口 media query，兼容旧 Chromium；禁 container query）。
@@ -1888,6 +1895,10 @@ body .project {
 
 @media (max-width: 279px) {
     .open-window-row {
+        .open-window-focus {
+            min-width: 0;
+        }
+
         .open-window-pin,
         .open-window-pin-slot {
             display: none;

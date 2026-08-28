@@ -41,9 +41,23 @@ function initDashboard(options) {
     var collapseButton = document.querySelector ? document.querySelector('[data-action="toggle-all-groups"]') : null;
     var searchResults = document.getElementById('dashboard-search-results');
 
+    function getTabScrollPort(tab) {
+        return panels[normalizeDashboardTab(tab)] || null;
+    }
+
+    function readTabScrollPosition(tab) {
+        var scrollPort = getTabScrollPort(tab);
+        return scrollPort && typeof scrollPort.scrollTop === 'number'
+            ? scrollPort.scrollTop
+            : 0;
+    }
+
     function restoreScroll(tab) {
         requestAnimationFrame(() => {
-            window.scrollTo(0, scrollPositions[normalizeDashboardTab(tab)] || 0);
+            var scrollPort = getTabScrollPort(tab);
+            if (scrollPort) {
+                scrollPort.scrollTop = scrollPositions[normalizeDashboardTab(tab)] || 0;
+            }
         });
     }
 
@@ -140,7 +154,7 @@ function initDashboard(options) {
         saveScroll = saveScroll !== false;
         if (tab !== activeTab) {
             if (saveScroll) {
-                scrollPositions[activeTab] = window.scrollY || 0;
+                scrollPositions[activeTab] = readTabScrollPosition(activeTab);
             }
             activeTab = tab;
             writeDashboardSessionValue(storageKey, activeTab);
@@ -175,7 +189,7 @@ function initDashboard(options) {
         var nextQuery = String(query || '').trim();
         var wasActive = searchQuery.length > 0;
         if (!wasActive && nextQuery) {
-            scrollPositions[activeTab] = window.scrollY || 0;
+            scrollPositions[activeTab] = readTabScrollPosition(activeTab);
         }
         searchQuery = nextQuery;
         renderSearchMode();

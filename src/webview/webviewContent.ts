@@ -134,7 +134,7 @@ export function getStewardContent(
         <title>Agent Pivot</title>
         ${getCustomStyle(infos.config, runningAnimationImages)}
     </head>
-    <body class="preload ${isSidebar ? 'steward-sidebar' : ''} ${!groups.length ? 'steward-empty' : ''}">
+    <body class="preload ${isSidebar ? 'steward-sidebar dashboard-scrollport' : ''} ${!groups.length ? 'steward-empty' : ''}">
         <main class="dashboard-style-loading" data-dashboard-style-loading aria-busy="true" aria-label="Loading Agent Pivot">
             <div class="dashboard-style-loading-tabs" aria-hidden="true">
                 <span class="dashboard-style-loading-tab active"></span>

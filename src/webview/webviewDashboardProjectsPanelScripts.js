@@ -108,13 +108,13 @@ function createDashboardProjectsPanel(injected) {
             && typeof window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement === 'function') {
             window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement();
         }
-        restoreProjectsWindowScroll(panelState);
+        restoreProjectsPanelScroll(panels.projects, panelState);
         requestAnimationFrame(() => {
             if (replacementGeneration !== projectsPanelReplacementGeneration) {
                 return;
             }
             restoreProjectsPanelAnchors(panels.projects, panelState);
-            restoreProjectsWindowScroll(panelState);
+            restoreProjectsPanelScroll(panels.projects, panelState);
         });
     }
 

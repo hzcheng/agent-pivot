@@ -10569,7 +10569,7 @@ function getProjectScrollItemKey(project) {
 
 function captureProjectsPanelState(panel) {
     var state = {
-        windowScrollY: window.scrollY,
+        panelScrollTop: panel && typeof panel.scrollTop === 'number' ? panel.scrollTop : 0,
         focus: getProjectsFocusTarget(panel),
         inlineEdit: window.__agentPivotProjectInlineEdit
             && typeof window.__agentPivotProjectInlineEdit.captureState === 'function'
@@ -10634,9 +10634,9 @@ function restoreProjectsPanelAnchors(panel, state) {
     });
 }
 
-function restoreProjectsWindowScroll(state) {
-    if (state && Number.isFinite(state.windowScrollY)) {
-        window.scrollTo(0, state.windowScrollY);
+function restoreProjectsPanelScroll(panel, state) {
+    if (panel && state && Number.isFinite(state.panelScrollTop)) {
+        panel.scrollTop = state.panelScrollTop;
     }
 }
 
@@ -11089,13 +11089,13 @@ function createDashboardProjectsPanel(injected) {
             && typeof window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement === 'function') {
             window.__agentPivotProjectInlineEdit.onAuthoritativeReplacement();
         }
-        restoreProjectsWindowScroll(panelState);
+        restoreProjectsPanelScroll(panels.projects, panelState);
         requestAnimationFrame(() => {
             if (replacementGeneration !== projectsPanelReplacementGeneration) {
                 return;
             }
             restoreProjectsPanelAnchors(panels.projects, panelState);
-            restoreProjectsWindowScroll(panelState);
+            restoreProjectsPanelScroll(panels.projects, panelState);
         });
     }
 
@@ -11397,9 +11397,23 @@ function initDashboard(options) {
     var collapseButton = document.querySelector ? document.querySelector('[data-action="toggle-all-groups"]') : null;
     var searchResults = document.getElementById('dashboard-search-results');
 
+    function getTabScrollPort(tab) {
+        return panels[normalizeDashboardTab(tab)] || null;
+    }
+
+    function readTabScrollPosition(tab) {
+        var scrollPort = getTabScrollPort(tab);
+        return scrollPort && typeof scrollPort.scrollTop === 'number'
+            ? scrollPort.scrollTop
+            : 0;
+    }
+
     function restoreScroll(tab) {
         requestAnimationFrame(() => {
-            window.scrollTo(0, scrollPositions[normalizeDashboardTab(tab)] || 0);
+            var scrollPort = getTabScrollPort(tab);
+            if (scrollPort) {
+                scrollPort.scrollTop = scrollPositions[normalizeDashboardTab(tab)] || 0;
+            }
         });
     }
 
@@ -11496,7 +11510,7 @@ function initDashboard(options) {
         saveScroll = saveScroll !== false;
         if (tab !== activeTab) {
             if (saveScroll) {
-                scrollPositions[activeTab] = window.scrollY || 0;
+                scrollPositions[activeTab] = readTabScrollPosition(activeTab);
             }
             activeTab = tab;
             writeDashboardSessionValue(storageKey, activeTab);
@@ -11531,7 +11545,7 @@ function initDashboard(options) {
         var nextQuery = String(query || '').trim();
         var wasActive = searchQuery.length > 0;
         if (!wasActive && nextQuery) {
-            scrollPositions[activeTab] = window.scrollY || 0;
+            scrollPositions[activeTab] = readTabScrollPosition(activeTab);
         }
         searchQuery = nextQuery;
         renderSearchMode();

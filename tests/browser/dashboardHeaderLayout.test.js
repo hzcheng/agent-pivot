@@ -104,6 +104,55 @@ function headerMetrics(page) {
     });
 }
 
+async function populateLongDashboardTab(page, tab) {
+    await page.evaluate(activeTab => {
+        const open = document.getElementById('dashboard-tab-open');
+        const projects = document.getElementById('dashboard-tab-projects');
+        const ai = document.getElementById('dashboard-panel-ai');
+        open.hidden = true;
+        projects.hidden = activeTab !== 'projects';
+        ai.hidden = activeTab !== 'ai';
+        if (!projects.dataset.longContent) {
+            projects.dataset.longContent = 'true';
+            projects.innerHTML = `<div class="groups-wrapper">${Array.from({ length: 10 }, (_, group) =>
+                `<section class="group"><div class="group-header">Group ${group}</div><div class="group-list">${Array.from({ length: 5 }, (_, project) =>
+                    `<div class="project"><div class="project-row-main">Project ${group}-${project}</div></div>`
+                ).join('')}</div></section>`
+            ).join('')}</div>`;
+        }
+        if (!ai.dataset.longContent) {
+            ai.dataset.longContent = 'true';
+            ai.innerHTML = `<div class="ai-panel"><div class="ai-tablist"><button>PROMPTS</button></div>
+                <ol class="prompt-list">${Array.from({ length: 40 }, (_, index) =>
+                    `<li class="prompt-item">Prompt ${index}</li>`
+                ).join('')}</ol></div>`;
+        }
+    }, tab);
+}
+
+async function dashboardScrollportMetrics(page, tab) {
+    return page.evaluate(activeTab => {
+        const header = document.querySelector('.steward-sticky-header');
+        const panel = document.getElementById(activeTab === 'projects'
+            ? 'dashboard-tab-projects'
+            : 'dashboard-panel-ai');
+        const headerBox = header.getBoundingClientRect();
+        const panelBox = panel.getBoundingClientRect();
+        return {
+            documentScrollHeight: document.documentElement.scrollHeight,
+            viewportHeight: window.innerHeight,
+            header: { left: headerBox.left, right: headerBox.right, bottom: headerBox.bottom },
+            panel: {
+                top: panelBox.top,
+                clientHeight: panel.clientHeight,
+                scrollHeight: panel.scrollHeight,
+                overflowY: getComputedStyle(panel).overflowY,
+                scrollbarGutter: getComputedStyle(panel).scrollbarGutter,
+            },
+        };
+    }, tab);
+}
+
 test('WEBVIEW-SIDEBAR-HEADER-LAYOUT-001 floats sidebar header rows symmetrically on one separator line', async t => {
     for (const width of [315, 240]) {
         const page = await openSidebarPage(t, width);
@@ -150,4 +199,28 @@ test('WEBVIEW-SIDEBAR-HEADER-LAYOUT-001 floats sidebar header rows symmetrically
                 + `is detached from the separator line at ${metrics.header.bottom}px`
         );
     }
+});
+
+test('WEBVIEW-DASHBOARD-SCROLLPORT-001 keeps the header outside long Projects and AI tab scrollports', async t => {
+    const page = await openSidebarPage(t, 320);
+    await populateLongDashboardTab(page, 'projects');
+    const projects = await dashboardScrollportMetrics(page, 'projects');
+
+    await populateLongDashboardTab(page, 'ai');
+    const ai = await dashboardScrollportMetrics(page, 'ai');
+
+    for (const [name, metrics] of [['Projects', projects], ['AI', ai]]) {
+        assert.ok(metrics.documentScrollHeight <= metrics.viewportHeight + 1,
+            `${name} must not make the root document scroll: ${JSON.stringify(metrics)}`);
+        assert.ok(metrics.panel.scrollHeight > metrics.panel.clientHeight,
+            `${name} must scroll inside its active Tab panel: ${JSON.stringify(metrics)}`);
+        assert.equal(metrics.panel.overflowY, 'auto',
+            `${name} must expose its own vertical scrollport`);
+        assert.equal(metrics.panel.scrollbarGutter, 'stable',
+            `${name} must reserve scrollbar space before it overflows`);
+        assert.ok(metrics.panel.top >= metrics.header.bottom - 1,
+            `${name} must begin below the fixed dashboard header`);
+    }
+    assert.deepEqual(ai.header, projects.header,
+        'switching between long tabs must not move or narrow the dashboard header');
 });

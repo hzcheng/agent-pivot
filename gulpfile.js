@@ -24,12 +24,23 @@ function buildStyles() {
 };
 
 function copyNodeAssets() {
-    return gulp.src([
+    const copy = stream => new Promise((resolve, reject) => {
+        stream.on('error', reject).on('end', resolve);
+    });
+    return Promise.all([
+        copy(gulp.src([
         'node_modules/fitty/dist/fitty.min.js',
         'node_modules/dragula/dist/dragula.min.js',
         'node_modules/dom-autoscroller/dist/dom-autoscroller.min.js',
         ...browserNodeAssets,
-    ]).pipe(gulp.dest('media'));
+        ]).pipe(gulp.dest('media'))),
+        copy(gulp.src([
+            'node_modules/katex/dist/katex.min.css',
+            'node_modules/katex/dist/fonts/*.woff2',
+        ], {
+            base: 'node_modules/katex/dist',
+        }).pipe(gulp.dest('media'))),
+    ]);
 }
 
 function copyWebviewAssets() {

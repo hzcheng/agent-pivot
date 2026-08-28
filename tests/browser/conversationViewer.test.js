@@ -11106,9 +11106,11 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, preserv
 test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps rendered absolute file links clickable through the Webview', async t => {
     const firstHref = '/home/example/project/src/localStore.ts:17';
     const secondHref = '/home/example/project/src/localStore.ts:216';
+    const workspaceHref = 'src/aiSessions/conversation/viewer.ts#L20';
     const { page } = await openHostViewerDocument(t, {
         markdown: `[localStore.ts](${firstHref}) expires records and `
-            + `[localStore.ts](${secondHref}) deletes them.`,
+            + `[localStore.ts](${secondHref}) deletes them. `
+            + `See [viewer](${workspaceHref}).`,
     });
 
     const links = page.getByRole('link', { name: 'localStore.ts' });
@@ -11121,6 +11123,79 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps rendered absolute file links click
         version: 1,
         href: secondHref,
     });
+    const workspaceLink = page.getByRole('link', { name: 'viewer' });
+    await workspaceLink.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-open-link',
+        version: 1,
+        href: workspaceHref,
+    });
+});
+
+test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structured data, math, and charts at narrow widths', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 360, height: 560 },
+        markdown: [
+            'Review src/aiSessions/conversation/markdown.ts:42.',
+            '',
+            '```log',
+            'line one',
+            'line two',
+            '```',
+            '',
+            'Inline $x^2$ and:',
+            '',
+            '$$',
+            '\\frac{1}{2}',
+            '$$',
+            '',
+            '```chart',
+            '{"type":"line","labels":["Start","Finish"],"values":[1,3]}',
+            '```',
+            '',
+            '```pie-chart',
+            '{"labels":["Pass","Fail"],"values":[9,1]}',
+            '```',
+            '',
+            '<span class="conversation-math"><span class="katex" style="color:red">unsafe HTML</span></span>',
+        ].join('\n'),
+    });
+    const workspaceLink = page.getByRole('link', {
+        name: 'src/aiSessions/conversation/markdown.ts:42',
+    });
+    await workspaceLink.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-open-link',
+        version: 1,
+        href: 'src/aiSessions/conversation/markdown.ts:42',
+    });
+
+    const structured = page.locator('.conversation-structured-block');
+    const summary = structured.locator('summary');
+    await summary.focus();
+    assert.equal(await summary.evaluate(element => document.activeElement === element), true,
+        'the native summary participates in keyboard focus order');
+    assert.equal(await structured.getAttribute('open'), '',
+        'short structured output is initially visible');
+
+    assert.equal(await page.locator('.conversation-math .katex').count(), 2);
+    assert.ok(await page.locator('.conversation-math .katex [style]').count() > 0,
+        'only KaTeX layout styles survive sanitization');
+    assert.match(
+        await page.locator('.conversation-markdown').textContent(),
+        /<span class="conversation-math"><span class="katex" style="color:red">unsafe HTML<\/span><\/span>/,
+        'model-supplied markup stays literal text'
+    );
+    assert.equal(await page.locator('[style="color:red"]').count(), 0,
+        'model-supplied HTML remains text, never a styled DOM node');
+    assert.equal(await page.locator('.conversation-chart-line polyline').count(), 1);
+    assert.equal(await page.locator('.conversation-chart-pie circle').count(), 2);
+    const chartWidth = await page.locator('.conversation-chart').first()
+        .evaluate(element => element.getBoundingClientRect().width);
+    assert.ok(chartWidth <= 360,
+        'charts fit the minimum supported conversation width');
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves ordered numbering across loose multi-paragraph list items', async t => {

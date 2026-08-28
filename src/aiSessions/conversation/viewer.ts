@@ -41,7 +41,9 @@ import {
 import {
     ConversationLocalFileTarget,
     parseConversationLocalFileLink,
+    parseConversationWorkspaceFileLink,
     renderConversationMarkdown,
+    ConversationWorkspaceFileTarget,
 } from './markdown';
 import { renderConversationDiffs } from './diffRenderer';
 import { parseConversationViewerMessage } from './viewerProtocol';
@@ -144,7 +146,7 @@ export interface ConversationViewerOptions {
     ) => void | PromiseLike<void>;
     openExternal: (uri: vscode.Uri) => Thenable<boolean>;
     openLocalFile?: (
-        target: ConversationLocalFileTarget
+        target: ConversationLocalFileTarget | ConversationWorkspaceFileTarget
     ) => PromiseLike<void> | Promise<void> | void;
     mediaUri: (fileName: string) => vscode.Uri;
     showThinking?: () => boolean;
@@ -2084,6 +2086,11 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 
     private async openLink(href: string): Promise<void> {
+        const workspaceFile = parseConversationWorkspaceFileLink(href);
+        if (workspaceFile) {
+            await this.options.openLocalFile?.(workspaceFile);
+            return;
+        }
         const localFile = parseConversationLocalFileLink(href);
         if (localFile) {
             await this.options.openLocalFile?.(localFile);

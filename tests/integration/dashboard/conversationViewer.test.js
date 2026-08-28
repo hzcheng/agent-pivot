@@ -5292,6 +5292,10 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
         panel.webview.html,
         /href="webview:\/\/fixture\/\/extension\/media\/conversationViewer\.css"/
     );
+    assert.match(
+        panel.webview.html,
+        /href="webview:\/\/fixture\/\/extension\/media\/katex\.min\.css"/
+    );
     const purifyIndex = panel.webview.html.indexOf('purify.min.js');
     const readingAnchorIndex = panel.webview.html.indexOf(
         'conversationReadingAnchorScripts.js'
@@ -5348,7 +5352,7 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     assert.deepEqual(openedUris, ['https://example.test/safe']);
 });
 
-test('CONVERSATION-LOCAL-FILE-LINKS-001 renders absolute file links and opens their exact line', async () => {
+test('CONVERSATION-LOCAL-FILE-LINKS-001 routes absolute and workspace-relative file links with exact positions', async () => {
     const openedFiles = [];
     const filePath = '/home/example/project/src/localStore.ts';
     const { viewer, panel } = createViewer({
@@ -5361,7 +5365,7 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 renders absolute file links and opens th
                 id: `${request.anchorInteractionId}:assistant`,
                 interactionId: request.anchorInteractionId,
                 role: 'assistant',
-                markdown: `[localStore.ts](${filePath}:17)`,
+                markdown: `[localStore.ts](${filePath}:17) and src/viewer.ts#L20`,
             }],
         }),
     });
@@ -5377,7 +5381,20 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 renders absolute file links and opens th
         version: 1,
         href: `${filePath}:17`,
     });
-    assert.deepEqual(openedFiles, [{ fsPath: filePath, line: 17, column: 1 }]);
+    await panel.receive({
+        type: 'conversation-viewer-open-link',
+        version: 1,
+        href: 'src/viewer.ts#L20',
+    });
+    assert.deepEqual(openedFiles, [{
+        fsPath: filePath,
+        line: 17,
+        column: 1,
+    }, {
+        relativePath: 'src/viewer.ts',
+        line: 20,
+        column: 1,
+    }]);
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes one exact selection send to the active terminal inserter', async () => {

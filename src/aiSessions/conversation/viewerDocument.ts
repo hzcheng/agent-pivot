@@ -76,6 +76,9 @@ export function renderConversationViewerDocument(
     const telemetryStylesheet = panel.webview.asWebviewUri(
         options.mediaUri('conversationTelemetry.css')
     );
+    const katexStylesheet = panel.webview.asWebviewUri(
+        options.mediaUri('katex.min.css')
+    );
     const purify = panel.webview.asWebviewUri(
         options.mediaUri('purify.min.js')
     );
@@ -169,6 +172,8 @@ export function renderConversationViewerDocument(
     <link rel="stylesheet" href="${escapeAttribute(stylesheet.toString())}">
     <link rel="stylesheet"
         href="${escapeAttribute(telemetryStylesheet.toString())}">
+    <link rel="stylesheet"
+        href="${escapeAttribute(katexStylesheet.toString())}">
     <title>AI Conversation</title>
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"

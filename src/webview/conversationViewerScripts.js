@@ -6,9 +6,13 @@
         'strong', 'em', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
         'a', 'img', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'progress',
         'span', 'section', 'article', 'details', 'summary', 'button',
+        'svg', 'polyline', 'circle',
     ];
     var allowedAttributes = [
-        'href', 'src', 'alt', 'title', 'class', 'start', 'max', 'value',
+        'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open',
+        'role', 'aria-label', 'aria-hidden', 'viewBox', 'preserveAspectRatio',
+        'fill', 'stroke', 'stroke-width', 'points', 'cx', 'cy', 'r',
+        'pathLength', 'stroke-dasharray', 'stroke-dashoffset', 'transform',
         'data-message-id', 'data-conversation-message-id',
         'data-interaction-id', 'data-conversation-run-command',
     ];
@@ -822,6 +826,10 @@
         }
     }
 
+    function hasSafeFilePosition(value) {
+        return /(?::[1-9]\d{0,7}(?::[1-9]\d{0,7})?|#L[1-9]\d{0,7}(?::[1-9]\d{0,7})?)$/.test(value);
+    }
+
     function isAbsoluteFileHref(value) {
         if (!value || value.length > 4096) return false;
         var decoded;
@@ -832,16 +840,47 @@
         }
         return !/[\u0000-\u001f\u007f]/.test(decoded)
             && decoded.indexOf('?') === -1
-            && decoded.indexOf('#') === -1
-            && (/^\/(?!\/)/.test(decoded) || /^[A-Za-z]:[\\/]/.test(decoded));
+            && (/^\/(?!\/)/.test(decoded) || /^[A-Za-z]:[\\/]/.test(decoded))
+            && (!decoded.includes('#') || hasSafeFilePosition(decoded));
+    }
+
+    function isWorkspaceFileHref(value) {
+        if (!value || value.length > 4096) return false;
+        var decoded;
+        try {
+            decoded = decodeURIComponent(value);
+        } catch (_error) {
+            return false;
+        }
+        if (/[\u0000-\u001f\u007f]/.test(decoded)
+            || decoded.indexOf('?') !== -1) {
+            return false;
+        }
+        var pathPart = decoded.replace(/(?::[1-9]\d{0,7}(?::[1-9]\d{0,7})?|#L[1-9]\d{0,7}(?::[1-9]\d{0,7})?)$/, '');
+        if (!pathPart.includes('.') || /^(?:\/|[A-Za-z]:[\\/])/.test(pathPart)) {
+            return false;
+        }
+        return pathPart.split(/[\\/]/).every(function (segment) {
+            return /^[A-Za-z0-9_@.+-]+$/.test(segment)
+                && segment !== '.' && segment !== '..';
+        });
     }
 
     function isAllowedLinkHref(value) {
-        return isHttps(value) || isAbsoluteFileHref(value);
+        return isHttps(value) || isAbsoluteFileHref(value)
+            || isWorkspaceFileHref(value);
     }
 
     window.DOMPurify.addHook('afterSanitizeAttributes', function (node) {
         if (!node.hasAttribute) return;
+        // KaTeX emits fixed layout styles as part of Host-generated formula
+        // markup. Never retain a style attribute elsewhere in the model's
+        // Markdown-derived tree.
+        if (node.hasAttribute('style')
+            && (!node.closest
+                || !node.closest('.conversation-math .katex'))) {
+            node.removeAttribute('style');
+        }
         if (node.hasAttribute('href') && !isAllowedLinkHref(
             node.getAttribute('href')
         )) {
@@ -3052,7 +3091,7 @@
         var href = link.getAttribute('href');
         if (isHttps(href)) return;
         event.preventDefault();
-        if (!isAbsoluteFileHref(href)) return;
+        if (!isAbsoluteFileHref(href) && !isWorkspaceFileHref(href)) return;
         post({
             type: 'conversation-viewer-open-link',
             version: 1,

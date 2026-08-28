@@ -147,3 +147,53 @@ test('CONVERSATION-RICH-MARKDOWN-004 renders task lists, callouts, and bounded b
     assert.match(html, /conversation-chart/);
     assert.match(html, /<progress class="conversation-chart-bar" max="100" value="100">/);
 });
+
+test('CONVERSATION-RICH-MARKDOWN-005 renders workspace references, folded structured data, math, and bounded SVG charts', () => {
+    const html = renderConversationMarkdown([
+        'Inspect src/aiSessions/conversation/markdown.ts:42, packages/app/index.ts, and [the viewer](src/aiSessions/conversation/viewer.ts#L20).',
+        '',
+        '```json',
+        '{"answer":42,"nested":{"safe":true}}',
+        '```',
+        '',
+        'Inline $x^2 + y^2$ is supported.',
+        '',
+        '$$',
+        '\\frac{1}{2}',
+        '$$',
+        '',
+        '```chart',
+        '{"type":"line","labels":["One","Two"],"values":[1,3]}',
+        '```',
+        '',
+        '```pie-chart',
+        '{"labels":["Pass","Fail"],"values":[9,1]}',
+        '```',
+    ].join('\n'));
+
+    assert.match(html, /href="src\/aiSessions\/conversation\/markdown\.ts:42"/);
+    assert.match(html, /href="packages\/app\/index\.ts"/);
+    assert.match(html, /href="src\/aiSessions\/conversation\/viewer\.ts#L20"/);
+    assert.match(html, /conversation-structured-block/);
+    assert.match(html, /hljs-attr">&quot;answer&quot;<\/span>/);
+    assert.match(html, /conversation-math/);
+    assert.match(html, /conversation-chart-line/);
+    assert.match(html, /<polyline /);
+    assert.match(html, /conversation-chart-pie/);
+    assert.match(html, /<circle /);
+});
+
+test('CONVERSATION-LOCAL-FILE-LINKS-002 rejects traversal and unsafe workspace references', () => {
+    const html = renderConversationMarkdown([
+        '[traversal](../private.ts:1)',
+        '[absolute](/tmp/private.ts:1)',
+        '[unsafe](src/private.ts?token=secret:1)',
+        'Do not link ../private.ts:1 or src/private.ts?token=secret:1.',
+    ].join('\n\n'));
+
+    assert.equal((html.match(/\shref=/g) || []).length, 1,
+        'absolute links remain renderable but are Host-authorized');
+    assert.match(html, /href="\/tmp\/private\.ts:1"/);
+    assert.doesNotMatch(html, /href="\.\.\/private\.ts:1"/);
+    assert.doesNotMatch(html, /href="src\/private\.ts\?token/);
+});

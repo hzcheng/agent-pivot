@@ -6,19 +6,94 @@
         'strong', 'em', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
         'a', 'img', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'progress',
         'span', 'section', 'article', 'details', 'summary', 'button',
-        'svg', 'polyline', 'circle',
+        'svg', 'polyline', 'circle', 'path', 'line',
     ];
     var allowedAttributes = [
         'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open', 'type',
-        'role', 'aria-label', 'aria-hidden', 'viewBox', 'preserveAspectRatio',
+        'role', 'aria-hidden', 'viewBox', 'preserveAspectRatio',
         'aria-sort', 'aria-pressed', 'data-conversation-sort-column', 'data-conversation-sort-direction',
-        'data-conversation-diff-context-toggle',
-        'fill', 'stroke', 'stroke-width', 'points', 'cx', 'cy', 'r',
+        'data-conversation-diff-context-toggle', 'data-conversation-table-id',
+        'data-conversation-diff-file-id', 'data-conversation-math-token',
+        'fill', 'stroke', 'stroke-width', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',
+        'x1', 'y1', 'x2', 'y2',
         'pathLength', 'stroke-dasharray', 'stroke-dashoffset', 'transform',
         'data-message-id', 'data-conversation-message-id',
         'data-interaction-id', 'data-conversation-run-command',
     ];
     var maxMermaidDiagrams = 40;
+    var conversationMathStyleToken = document.body.getAttribute(
+        'data-conversation-math-style-token'
+    ) || '';
+
+    function sanitizeConversationHtml(html) {
+        var clean = window.DOMPurify.sanitize(html, {
+            ALLOWED_TAGS: allowedTags,
+            ALLOWED_ATTR: allowedAttributes,
+            ALLOW_DATA_ATTR: false,
+            ALLOW_ARIA_ATTR: false,
+        });
+        var template = document.createElement('template');
+        template.innerHTML = clean;
+        Array.prototype.forEach.call(
+            template.content.querySelectorAll('[style]'),
+            function (element) {
+                var mathRoot = element.closest('[data-conversation-math-token]');
+                if (!mathRoot || !conversationMathStyleToken
+                    || mathRoot.getAttribute('data-conversation-math-token')
+                        !== conversationMathStyleToken) {
+                    element.removeAttribute('style');
+                    return;
+                }
+                var safeStyle = sanitizeMathLayoutStyle(element.getAttribute('style') || '');
+                if (safeStyle) {
+                    element.setAttribute('style', safeStyle);
+                } else {
+                    element.removeAttribute('style');
+                }
+            }
+        );
+        return template.innerHTML;
+    }
+
+    function sanitizeMathLayoutStyle(style) {
+        var permitted = {
+            'height': true,
+            'vertical-align': true,
+            'top': true,
+            'bottom': true,
+            'margin-right': true,
+            'margin-left': true,
+            'padding-left': true,
+            'min-width': true,
+            'width': true,
+            'border-bottom-width': true,
+            'border-width': true,
+            'border-right-width': true,
+            'border-top-width': true,
+        };
+        return style.split(';').map(function (declaration) {
+            var separator = declaration.indexOf(':');
+            if (separator < 1) {
+                return '';
+            }
+            var property = declaration.slice(0, separator).trim().toLowerCase();
+            var value = declaration.slice(separator + 1).trim().toLowerCase();
+            if ((property === 'position' && value === 'relative')
+                || (property === 'color' && value === 'transparent')
+                || (property === 'border-style' && value === 'solid')) {
+                return property + ':' + value;
+            }
+            if (property === 'text-shadow'
+                && /^-?(?:0|(?:[0-9]|[1-9][0-9]?)(?:\.[0-9]+)?)em\s+-?(?:0|(?:[0-9]|[1-9][0-9]?)(?:\.[0-9]+)?)em\s+(?:0|(?:[0-9]|[1-9][0-9]?)(?:\.[0-9]+)?)px$/.test(value)) {
+                return property + ':' + value;
+            }
+            if (!permitted[property]
+                || !/^-?(?:0|(?:[0-9]|[1-9][0-9]?)(?:\.[0-9]+)?)em$/.test(value)) {
+                return '';
+            }
+            return property + ':' + value;
+        }).filter(Boolean).join(';');
+    }
     var viewerScript = document.currentScript;
     var scriptNonce = viewerScript ? viewerScript.nonce : '';
     var mermaidSource = document.body.getAttribute('data-mermaid-src') || '';
@@ -432,6 +507,9 @@
         messageIds: [],
         messageSignatures: new Map(),
         worklogExpanded: new Map(),
+        tableSortDirections: new Map(),
+        diffChangesOnly: new Set(),
+        renderingControlsTarget: '',
         renderGeneration: 0,
         appliedHtmlSignature: undefined,
         // Earlier history sitting behind the oldest retained page's cursor;
@@ -442,6 +520,91 @@
         nextEarlierPageRequestId: 0,
         earlierPageStatus: '',
     };
+
+    function renderingControlKey(element, kind, localId) {
+        var message = element.closest(conversationMessageSelector());
+        var messageId = message ? conversationMessageId(message) : '';
+        return messageId && localId !== null && localId !== undefined
+            ? messageId + ':' + kind + ':' + localId
+            : '';
+    }
+
+    function tableControlKey(table) {
+        return renderingControlKey(
+            table,
+            'table',
+            table.getAttribute('data-conversation-table-id')
+        );
+    }
+
+    function diffControlKey(file) {
+        return renderingControlKey(
+            file,
+            'diff',
+            file.getAttribute('data-conversation-diff-file-id')
+        );
+    }
+
+    function applyTableSort(table, column, direction) {
+        var body = table ? table.querySelector('tbody') : null;
+        if (!body || !Number.isInteger(column) || column < 0) return false;
+        var rows = Array.prototype.map.call(body.querySelectorAll('tr'), function (row, index) {
+            return { row: row, index: index, value: (row.cells[column] && row.cells[column].textContent || '').trim() };
+        });
+        rows.sort(function (left, right) {
+            var leftNumber = Number(left.value);
+            var rightNumber = Number(right.value);
+            var numberPattern = /^[+-]?(?:\d+|\d*\.\d+)$/;
+            var comparison = numberPattern.test(left.value) && numberPattern.test(right.value)
+                && Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
+                ? leftNumber - rightNumber
+                : left.value.localeCompare(right.value);
+            return (direction === 'descending' ? -comparison : comparison)
+                || left.index - right.index;
+        });
+        Array.prototype.forEach.call(
+            table.querySelectorAll('[data-conversation-sort-column]'),
+            function (button) {
+                button.setAttribute('data-conversation-sort-direction', '');
+                var header = button.closest('th');
+                if (header) header.setAttribute('aria-sort', 'none');
+            }
+        );
+        var sortButton = table.querySelector(
+            '[data-conversation-sort-column="' + column + '"]'
+        );
+        if (!sortButton) return false;
+        sortButton.setAttribute('data-conversation-sort-direction', direction);
+        var activeHeader = sortButton.closest('th');
+        if (activeHeader) activeHeader.setAttribute('aria-sort', direction);
+        rows.forEach(function (entry) { body.appendChild(entry.row); });
+        return true;
+    }
+
+    function applyRenderingControlStates() {
+        Array.prototype.forEach.call(
+            messages.querySelectorAll('table.conversation-data-table'),
+            function (table) {
+                var key = tableControlKey(table);
+                var saved = key ? state.tableSortDirections.get(key) : null;
+                if (!saved) return;
+                applyTableSort(table, saved.column, saved.direction);
+            }
+        );
+        Array.prototype.forEach.call(
+            messages.querySelectorAll('.conversation-diff-file'),
+            function (file) {
+                var key = diffControlKey(file);
+                var changesOnly = key && state.diffChangesOnly.has(key);
+                file.classList.toggle('conversation-diff-changes-only', changesOnly);
+                var toggle = file.querySelector('[data-conversation-diff-context-toggle]');
+                if (!toggle) return;
+                toggle.setAttribute('aria-pressed', String(changesOnly));
+                toggle.textContent = changesOnly ? 'Show context' : 'Changes only';
+                toggle.title = changesOnly ? 'Show all context' : 'Show changes only';
+            }
+        );
+    }
     // The status text without the deferred-history notice, so a completing
     // backfill chunk can clear that notice without a full page message.
     var baseTranscriptStatus = '';
@@ -2300,18 +2463,35 @@
         var focusedInteractionId = focusedMessage
             ? focusedMessage.getAttribute('data-interaction-id')
             : null;
+        var focusedRenderingControl = document.activeElement
+            && document.activeElement.closest
+            ? document.activeElement.closest(
+                '[data-conversation-sort-column], [data-conversation-diff-context-toggle]'
+            )
+            : null;
+        var focusedRenderingControlKey = focusedRenderingControl
+            ? focusedRenderingControl.hasAttribute('data-conversation-sort-column')
+                ? tableControlKey(focusedRenderingControl.closest('table'))
+                : diffControlKey(focusedRenderingControl.closest('.conversation-diff-file'))
+            : '';
+        var focusedSortColumn = focusedRenderingControl
+            ? focusedRenderingControl.getAttribute('data-conversation-sort-column')
+            : null;
+        var incomingControlsTarget = validPageTarget(message.target)
+            ? [message.target.projectId, message.target.provider, message.target.sessionId].join(':')
+            : state.renderingControlsTarget;
+        if (incomingControlsTarget !== state.renderingControlsTarget) {
+            state.renderingControlsTarget = incomingControlsTarget;
+            state.tableSortDirections.clear();
+            state.diffChangesOnly.clear();
+        }
         var oldSignatures = state.messageSignatures;
         state.renderGeneration += 1;
         var renderGeneration = state.renderGeneration;
         if (frame) {
             restoreConversationFrame(frame);
         } else if (hasHtml) {
-            var clean = window.DOMPurify.sanitize(message.html, {
-                ALLOWED_TAGS: allowedTags,
-                ALLOWED_ATTR: allowedAttributes,
-                ALLOW_DATA_ATTR: false,
-                ALLOW_ARIA_ATTR: false,
-            });
+            var clean = sanitizeConversationHtml(message.html);
 
             var reconciled = reconcileController.reconcile(
                 clean,
@@ -2327,6 +2507,7 @@
                 }
             );
             applyWorklogStates();
+            applyRenderingControlStates();
             state.messageIds = reconciled.ids;
             state.messageSignatures = reconciled.signatures;
         } else if (tailPatch) {
@@ -2461,7 +2642,27 @@
             && (!focusedMessage.isConnected
                 || focusedMessage.hidden
                 || !focusedMessage.contains(document.activeElement))) {
-            var restoredFocus = Array.prototype.find.call(
+            var restoredRenderingControl = focusedRenderingControlKey
+                ? Array.prototype.find.call(
+                    messages.querySelectorAll(
+                        '[data-conversation-sort-column], [data-conversation-diff-context-toggle]'
+                    ),
+                    function (candidate) {
+                        if (candidate.hasAttribute('data-conversation-sort-column')) {
+                            return candidate.getAttribute('data-conversation-sort-column')
+                                === focusedSortColumn
+                                && tableControlKey(candidate.closest('table'))
+                                    === focusedRenderingControlKey;
+                        }
+                        return diffControlKey(candidate.closest('.conversation-diff-file'))
+                            === focusedRenderingControlKey;
+                    }
+                )
+                : null;
+            if (restoredRenderingControl) {
+                restoredRenderingControl.focus({ preventScroll: true });
+            } else {
+                var restoredFocus = Array.prototype.find.call(
                 messages.querySelectorAll(conversationMessageSelector()),
                 function (candidate) {
                     return conversationMessageId(candidate)
@@ -2481,6 +2682,7 @@
                 if (worklogToggle) {
                     worklogToggle.focus({ preventScroll: true });
                 }
+            }
             }
         }
         if (!isLiveRefresh) {
@@ -2598,12 +2800,7 @@
             // the Host's incomplete-content watchdog converges the state.
             return;
         }
-        var clean = window.DOMPurify.sanitize(message.html, {
-            ALLOWED_TAGS: allowedTags,
-            ALLOWED_ATTR: allowedAttributes,
-            ALLOW_DATA_ATTR: false,
-            ALLOW_ARIA_ATTR: false,
-        });
+        var clean = sanitizeConversationHtml(message.html);
         var template = document.createElement('template');
         template.innerHTML = clean;
         var inserted = Array.prototype.slice.call(
@@ -2764,12 +2961,7 @@
         if (groupStart === current.length || groupStart === 0) {
             return null;
         }
-        var clean = window.DOMPurify.sanitize(message.tailHtml, {
-            ALLOWED_TAGS: allowedTags,
-            ALLOWED_ATTR: allowedAttributes,
-            ALLOW_DATA_ATTR: false,
-            ALLOW_ARIA_ATTR: false,
-        });
+        var clean = sanitizeConversationHtml(message.tailHtml);
         var template = document.createElement('template');
         template.innerHTML = clean;
         var inserted = Array.prototype.slice.call(
@@ -2835,6 +3027,7 @@
             );
         });
         applyWorklogStates();
+        applyRenderingControlStates();
         state.messageIds = ids;
         state.messageSignatures = signatures;
     }
@@ -3065,6 +3258,11 @@
             var diffFile = contextToggle.closest('.conversation-diff-file');
             if (!diffFile) return;
             var changesOnly = diffFile.classList.toggle('conversation-diff-changes-only');
+            var diffKey = diffControlKey(diffFile);
+            if (diffKey) {
+                if (changesOnly) state.diffChangesOnly.add(diffKey);
+                else state.diffChangesOnly.delete(diffKey);
+            }
             contextToggle.setAttribute('aria-pressed', String(changesOnly));
             contextToggle.textContent = changesOnly ? 'Show context' : 'Changes only';
             contextToggle.title = changesOnly ? 'Show all context' : 'Show changes only';
@@ -3075,38 +3273,16 @@
             : null;
         if (sortButton && messages.contains(sortButton)) {
             var table = sortButton.closest('table.conversation-data-table');
-            var body = table ? table.querySelector('tbody') : null;
             var column = Number(sortButton.getAttribute('data-conversation-sort-column'));
-            if (!body || !Number.isInteger(column) || column < 0) return;
             var direction = sortButton.getAttribute('data-conversation-sort-direction') === 'ascending'
                 ? 'descending'
                 : 'ascending';
-            var rows = Array.prototype.map.call(body.querySelectorAll('tr'), function (row, index) {
-                return { row: row, index: index, value: (row.cells[column] && row.cells[column].textContent || '').trim() };
+            if (!applyTableSort(table, column, direction)) return;
+            var tableKey = tableControlKey(table);
+            if (tableKey) state.tableSortDirections.set(tableKey, {
+                column: column,
+                direction: direction,
             });
-            rows.sort(function (left, right) {
-                var leftNumber = Number(left.value);
-                var rightNumber = Number(right.value);
-                var numberPattern = /^[+-]?(?:\d+|\d*\.\d+)$/;
-                var comparison = numberPattern.test(left.value) && numberPattern.test(right.value)
-                    && Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
-                    ? leftNumber - rightNumber
-                    : left.value.localeCompare(right.value);
-                return (direction === 'descending' ? -comparison : comparison)
-                    || left.index - right.index;
-            });
-            Array.prototype.forEach.call(
-                table.querySelectorAll('[data-conversation-sort-column]'),
-                function (button) {
-                    button.setAttribute('data-conversation-sort-direction', '');
-                    var header = button.closest('th');
-                    if (header) header.setAttribute('aria-sort', 'none');
-                }
-            );
-            sortButton.setAttribute('data-conversation-sort-direction', direction);
-            var activeHeader = sortButton.closest('th');
-            if (activeHeader) activeHeader.setAttribute('aria-sort', direction);
-            rows.forEach(function (entry) { body.appendChild(entry.row); });
             return;
         }
         var codeRun = event.target && event.target.closest

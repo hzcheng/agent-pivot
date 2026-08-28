@@ -1,6 +1,7 @@
 'use strict';
 
 import MarkdownIt = require('markdown-it');
+import { randomBytes } from 'crypto';
 import { URL } from 'url';
 import { parseUnifiedDiff } from './diffs';
 import { renderConversationDiffs } from './diffRenderer';
@@ -27,6 +28,15 @@ const katex: {
         trust: false;
     }): string;
 } = require('katex');
+
+const MAX_CONVERSATION_MATH_EXPRESSIONS = 96;
+const MAX_CONVERSATION_MATH_RENDERED_LENGTH = 96_000;
+// The Viewer document carries this opaque Host-generated marker. It lets the
+// Webview retain KaTeX's small layout styles without treating a model-chosen
+// class name as trusted provenance.
+export const CONVERSATION_MATH_STYLE_TOKEN = randomBytes(18).toString('hex');
+let renderedMathExpressions = 0;
+let renderedMathLength = 0;
 
 function escapeHtml(value: string): string {
     return value
@@ -193,7 +203,7 @@ function renderReferences(value: string): string | undefined {
             ...(typeof record.note === 'string' ? { note: record.note } : {}),
         });
     }
-    return `<section class="conversation-references" aria-label="References">${references.map(reference =>
+    return `<section class="conversation-references">${references.map(reference =>
         `<article class="conversation-reference-card"><a class="conversation-reference-link" href="${escapeHtml(reference.href)}">${escapeHtml(reference.title)}</a>${reference.note ? `<span class="conversation-reference-note">${escapeHtml(reference.note)}</span>` : ''}</article>`
     ).join('')}</section>`;
 }
@@ -274,7 +284,7 @@ function renderChart(value: string, lang: string): string | undefined {
             ? renderPieChartGraphic(chart)
             : renderBarChartGraphic(chart);
     const rows = renderChartRows(chart);
-    return `<section class="conversation-chart conversation-chart-${chart.type}" role="group" aria-label="${escapeHtml(chart.title || `${chart.type} chart`)}">${title}${graphic}${rows}</section>`;
+    return `<section class="conversation-chart conversation-chart-${chart.type}" role="group">${title}${graphic}${rows}</section>`;
 }
 
 function renderBarChartGraphic(chart: ConversationChartData): string {
@@ -283,7 +293,7 @@ function renderBarChartGraphic(chart: ConversationChartData): string {
     return chart.labels.map((label, index) => {
         const valueNumber = values[index];
         const percent = Math.round(valueNumber / maximum * 1000) / 10;
-        return `<span class="conversation-chart-row"><span class="conversation-chart-label">${escapeHtml(label)}</span><progress class="conversation-chart-bar" max="100" value="${percent}">${percent}%</progress><span class="conversation-chart-value">${valueNumber}</span></span>`;
+        return `<span class="conversation-chart-row"><span class="conversation-chart-label">${escapeHtml(label)}</span><progress class="conversation-chart-bar" max="100" value="${percent}" aria-hidden="true">${percent}%</progress><span class="conversation-chart-value">${valueNumber}</span></span>`;
     }).join('');
 }
 
@@ -325,6 +335,13 @@ function renderMath(value: string, displayMode: boolean): string {
     if (!value || value.length > 10_000 || /[\u0000-\u001f\u007f]/.test(value)) {
         return renderMathFallback(value, displayMode);
     }
+    if (renderedMathExpressions >= MAX_CONVERSATION_MATH_EXPRESSIONS
+        || renderedMathLength >= MAX_CONVERSATION_MATH_RENDERED_LENGTH) {
+        return renderMathFallback(value, displayMode);
+    }
+    // Count parser attempts, not only successful output. Invalid TeX can be
+    // expensive too, and must not bypass the per-message work budget.
+    renderedMathExpressions += 1;
     try {
         const rendered = katex.renderToString(value, {
             displayMode,
@@ -332,7 +349,11 @@ function renderMath(value: string, displayMode: boolean): string {
             throwOnError: true,
             trust: false,
         });
-        return `<${displayMode ? 'section' : 'span'} class="conversation-math${displayMode ? ' conversation-math-display' : ''}">${rendered}</${displayMode ? 'section' : 'span'}>`;
+        if (renderedMathLength + rendered.length > MAX_CONVERSATION_MATH_RENDERED_LENGTH) {
+            return renderMathFallback(value, displayMode);
+        }
+        renderedMathLength += rendered.length;
+        return `<${displayMode ? 'section' : 'span'} class="conversation-math${displayMode ? ' conversation-math-display' : ''}" data-conversation-math-token="${CONVERSATION_MATH_STYLE_TOKEN}"><span class="conversation-math-source">Math: ${escapeHtml(value)}</span>${rendered}</${displayMode ? 'section' : 'span'}>`;
     } catch (_error) {
         return renderMathFallback(value, displayMode);
     }
@@ -352,13 +373,28 @@ markdown.renderer.rules.fence = (tokens, index) =>
     renderCodeBlock(tokens[index].content, tokens[index].info);
 markdown.renderer.rules.code_block = (tokens, index) =>
     renderCodeBlock(tokens[index].content, '');
+const linkDepthCache = new WeakMap<object, boolean[]>();
+
+function tokenIsInsideLink(tokens: any[], index: number): boolean {
+    let insideLinks = linkDepthCache.get(tokens);
+    if (!insideLinks) {
+        insideLinks = [];
+        let depth = 0;
+        for (const token of tokens) {
+            insideLinks.push(depth > 0);
+            if (token.type === 'link_open') {
+                depth += 1;
+            } else if (token.type === 'link_close') {
+                depth = Math.max(0, depth - 1);
+            }
+        }
+        linkDepthCache.set(tokens, insideLinks);
+    }
+    return insideLinks[index] === true;
+}
+
 markdown.renderer.rules.text = (tokens, index) => {
-    const insideLink = tokens.slice(0, index).reduce((depth, token) =>
-        token.type === 'link_open'
-            ? depth + 1
-            : token.type === 'link_close'
-                ? depth - 1
-                : depth, 0) > 0;
+    const insideLink = tokenIsInsideLink(tokens, index);
     const value = tokens[index].content;
     if (insideLink) {
         return escapeHtml(value);
@@ -437,9 +473,18 @@ markdown.inline.ruler.before('text', 'conversation-math', (
     if (source.charCodeAt(start) !== 0x24 || source.charCodeAt(start + 1) === 0x24) {
         return false;
     }
+    const previous = start > 0 ? source.charAt(start - 1) : '';
+    const opening = source.charAt(start + 1);
+    if (previous === '\\' || !opening || /\s|\d/.test(opening)) {
+        return false;
+    }
     const close = source.indexOf('$', start + 1);
     if (close <= start + 1 || close - start > 10_001
         || /\n/.test(source.slice(start + 1, close))) {
+        return false;
+    }
+    const following = source.charAt(close + 1);
+    if (following && /[A-Za-z0-9_]/.test(following)) {
         return false;
     }
     const expression = source.slice(start + 1, close);
@@ -555,11 +600,16 @@ markdown.validateLink = (url: string): boolean => {
 };
 
 export function renderConversationMarkdown(value: string): string {
+    renderedMathExpressions = 0;
+    renderedMathLength = 0;
     return renderAdmonitions(renderTaskLists(renderSortableTables(markdown.render(value))));
 }
 
 function renderSortableTables(html: string): string {
+    let tableIndex = 0;
     return html.replace(/<table>([\s\S]*?)<\/table>/g, (_match, content: string) => {
+        const currentTableIndex = tableIndex;
+        tableIndex += 1;
         let column = 0;
         const headers = content.replace(/<th\b([^>]*)>([\s\S]*?)<\/th>/g, (
             _header,
@@ -568,9 +618,13 @@ function renderSortableTables(html: string): string {
         ) => {
             const index = column;
             column += 1;
-            return `<th class="${tableAlignmentClass(attributes)}" aria-sort="none"><button class="conversation-table-sort" type="button" data-conversation-sort-column="${index}" title="Sort column">${label}<span aria-hidden="true">↕</span></button></th>`;
+            const text = label.replace(/<[^>]*>/g, '').replace(/&[^;]+;/g, ' ').trim()
+                || `column ${index + 1}`;
+            const classes = [tableAlignmentClass(attributes), 'conversation-sortable-heading']
+                .filter(Boolean).join(' ');
+            return `<th class="${classes}" aria-sort="none"><span class="conversation-table-heading">${label}</span><button class="conversation-table-sort" type="button" data-conversation-sort-column="${index}" title="Sort by ${escapeHtml(text)}"><span class="conversation-table-sort-label">Sort by ${escapeHtml(text)}</span><span aria-hidden="true">↕</span></button></th>`;
         });
-        return `<table class="conversation-data-table">${headers.replace(
+        return `<table class="conversation-data-table" data-conversation-table-id="${currentTableIndex}">${headers.replace(
             /<td\b([^>]*)>/g,
             (_cell, attributes: string) => `<td class="${tableAlignmentClass(attributes)}">`
         )}</table>`;
@@ -583,12 +637,20 @@ function tableAlignmentClass(attributes: string): string {
 }
 
 function renderTaskLists(html: string): string {
-    return html.replace(
-        /<li>\s*\[([ xX])\]\s+/g,
-        (_match, state: string) => {
-            const completed = state.toLowerCase() === 'x';
-            return `<li class="conversation-task-item"><span class="conversation-task-checkbox${completed ? ' conversation-task-checkbox-checked' : ''}" aria-hidden="true">${completed ? '✓' : ''}</span><span class="conversation-task-state">${completed ? 'Completed' : 'Not completed'}</span>`;
-        }
+    const taskRow = (leading: string, state: string, label: string) => {
+        const completed = state.toLowerCase() === 'x';
+        return `<li class="conversation-task-item">${leading}<span class="conversation-task-row"><span class="conversation-task-checkbox${completed ? ' conversation-task-checkbox-checked' : ''}" aria-hidden="true">${completed ? '✓' : ''}</span><span class="conversation-task-state">${completed ? 'Completed' : 'Not completed'}</span><span class="conversation-task-label">${label}</span></span>`;
+    };
+    // Markdown-it wraps loose-list labels in their own paragraph. Replace
+    // only that first paragraph, leaving continuation paragraphs and nested
+    // lists as siblings of the row instead of swallowing their closing tags.
+    const loose = html.replace(
+        /<li>(\s*)<p>\[([ xX])\]\s+([\s\S]*?)<\/p>/g,
+        (_match, leading: string, state: string, label: string) => taskRow(leading, state, label)
+    );
+    return loose.replace(
+        /<li>(\s*)\[([ xX])\]\s+([\s\S]*?)(?=\s*(?:<ul>|<ol>|<\/li>))/g,
+        (_match, leading: string, state: string, label: string) => taskRow(leading, state, label)
     );
 }
 

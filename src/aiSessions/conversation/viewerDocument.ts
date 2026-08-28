@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import * as vscode from 'vscode';
 import type { AiSessionProviderId } from '../../models';
 import { CONVERSATION_COMMENT_LIMITS } from './comments';
+import { CONVERSATION_MATH_STYLE_TOKEN } from './markdown';
 import type { ConversationCommentSnapshot } from './commentStore';
 import type { ProjectCommentSnapshot } from './projectCommentStore';
 import type { ConversationBookmarkSnapshot } from './bookmarkStore';
@@ -165,9 +166,11 @@ export function renderConversationViewerDocument(
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src https: blob:; style-src ${escapeAttribute(
+        content="default-src 'none'; img-src https: blob:; font-src ${escapeAttribute(
             panel.webview.cspSource
-        )}; script-src 'nonce-${escapeAttribute(nonce)}';">
+        )}; style-src ${escapeAttribute(
+            panel.webview.cspSource
+        )} 'unsafe-inline'; script-src 'nonce-${escapeAttribute(nonce)}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="${escapeAttribute(stylesheet.toString())}">
     <link rel="stylesheet"
@@ -178,6 +181,7 @@ export function renderConversationViewerDocument(
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
     data-document-id="${escapeAttribute(options.documentId)}"
+    data-conversation-math-style-token="${CONVERSATION_MATH_STYLE_TOKEN}"
     data-mermaid-src="${escapeAttribute(mermaid.toString())}"
     data-session-status-request-id="${sessionStatusRequestId}"
     data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${projectCommentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>

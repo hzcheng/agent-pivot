@@ -104,7 +104,7 @@ test('CONVERSATION-VIEWER-MARKDOWN-003 emits rich content only with safe image s
         /<img src="https:\/\/example\.test\/icon\.svg" alt="safe icon" title="Status">/
     );
     assert.equal((html.match(/<img /g) || []).length, 1);
-    assert.match(html, /<table class="conversation-data-table">[\s\S]*data-conversation-sort-column="0"[\s\S]*<td class="">Ready<\/td>/);
+    assert.match(html, /<table class="conversation-data-table" data-conversation-table-id="0">[\s\S]*data-conversation-sort-column="0"[\s\S]*<td class="">Ready<\/td>/);
     assert.match(
         html,
         /<pre><code class="hljs language-mermaid">flowchart LR\n    A --&gt; B\n<\/code><\/pre>/
@@ -148,7 +148,7 @@ test('CONVERSATION-RICH-MARKDOWN-004 renders task lists, callouts, and bounded b
     assert.match(html, /conversation-task-state">Not completed<\/span>/);
     assert.match(html, /conversation-callout-warning/);
     assert.match(html, /conversation-chart conversation-chart-bar" role="group"/);
-    assert.match(html, /<progress class="conversation-chart-bar" max="100" value="100">/);
+    assert.match(html, /<progress class="conversation-chart-bar" max="100" value="100" aria-hidden="true">/);
 });
 
 test('CONVERSATION-RICH-MARKDOWN-005 renders workspace references, folded structured data, math, and bounded SVG charts', () => {
@@ -180,10 +180,58 @@ test('CONVERSATION-RICH-MARKDOWN-005 renders workspace references, folded struct
     assert.match(html, /conversation-structured-block/);
     assert.match(html, /hljs-attr">&quot;answer&quot;<\/span>/);
     assert.match(html, /conversation-math/);
+    assert.match(html, /conversation-math-source">Math: x\^2 \+ y\^2<\/span>/,
+        'the source expression remains available to assistive technology');
     assert.match(html, /conversation-chart-line/);
     assert.match(html, /<polyline /);
     assert.match(html, /conversation-chart-pie/);
     assert.match(html, /<circle /);
+});
+
+test('CONVERSATION-RICH-MARKDOWN-008 preserves prose, task-list structure, and bounded math rendering', () => {
+    const looseTasks = renderConversationMarkdown([
+        '- [x] parent',
+        '',
+        '  - [ ] child',
+        '',
+        '- [ ] pending',
+    ].join('\n'));
+    assert.equal((looseTasks.match(/conversation-task-item/g) || []).length, 3,
+        'loose and nested task items receive controlled state markup');
+    assert.match(looseTasks, /conversation-task-row[\s\S]*<ul>/,
+        'nested task lists remain outside the horizontal task row');
+    const multiParagraphTask = renderConversationMarkdown([
+        '- [x] parent',
+        '',
+        '  continuation',
+        '',
+        '  - [ ] child',
+    ].join('\n'));
+    assert.match(multiParagraphTask, /conversation-task-label">parent<\/span><\/span>\s*<p>continuation<\/p>\s*<ul>/,
+        'loose continuation paragraphs and nested lists remain outside the task row');
+    assert.doesNotMatch(multiParagraphTask, /conversation-task-label">[^<]*<\/p>/,
+        'a task label never consumes a paragraph closing tag');
+
+    const prose = renderConversationMarkdown(
+        'Costs $5 and $10 today. Use $HOME and $PATH in the shell. Escaped \\$x$ stays literal.'
+    );
+    assert.match(prose, /Costs \$5 and \$10 today\./);
+    assert.match(prose, /Use \$HOME and \$PATH in the shell\./);
+    assert.match(prose, /Escaped \$x\$ stays literal\./);
+
+    const bounded = renderConversationMarkdown('$x$ '.repeat(300));
+    assert.ok((bounded.match(/class="conversation-math(?: |")/g) || []).length <= 96,
+        'one message never expands unboundedly through inline math');
+    const invalidThenValid = renderConversationMarkdown(
+        '$\\definitelyUnknownCommand$ '.repeat(96) + '$x$'
+    );
+    assert.doesNotMatch(invalidThenValid, /class="conversation-math(?: |")/,
+        'failed KaTeX attempts consume the same per-message rendering budget');
+
+    const started = performance.now();
+    renderConversationMarkdown('a *b* '.repeat(9_000));
+    assert.ok(performance.now() - started < 500,
+        'plain Markdown text stays linear enough for a bounded live message');
 });
 
 test('CONVERSATION-RICH-MARKDOWN-006 renders controlled reference cards and explicit code line highlights', () => {
@@ -220,6 +268,19 @@ test('CONVERSATION-RICH-MARKDOWN-007 preserves aligned sortable Markdown tables'
     assert.match(html, /conversation-table-align-left/);
     assert.match(html, /conversation-table-align-right/);
     assert.match(html, /data-conversation-sort-column="1"/);
+});
+
+test('CONVERSATION-RICH-MARKDOWN-009 keeps linked table headers independently interactive', () => {
+    const html = renderConversationMarkdown([
+        '| [Docs](https://example.test/docs) | Score |',
+        '| --- | ---: |',
+        '| Alpha | 1 |',
+    ].join('\n'));
+
+    assert.match(html, /<span class="conversation-table-heading"><a href="https:\/\/example\.test\/docs">Docs<\/a><\/span><button/);
+    assert.doesNotMatch(html, /<button[^>]*>[\s\S]*<a href=/,
+        'a sortable header never nests a link inside its button');
+    assert.match(html, /conversation-table-sort-label">Sort by Docs<\/span>/);
 });
 
 test('CONVERSATION-DIFF-VISIBILITY-002 collapses only long unchanged diff context', () => {

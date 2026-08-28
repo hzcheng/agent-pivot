@@ -1686,6 +1686,49 @@
     ]
   },
   {
+    "id": "CONVERSATION-RICH-MARKDOWN-008",
+    "domain": "webview",
+    "title": "Conversation Markdown preserves ordinary dollar-delimited prose, task-list hierarchy, bounded math output, and named chart visuals",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationMarkdown.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/markdown.ts",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-RICH-MARKDOWN-009",
+    "domain": "webview",
+    "title": "Conversation sortable table headers keep links and sorting as separate accessible controls",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationMarkdown.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/markdown.ts",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
+    "id": "CONVERSATION-VIEWER-RICH-MARKDOWN-004",
+    "domain": "webview",
+    "title": "Conversation local rich-rendering controls survive authoritative refreshes with their semantic focus",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationViewerScripts.js",
+      "src/webview/conversationReconcileScripts.js",
+      "src/aiSessions/conversation/diffRenderer.ts"
+    ]
+  },
+  {
     "id": "CONVERSATION-MESSAGE-BOOKMARK-001",
     "domain": "webview",
     "title": "AI Conversation bookmarks an input straight from its message card without opening the outline sidebar, settles the star through the same Host mutation, and keeps card and outline stars in one authoritative state",

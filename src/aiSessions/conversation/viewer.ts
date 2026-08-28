@@ -146,7 +146,8 @@ export interface ConversationViewerOptions {
     ) => void | PromiseLike<void>;
     openExternal: (uri: vscode.Uri) => Thenable<boolean>;
     openLocalFile?: (
-        target: ConversationLocalFileTarget | ConversationWorkspaceFileTarget
+        target: ConversationLocalFileTarget | ConversationWorkspaceFileTarget,
+        viewerTarget: ConversationViewerTarget
     ) => PromiseLike<void> | Promise<void> | void;
     mediaUri: (fileName: string) => vscode.Uri;
     showThinking?: () => boolean;
@@ -2088,12 +2089,16 @@ export class ConversationViewer implements ConversationViewerApi {
     private async openLink(href: string): Promise<void> {
         const workspaceFile = parseConversationWorkspaceFileLink(href);
         if (workspaceFile) {
-            await this.options.openLocalFile?.(workspaceFile);
+            if (this.target) {
+                await this.options.openLocalFile?.(workspaceFile, this.target);
+            }
             return;
         }
         const localFile = parseConversationLocalFileLink(href);
         if (localFile) {
-            await this.options.openLocalFile?.(localFile);
+            if (this.target) {
+                await this.options.openLocalFile?.(localFile, this.target);
+            }
             return;
         }
         let parsed: URL;

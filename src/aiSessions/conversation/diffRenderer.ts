@@ -133,12 +133,12 @@ function renderDiffHunk(hunk: ConversationDiffHunk): string {
     return `<section class="conversation-diff-hunk">${header}<section class="conversation-diff-grid">${rows.join('')}</section>${truncated}</section>`;
 }
 
-function renderConversationDiffFile(diff: ConversationFileDiff): string {
+function renderConversationDiffFile(diff: ConversationFileDiff, index: number): string {
     const kind = diff.kind
         ? `<span class="conversation-diff-kind conversation-diff-kind-${escapeHtml(diff.kind)}">${escapeHtml(diff.kind)}</span>`
         : '';
     const hunks = diff.hunks.map(renderDiffHunk).join('');
-    return `<section class="conversation-diff-file"><section class="conversation-diff-file-header"><span class="conversation-diff-path" title="${escapeHtml(diff.path)}">${escapeHtml(diff.path)}</span>${kind}<span class="conversation-diff-counts"><span class="conversation-diff-count-add">+${diff.additions}</span> <span class="conversation-diff-count-del">−${diff.deletions}</span></span><button class="conversation-diff-context-toggle" type="button" data-conversation-diff-context-toggle aria-pressed="false" title="Show changes only">Changes only</button></section>${hunks}</section>`;
+    return `<section class="conversation-diff-file" data-conversation-diff-file-id="${index}"><section class="conversation-diff-file-header"><span class="conversation-diff-path" title="${escapeHtml(diff.path)}">${escapeHtml(diff.path)}</span>${kind}<span class="conversation-diff-counts"><span class="conversation-diff-count-add">+${diff.additions}</span> <span class="conversation-diff-count-del">−${diff.deletions}</span></span><button class="conversation-diff-context-toggle" type="button" data-conversation-diff-context-toggle aria-pressed="false" title="Show changes only">Changes only</button></section>${hunks}</section>`;
 }
 
 export function renderConversationDiffs(diffs: ConversationFileDiff[]): string {

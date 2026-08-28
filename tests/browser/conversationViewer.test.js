@@ -170,6 +170,9 @@ const hostileConversationPage = Object.freeze({
             <a href="command:workbench.action.reloadWindow">command</a>
             <a href="http://example.test/insecure">http</a>
             <a href="https://example.test/safe">safe</a>
+            <span class="katex" style="position:fixed;inset:0">spoofed math</span>
+            <section class="conversation-chart" aria-label="spoofed chart">spoofed chart</section>
+            <section style="position:relative;top:-99em;width:99em;height:99em;border-style:solid;border-width:99em">spoofed overlay</section>
         </section>
     </article>`,
     outline: [{
@@ -7607,7 +7610,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScriptWithoutAuxiliarySnapshots),
-        '557834a9b3cc2135ace599b6968061ae5b9c5969055a65549f4993ac7e1c91a1',
+        '696c5305cff730c862fc5296d57f3ca5fd0622d1af0a132bdd75b009dee935f8',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -11149,6 +11152,12 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, preserv
     assert.equal(await page.locator('[onclick]').count(), 0);
     assert.equal(await page.locator('[data-unexpected]').count(), 0);
     assert.equal(await page.locator('[aria-label="private"]').count(), 0);
+    assert.equal(await page.locator('[aria-label="spoofed chart"]').count(), 0,
+        'a model cannot preserve ARIA by spoofing a renderer class');
+    assert.equal(await page.locator('[style*="position:fixed"]').count(), 0,
+        'a model cannot preserve layout-affecting styles by spoofing KaTeX');
+    assert.equal(await page.locator('[style*="top:-99em"]').count(), 0,
+        'a model cannot retain a large relative-positioned overlay style');
     assert.equal(await page.locator('a[href^="javascript:"]').count(), 0);
     assert.equal(await page.locator('a[href^="data:"]').count(), 0);
     assert.equal(await page.locator('a[href^="file:"]').count(), 0);
@@ -11249,7 +11258,7 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structure
             'line two',
             '```',
             '',
-            'Inline $x^2$ and:',
+            'Inline $x^2$, $\\sqrt{x}$, $\\cancel{x}$, $\\sum_{i=0}^{n}$, $\\phantom{x}$, $\\begin{matrix}a\\\\b\\end{matrix}$, $\\boxed{x}$, $\\pmb{x}$, and $\\rule{1em}{1em}$:',
             '',
             '$$',
             '\\frac{1}{2}',
@@ -11306,9 +11315,31 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structure
     assert.equal(await structured.getAttribute('open'), '',
         'short structured output is initially visible');
 
-    assert.equal(await page.locator('.conversation-math .katex').count(), 2);
+    assert.equal(await page.locator('.conversation-math .katex').count(), 10);
     assert.ok(await page.locator('.conversation-math .katex [style]').count() > 0,
         'only KaTeX layout styles survive sanitization');
+    assert.equal(await page.locator('.conversation-math .katex svg path').count(), 1,
+        'stretchy KaTeX SVG glyphs survive the Webview sanitizer');
+    assert.equal(await page.locator('.conversation-math .katex svg line').count(), 1,
+        'KaTeX cancellation SVG strokes survive the Webview sanitizer');
+    const mathStyles = await page.locator('.conversation-math .katex [style]')
+        .evaluateAll(elements => elements.map(element => element.getAttribute('style')));
+    assert.ok(mathStyles.some(style => style && style.includes('padding-left:0.833em')),
+        'KaTeX radical layout padding survives the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('position:relative')),
+        'KaTeX operator layout positioning survives the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('color:transparent')),
+        'KaTeX phantom layout styles survive the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('border-style:solid')
+        && style.includes('border-width:0.04em')),
+    'KaTeX boxed-expression borders survive the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('text-shadow:0.02em 0.01em 0.04px')),
+        'KaTeX bold-math offsets survive the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('border-right-width:1em')
+        && style.includes('bottom:0em')),
+    'KaTeX rule dimensions survive the Webview sanitizer');
+    assert.match(await page.locator('.conversation-math').first().textContent(), /Math: x\^2/,
+        'rendered math retains an accessible source expression');
     assert.match(
         await page.locator('.conversation-markdown').textContent(),
         /<span class="conversation-math"><span class="katex" style="color:red">unsafe HTML<\/span><\/span>/,
@@ -11339,6 +11370,51 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structure
         .evaluate(element => element.getBoundingClientRect().width);
     assert.ok(chartWidth <= 360,
         'charts fit the minimum supported conversation width');
+});
+
+test('CONVERSATION-VIEWER-RICH-MARKDOWN-004 restores local table and diff controls across an authoritative refresh', async t => {
+    const markdown = [
+        '| Name | Score |',
+        '| --- | ---: |',
+        '| Zebra | 2 |',
+        '| Alpha | 10 |',
+        '',
+        '```diff',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -1 +1 @@',
+        '-const oldValue = 1;',
+        '+const newValue = 2;',
+        '```',
+    ].join('\n');
+    const renderedHtml = await renderHostViewerDocument({ markdown });
+    const initial = decodeInitialPublication(renderedHtml);
+    const { page } = await openHostViewerDocument(t, { renderedHtml });
+    const sortButton = page.locator('.conversation-table-sort').nth(1);
+    const diffToggle = page.locator('.conversation-diff-context-toggle');
+    await sortButton.click();
+    await diffToggle.click();
+    await sortButton.focus();
+
+    await sendPage(page, {
+        ...initial,
+        requestId: initial.requestId + 1,
+        updateKind: 'refresh',
+        htmlSignature: `${initial.htmlSignature}-refresh`,
+        html: initial.html.replace('newValue', 'newerValue'),
+    });
+    await page.waitForFunction(signature => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === signature
+    ), `${initial.htmlSignature}-refresh`);
+    assert.equal(await page.locator('.conversation-diff-file')
+        .evaluate(element => element.classList.contains('conversation-diff-changes-only')), true);
+    assert.equal(await page.locator('.conversation-diff-context-toggle')
+        .getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('.conversation-data-table tbody tr').first()
+        .locator('td').first().textContent(), 'Zebra');
+    assert.equal(await sortButton.evaluate(element => document.activeElement === element), true,
+        'focus returns to the same semantic sort control');
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves ordered numbering across loose multi-paragraph list items', async t => {

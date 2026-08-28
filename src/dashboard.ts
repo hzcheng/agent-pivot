@@ -1855,9 +1855,34 @@ async function initializeDashboard(
         publish: message => provider.postMessage(message),
         createPanel: vscode.window.createWebviewPanel,
         openExternal: vscode.env.openExternal,
-        openLocalFile: async targetFile => {
-            const roots = getCurrentWorkspaceActionTargetWithoutCardId()
-                ?.workspace.roots.map(root => root.hostPath) || [];
+        openLocalFile: async (targetFile, viewerTarget) => {
+            const actionTarget = getCurrentWorkspaceActionTarget(
+                viewerTarget.projectId
+            );
+            const activeSession = (actionTarget?.sessions.activeSessions || [])
+                .find(session => session.provider === viewerTarget.provider
+                    && session.sessionId === viewerTarget.sessionId);
+            const historySession = (
+                actionTarget?.sessions.sessionsByProvider[viewerTarget.provider] || []
+            ).find(session => session.id === viewerTarget.sessionId);
+            // Relative references belong to the conversation's authoritative
+            // worktree/cwd, not whichever Dashboard root happens to be active.
+            // Keep the normal roots as a compatibility fallback for sessions
+            // without a persisted location.
+            const authoritativeRoot = activeSession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.cwd
+                ?? historySession?.workDir;
+            const authoritativeRoots = typeof authoritativeRoot === 'string'
+                && authoritativeRoot.length > 0
+                ? [authoritativeRoot]
+                : [];
+            // A session with a persisted worktree/cwd must never fall through
+            // to a same-named file in the primary workspace. Only legacy
+            // sessions without an authoritative location use dashboard roots.
+            const roots = authoritativeRoots.length > 0
+                ? authoritativeRoots
+                : actionTarget?.workspace.roots.map(root => root.hostPath) || [];
             for (const rootPath of roots) {
                 let canonicalRoot: string;
                 try {

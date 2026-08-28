@@ -5272,9 +5272,10 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
 
     assert.match(panel.webview.html, /default-src 'none';/);
     assert.match(panel.webview.html, /img-src https: blob:;/);
-    assert.match(panel.webview.html, /style-src fixture-csp;/);
+    assert.match(panel.webview.html, /style-src fixture-csp 'unsafe-inline';/);
+    assert.match(panel.webview.html, /font-src fixture-csp;/);
     assert.match(panel.webview.html, /script-src 'nonce-[^']+';/);
-    assert.equal(panel.webview.html.includes("'unsafe-inline'"), false);
+    assert.doesNotMatch(panel.webview.html, /script-src[^;]*unsafe-inline/);
     assert.match(panel.webview.html, /data-auto-scroll-threshold="8"/);
     assert.equal(
         panel.createArguments[3].localResourceRoots[0].toString(),
@@ -5354,10 +5355,12 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
 
 test('CONVERSATION-LOCAL-FILE-LINKS-001 routes absolute and workspace-relative file links with exact positions', async () => {
     const openedFiles = [];
+    const openedTargets = [];
     const filePath = '/home/example/project/src/localStore.ts';
     const { viewer, panel } = createViewer({
-        openLocalFile: async targetFile => {
+        openLocalFile: async (targetFile, viewerTarget) => {
             openedFiles.push(targetFile);
+            openedTargets.push(viewerTarget);
         },
         readPage: async request => ({
             ...page(request.sessionId, request.anchorInteractionId),
@@ -5395,6 +5398,19 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 routes absolute and workspace-relative f
         line: 20,
         column: 1,
     }]);
+    assert.deepEqual(openedTargets.map(current => ({
+        projectId: current.projectId,
+        provider: current.provider,
+        sessionId: current.sessionId,
+    })), [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }, {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }], 'file resolution remains bound to the viewed conversation target');
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes one exact selection send to the active terminal inserter', async () => {

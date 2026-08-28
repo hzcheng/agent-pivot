@@ -543,6 +543,19 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     white-space: nowrap;
 }
 
+.conversation-math-source,
+.conversation-table-sort-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 .conversation-math .katex .frac,
 .conversation-math .katex .mfrac {
     display: inline-flex;
@@ -666,9 +679,18 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 }
 
 .conversation-task-item {
+    min-width: 0;
+}
+
+.conversation-task-row {
     display: flex;
     gap: 0.45rem;
     align-items: baseline;
+    min-width: 0;
+}
+
+.conversation-task-label {
+    min-width: 0;
 }
 
 .conversation-task-checkbox {
@@ -1450,6 +1472,14 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
         font-weight: 600;
     }
 
+    th.conversation-sortable-heading {
+        white-space: nowrap;
+    }
+
+    .conversation-table-heading {
+        display: inline;
+    }
+
     .conversation-table-align-center { text-align: center; }
     .conversation-table-align-right { text-align: right; }
 
@@ -1466,6 +1496,8 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
         font-weight: inherit;
         text-align: start;
         cursor: pointer;
+
+        margin-left: 0.3rem;
 
         &:hover {
             color: var(--vscode-textLink-foreground);

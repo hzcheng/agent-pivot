@@ -276,6 +276,9 @@ function initProjects() {
         if (aiSessionControls.onTriggerAiSessionAction(e.target, dataId))
             return;
 
+        if (projectInlineEdit && projectInlineEdit.onProjectAction(e, projectDiv, dataId))
+            return;
+
         if (contextMenus.onTriggerProjectAction(e.target, dataId))
             return;
 
@@ -301,6 +304,9 @@ function initProjects() {
     }
 
 
+    var projectInlineEdit = typeof initProjectInlineEdit === 'function'
+        ? initProjectInlineEdit()
+        : null;
     var groupCollapse = initProjectGroupCollapse();
     var aiSessionPresentationStateStore = null;
     var aiSessionControls = initProjectAiSessionControls({

@@ -262,7 +262,6 @@ export function getStewardContent(
                 fitProjectHeaders(document.getElementById('dashboard-tab-open'));
                 filtering = initFiltering(${infos.config.searchIsActiveByDefault}, dashboard);
                 initTagFiltering();
-                initProjectInlineEdit(dashboard);
                 filtering.apply();
             };
         })();
@@ -734,6 +733,7 @@ function getProjectDiv(
                 <button type="button" class="project-edit-cancel steward-button" data-action="cancel-edit">Cancel</button>
                 <button type="button" class="project-edit-save steward-button steward-button-primary" data-action="save-edit">Save</button>
             </div>
+            <p class="project-edit-feedback" data-project-edit-feedback role="status" hidden></p>
         </div>`}
     </div>
 </div>`;

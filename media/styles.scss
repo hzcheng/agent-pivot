@@ -688,6 +688,14 @@ body .project {
     padding-top: 4px;
 }
 
+.project-edit-feedback {
+    margin: 0 0 0 68px;
+    color: var(--vscode-descriptionForeground);
+    font-family: var(--vscode-font-family);
+    font-size: 11px;
+    line-height: 1.4;
+}
+
 .project-edit-cancel,
 .project-edit-save {
     padding: 3px 12px;
@@ -731,6 +739,14 @@ body .project {
     padding-bottom: 8px;
     background: var(--vscode-list-inactiveSelectionBackground, rgba(255,255,255,0.03));
     border-radius: 8px;
+}
+
+.project[data-saving] {
+    .project-edit-input,
+    .project-edit-actions button {
+        pointer-events: none;
+        opacity: 0.6;
+    }
 }
 
 

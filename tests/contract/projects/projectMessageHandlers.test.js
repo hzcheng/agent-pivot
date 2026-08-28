@@ -11,6 +11,7 @@ const { getAttentionProjectKey } = require('../../../out/aiSessions/attentionPro
 
 function createFixture(overrides = {}) {
     const calls = [];
+    const outgoing = [];
     const record = name => (...args) => {
         calls.push([name, ...args]);
         return Promise.resolve();
@@ -30,13 +31,10 @@ function createFixture(overrides = {}) {
             touchProjectLastOpened: record('touchProjectLastOpened'),
             updateProject: async (projectId, updated) => {
                 calls.push(['updateProject', projectId]);
-                // Simulate Object.assign behavior (including explicit undefined)
                 var p = Object.prototype.hasOwnProperty.call(overrides, 'project')
                     ? overrides.project
                     : project;
-                if ('name' in updated) p.name = updated.name;
-                if ('description' in updated) p.description = updated.description;
-                if ('tags' in updated) p.tags = updated.tags;
+                Object.assign(p, updated);
             },
         },
         projectOpenController: {
@@ -69,10 +67,11 @@ function createFixture(overrides = {}) {
         getAttentionAggregate: () => overrides.attentionAggregate || null,
         acknowledgeAiSessionAttentionEventIds: record('acknowledgeAttention'),
         refreshAfterMutation: mode => { calls.push(['refreshAfterMutation', mode]); },
+        postMessage: message => { outgoing.push(message); return Promise.resolve(true); },
         showWarningMessage: message => { calls.push(['showWarningMessage', message]); },
     };
     const handlers = createProjectMessageHandlers(options);
-    return { handlers, calls, project };
+    return { handlers, calls, outgoing, project };
 }
 
 function createSurfaceFixture(options = {}) {
@@ -324,11 +323,16 @@ test('PROJECT-INCREMENTAL-REFRESH-001 orders the mutation refresh: surfaces, col
         'an explicit project colour sync must pass the project through');
 });
 
-test('PROJECT-INLINE-EDIT-001 saves name, description, and tags via the inline edit handler', async () => {
-    const { handlers, calls, project } = createFixture();
+test('PROJECT-INLINE-EDIT-001 saves name, description, and tags without losing synced project fields', async () => {
+    const { handlers, calls, outgoing, project } = createFixture();
+    project.color = '#abcdef';
+    project.favorite = true;
+    project.lastOpenedAt = 123456789;
 
     await handlers['save-project-inline']({
         type: 'save-project-inline',
+        version: 1,
+        requestId: 'inline-save-1',
         projectId: 'project-a',
         name: '  New Name  ',
         description: '  Updated desc  ',
@@ -345,14 +349,24 @@ test('PROJECT-INLINE-EDIT-001 saves name, description, and tags via the inline e
     assert.equal(project.name, 'New Name', 'name must be trimmed');
     assert.equal(project.description, 'Updated desc', 'description must be trimmed');
     assert.deepEqual(project.tags, ['frontend', 'urgent'], 'tags must be normalized and deduplicated');
+    assert.equal(project.path, '/work/api', 'path must survive an inline edit');
+    assert.equal(project.color, '#abcdef', 'colour must survive an inline edit');
+    assert.equal(project.favorite, true, 'favorite state must survive an inline edit');
+    assert.equal(project.lastOpenedAt, 123456789, 'last-opened state must survive an inline edit');
+    assert.deepEqual(outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-save-1', projectId: 'project-a', status: 'saved',
+    }], 'the host must correlate the saved result to its originating form');
 });
 
-test('PROJECT-INLINE-EDIT-001 rejects empty names and missing projects', async () => {
-    const { handlers, calls } = createFixture();
+test('PROJECT-INLINE-EDIT-001 rejects empty names and missing projects without refreshing', async () => {
+    const { handlers, calls, outgoing } = createFixture();
 
     // Empty name
     await handlers['save-project-inline']({
         type: 'save-project-inline',
+        version: 1,
+        requestId: 'inline-empty-name',
         projectId: 'project-a',
         name: '   ',
         description: '',
@@ -362,30 +376,39 @@ test('PROJECT-INLINE-EDIT-001 rejects empty names and missing projects', async (
     assert.deepEqual(calls, [
         ['getProject', 'project-a'],
     ], 'empty name must not trigger a refresh');
+    assert.deepEqual(outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-empty-name', projectId: 'project-a', status: 'failed',
+    }]);
 
-    // Missing project (mock returns the project object, so handler proceeds)
-    calls.length = 0;
-    await handlers['save-project-inline']({
+    const missing = createFixture({ project: null });
+    await missing.handlers['save-project-inline']({
         type: 'save-project-inline',
+        version: 1,
+        requestId: 'inline-missing-project',
         projectId: 'nonexistent',
         name: 'Test',
         description: '',
         tags: '',
     });
 
-    assert.deepEqual(calls, [
+    assert.deepEqual(missing.calls, [
         ['getProject', 'nonexistent'],
-        ['updateProject', 'nonexistent'],
-        ['refreshAfterMutation', undefined],
-    ], 'handler proceeds with the mock project');
+    ], 'a missing project must not be updated or refresh the panel');
+    assert.deepEqual(missing.outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-missing-project', projectId: 'nonexistent', status: 'failed',
+    }]);
 });
 
 test('PROJECT-INLINE-EDIT-001 clears tags when the input is empty', async () => {
-    const { handlers, calls, project } = createFixture();
+    const { handlers, calls, outgoing, project } = createFixture();
     project.tags = ['old-tag'];
 
     await handlers['save-project-inline']({
         type: 'save-project-inline',
+        version: 1,
+        requestId: 'inline-clear-tags',
         projectId: 'project-a',
         name: 'API',
         description: '',
@@ -398,4 +421,20 @@ test('PROJECT-INLINE-EDIT-001 clears tags when the input is empty', async () => 
         ['refreshAfterMutation', undefined],
     ], 'empty tags must still call update then refresh');
     assert.equal(project.tags, undefined, 'empty tags input must clear the tags field');
+    assert.deepEqual(outgoing, [{
+        type: 'project-inline-edit-settlement', version: 1,
+        requestId: 'inline-clear-tags', projectId: 'project-a', status: 'saved',
+    }]);
+});
+
+test('PROJECT-INLINE-EDIT-001 rejects malformed requests before reading or mutating project data', async () => {
+    const { handlers, calls, outgoing } = createFixture();
+
+    await handlers['save-project-inline']({
+        type: 'save-project-inline', version: 1, requestId: 'inline-malformed',
+        projectId: 'project-a', name: 'API', description: 42, tags: '',
+    });
+
+    assert.deepEqual(calls, [], 'malformed values must not reach the project service');
+    assert.deepEqual(outgoing, [], 'malformed requests are ignored without a settlement');
 });

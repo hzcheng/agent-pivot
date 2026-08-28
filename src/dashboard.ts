@@ -612,6 +612,7 @@ async function initializeDashboard(
         'reordered-favorites',
         'remove-project',
         'edit-project',
+        'save-project-inline',
         'color-project',
         'favorite-project',
         'edit-group',
@@ -2243,6 +2244,7 @@ async function initializeDashboard(
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         acknowledgeAiSessionAttentionEventIds,
         refreshAfterMutation: projectSurface.refreshAfterMutation,
+        postMessage: message => provider.postMessage(message),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
 

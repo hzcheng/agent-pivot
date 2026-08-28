@@ -3764,6 +3764,22 @@
     ]
   },
   {
+    "id": "PROJECT-INLINE-EDIT-001",
+    "domain": "project",
+    "title": "Project inline editing opens from the pencil without the legacy VS Code prompt, preserves unrelated synced fields, and uses correlated save settlements for retry-safe failure recovery",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/projectInlineEdit.test.js",
+      "tests/contract/projects/projectMessageHandlers.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewProjectEditScripts.js",
+      "src/webview/webviewProjectScripts.js",
+      "src/projects/projectMessageHandlers.ts"
+    ]
+  },
+  {
     "id": "PROJECT-ROW-LAYOUT-001",
     "domain": "project",
     "title": "Project cards render as compact single-line list rows with the project name as the primary element; the filesystem path is hidden",

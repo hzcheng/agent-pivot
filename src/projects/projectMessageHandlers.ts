@@ -3,11 +3,12 @@
 import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
 import { withAttentionProject } from '../aiSessions/attentionProject';
 import { normalizeProjectTags } from './projectTags';
+import { Project } from '../models';
 import type { GroupCollapseController } from '../dashboard/groupCollapseController';
 import type { DashboardMessageHandler } from '../dashboard/messageRouter';
 import type { ProjectsPanelController } from '../dashboard/projectsPanelController';
 import type { ProjectsPanelUpdateMode } from '../dashboard/webviewUpdateMessages';
-import type { GroupOrder, Project, ProjectOpenType } from '../models';
+import type { GroupOrder, ProjectOpenType } from '../models';
 import type { OpenWorkspaceDashboardController } from '../openWorkspaces/dashboardController';
 import type { WorkspaceNavigationController } from '../openWorkspaces/navigationController';
 import type { OpenWindowNavigationRequestController } from '../openWorkspaces/openWindowNavigationRequestController';
@@ -88,6 +89,7 @@ export interface ProjectMessageHandlersOptions {
     /** Owned by the AI session attention slice; injected, not extracted here. */
     acknowledgeAiSessionAttentionEventIds: (eventIds: string[]) => Promise<void>;
     refreshAfterMutation: (mode?: ProjectsPanelUpdateMode) => void;
+    postMessage: (message: Record<string, unknown>) => Thenable<boolean> | Promise<boolean> | boolean;
     showWarningMessage: (message: string) => unknown;
 }
 
@@ -118,6 +120,7 @@ export function createProjectMessageHandlers(
     const getAttentionAggregate = options.getAttentionAggregate;
     const acknowledgeAiSessionAttentionEventIds = options.acknowledgeAiSessionAttentionEventIds;
     const refreshAfterMutation = options.refreshAfterMutation;
+    const postMessage = options.postMessage;
     const showWarningMessage = options.showWarningMessage;
 
     return {
@@ -131,7 +134,7 @@ export function createProjectMessageHandlers(
             }
 
             const project = projectService.getProject(projectId);
-            if (project == null) {
+            if (project === null || project === undefined) {
                 showWarningMessage("Selected Project not found.");
                 return;
             }
@@ -166,17 +169,35 @@ export function createProjectMessageHandlers(
             await projectMutationController.editProject(e.projectId as string);
         },
         'save-project-inline': async e => {
-            var projectId = e.projectId as string;
+            if (e.version !== 1 || typeof e.requestId !== 'string' || !e.requestId
+                || typeof e.projectId !== 'string' || !e.projectId
+                || typeof e.name !== 'string' || typeof e.description !== 'string'
+                || typeof e.tags !== 'string') {
+                return;
+            }
+            var projectId = e.projectId;
+            var requestId = e.requestId;
+            const settle = async (status: 'saved' | 'failed'): Promise<void> => {
+                await postMessage({
+                    type: 'project-inline-edit-settlement',
+                    version: 1,
+                    requestId,
+                    projectId,
+                    status,
+                });
+            };
             var project = projectService.getProject(projectId);
-            if (project == null) {
+            if (project === null || project === undefined) {
+                await settle('failed');
                 return;
             }
 
-            var name = (e.name as string || '').trim();
-            var description = (e.description as string || '').trim();
-            var tagsRaw = (e.tags as string || '').trim();
+            var name = e.name.trim();
+            var description = e.description.trim();
+            var tagsRaw = e.tags.trim();
 
             if (!name) {
+                await settle('failed');
                 return;
             }
 
@@ -185,13 +206,24 @@ export function createProjectMessageHandlers(
                 : [];
             var tags = normalizeProjectTags(tagList);
 
-            await projectService.updateProject(projectId, {
+            const updatedProject = Object.assign(
+                new Project(project.name, project.path, project.description),
+                project,
+                {
                 name: name,
                 description: description,
                 tags: tags.length ? tags : undefined,
-            } as any);
+                }
+            );
 
-            refreshAfterMutation();
+            try {
+                await projectService.updateProject(projectId, updatedProject);
+                refreshAfterMutation();
+                await settle('saved');
+            } catch (error) {
+                await settle('failed');
+                throw error;
+            }
         },
         'color-project': async e => {
             await projectMutationController.editProjectColor(e.projectId as string);

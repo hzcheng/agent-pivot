@@ -2394,6 +2394,20 @@
     ]
   },
   {
+    "id": "LOCAL-INSTALL-WORKTREE-DEPENDENCIES-001",
+    "domain": "release",
+    "title": "Local install prepares dependencies through the worktree guard",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/unit/tooling/buildTestPackageInstall.test.js"
+    ],
+    "evidence": [
+      "scripts/build-test-package-install.sh",
+      "scripts/with-worktree-dependencies.js"
+    ]
+  },
+  {
     "id": "OPEN-BRIDGE-CLIENT-001",
     "domain": "open-project",
     "title": "Bridge Client behavior",

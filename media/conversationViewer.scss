@@ -503,6 +503,105 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     margin-left: auto;
 }
 
+.conversation-structured-block {
+    margin: 0.5rem 0;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    background: var(--vscode-textCodeBlock-background);
+
+    > summary {
+        padding: 0.35rem 0.75rem;
+        color: var(--vscode-descriptionForeground);
+        cursor: pointer;
+        font-size: 0.78rem;
+        letter-spacing: 0.03em;
+        user-select: none;
+    }
+
+    > .conversation-code-block {
+        margin: 0;
+        border: 0;
+        border-top: 1px solid var(--vscode-panel-border);
+        border-radius: 0;
+    }
+}
+
+.conversation-math {
+    color: var(--vscode-editor-foreground);
+}
+
+.conversation-math-display {
+    overflow-x: auto;
+    margin: 0.75rem 0;
+    padding: 0.35rem 0;
+    text-align: center;
+}
+
+.conversation-math .katex {
+    font-family: KaTeX_Main, Cambria Math, STIX Two Math, Times New Roman, serif;
+    font-size: 1.16em;
+    white-space: nowrap;
+}
+
+.conversation-math-source,
+.conversation-table-sort-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.conversation-math .katex .frac,
+.conversation-math .katex .mfrac {
+    display: inline-flex;
+    flex-direction: column;
+    vertical-align: middle;
+    text-align: center;
+}
+
+.conversation-math-fallback {
+    padding: 0.1em 0.25em;
+    border-radius: 3px;
+    background: var(--vscode-textCodeBlock-background);
+    color: var(--vscode-descriptionForeground);
+    font-family: var(--vscode-editor-font-family, monospace);
+    white-space: pre-wrap;
+}
+
+.conversation-references {
+    display: grid;
+    gap: 0.45rem;
+    margin: 0.75rem 0;
+}
+
+.conversation-reference-card {
+    display: grid;
+    gap: 0.2rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-textLink-foreground);
+    border-radius: 4px;
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.conversation-reference-link {
+    overflow: hidden;
+    color: var(--vscode-textLink-foreground);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-reference-note {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+}
+
 /* Outspecific .conversation-markdown pre: the card supplies the chrome. */
 .conversation-markdown .conversation-code-block > pre {
     margin: 0;
@@ -548,12 +647,164 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     }
 }
 
+.conversation-code-numbered {
+    counter-reset: conversation-code-line;
+}
+
+.conversation-code-numbered .conversation-code-line {
+    display: grid;
+    grid-template-columns: 3.25rem minmax(0, 1fr);
+    min-width: 100%;
+}
+
+.conversation-code-line-number {
+    padding: 0 0.65rem;
+    color: var(--vscode-editorLineNumber-foreground, var(--vscode-descriptionForeground));
+    text-align: end;
+    user-select: none;
+}
+
+.conversation-code-line-content {
+    padding-right: 0.75rem;
+}
+
+.conversation-code-line-highlighted {
+    background: var(--vscode-editor-lineHighlightBackground, rgba(128, 128, 128, 0.18));
+    box-shadow: inset 2px 0 var(--vscode-editorOverviewRuler-rangeHighlightForeground, var(--vscode-focusBorder));
+}
+
 .conversation-progress .conversation-markdown {
     min-width: 0;
     flex: 1;
 }
 
-.conversation-progress-label {
+.conversation-task-item {
+    min-width: 0;
+}
+
+.conversation-task-row {
+    display: flex;
+    gap: 0.45rem;
+    align-items: baseline;
+    min-width: 0;
+}
+
+.conversation-task-label {
+    min-width: 0;
+}
+
+.conversation-task-checkbox {
+    display: inline-flex;
+    width: 0.85rem;
+    height: 0.85rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--vscode-checkbox-border, var(--vscode-panel-border));
+    border-radius: 2px;
+    color: var(--vscode-checkbox-foreground);
+    font-size: 0.75rem;
+}
+
+.conversation-task-checkbox-checked {
+    border-color: var(--vscode-checkbox-selectBorder, var(--vscode-button-background));
+    background: var(--vscode-checkbox-selectBackground, var(--vscode-button-background));
+}
+
+.conversation-callout {
+    margin: 0.75rem 0;
+    padding: 0.55rem 0.7rem;
+    border-left: 3px solid var(--vscode-editorInfo-foreground, var(--vscode-focusBorder));
+    background: var(--vscode-textBlockQuote-background, transparent);
+}
+
+.conversation-callout-label {
+    display: block;
+    margin-bottom: 0.2rem;
+    font-size: 0.78em;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.conversation-callout-warning,
+.conversation-callout-caution {
+    border-left-color: var(--vscode-editorWarning-foreground);
+}
+
+.conversation-callout-important {
+    border-left-color: var(--vscode-errorForeground);
+}
+
+.conversation-callout-body > :first-child { margin-top: 0; }
+.conversation-callout-body > :last-child { margin-bottom: 0; }
+
+.conversation-chart {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0.75rem 0;
+    padding: 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.conversation-chart-title { font-weight: 600; }
+.conversation-chart-body {
+    display: grid;
+    min-width: 0;
+    gap: 0.35rem;
+}
+.conversation-chart-row {
+    display: grid;
+    grid-template-columns: minmax(5rem, 1fr) minmax(4rem, 3fr) max-content;
+    gap: 0.5rem;
+    align-items: center;
+}
+.conversation-chart-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+// Named for the element, not the chart type: the card carries the type
+// modifier `conversation-chart-bar`, so a bar-named element class here would
+// also match the card and collapse it to the bar's height.
+.conversation-chart-progress { width: 100%; height: 0.75rem; accent-color: var(--vscode-charts-blue, var(--vscode-button-background)); }
+.conversation-chart-value { font-variant-numeric: tabular-nums; }
+
+.conversation-chart-graphic {
+    width: 100%;
+    height: 7rem;
+    overflow: visible;
+    color: var(--vscode-charts-blue, var(--vscode-button-background));
+}
+
+.conversation-chart-pie-graphic {
+    display: block;
+    width: min(12rem, 100%);
+    height: 12rem;
+    margin: 0 auto;
+}
+
+.conversation-chart-key {
+    display: grid;
+    gap: 0.2rem;
+}
+
+.conversation-chart-key-row {
+    display: flex;
+    min-width: 0;
+    gap: 0.5rem;
+    justify-content: space-between;
+}
+
+.conversation-chart-key-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-chart-empty {
+    color: var(--vscode-descriptionForeground);
+}
+
+.conversation-progress-label,
+.conversation-task-state {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1007,6 +1258,33 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     white-space: nowrap;
 }
 
+.conversation-diff-context-toggle {
+    flex: 0 0 auto;
+    padding: 0.1rem 0.35rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 3px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font: inherit;
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+
+.conversation-diff-context-toggle:hover {
+    color: var(--vscode-foreground);
+    background: var(--vscode-toolbar-hoverBackground, transparent);
+}
+
+.conversation-diff-context-toggle:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
+}
+
+.conversation-diff-changes-only .conversation-diff-line-context,
+.conversation-diff-changes-only .conversation-diff-context {
+    display: none;
+}
+
 .conversation-diff-count-add {
     color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
 }
@@ -1021,19 +1299,60 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     white-space: nowrap;
 }
 
-.conversation-diff-hunks {
-    margin: 0;
-    padding: 0.3rem 0;
+.conversation-diff-hunk {
     overflow-x: auto;
     color: var(--vscode-editor-foreground);
     font-size: 0.82rem;
     line-height: 1.45;
 }
 
-.conversation-diff-line {
+.conversation-diff-grid {
+    min-width: 32rem;
+}
+
+.conversation-diff-context {
     display: block;
-    padding: 0 0.6rem 0 0.35rem;
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.conversation-diff-context > summary {
+    padding: 0.15rem 0.6rem;
+    color: var(--vscode-descriptionForeground);
+    cursor: pointer;
+    font-style: italic;
+    user-select: none;
+}
+
+.conversation-diff-context-grid {
+    display: block;
+}
+
+.conversation-diff-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.conversation-diff-side {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 3.5rem minmax(0, 1fr);
     border-left: 3px solid transparent;
+}
+
+.conversation-diff-side-empty {
+    background: var(--vscode-textCodeBlock-background);
+}
+
+.conversation-diff-line-number {
+    padding: 0 0.35rem;
+    color: var(--vscode-editorLineNumber-foreground, var(--vscode-descriptionForeground));
+    text-align: right;
+    user-select: none;
+}
+
+.conversation-diff-line-text {
+    min-width: 0;
+    padding: 0 0.6rem 0 0.35rem;
     white-space: pre;
 }
 
@@ -1055,6 +1374,8 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
 .conversation-diff-line-hunk,
 .conversation-diff-line-truncated {
+    display: block;
+    padding: 0.15rem 0.6rem;
     color: var(--vscode-descriptionForeground);
     font-style: italic;
 }
@@ -1157,6 +1478,43 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     th {
         background: var(--vscode-textCodeBlock-background);
         font-weight: 600;
+    }
+
+    th.conversation-sortable-heading {
+        white-space: nowrap;
+    }
+
+    .conversation-table-heading {
+        display: inline;
+    }
+
+    .conversation-table-align-center { text-align: center; }
+    .conversation-table-align-right { text-align: right; }
+
+    .conversation-table-sort {
+        display: inline-flex;
+        max-width: 100%;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-weight: inherit;
+        text-align: start;
+        cursor: pointer;
+
+        margin-left: 0.3rem;
+
+        &:hover {
+            color: var(--vscode-textLink-foreground);
+        }
+
+        &:focus-visible {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: 2px;
+        }
     }
 }
 

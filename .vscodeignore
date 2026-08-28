@@ -63,6 +63,8 @@ media/brand/**
 !media/conversationViewerScripts.js
 !media/conversationViewer.css
 !media/conversationTelemetry.css
+!media/katex.min.css
+!media/fonts/**
 !media/mermaid.min.js
 !media/purify.min.js
 !media/styles.css

@@ -170,6 +170,9 @@ const hostileConversationPage = Object.freeze({
             <a href="command:workbench.action.reloadWindow">command</a>
             <a href="http://example.test/insecure">http</a>
             <a href="https://example.test/safe">safe</a>
+            <span class="katex" style="position:fixed;inset:0">spoofed math</span>
+            <section class="conversation-chart" aria-label="spoofed chart">spoofed chart</section>
+            <section style="position:relative;top:-99em;width:99em;height:99em;border-style:solid;border-width:99em">spoofed overlay</section>
         </section>
     </article>`,
     outline: [{
@@ -2470,6 +2473,32 @@ async function renderHostViewerDocument(options = {}) {
     return panel.webview.html;
 }
 
+test('WEBVIEW-RESOURCE-RECOVERY-001 gives every Conversation Viewer document fresh versioned asset URLs', async () => {
+    const first = await renderHostViewerDocument();
+    const second = await renderHostViewerDocument();
+    const revisionPattern = /https:\/\/viewer\.test\/conversationViewer\.css\?conversationViewerAssetRevision=([a-z0-9]+-\d+)/;
+    const firstRevision = first.match(revisionPattern);
+    const secondRevision = second.match(revisionPattern);
+
+    assert.ok(firstRevision,
+        'Conversation Viewer stylesheet URL must carry a document-scoped asset revision');
+    assert.ok(secondRevision,
+        'a refreshed Conversation Viewer document must carry an asset revision');
+    assert.notEqual(firstRevision[1], secondRevision[1],
+        'a refreshed document must not reuse a possibly stale cached stylesheet');
+    for (const asset of [
+        'conversationTelemetry.css',
+        'katex.min.css',
+        'purify.min.js',
+        'mermaid.min.js',
+        'conversationViewerScripts.js',
+    ]) {
+        assert.match(first, new RegExp(
+            `https:\\/\\/viewer\\.test\\/${asset.replace(/\./g, '\\.')}\\?conversationViewerAssetRevision=${firstRevision[1]}`
+        ), `${asset} must share the document asset revision`);
+    }
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 publishes content before local metadata restoration settles', async () => {
     let panel;
     let releaseCommentRestore;
@@ -4220,6 +4249,28 @@ test('CONVERSATION-RUN-COMMAND-001 runs Bash blocks and selected Bash commands i
     });
 });
 
+test('CONVERSATION-RUN-COMMAND-002 preserves source text when highlighted Bash lines have visible numbers', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        pageOverrides: {
+            messages: [{
+                id: 'input-1:assistant:0',
+                interactionId: 'input-1',
+                role: 'assistant',
+                markdown: '```bash {2}\necho first\n\necho second\n```',
+            }],
+        },
+    });
+    await page.locator('[data-conversation-run-command]').click();
+    assert.equal((await postedMessages(page)).at(-1).command,
+        'echo first\n\necho second');
+
+    await page.locator('.conversation-code-copy').click();
+    assert.equal((await postedMessages(page)).at(-1).payload.text,
+        'echo first\n\necho second');
+});
+
 test('CONVERSATION-RUN-COMMAND-001 keeps a long Unicode comment selection available but non-runnable', async t => {
     const emoji = '😀'.repeat(3000);
     const { page } = await openHostViewerDocument(t, {
@@ -4926,6 +4977,88 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Strip this generation's local rendering controls before replaying
+        // the frozen adjacent Viewer generation below.
+        .replace(
+            "        'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open', 'type',\n"
+                + "        'role', 'aria-label', 'aria-hidden', 'viewBox', 'preserveAspectRatio',\n"
+                + "        'aria-sort', 'aria-pressed', 'data-conversation-sort-column', 'data-conversation-sort-direction',\n"
+                + "        'data-conversation-diff-context-toggle',\n",
+            "        'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open',\n"
+                + "        'role', 'aria-label', 'aria-hidden', 'viewBox', 'preserveAspectRatio',\n"
+        )
+        .replace(
+            '    function codeBlockText(code) {\n'
+                + "        var lines = code.querySelectorAll('.conversation-code-line-content');\n"
+                + "        if (!lines.length) return code.textContent || '';\n"
+                + '        return Array.prototype.map.call(lines, function (line) {\n'
+                + "            return line.textContent || '';\n"
+                + "        }).join('\\n');\n"
+                + '    }\n\n',
+            ''
+        )
+        .replace(
+            "        var contextToggle = event.target && event.target.closest\n"
+                + "            ? event.target.closest('[data-conversation-diff-context-toggle]')\n"
+                + '            : null;\n'
+                + '        if (contextToggle && messages.contains(contextToggle)) {\n'
+                + "            var diffFile = contextToggle.closest('.conversation-diff-file');\n"
+                + '            if (!diffFile) return;\n'
+                + "            var changesOnly = diffFile.classList.toggle('conversation-diff-changes-only');\n"
+                + "            contextToggle.setAttribute('aria-pressed', String(changesOnly));\n"
+                + "            contextToggle.textContent = changesOnly ? 'Show context' : 'Changes only';\n"
+                + "            contextToggle.title = changesOnly ? 'Show all context' : 'Show changes only';\n"
+                + '            return;\n'
+                + '        }\n'
+                + '        var sortButton = event.target && event.target.closest\n'
+                + "            ? event.target.closest('[data-conversation-sort-column]')\n"
+                + '            : null;\n'
+                + '        if (sortButton && messages.contains(sortButton)) {\n'
+                + "            var table = sortButton.closest('table.conversation-data-table');\n"
+                + "            var body = table ? table.querySelector('tbody') : null;\n"
+                + "            var column = Number(sortButton.getAttribute('data-conversation-sort-column'));\n"
+                + '            if (!body || !Number.isInteger(column) || column < 0) return;\n'
+                + "            var direction = sortButton.getAttribute('data-conversation-sort-direction') === 'ascending'\n"
+                + "                ? 'descending'\n"
+                + "                : 'ascending';\n"
+                + "            var rows = Array.prototype.map.call(body.querySelectorAll('tr'), function (row, index) {\n"
+                + "                return { row: row, index: index, value: (row.cells[column] && row.cells[column].textContent || '').trim() };\n"
+                + '            });\n'
+                + '            rows.sort(function (left, right) {\n'
+                + '                var leftNumber = Number(left.value);\n'
+                + '                var rightNumber = Number(right.value);\n'
+                + '                var numberPattern = /^[+-]?(?:\\d+|\\d*\\.\\d+)$/;\n'
+                + '                var comparison = numberPattern.test(left.value) && numberPattern.test(right.value)\n'
+                + '                    && Number.isFinite(leftNumber) && Number.isFinite(rightNumber)\n'
+                + '                    ? leftNumber - rightNumber\n'
+                + '                    : left.value.localeCompare(right.value);\n'
+                + "                return (direction === 'descending' ? -comparison : comparison)\n"
+                + '                    || left.index - right.index;\n'
+                + '            });\n'
+                + '            Array.prototype.forEach.call(\n'
+                + "                table.querySelectorAll('[data-conversation-sort-column]'),\n"
+                + '                function (button) {\n'
+                + "                    button.setAttribute('data-conversation-sort-direction', '');\n"
+                + "                    var header = button.closest('th');\n"
+                + "                    if (header) header.setAttribute('aria-sort', 'none');\n"
+                + '                }\n'
+                + '            );\n'
+                + "            sortButton.setAttribute('data-conversation-sort-direction', direction);\n"
+                + "            var activeHeader = sortButton.closest('th');\n"
+                + "            if (activeHeader) activeHeader.setAttribute('aria-sort', direction);\n"
+                + '            rows.forEach(function (entry) { body.appendChild(entry.row); });\n'
+                + '            return;\n'
+                + '        }\n',
+            ''
+        )
+        .replace(
+            '            postRunCommand(codeBlockText(runCode));\n',
+            "            postRunCommand(runCode.textContent || '');\n"
+        )
+        .replace(
+            '                text: codeBlockText(code),\n',
+            "                text: code.textContent || '',\n"
+        )
         // The current script carries independent Webview-side history
         // watchdogs. The adjacent generation predates them; remove every
         // coupled state transition before asserting the frozen fixture.
@@ -7503,7 +7636,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScriptWithoutAuxiliarySnapshots),
-        '557834a9b3cc2135ace599b6968061ae5b9c5969055a65549f4993ac7e1c91a1',
+        '696c5305cff730c862fc5296d57f3ca5fd0622d1af0a132bdd75b009dee935f8',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -11045,6 +11178,12 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, preserv
     assert.equal(await page.locator('[onclick]').count(), 0);
     assert.equal(await page.locator('[data-unexpected]').count(), 0);
     assert.equal(await page.locator('[aria-label="private"]').count(), 0);
+    assert.equal(await page.locator('[aria-label="spoofed chart"]').count(), 0,
+        'a model cannot preserve ARIA by spoofing a renderer class');
+    assert.equal(await page.locator('[style*="position:fixed"]').count(), 0,
+        'a model cannot preserve layout-affecting styles by spoofing KaTeX');
+    assert.equal(await page.locator('[style*="top:-99em"]').count(), 0,
+        'a model cannot retain a large relative-positioned overlay style');
     assert.equal(await page.locator('a[href^="javascript:"]').count(), 0);
     assert.equal(await page.locator('a[href^="data:"]').count(), 0);
     assert.equal(await page.locator('a[href^="file:"]').count(), 0);
@@ -11106,9 +11245,11 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, preserv
 test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps rendered absolute file links clickable through the Webview', async t => {
     const firstHref = '/home/example/project/src/localStore.ts:17';
     const secondHref = '/home/example/project/src/localStore.ts:216';
+    const workspaceHref = 'src/aiSessions/conversation/viewer.ts#L20';
     const { page } = await openHostViewerDocument(t, {
         markdown: `[localStore.ts](${firstHref}) expires records and `
-            + `[localStore.ts](${secondHref}) deletes them.`,
+            + `[localStore.ts](${secondHref}) deletes them. `
+            + `See [viewer](${workspaceHref}).`,
     });
 
     const links = page.getByRole('link', { name: 'localStore.ts' });
@@ -11121,6 +11262,221 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps rendered absolute file links click
         version: 1,
         href: secondHref,
     });
+    const workspaceLink = page.getByRole('link', { name: 'viewer' });
+    await workspaceLink.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-open-link',
+        version: 1,
+        href: workspaceHref,
+    });
+});
+
+test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structured data, math, and charts at narrow widths', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 360, height: 560 },
+        markdown: [
+            'Review src/aiSessions/conversation/markdown.ts:42.',
+            '',
+            '```log',
+            'line one',
+            'line two',
+            '```',
+            '',
+            'Inline $x^2$, $\\sqrt{x}$, $\\cancel{x}$, $\\sum_{i=0}^{n}$, $\\phantom{x}$, $\\begin{matrix}a\\\\b\\end{matrix}$, $\\boxed{x}$, $\\pmb{x}$, and $\\rule{1em}{1em}$:',
+            '',
+            '$$',
+            '\\frac{1}{2}',
+            '$$',
+            '',
+            '```chart',
+            '{"title":"Rendering coverage","labels":["Markdown","Math","Charts","Diffs"],"values":[10,9,8,10]}',
+            '```',
+            '',
+            '```chart',
+            '{"type":"line","labels":["Start","Finish"],"values":[1,3]}',
+            '```',
+            '',
+            '```pie-chart',
+            '{"title":"Feature state","labels":["Ready","Preview"],"values":[8,1]}',
+            '```',
+            '',
+            '```typescript {2}',
+            'const first = 1;',
+            'const second = 2;',
+            '```',
+            '',
+            '| Name | Score |',
+            '| --- | ---: |',
+            '| Zebra | 2 |',
+            '| Alpha | 10 |',
+            '',
+            '```references',
+            '[{"title":"Renderer","href":"src/aiSessions/conversation/markdown.ts:42","note":"Host controlled."}]',
+            '```',
+            '',
+            '```diff',
+            '--- a/src/a.ts',
+            '+++ b/src/a.ts',
+            '@@ -1 +1 @@',
+            '-const oldValue = 1;',
+            '+const newValue = 2;',
+            '```',
+            '',
+            '<span class="conversation-math"><span class="katex" style="color:red">unsafe HTML</span></span>',
+        ].join('\n'),
+    });
+    const workspaceLink = page.getByRole('link', {
+        name: 'src/aiSessions/conversation/markdown.ts:42',
+    });
+    await workspaceLink.click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-open-link',
+        version: 1,
+        href: 'src/aiSessions/conversation/markdown.ts:42',
+    });
+
+    const structured = page.locator('.conversation-structured-block');
+    const summary = structured.locator('summary');
+    await summary.focus();
+    assert.equal(await summary.evaluate(element => document.activeElement === element), true,
+        'the native summary participates in keyboard focus order');
+    assert.equal(await structured.getAttribute('open'), '',
+        'short structured output is initially visible');
+
+    assert.equal(await page.locator('.conversation-math .katex').count(), 10);
+    assert.ok(await page.locator('.conversation-math .katex [style]').count() > 0,
+        'only KaTeX layout styles survive sanitization');
+    assert.equal(await page.locator('.conversation-math .katex svg path').count(), 1,
+        'stretchy KaTeX SVG glyphs survive the Webview sanitizer');
+    assert.equal(await page.locator('.conversation-math .katex svg line').count(), 1,
+        'KaTeX cancellation SVG strokes survive the Webview sanitizer');
+    const mathStyles = await page.locator('.conversation-math .katex [style]')
+        .evaluateAll(elements => elements.map(element => element.getAttribute('style')));
+    assert.ok(mathStyles.some(style => style && style.includes('padding-left:0.833em')),
+        'KaTeX radical layout padding survives the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('position:relative')),
+        'KaTeX operator layout positioning survives the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('color:transparent')),
+        'KaTeX phantom layout styles survive the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('border-style:solid')
+        && style.includes('border-width:0.04em')),
+    'KaTeX boxed-expression borders survive the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('text-shadow:0.02em 0.01em 0.04px')),
+        'KaTeX bold-math offsets survive the Webview sanitizer');
+    assert.ok(mathStyles.some(style => style && style.includes('border-right-width:1em')
+        && style.includes('bottom:0em')),
+    'KaTeX rule dimensions survive the Webview sanitizer');
+    assert.match(await page.locator('.conversation-math').first().textContent(), /Math: x\^2/,
+        'rendered math retains an accessible source expression');
+    assert.match(
+        await page.locator('.conversation-markdown').textContent(),
+        /<span class="conversation-math"><span class="katex" style="color:red">unsafe HTML<\/span><\/span>/,
+        'model-supplied markup stays literal text'
+    );
+    assert.equal(await page.locator('[style="color:red"]').count(), 0,
+        'model-supplied HTML remains text, never a styled DOM node');
+    assert.equal(await page.locator('.conversation-chart-line polyline').count(), 1);
+    assert.equal(await page.locator('.conversation-chart-pie circle').count(), 2);
+    assert.equal(await page.locator('.conversation-chart-body').count(), 3,
+        'each chart keeps its visual and labels in one explicit card body');
+    assert.equal(await page.locator('.conversation-code-line-highlighted').count(), 1);
+    assert.equal(await page.locator('.conversation-reference-card').count(), 1);
+    const sortButton = page.locator('.conversation-table-sort').nth(1);
+    await sortButton.click();
+    assert.equal(await page.locator('.conversation-data-table tbody tr').first()
+        .locator('td').first().textContent(), 'Zebra',
+        'the first click sorts scores ascending');
+    await sortButton.click();
+    assert.equal(await page.locator('.conversation-data-table tbody tr').first()
+        .locator('td').first().textContent(), 'Alpha',
+        'the second click reverses the sort direction');
+    assert.equal(await sortButton.locator('xpath=ancestor::th').getAttribute('aria-sort'), 'descending');
+    const diffToggle = page.locator('.conversation-diff-context-toggle');
+    await diffToggle.click();
+    assert.equal(await diffToggle.getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('.conversation-diff-file')
+        .evaluate(element => element.classList.contains('conversation-diff-changes-only')), true);
+    const chartWidth = await page.locator('.conversation-chart').first()
+        .evaluate(element => element.getBoundingClientRect().width);
+    assert.ok(chartWidth <= 360,
+        'charts fit the minimum supported conversation width');
+    const chartBounds = await page.locator('.conversation-chart').evaluateAll(charts => charts.map(chart => {
+        const bounds = chart.getBoundingClientRect();
+        return { top: bounds.top, bottom: bounds.bottom };
+    }));
+    assert.ok(chartBounds.every((bounds, index) => index === 0
+        || chartBounds[index - 1].bottom <= bounds.top),
+    'adjacent chart cards never overlap at the minimum supported conversation width');
+    // A card box that does not contain its own body still satisfies the
+    // adjacency check above, because a collapsed card has a small bottom edge.
+    // Assert containment so a card can never paint its rows over what follows.
+    const chartContainment = await page.locator('.conversation-chart').evaluateAll(
+        charts => charts.map(chart => {
+            const card = chart.getBoundingClientRect();
+            const body = chart.querySelector('.conversation-chart-body')
+                .getBoundingClientRect();
+            return {
+                type: chart.className,
+                cardHeight: Math.round(card.height),
+                bodyHeight: Math.round(body.height),
+                overflowBelow: Math.round(body.bottom - card.bottom),
+            };
+        }));
+    for (const chart of chartContainment) {
+        assert.ok(
+            chart.overflowBelow <= 1,
+            `${chart.type} must contain its own body inside the card `
+                + `(card ${chart.cardHeight}px, body ${chart.bodyHeight}px, `
+                + `overflowing ${chart.overflowBelow}px below the card)`
+        );
+    }
+});
+
+test('CONVERSATION-VIEWER-RICH-MARKDOWN-004 restores local table and diff controls across an authoritative refresh', async t => {
+    const markdown = [
+        '| Name | Score |',
+        '| --- | ---: |',
+        '| Zebra | 2 |',
+        '| Alpha | 10 |',
+        '',
+        '```diff',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -1 +1 @@',
+        '-const oldValue = 1;',
+        '+const newValue = 2;',
+        '```',
+    ].join('\n');
+    const renderedHtml = await renderHostViewerDocument({ markdown });
+    const initial = decodeInitialPublication(renderedHtml);
+    const { page } = await openHostViewerDocument(t, { renderedHtml });
+    const sortButton = page.locator('.conversation-table-sort').nth(1);
+    const diffToggle = page.locator('.conversation-diff-context-toggle');
+    await sortButton.click();
+    await diffToggle.click();
+    await sortButton.focus();
+
+    await sendPage(page, {
+        ...initial,
+        requestId: initial.requestId + 1,
+        updateKind: 'refresh',
+        htmlSignature: `${initial.htmlSignature}-refresh`,
+        html: initial.html.replace('newValue', 'newerValue'),
+    });
+    await page.waitForFunction(signature => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === signature
+    ), `${initial.htmlSignature}-refresh`);
+    assert.equal(await page.locator('.conversation-diff-file')
+        .evaluate(element => element.classList.contains('conversation-diff-changes-only')), true);
+    assert.equal(await page.locator('.conversation-diff-context-toggle')
+        .getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('.conversation-data-table tbody tr').first()
+        .locator('td').first().textContent(), 'Zebra');
+    assert.equal(await sortButton.evaluate(element => document.activeElement === element), true,
+        'focus returns to the same semantic sort control');
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 preserves ordered numbering across loose multi-paragraph list items', async t => {
@@ -11478,7 +11834,10 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup 
                         <span class="conversation-diff-kind conversation-diff-kind-update">update</span>
                         <span class="conversation-diff-counts"><span class="conversation-diff-count-add">+1</span> <span class="conversation-diff-count-del">−1</span></span>
                     </section>
-                    <pre class="conversation-diff-hunks"><code><span class="conversation-diff-line conversation-diff-line-hunk">@@ -3 +3 @@</span><span class="conversation-diff-line conversation-diff-line-del">-const a = 1;</span><span class="conversation-diff-line conversation-diff-line-add">+const a = 2;</span></code></pre>
+                    <section class="conversation-diff-hunk">
+                        <span class="conversation-diff-line-hunk">@@ -3 +3 @@</span>
+                        <section class="conversation-diff-grid"><span class="conversation-diff-row"><span class="conversation-diff-side conversation-diff-side-old conversation-diff-line conversation-diff-line-del"><span class="conversation-diff-line-number">3</span><span class="conversation-diff-line-text">-const a = 1;</span></span><span class="conversation-diff-side conversation-diff-side-new conversation-diff-line conversation-diff-line-add"><span class="conversation-diff-line-number">3</span><span class="conversation-diff-line-text">+const a = 2;</span></span></span></section>
+                    </section>
                 </section>
             </section>
         </details>
@@ -11575,13 +11934,28 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup 
         delStyle.background,
         'add and del lines use different backgrounds'
     );
-    const preText = await page.locator('.conversation-diff-hunks code')
-        .evaluate(element => element.textContent);
-    assert.equal(
-        /\n/.test(preText),
-        false,
-        'block diff lines must not carry newline text nodes (blank lines)'
+    const sides = await page.locator('.conversation-diff-side').evaluateAll(
+        elements => elements.map(element => {
+            const box = element.getBoundingClientRect();
+            return { left: box.left, width: box.width };
+        })
     );
+    assert.equal(sides.length, 2);
+    assert.ok(sides[0].left < sides[1].left, 'old and new lines are side-by-side');
+    assert.ok(sides.every(side => side.width > 0), 'both diff panes remain visible');
+    await page.setViewportSize({ width: 360, height: 500 });
+    const narrow = await page.locator('.conversation-diff-hunk').evaluate(
+        element => {
+            const panes = [...element.querySelectorAll('.conversation-diff-side')]
+                .map(pane => pane.getBoundingClientRect());
+            return {
+                scrollable: element.scrollWidth > element.clientWidth,
+                sameRow: panes.length === 2 && panes[0].top === panes[1].top,
+            };
+        }
+    );
+    assert.equal(narrow.sameRow, true, 'narrow views retain the two-pane layout');
+    assert.equal(narrow.scrollable, true, 'narrow views can scroll the full diff');
 });
 
 test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and collapses it when the answer lands', async t => {
@@ -12037,7 +12411,9 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only
         return image && image.complete && image.naturalWidth > 0;
     });
     assert.equal(
-        await page.locator('script[src$="/mermaid.min.js"]').count(),
+        // Asset URLs carry a per-document cache-busting query, so match the path
+        // rather than the whole URL suffix.
+        await page.locator('script[src*="/mermaid.min.js"]').count(),
         1
     );
     assert.match(await diagram.getAttribute('src'), /^blob:/);

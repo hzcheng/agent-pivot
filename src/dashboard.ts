@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync } from 'fs';
-import { access as accessPath } from 'fs/promises';
+import { access as accessPath, realpath as realpathPath } from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
@@ -1855,15 +1855,69 @@ async function initializeDashboard(
         publish: message => provider.postMessage(message),
         createPanel: vscode.window.createWebviewPanel,
         openExternal: vscode.env.openExternal,
-        openLocalFile: async targetFile => {
-            const position = new vscode.Position(
-                targetFile.line - 1,
-                targetFile.column - 1
+        openLocalFile: async (targetFile, viewerTarget) => {
+            const actionTarget = getCurrentWorkspaceActionTarget(
+                viewerTarget.projectId
             );
-            await vscode.window.showTextDocument(
-                vscode.Uri.file(targetFile.fsPath),
-                { selection: new vscode.Range(position, position) }
-            );
+            const activeSession = (actionTarget?.sessions.activeSessions || [])
+                .find(session => session.provider === viewerTarget.provider
+                    && session.sessionId === viewerTarget.sessionId);
+            const historySession = (
+                actionTarget?.sessions.sessionsByProvider[viewerTarget.provider] || []
+            ).find(session => session.id === viewerTarget.sessionId);
+            // Relative references belong to the conversation's authoritative
+            // worktree/cwd, not whichever Dashboard root happens to be active.
+            // Keep the normal roots as a compatibility fallback for sessions
+            // without a persisted location.
+            const authoritativeRoot = activeSession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.cwd
+                ?? historySession?.workDir;
+            const authoritativeRoots = typeof authoritativeRoot === 'string'
+                && authoritativeRoot.length > 0
+                ? [authoritativeRoot]
+                : [];
+            // A session with a persisted worktree/cwd must never fall through
+            // to a same-named file in the primary workspace. Only legacy
+            // sessions without an authoritative location use dashboard roots.
+            const roots = authoritativeRoots.length > 0
+                ? authoritativeRoots
+                : actionTarget?.workspace.roots.map(root => root.hostPath) || [];
+            for (const rootPath of roots) {
+                let canonicalRoot: string;
+                try {
+                    canonicalRoot = await realpathPath(rootPath);
+                } catch (_error) {
+                    continue;
+                }
+                const candidate = 'relativePath' in targetFile
+                    ? path.resolve(canonicalRoot, targetFile.relativePath)
+                    : path.resolve(targetFile.fsPath);
+                // Resolve both ends before containment testing. This rejects a
+                // model-supplied traversal and a seemingly local symlink that
+                // leaves an opened workspace root.
+                let canonicalCandidate: string;
+                try {
+                    canonicalCandidate = await realpathPath(candidate);
+                } catch (_error) {
+                    continue;
+                }
+                if (!isWorkspaceHostPathContained(
+                    canonicalRoot,
+                    canonicalCandidate
+                )) {
+                    continue;
+                }
+                const position = new vscode.Position(
+                    targetFile.line - 1,
+                    targetFile.column - 1
+                );
+                await vscode.window.showTextDocument(
+                    vscode.Uri.file(canonicalCandidate),
+                    { selection: new vscode.Range(position, position) }
+                );
+                return;
+            }
         },
         changes: {
             // PRD §4.1: the session's persisted identity first — view

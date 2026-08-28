@@ -47,7 +47,12 @@ function checkBundleOrder(rootDirectory) {
     const builderOrder = [...builderText.matchAll(/'(src\/webview\/[^']+\.js)'/g)]
         .map(match => match[1]);
     const viewerText = fs.readFileSync(path.join(rootDirectory, VIEWER_DOCUMENT), 'utf8');
-    const viewerOrder = [...viewerText.matchAll(/mediaUri\('(conversation[A-Za-z]+Scripts\.js)'\)/g)]
+    // The Viewer resolves each script through a media-URI helper. `assetUri` wraps
+    // `mediaUri` to append a per-document cache-busting revision, so both names are
+    // emission sites; a rename that matches neither is caught by the empty-scrape
+    // guard in runWebviewManifestCheck rather than reported as an order mismatch.
+    const viewerOrder = [...viewerText.matchAll(
+        /(?:mediaUri|assetUri)\('(conversation[A-Za-z]+Scripts\.js)'\)/g)]
         .map(match => `src/webview/${match[1]}`);
     return { builderOrder, viewerOrder };
 }
@@ -202,7 +207,10 @@ function runWebviewManifestCheck(rootDirectory) {
             }
         }
         if (bundle.id === 'conversation-viewer') {
-            if (JSON.stringify(bundle.scripts) !== JSON.stringify(viewerOrder)) {
+            if (viewerOrder.length === 0 && (bundle.scripts || []).length > 0) {
+                errors.push('webview-manifest: no conversation-viewer script emissions found in '
+                    + `${VIEWER_DOCUMENT}; the load-order scrape cannot see the media-URI helper`);
+            } else if (JSON.stringify(bundle.scripts) !== JSON.stringify(viewerOrder)) {
                 errors.push('webview-manifest: conversation-viewer bundle order differs from '
                     + `${VIEWER_DOCUMENT} script emission order`);
             }

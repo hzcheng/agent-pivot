@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import * as vscode from 'vscode';
 import type { AiSessionProviderId } from '../../models';
 import { CONVERSATION_COMMENT_LIMITS } from './comments';
+import { CONVERSATION_MATH_STYLE_TOKEN } from './markdown';
 import type { ConversationCommentSnapshot } from './commentStore';
 import type { ProjectCommentSnapshot } from './projectCommentStore';
 import type { ConversationBookmarkSnapshot } from './bookmarkStore';
@@ -42,6 +43,8 @@ const CONVERSATION_SESSION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none"
 const CONVERSATION_FIND_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>';
 const CONVERSATION_FIND_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const CONVERSATION_FIND_ICON_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>';
+const CONVERSATION_VIEWER_ASSET_ACTIVATION = randomBytes(8).toString('hex');
+let conversationViewerAssetRevision = 0;
 
 export interface ConversationViewerDocumentOptions {
     panel: vscode.WebviewPanel;
@@ -70,54 +73,28 @@ export function renderConversationViewerDocument(
     const initialPage = options.initialPage;
     const initialStatus = options.initialStatus ?? '';
     const nonce = randomBytes(16).toString('base64');
-    const stylesheet = panel.webview.asWebviewUri(
-        options.mediaUri('conversationViewer.css')
-    );
-    const telemetryStylesheet = panel.webview.asWebviewUri(
-        options.mediaUri('conversationTelemetry.css')
-    );
-    const purify = panel.webview.asWebviewUri(
-        options.mediaUri('purify.min.js')
-    );
-    const mermaid = panel.webview.asWebviewUri(
-        options.mediaUri('mermaid.min.js')
-    );
-    const registryScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationRegistryScripts.js')
-    );
-    const readingAnchorScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationReadingAnchorScripts.js')
-    );
-    const mermaidScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationMermaidScripts.js')
-    );
-    const outlineScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationOutlineScripts.js')
-    );
-    const subagentsScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationSubagentsScripts.js')
-    );
-    const changesScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationChangesScripts.js')
-    );
-    const telemetryScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationTelemetryScripts.js')
-    );
-    const commentsScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationCommentsScripts.js')
-    );
-    const sidebarScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationSidebarScripts.js')
-    );
-    const reconcileScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationReconcileScripts.js')
-    );
-    const findScript = panel.webview.asWebviewUri(
-        options.mediaUri('conversationFindScripts.js')
-    );
-    const script = panel.webview.asWebviewUri(
-        options.mediaUri('conversationViewerScripts.js')
-    );
+    const assetRevision = `${CONVERSATION_VIEWER_ASSET_ACTIVATION}-${++conversationViewerAssetRevision}`;
+    const assetUri = (fileName: string): string => {
+        const resource = panel.webview.asWebviewUri(options.mediaUri(fileName)).toString();
+        return `${resource}${resource.includes('?') ? '&' : '?'}conversationViewerAssetRevision=${assetRevision}`;
+    };
+    const stylesheet = assetUri('conversationViewer.css');
+    const telemetryStylesheet = assetUri('conversationTelemetry.css');
+    const katexStylesheet = assetUri('katex.min.css');
+    const purify = assetUri('purify.min.js');
+    const mermaid = assetUri('mermaid.min.js');
+    const registryScript = assetUri('conversationRegistryScripts.js');
+    const readingAnchorScript = assetUri('conversationReadingAnchorScripts.js');
+    const mermaidScript = assetUri('conversationMermaidScripts.js');
+    const outlineScript = assetUri('conversationOutlineScripts.js');
+    const subagentsScript = assetUri('conversationSubagentsScripts.js');
+    const changesScript = assetUri('conversationChangesScripts.js');
+    const telemetryScript = assetUri('conversationTelemetryScripts.js');
+    const commentsScript = assetUri('conversationCommentsScripts.js');
+    const sidebarScript = assetUri('conversationSidebarScripts.js');
+    const reconcileScript = assetUri('conversationReconcileScripts.js');
+    const findScript = assetUri('conversationFindScripts.js');
+    const script = assetUri('conversationViewerScripts.js');
     const duplicateId = target.duplicateDisplayName
         ? ` · ${target.sessionId.toLocaleLowerCase().slice(0, 8)}`
         : '';
@@ -162,17 +139,22 @@ export function renderConversationViewerDocument(
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src https: blob:; style-src ${escapeAttribute(
+        content="default-src 'none'; img-src https: blob:; font-src ${escapeAttribute(
             panel.webview.cspSource
-        )}; script-src 'nonce-${escapeAttribute(nonce)}';">
+        )}; style-src ${escapeAttribute(
+            panel.webview.cspSource
+        )} 'unsafe-inline'; script-src 'nonce-${escapeAttribute(nonce)}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="${escapeAttribute(stylesheet.toString())}">
     <link rel="stylesheet"
         href="${escapeAttribute(telemetryStylesheet.toString())}">
+    <link rel="stylesheet"
+        href="${escapeAttribute(katexStylesheet.toString())}">
     <title>AI Conversation</title>
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
     data-document-id="${escapeAttribute(options.documentId)}"
+    data-conversation-math-style-token="${CONVERSATION_MATH_STYLE_TOKEN}"
     data-mermaid-src="${escapeAttribute(mermaid.toString())}"
     data-session-status-request-id="${sessionStatusRequestId}"
     data-subscription-generation="${options.subscriptionGeneration}"${initialPageAttribute}${commentStateAttribute}${projectCommentStateAttribute}${bookmarkStateAttribute}${targetAttribute}${restoreTargetAttribute}>

@@ -1876,6 +1876,11 @@ body .project {
     .open-window-save {
         color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
     }
+
+    .open-window-pin-slot,
+    .open-window-save-slot {
+        cursor: default;
+    }
 }
 
 // 响应式宽度矩阵（webview 视口 media query，兼容旧 Chromium；禁 container query）。

@@ -1098,6 +1098,44 @@ test('OPEN-WINDOW-SWITCHER-UI-001 v4 replacement restores focus to the same row 
     await assertFocusRestored('retry-open-window-navigation', 24);
 });
 
+test('OPEN-WINDOW-SWITCHER-UI-001 direct save closes More and restores focus after its button disappears', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 's'.repeat(24), 'current', {
+        name: 'alpha', showSaveAction: true,
+    });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'n'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
+    const currentRow = `[data-open-window-row][data-id="${currentCard.id}"]`;
+    const navigationMore = page.locator(
+        `[data-open-window-row][data-id="${navigationCard.id}"] [data-action="open-window-menu"]`
+    );
+
+    await navigationMore.click();
+    assert.equal(await navigationMore.getAttribute('aria-expanded'), 'true');
+    const saveButton = page.locator(`${currentRow} [data-action="save-current-workspace"]`);
+    await saveButton.click();
+    assert.deepEqual(await page.evaluate(() => window.__postedMessages), [{
+        type: 'save-current-workspace', projectId: currentCard.id,
+    }]);
+    assert.equal(await page.locator('#openWindowMenu.visible').count(), 0);
+    assert.equal(await navigationMore.getAttribute('aria-expanded'), 'false');
+
+    await postOpenWorkspacesUpdate(page, [
+        { ...currentCard, showSaveAction: false },
+        navigationCard,
+    ], 'ready', 31);
+    assert.equal(await page.locator(`${currentRow} [data-action="save-current-workspace"]`).count(), 0);
+    assert.deepEqual(await page.evaluate(() => ({
+        action: document.activeElement?.getAttribute('data-action'),
+        cardId: document.activeElement?.closest('[data-open-window-row]')?.getAttribute('data-id'),
+    })), { action: 'open-window-menu', cardId: currentCard.id },
+    'when Save Workspace disappears, focus moves to More in the same current-window row');
+
+    const blankSlotCursor = await page.locator(
+        `[data-open-window-row][data-id="${navigationCard.id}"] .open-window-save-slot`
+    ).evaluate(slot => getComputedStyle(slot).cursor);
+    assert.equal(blankSlotCursor, 'default');
+});
+
 test('OPEN-WINDOW-SWITCHER-UI-001 outside-click menu close does not steal focus back to the trigger', async t => {
     const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', { name: 'alpha' });
     const navigationCard = makeCard('__openWorkspaceNavigation-' + 'e'.repeat(24), 'navigation', { name: 'beta' });

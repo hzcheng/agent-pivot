@@ -380,6 +380,7 @@ var agentPivotOpenWindowNavigation = (function () {
             var saveRow = saveButton && saveButton.closest
                 && saveButton.closest('[data-open-window-row]');
             if (saveRow) {
+                closeMenu();
                 e.preventDefault();
                 e.stopPropagation();
                 if (saveRow.getAttribute('data-window-kind') === 'current'

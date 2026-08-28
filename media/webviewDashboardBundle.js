@@ -1009,12 +1009,13 @@ function clearOpenWorkspacePinPending(cardId, button) {
 }
 
 // Window-row focus capture/restore across authoritative replacements: the
-// keyboard user may be on any of the row's controls (primary, pin, more,
-// retry), so record {cardId, controlKind} and re-focus the same control in
-// the rebuilt row (retry is re-unhidden by the navigation reconcile first).
+// keyboard user may be on any of the row's controls (primary, pin, save,
+// more, retry), so record {cardId, controlKind} and re-focus the same control
+// in the rebuilt row (retry is re-unhidden by the navigation reconcile first).
 var OPEN_WINDOW_ROW_FOCUS_CONTROLS = [
     { kind: 'focus', selector: '[data-action="focus-open-window"]' },
     { kind: 'pin', selector: '[data-action="toggle-open-workspace-pin"]' },
+    { kind: 'save', selector: '[data-action="save-current-workspace"]' },
     { kind: 'more', selector: '[data-action="open-window-menu"]' },
     { kind: 'retry', selector: '[data-action="retry-open-window-navigation"]' },
 ];
@@ -1056,7 +1057,15 @@ function findOpenWindowRowControl(cardId, controlKind, root) {
     var rows = (root || document).querySelectorAll('[data-open-window-row][data-id]');
     for (var j = 0; j < rows.length; j++) {
         if (rows[j].getAttribute('data-id') === cardId) {
-            return rows[j].querySelector(selector);
+            var control = rows[j].querySelector(selector);
+            // Saving removes its own button on the next authoritative render.
+            // Keep keyboard focus in the same row on the durable More control
+            // (or the primary row control if a custom renderer omits More).
+            if (!control && controlKind === 'save') {
+                control = rows[j].querySelector('[data-action="open-window-menu"]')
+                    || rows[j].querySelector('[data-action="focus-open-window"]');
+            }
+            return control;
         }
     }
     return null;
@@ -1905,6 +1914,7 @@ var agentPivotOpenWindowNavigation = (function () {
             var saveRow = saveButton && saveButton.closest
                 && saveButton.closest('[data-open-window-row]');
             if (saveRow) {
+                closeMenu();
                 e.preventDefault();
                 e.stopPropagation();
                 if (saveRow.getAttribute('data-window-kind') === 'current'

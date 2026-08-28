@@ -114,6 +114,16 @@ body {
         letter-spacing: 0.04em;
         text-transform: uppercase;
         user-select: none;
+        cursor: pointer;
+        transition: background $defaultTransition;
+
+        &:hover {
+            background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.06));
+        }
+    }
+
+    .group-header .group-actions [data-action] {
+        cursor: pointer;
     }
 
     &[data-virtual-group] .group-header {
@@ -127,7 +137,6 @@ body {
         flex: 0 0 auto;
         width: 14px;
         height: 14px;
-        cursor: pointer;
         opacity: 0.5;
         transition: opacity $defaultTransition;
 

@@ -613,13 +613,16 @@ function getGroupSection(
     var systemGroupAttribute = options.virtual ? ` data-system-group="${group.id}"` : '';
     var projectCount = group.projects.length;
     var collapseArrow = options.collapsible
-        ? `<span class="group-collapse-arrow" data-action="collapse" ${dragAttribute} title="${group.collapsed ? 'Expand' : 'Collapse'} Group">${Icons.collapse}</span>`
+        ? `<span class="group-collapse-arrow">${Icons.collapse}</span>`
+        : '';
+    var collapseAttrs = options.collapsible
+        ? ` data-action="collapse" ${dragAttribute}`
         : '';
 
     return `
 <div class="group ${options.className} ${group.collapsed ? 'collapsed' : ''} ${projectCount === 0 ? 'no-projects' : ''
         }" data-group-id="${group.id}"${options.virtual ? ' data-virtual-group' : ''}${systemGroupAttribute}>
-    <div class="group-header">
+    <div class="group-header"${collapseAttrs} title="${group.collapsed ? 'Expand' : 'Collapse'} Group">
         ${collapseArrow}
         <span class="group-name">${groupName}</span>
         ${options.systemBadge ? `<span class="group-badge">${options.systemBadge}</span>` : ''}
@@ -646,7 +649,7 @@ function getFavoritesGroup(favoriteProjects: Project[], collapsed: boolean = fal
 function getTempGroupSection() {
     return `
 <div class="group" id="tempGroup">
-    <div class="group-header" data-action="add-group">
+    <div class="group-header" data-action="add-group" title="Add New Group">
         <span class="group-collapse-arrow">${Icons.add}</span>
         <span class="group-name">New Group</span>
     </div>

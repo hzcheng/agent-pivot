@@ -1,6 +1,6 @@
 ---
 name: resilient-webview-mutation-protocols
-description: Use when Agent Pivot VS Code Webviews submit Host-owned mutations or authoritative HTML replacement, mirrored persistence, stale acknowledgements, stuck pending UI, focus loss, or partial batch failures are in scope.
+description: Use when editing any Agent Pivot Webview script under `src/webview/` or its `media/` runtime copy, and when Webviews submit Host-owned mutations or authoritative HTML replacement, mirrored persistence, stale acknowledgements, stuck pending UI, focus loss, or partial batch failures are in scope.
 ---
 
 # Resilient Webview Mutation Protocols

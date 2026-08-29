@@ -11958,6 +11958,80 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup 
     assert.equal(narrow.scrollable, true, 'narrow views can scroll the full diff');
 });
 
+test('CONVERSATION-DIFF-VISIBILITY-001 keeps long diff lines inside their own pane', async t => {
+    // A code line far wider than half the viewport must not paint over the
+    // opposite pane, and must not be silently clipped either: a diff the reader
+    // cannot finish reading is as broken as one that overlaps.
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 900, height: 600 },
+        markdown: [
+            '```diff',
+            '--- a/StreamProcessPipeline.java',
+            '+++ b/StreamProcessPipeline.java',
+            '@@ -86 +86 @@',
+            '         // 初始化Connector',
+            '         logger.info("taskInfo={}, Reader start Checkpoint={}", '
+                + 'taskInfo.toString(), JsonUtils.toJson(startCheckpoints));',
+            '         this.connector.init(new ArrayList<>(this.startCheckpoints.values()));',
+            '+        this.connector.start();',
+            '         this.monitor.setStartCheckpoint(startCheckpoints);',
+            '',
+            // A second hunk whose longest line differs, so panes sized per hunk
+            // would land at different offsets.
+            '@@ -121 +122 @@',
+            '         // 初始化Connector',
+            '         logger.info("taskInfo={}, Reader start with input Checkpoint={}", '
+                + 'taskInfo.toString(), JsonUtils.toJson(inputStartCheckpoints));',
+            '         this.connector.init(new ArrayList<>(inputStartCheckpoints.values()));',
+            '+        this.connector.start();',
+            '         this.monitor.setStartCheckpoint(inputStartCheckpoints);',
+            '```',
+        ].join('\n'),
+    });
+
+    await page.locator('.conversation-diff-row').first().waitFor();
+    const layout = await page.locator('.conversation-diff').evaluate(root => {
+        const rows = [...root.querySelectorAll('.conversation-diff-row')]
+            .map(row => [...row.querySelectorAll('.conversation-diff-line-text')])
+            .filter(cells => cells.length === 2);
+        const measure = cell => {
+            const box = cell.getBoundingClientRect();
+            return {
+                left: Math.round(box.left),
+                paintedRight: Math.round(box.left + cell.scrollWidth),
+                clipped: cell.scrollWidth > cell.clientWidth,
+                text: cell.textContent.trim().slice(0, 30),
+            };
+        };
+        return {
+            overlaps: rows
+                .map(([oldCell, newCell]) => ({
+                    ...measure(oldCell),
+                    into: measure(oldCell).paintedRight - measure(newCell).left,
+                }))
+                .filter(row => row.into > 0),
+            clipped: rows.flat().map(measure).filter(cell => cell.clipped),
+            // One offset across every hunk, not merely within one hunk: panes
+            // that shift between hunks are what makes a diff hard to read.
+            newPaneStarts: new Set(rows.map(([, newCell]) =>
+                Math.round(newCell.getBoundingClientRect().left))).size,
+            scrollingHunks: [...root.querySelectorAll('.conversation-diff-hunk')]
+                .filter(hunk => hunk.scrollWidth > hunk.clientWidth).length,
+        };
+    });
+
+    assert.deepEqual(layout.overlaps, [],
+        'no diff line may paint across into the opposite pane');
+    assert.deepEqual(layout.clipped, [],
+        'no diff line may be clipped; long lines wrap inside their pane');
+    assert.equal(layout.newPaneStarts, 1,
+        'every row in every hunk starts its new pane at the same offset');
+    assert.equal(layout.scrollingHunks, 0,
+        'a long line must not force a horizontal scroll that hides the opposite pane');
+});
+
 test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and collapses it when the answer lands', async t => {
     const page = await openViewerPage(t, {});
     const liveHtml = `<article class="conversation-message conversation-message-user"

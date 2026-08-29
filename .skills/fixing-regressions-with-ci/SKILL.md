@@ -38,6 +38,15 @@ Turn every confirmed regression into a CI-owned behavior before changing product
      cross-feature journey in the real rendered surface in addition to the
      focused owners. Exercise the relevant transition, provider, and viewport
      matrix without duplicating unrelated coverage.
+   - When the repair changes a layout strategy rather than a single value,
+     the absence of the reported artifact is not the contract. Enumerate the
+     properties a reader depends on — alignment across every repeated group,
+     nothing clipped, nothing requiring a scroll that hides the content it is
+     compared against — and assert them together. Measure each candidate
+     layout against that set and keep the evidence; a candidate that removes
+     the reported artifact while losing another property is a different
+     regression, not a fix. Render the real reported content and look at it
+     before choosing.
 3. **Prove CI reachability**
    - Before reporting RED, trace the test file through `package.json` to an existing required PR check; state that trace before any production-edit plan.
    - A locally runnable orphan test is not CI coverage.
@@ -49,7 +58,10 @@ Turn every confirmed regression into a CI-owned behavior before changing product
    - When adding a guardrail after the implementation is already repaired,
      prove mutation sensitivity: temporarily reintroduce each causal defect,
      observe the new focused or journey assertion fail for that defect, then
-     restore the implementation before GREEN.
+     restore the implementation before GREEN. A rejected candidate repair is
+     also a defect worth this treatment: reintroduce it and confirm the guard
+     names the property it lost, so the guard cannot be satisfied by the very
+     alternative that was discarded.
    - If it passes, repair the test; do not touch production code.
 5. **Fix minimally**
    - Change only enough production code to satisfy the behavior.

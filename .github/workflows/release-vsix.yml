@@ -41,13 +41,57 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 15
     steps:
-      - name: Checkout
+      - name: Checkout workflow source
         uses: actions/checkout@v4
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22.12.0
           cache: npm
+      - name: Resolve release source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          requested_version="${{ inputs.version }}"
+          trigger_ref_type="${{ github.ref_type }}"
+          trigger_ref_name="${{ github.ref_name }}"
+          workflow_version="$(node -p "require('./package.json').version")"
+
+          if [[ -n "$requested_version" && "$requested_version" != "$workflow_version" ]]; then
+            echo "Requested version $requested_version does not match package.json version $workflow_version." >&2
+            exit 1
+          fi
+
+          version="${requested_version:-$workflow_version}"
+          tag="v${version}"
+          if [[ "$trigger_ref_type" == "tag" && "$trigger_ref_name" != "$tag" ]]; then
+            echo "Tag $trigger_ref_name does not match the requested release version $version." >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            ref="refs/tags/$tag"
+          else
+            ls_remote_status="$?"
+            if [[ "$ls_remote_status" -ne 2 ]]; then
+              echo "Unable to resolve release tag $tag from origin." >&2
+              exit 1
+            elif [[ "$trigger_ref_type" == "tag" ]]; then
+              echo "Release tag $tag is not available from origin." >&2
+              exit 1
+            else
+              ref="${{ github.sha }}"
+            fi
+          fi
+
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.ref }}
       - name: Install dependencies
         run: npm ci
       - name: Install and activate release VSIX files
@@ -77,6 +121,58 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Resolve release source
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          requested_version="${{ inputs.version }}"
+          trigger_ref_type="${{ github.ref_type }}"
+          trigger_ref_name="${{ github.ref_name }}"
+          workflow_version="$(node -p "require('./package.json').version")"
+
+          if [[ -n "$requested_version" && "$requested_version" != "$workflow_version" ]]; then
+            echo "Requested version $requested_version does not match package.json version $workflow_version." >&2
+            echo "Run the workflow from the release version's current branch instead." >&2
+            exit 1
+          fi
+
+          version="${requested_version:-$workflow_version}"
+          tag="v${version}"
+
+          if [[ "$trigger_ref_type" == "tag" && "$trigger_ref_name" != "$tag" ]]; then
+            echo "Tag $trigger_ref_name does not match the requested release version $version." >&2
+            echo "Expected tag: $tag" >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            ref="refs/tags/$tag"
+            source_ref="$tag"
+          else
+            ls_remote_status="$?"
+            if [[ "$ls_remote_status" -ne 2 ]]; then
+              echo "Unable to resolve release tag $tag from origin." >&2
+              exit 1
+            elif [[ "$trigger_ref_type" == "tag" ]]; then
+              echo "Release tag $tag is not available from origin." >&2
+              exit 1
+            else
+              ref="${{ github.sha }}"
+              source_ref="$ref"
+            fi
+          fi
+
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "source_ref=$source_ref" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+
       - name: Read package metadata
         id: meta
         shell: bash
@@ -89,22 +185,12 @@ jobs:
           bridge_name="$(node -p "require('./extensions/attention-ui-bridge/package.json').name")"
           bridge_version="$(node -p "require('./extensions/attention-ui-bridge/package.json').version")"
           bridge_publisher="$(node -p "require('./extensions/attention-ui-bridge/package.json').publisher")"
-          requested_version="${{ inputs.version }}"
-          trigger_ref_type="${{ github.ref_type }}"
-          trigger_ref_name="${{ github.ref_name }}"
+          tag="${{ steps.source.outputs.tag }}"
+          version="${tag#v}"
+          source_sha="$(git rev-parse HEAD)"
 
-          if [[ -n "$requested_version" && "$requested_version" != "$package_version" ]]; then
-            echo "Requested version $requested_version does not match package.json version $package_version." >&2
-            echo "Update package.json first, then run this workflow again." >&2
-            exit 1
-          fi
-
-          version="${requested_version:-$package_version}"
-          tag="v${version}"
-
-          if [[ "$trigger_ref_type" == "tag" && "$trigger_ref_name" != "$tag" ]]; then
-            echo "Tag $trigger_ref_name does not match package.json version $package_version." >&2
-            echo "Expected tag: $tag" >&2
+          if [[ "$tag" != "v$package_version" ]]; then
+            echo "Release source package.json version $package_version does not match $tag." >&2
             exit 1
           fi
 
@@ -118,6 +204,7 @@ jobs:
           echo "bridge_version=$bridge_version" >> "$GITHUB_OUTPUT"
           echo "bridge_publisher=$bridge_publisher" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
           echo "vsix_file=$vsix_file" >> "$GITHUB_OUTPUT"
           echo "bridge_vsix_file=$bridge_vsix_file" >> "$GITHUB_OUTPUT"
 
@@ -165,6 +252,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           MAIN_VSIX_FILE: ${{ steps.meta.outputs.vsix_file }}
           BRIDGE_VSIX_FILE: ${{ steps.meta.outputs.bridge_vsix_file }}
+          SOURCE_SHA: ${{ steps.meta.outputs.source_sha }}
           DRAFT: ${{ inputs.draft }}
           PRERELEASE: ${{ inputs.prerelease }}
         shell: bash
@@ -172,24 +260,25 @@ jobs:
           set -euo pipefail
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists. Delete it or bump package.json before publishing again." >&2
-            exit 1
+            echo "Release $TAG already exists; retaining it."
+          else
+            args=()
+            if [[ "$DRAFT" == "true" ]]; then
+              args+=(--draft)
+            fi
+            if [[ "$PRERELEASE" == "true" ]]; then
+              args+=(--prerelease)
+            fi
+
+            node scripts/extract-release-notes.js "$VERSION" > release-notes.md
+
+            gh release create "$TAG" --target "$SOURCE_SHA" \
+              --title "Agent Pivot ${VERSION}" \
+              --notes-file release-notes.md \
+              "${args[@]}"
           fi
 
-          args=()
-          if [[ "$DRAFT" == "true" ]]; then
-            args+=(--draft)
-          fi
-          if [[ "$PRERELEASE" == "true" ]]; then
-            args+=(--prerelease)
-          fi
-
-          node scripts/extract-release-notes.js "$VERSION" > release-notes.md
-
-          gh release create "$TAG" "$BRIDGE_VSIX_FILE" "$MAIN_VSIX_FILE" \
-            --title "Agent Pivot ${VERSION}" \
-            --notes-file release-notes.md \
-            "${args[@]}"
+          gh release upload "$TAG" "$BRIDGE_VSIX_FILE" "$MAIN_VSIX_FILE" --clobber
 
   publish-marketplace:
     name: publish-marketplace
@@ -293,8 +382,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation
-          npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation
+          npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation --skip-duplicate
+          npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation --skip-duplicate
 
       - name: Write marketplace publish summary
         if: always()

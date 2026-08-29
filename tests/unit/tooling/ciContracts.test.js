@@ -516,13 +516,75 @@ test('RELEASE-MARKETPLACE-PUBLISH-001 publishes released VSIX files after the re
 
 test('RELEASE-MARKETPLACE-PUBLISH-001 publishes UI Bridge before the main extension', () => {
     const reordered = releaseWorkflow.replace(
-        '          npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation\n' +
-        '          npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation',
-        '          npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation\n' +
-        '          npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation'
+        '          npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation --skip-duplicate\n' +
+        '          npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation --skip-duplicate',
+        '          npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation --skip-duplicate\n' +
+        '          npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation --skip-duplicate'
     );
     assert.throws(
         () => validateReleaseWorkflow(reordered),
         /must publish UI Bridge before the main extension/
     );
+});
+
+test('RELEASE-MARKETPLACE-PUBLISH-001 retries a release without letting an unchanged UI Bridge block the main extension', () => {
+    assert.match(releaseWorkflow,
+        /- name: Resolve release source[\s\S]*?git ls-remote --exit-code --tags origin "refs\/tags\/\$tag"[\s\S]*?source_ref="\$tag"/,
+        'a retry must rebuild an existing version from its immutable tag');
+    assert.match(releaseWorkflow,
+        /requested_version="\$\{\{ inputs\.version \}\}"[\s\S]*?Requested version \$requested_version does not match package\.json version \$workflow_version\./,
+        'a manual retry must not turn a historical version into an implicit Marketplace release');
+    assert.match(releaseWorkflow,
+        /ls_remote_status="\$\?"[\s\S]*?Unable to resolve release tag \$tag from origin\./,
+        'a remote lookup failure must not be mistaken for a missing release tag');
+    assert.match(releaseWorkflow,
+        /- name: Checkout release source\n\s+uses: actions\/checkout@v4\n\s+with:\n\s+ref: \$\{\{ steps\.source\.outputs\.ref \}\}/,
+        'release packaging must check out the resolved immutable source before building artifacts');
+    assert.match(releaseWorkflow,
+        /if gh release view "\$TAG" >\/dev\/null 2>&1; then\n\s+echo "Release \$TAG already exists; retaining it\."\n\s+else\n[\s\S]*?gh release create/,
+        'a workflow-dispatch retry must retain an existing GitHub Release');
+    assert.match(releaseWorkflow,
+        /gh release upload "\$TAG" "\$BRIDGE_VSIX_FILE" "\$MAIN_VSIX_FILE" --clobber/,
+        'a retry must reconcile both GitHub Release VSIX assets after creating or retaining the release');
+    assert.match(releaseWorkflow,
+        /gh release create "\$TAG" --target "\$SOURCE_SHA"/,
+        'new releases must create their tag at the commit used to build the VSIX files');
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '          ref: ${{ steps.source.outputs.ref }}',
+            '          ref: ${{ github.sha }}'
+        )),
+        /release-extension-host must check out the resolved immutable source/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '          gh release upload "$TAG" "$BRIDGE_VSIX_FILE" "$MAIN_VSIX_FILE" --clobber\n',
+            ''
+        )),
+        /must reconcile both VSIX assets/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '            ls_remote_status="$?"\n',
+            ''
+        )),
+        /release-extension-host must resolve the same release source/
+    );
+    assert.throws(
+        () => validateReleaseWorkflow(releaseWorkflow.replace(
+            '            gh release create "$TAG" --target "$SOURCE_SHA" \\\n',
+            '            gh release create "$TAG" \\\n'
+        )),
+        /must create their tag at the commit used to build the VSIX assets/
+    );
+    assert.match(releaseWorkflow,
+        /npx --yes @vscode\/vsce publish --packagePath "\$BRIDGE_VSIX_FILE" --pat "\$VSCE_PAT" --allow-star-activation --skip-duplicate/,
+        'an unchanged UI Bridge must not stop a main extension Marketplace publish');
+    assert.match(releaseWorkflow,
+        /npx --yes @vscode\/vsce publish --packagePath "\$VSIX_FILE" --pat "\$VSCE_PAT" --allow-star-activation --skip-duplicate/,
+        'a retry must also tolerate a main extension already present on the Marketplace');
+});
+
+test('RELEASE-MARKETPLACE-PUBLISH-001 survives the release packager YAML round-trip', () => {
+    validateReleaseWorkflow(yaml.safeDump(yaml.load(releaseWorkflow)));
 });

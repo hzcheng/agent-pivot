@@ -114,7 +114,8 @@ function runWorkflowChecks() {
     assert.match(workflow, /- name: Package and verify release VSIX files\n\s+run: npm run test:release-packaging/);
     assert.strictEqual(workflow.includes('run: npm run package:release'), false);
     assert.match(workflow, /bridge_vsix_file=/);
-    assert.match(workflow, /gh release create "\$TAG" "\$BRIDGE_VSIX_FILE" "\$MAIN_VSIX_FILE"/);
+    assert.match(workflow, /gh release create "\$TAG"/);
+    assert.match(workflow, /gh release upload "\$TAG" "\$BRIDGE_VSIX_FILE" "\$MAIN_VSIX_FILE" --clobber/);
     assert.strictEqual(
         workflow.includes('npx --yes @vscode/vsce package --allow-star-activation --out "${{ steps.meta.outputs.vsix_file }}"'),
         false

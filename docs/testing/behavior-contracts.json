@@ -4026,7 +4026,7 @@
   {
     "id": "RELEASE-MARKETPLACE-PUBLISH-001",
     "domain": "release",
-    "title": "Tagged minor and major releases auto-publish the released VSIX artifacts to the VS Code Marketplace with VSCE_PAT, UI Bridge first, while patch-only bumps skip unless forced",
+    "title": "Tagged minor and major releases auto-publish tag-sourced VSIX artifacts to the VS Code Marketplace with VSCE_PAT, UI Bridge first; retries reconcile both GitHub Release assets and tolerate already-published companion versions while patch-only bumps skip unless forced",
     "priority": "P0",
     "status": "automated",
     "owners": [

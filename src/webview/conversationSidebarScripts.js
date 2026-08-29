@@ -271,11 +271,21 @@
             }
             event.preventDefault();
             setCommentsPanelOpen(false, true);
-            if (sidebarToggle) {
+            if (sidebarToggle && !sidebarToggle.hidden) {
                 sidebarToggle.focus();
-            } else if (telemetryPosition) {
-                telemetryPosition.focus();
+                return true;
             }
+            var trigger = state.sidebarView === 'comments'
+                ? telemetryComments
+                : state.sidebarView === 'subagents'
+                ? telemetrySubagents
+                : state.sidebarView === 'changes'
+                ? telemetryChanges
+                : telemetryPosition;
+            if (trigger) trigger.focus();
+            // The legacy control is only a fallback for documents that do
+            // not have telemetry view selectors. Hidden compatibility
+            // anchors must never receive focus.
             return true;
         }
 

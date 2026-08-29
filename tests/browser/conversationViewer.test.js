@@ -370,7 +370,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
     await sendPage(page, {
         ...hostileConversationPage,
         requestId: 2,
-        subscriptionGeneration: 2,
+        subscriptionGeneration: 1,
         html: '<article data-message-id="kimi-message" '
             + 'data-interaction-id="kimi-input"><p>Kimi response</p></article>',
         outline: [{
@@ -1007,6 +1007,48 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when deferred
         sessionId: 'session-deferred',
         applyError: 'deferred decoration failure',
     });
+});
+
+test('CONVERSATION-QUESTION-NAVIGATION-001 applies a true-first selection outside the capped outline', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        subscriptionGeneration: 2,
+        updateKind: 'navigation',
+        html: '<article data-message-id="first-message"'
+            + ' data-interaction-id="input-1"><p>first question</p></article>',
+        htmlSignature: 'first-question-outside-outline',
+        outline: [{
+            interactionId: 'input-102',
+            userPreview: 'First retained input',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'input-1',
+        selectedOutsideOutline: true,
+        selectedInput: 1,
+        totalInputs: 2000,
+        partial: true,
+        previousCursor: undefined,
+        nextCursor: 'after-first',
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId: 'session-first',
+            interactionId: 'input-1',
+            displayName: 'First',
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    assert.equal(
+        await page.locator('[data-interaction-id="input-1"]').isVisible(),
+        true
+    );
+    const applied = (await postedMessages(page)).at(-1);
+    assert.equal(applied.type, 'conversation-viewer-applied');
+    assert.equal(applied.requestId, 2);
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 acknowledges a hidden retained Viewer without waiting for animation frames', async t => {
@@ -3620,14 +3662,19 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     assert.equal(await sidebar.isHidden(), true);
     assert.equal(
         await page.evaluate(() =>
-            document.activeElement?.hasAttribute('data-conversation-position')
+            document.activeElement?.hasAttribute('data-telemetry-comments')
         ),
         true
     );
     await outlinePill.click();
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
-    await page.locator('[data-conversation-position]').click();
+    // Any telemetry pill can reopen the panel after Escape; use Comments
+    // before selecting Outline again so this also exercises both view paths.
+    await page.locator('[data-telemetry-comments]').click();
+    assert.equal(await comments.isVisible(), true);
+    assert.equal(await outline.isHidden(), true);
+    await outlinePill.click();
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
 });
@@ -4955,6 +5002,32 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps the outline usable with previous 
     );
 });
 
+test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps a previous document sidebar toggle usable with the current Viewer script', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        transformHostDocument(html) {
+            return html.replace(
+                /<button type="button" data-action="toggle-sidebar" hidden\s+aria-hidden="true" tabindex="-1"><\/button>/,
+                '<button type="button" data-action="toggle-sidebar"'
+                    + ' aria-controls="conversation-sidebar"'
+                    + ' aria-expanded="false">Show side panel</button>'
+            );
+        },
+    });
+    const toggle = page.locator('[data-action="toggle-sidebar"]');
+    assert.equal(await toggle.isVisible(), true);
+    await toggle.click();
+    assert.equal(await page.locator('[data-conversation-sidebar]').isVisible(), true);
+    await page.locator('[data-outline-interaction-id]').first().focus();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('[data-conversation-sidebar]').isHidden(), true);
+    assert.equal(
+        await page.evaluate(() => document.activeElement?.getAttribute('data-action')),
+        'toggle-sidebar'
+    );
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
     async function assertPanelViews(page, label) {
         await page.locator('[data-conversation-position]').click();
@@ -4991,6 +5064,63 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             "    var first = document.querySelector('[data-action=\"first\"]');\n",
             ''
         )
+        .replace(
+            '    function validOutline(value, selectedInteractionId, selectedOutsideOutline) {\n',
+            '    function validOutline(value, selectedInteractionId) {\n'
+        )
+        .replace(
+            '        return identities.size === value.length\n'
+                + '            && (selectedOutsideOutline\n'
+                + '                ? !identities.has(selectedInteractionId)\n'
+                + '                : identities.has(selectedInteractionId));\n',
+            '        return identities.size === value.length\n'
+                + '            && identities.has(selectedInteractionId);\n'
+        )
+        .replace(
+            "            'tailInteractionId', 'tailHtml', 'selectedOutsideOutline',\n",
+            "            'tailInteractionId', 'tailHtml',\n"
+        )
+        .replace(
+            "            && (message.selectedOutsideOutline === undefined\n"
+                + "                || typeof message.selectedOutsideOutline === 'boolean')\n"
+                + '            && validOutline(\n'
+                + '                message.outline,\n'
+                + '                message.selectedInteractionId,\n'
+                + '                message.selectedOutsideOutline === true\n'
+                + '            )\n'
+                + '            && Number.isSafeInteger(message.selectedInput)\n'
+                + '            && message.selectedInput >= (message.selectedOutsideOutline ? 1 : 0)\n',
+            '            && validOutline(message.outline, message.selectedInteractionId)\n'
+                + '            && Number.isSafeInteger(message.selectedInput)\n'
+                + '            && message.selectedInput >= 0\n'
+        )
+        .replace(
+            '    // A prior document can still expose this control while its script has\n'
+                + '    // already updated. It remains optional in the current document.\n'
+                + '    var sidebarToggle = document.querySelector(\n'
+                + "        '[data-action=\"toggle-sidebar\"]'\n"
+                + '    );\n',
+            ''
+        )
+        .replace(
+            "    var sessionNavLayer = document.querySelector(\n"
+                + "        '.conversation-session-nav-layer'\n"
+                + '    );\n'
+                + '    function updateSessionNavLayout() {\n'
+                + '        if (!sessionNavLayer) return;\n'
+                + '        sessionNavLayer.toggleAttribute(\n'
+                + "            'data-compact-controls',\n"
+                + '            sessionNavLayer.clientWidth <= 360\n'
+                + '        );\n'
+                + '    }\n'
+                + '    updateSessionNavLayout();\n'
+                + "    window.addEventListener('resize', updateSessionNavLayout);\n"
+                + "    if (typeof ResizeObserver === 'function' && sessionNavLayer) {\n"
+                + '        new ResizeObserver(updateSessionNavLayout).observe(sessionNavLayer);\n'
+                + '    }\n',
+            ''
+        )
+        .replace('        sidebarToggle: sidebarToggle,\n', '')
         .replace(
             "    var latest = document.querySelector('[data-action=\"latest\"]');\n"
                 + "    var sessionStatusRunning = document.querySelector(\n",
@@ -9700,6 +9830,35 @@ test('CONVERSATION-QUESTION-NAVIGATION-001 centers First, Previous, Next, and La
             version: 1,
         });
     }
+
+    await page.setViewportSize({ width: 240, height: 600 });
+    await page.waitForFunction(() => document.querySelector(
+        '.conversation-session-nav-layer'
+    ).hasAttribute('data-compact-controls'));
+    assert.equal(
+        await page.locator('[data-session-nav]').first().isHidden(),
+        true,
+        'window rails hide when their container is too narrow for safe hit targets'
+    );
+    const compactControls = await controls.boundingBox();
+    assert.ok(compactControls.x >= 0
+        && compactControls.x + compactControls.width <= 240,
+    'the question controls remain entirely within the narrow transcript');
+
+    await page.setViewportSize({ width: 340, height: 600 });
+    assert.equal(
+        await page.locator('[data-session-nav]').first().isHidden(),
+        true,
+        'window rails stay hidden through the overlap boundary'
+    );
+    await page.emulateMedia({ reducedMotion: 'reduce', forcedColors: 'active' });
+    const railStyle = await page.locator('[data-session-nav]').first()
+        .evaluate(element => ({
+            opacity: getComputedStyle(element).opacity,
+            transitionDuration: getComputedStyle(element).transitionDuration,
+        }));
+    assert.equal(railStyle.opacity, '1');
+    assert.equal(railStyle.transitionDuration, '0s');
 });
 
 test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read-only icon-action cards with edit mode and per-card send', async t => {

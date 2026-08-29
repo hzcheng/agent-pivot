@@ -397,6 +397,10 @@ button {
     }
 }
 
+.conversation-session-nav-layer[data-compact-controls] .conversation-session-nav {
+    display: none;
+}
+
 .conversation-messages {
     width: min(100%, 70rem);
     margin: 0 auto;
@@ -3021,7 +3025,8 @@ button.conversation-comment-status-chip {
         transition: none;
     }
 
-    .conversation-question-nav {
+    .conversation-question-nav,
+    .conversation-session-nav {
         transition: none;
 
         &:hover,
@@ -3044,6 +3049,10 @@ button.conversation-comment-status-chip {
     .conversation-question-nav,
     .conversation-session-nav {
         border-color: ButtonText;
+    }
+
+    .conversation-session-nav {
+        opacity: 1;
     }
 
     .conversation-message-user {

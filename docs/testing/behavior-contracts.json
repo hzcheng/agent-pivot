@@ -6186,6 +6186,7 @@
     ],
     "evidence": [
       "src/aiSessions/conversation/conversationChangesController.ts",
+      "src/worktrees/changesCollector.ts",
       "src/aiSessions/conversation/conversationTelemetryController.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/viewerDocument.ts",

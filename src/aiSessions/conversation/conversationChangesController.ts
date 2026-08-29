@@ -391,7 +391,7 @@ export class ConversationChangesController {
         await this.options.openTaskResultReview(
             member.worktreePath,
             baselineSha,
-            `Task result · ${member.repoLabel} (${member.branchName})`);
+            `Task result · ${memberReviewLabel(member, snapshot)}`);
     }
 
     async handleOpenScm(memberId: string): Promise<void> {
@@ -591,11 +591,12 @@ export class ConversationChangesController {
             return;
         }
         try {
+            const snapshot = active.snapshots.get(member.memberId);
             await this.options.openCommitReview(
                 member.worktreePath,
                 input.sha,
                 detail.parentSha,
-                `Commit ${input.sha.slice(0, 7)} · ${member.repoLabel} (${member.branchName})`,
+                `Commit ${input.sha.slice(0, 7)} · ${memberReviewLabel(member, snapshot)}`,
                 detail.files,
                 detail.totalFiles);
         } catch (error) {
@@ -863,7 +864,10 @@ function memberView(
     return {
         memberId: member.memberId,
         repoLabel: member.repoLabel.slice(0, MAX_MEMBER_LABEL_LENGTH),
-        branchName: member.branchName,
+        // The manifest's planned branch is a fallback only. A readable Git
+        // snapshot is authoritative so unmanaged and switched worktrees do
+        // not render a permanent '(no branch)' or a stale planned branch.
+        branchName: memberBranchName(member, snapshot),
         worktreePath: member.worktreePath,
         availability: snapshot?.availability
             ?? (member.baseline ? 'unreadable' : 'baselineUnavailable'),
@@ -882,6 +886,22 @@ function memberView(
         ...(snapshot?.upstream ? { upstream: snapshot.upstream } : {}),
         ...(member.detached ? { detached: true } : {}),
     };
+}
+
+/** A known live branch wins; an unavailable query falls back to the plan. */
+function memberBranchName(
+    member: ChangesMemberSource,
+    snapshot: MemberChangesSnapshot | undefined
+): string {
+    return snapshot?.branchName ?? member.branchName;
+}
+
+function memberReviewLabel(
+    member: ChangesMemberSource,
+    snapshot: MemberChangesSnapshot | undefined
+): string {
+    const branchName = memberBranchName(member, snapshot);
+    return branchName ? `${member.repoLabel} (${branchName})` : member.repoLabel;
 }
 
 function legacyMemberView(

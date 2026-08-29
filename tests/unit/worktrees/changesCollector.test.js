@@ -170,6 +170,7 @@ test('WORKTREE-CHANGES-COLLECT-001 collects headSha and a tracked upstream in fo
     // No baseline: tracking collection is independent of it (PRD §14.1).
     const snapshot = await collector.collect('/worktrees/task');
     assert.equal(snapshot.availability, 'baselineUnavailable');
+    assert.equal(snapshot.branchName, 'fix-x');
     assert.equal(snapshot.headSha, HEAD_SHA);
     assert.deepEqual(snapshot.upstream, {
         status: 'tracked',
@@ -200,6 +201,7 @@ test('WORKTREE-CHANGES-COLLECT-001 no tracking branch is an explicit none, headS
     const snapshot = await collector.collect('/worktrees/task', BASELINE);
     assert.deepEqual(snapshot.upstream, { status: 'none' },
         'a successful but empty upstream query is a fact, not a failure');
+    assert.equal(snapshot.branchName, 'local-only');
     assert.equal(snapshot.headSha, HEAD_SHA);
     assert.ok(!seen.some(args => args.includes('--left-right')),
         'no upstream means no fork-count process');
@@ -210,8 +212,43 @@ test('WORKTREE-CHANGES-COLLECT-001 detached HEAD reports none via the quiet exit
     const { collector } = trackingCollector({ symbolicRef: detached });
     const snapshot = await collector.collect('/worktrees/task', BASELINE);
     assert.deepEqual(snapshot.upstream, { status: 'none' });
+    assert.equal(snapshot.branchName, '',
+        'a detached HEAD is a known absence, not a failed branch query');
     assert.equal(snapshot.headSha, HEAD_SHA,
         'a detached worktree still has a HEAD');
+});
+
+test('WORKTREE-CHANGES-COLLECT-001 non-local symbolic HEAD never falls back to a planned branch', async () => {
+    const { collector } = trackingCollector({
+        symbolicRef: 'refs/meta/custom\n',
+    });
+    const snapshot = await collector.collect('/worktrees/task', BASELINE);
+    assert.equal(snapshot.branchName, '',
+        'a readable symbolic target outside refs/heads has no local branch label');
+});
+
+test('WORKTREE-CHANGES-COLLECT-001 retains a readable branch when SCM status fails', async () => {
+    const calls = [];
+    const collector = new ChangesCollector({
+        execGit: async args => {
+            calls.push(args);
+            if (args.includes('status')) {
+                throw new Error('status timed out');
+            }
+            if (args.includes('symbolic-ref')) {
+                return { stdout: 'refs/heads/main\n', stderr: '' };
+            }
+            throw new Error(`unexpected Git query: ${args.join(' ')}`);
+        },
+        now: () => 1724000000000,
+    });
+    const snapshot = await collector.collect('/worktrees/task', BASELINE);
+    assert.equal(snapshot.availability, 'unreadable');
+    assert.equal(snapshot.branchName, 'main');
+    assert.ok(!('headSha' in snapshot));
+    assert.ok(!('upstream' in snapshot));
+    assert.equal(calls.length, 2,
+        'a degraded snapshot needs only status and the independent branch fact');
 });
 
 test('WORKTREE-CHANGES-COLLECT-001 tracking failures degrade to unknown, never to zero', async () => {
@@ -254,6 +291,8 @@ test('WORKTREE-CHANGES-COLLECT-001 tracking failures degrade to unknown, never t
     });
     const fromGarbage = await garbageCount.collector.collect('/worktrees/task', BASELINE);
     assert.deepEqual(fromGarbage.upstream, { status: 'unknown' });
+    assert.equal(fromGarbage.branchName, 'fix-x',
+        'an upstream count failure must not discard a known current branch');
 });
 
 test('WORKTREE-CHANGES-COLLECT-001 unreadable members omit headSha and upstream entirely', async () => {

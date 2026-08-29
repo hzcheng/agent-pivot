@@ -147,6 +147,11 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
                 const button = row.querySelector('[data-action="save-current-workspace"]');
                 return button && { title: button.getAttribute('title'), ariaLabel: button.getAttribute('aria-label') };
             }),
+            saveBeforeAttention: (() => {
+                const save = rows[0].querySelector('[data-action="save-current-workspace"]');
+                const attention = rows[0].querySelector('.open-window-attention');
+                return Boolean(save.compareDocumentPosition(attention) & Node.DOCUMENT_POSITION_FOLLOWING);
+            })(),
         };
     });
     assert.equal(structure.groupRole, 'list');
@@ -174,6 +179,7 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
         null,
         null,
     ]);
+    assert.equal(structure.saveBeforeAttention, true);
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 saves an unsaved current workspace from its row button', async t => {

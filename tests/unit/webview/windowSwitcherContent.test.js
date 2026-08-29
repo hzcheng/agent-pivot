@@ -68,6 +68,10 @@ test('window switcher renderer: an unsaved current workspace gets a save button 
     const navigation = getOpenWindowRowHtml(row({ showSaveAction: true }));
     assert.match(unsaved, /class="open-window-save"[^>]*data-action="save-current-workspace"/);
     assert.match(unsaved, /title="Save Workspace"/);
+    assert.ok(
+        unsaved.indexOf('class="open-window-save"') < unsaved.indexOf('class="open-window-attention"'),
+        'Save Workspace appears before the attention indicator',
+    );
     assert.match(saved, /class="open-window-save-slot"/);
     assert.match(navigation, /class="open-window-save-slot"/);
     assert.ok(!navigation.includes('data-action="save-current-workspace"'));

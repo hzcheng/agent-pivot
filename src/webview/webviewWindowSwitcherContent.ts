@@ -79,10 +79,10 @@ export function getOpenWindowRowHtml(
         <span class="open-window-name">${escapedName}</span>
         <span class="open-window-jump-hint" aria-hidden="true">&#8599;</span>
     </button>
+    ${saveSlot}
     ${getCountSlot(row.attentionCount, 'open-window-attention', '<span class="open-window-attention-dot" aria-hidden="true"></span>', count => `${count} session${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} attention in this window`, 'Nothing needs attention')}
     ${getCountSlot(row.runningCount, 'open-window-running', '\u25CF', count => `${count} session${count === 1 ? '' : 's'} running in this window`, 'No running sessions')}
     ${pinSlot}
-    ${saveSlot}
     <button type="button" class="open-window-more" data-action="open-window-menu" title="More actions" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button>
     <button type="button" class="open-window-retry" data-action="retry-open-window-navigation" hidden>Retry</button>
 </div>`;

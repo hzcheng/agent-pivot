@@ -1034,6 +1034,7 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
 .conversation-worklog-toggle {
     display: inline-flex;
+    max-width: min(100%, 42rem);
     align-items: center;
     gap: 0.35rem;
     padding: 0.1rem 0.4rem 0.1rem 0;
@@ -1062,6 +1063,12 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
         outline: 1px solid var(--vscode-focusBorder);
         outline-offset: 1px;
     }
+}
+
+.conversation-worklog-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .conversation-worklog-expanded .conversation-worklog-toggle::before {

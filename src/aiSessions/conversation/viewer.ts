@@ -4683,20 +4683,107 @@ function worklogDurationMs(
         : undefined;
 }
 
+interface ConversationWorklogSegment {
+    id: string;
+    firstMessageId: string;
+    messageIds: Set<string>;
+    label: string;
+}
+
+function worklogSummary(value: string): string {
+    // Progress is Markdown, but a work-group control must stay a compact,
+    // one-line plain-language label. This deliberately only removes common
+    // Markdown punctuation; the full rendered progress remains available
+    // inside the disclosed group.
+    const compact = value
+        .replace(/[\[\]`*_>#]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return truncateGraphemes(compact, 96);
+}
+
+function worklogSegmentLabel(
+    messages: readonly ConversationMessage[],
+    durationMs: number | undefined
+): string {
+    const progress = messages.find(message => message.role === 'progress');
+    const progressSummary = progress ? worklogSummary(progress.markdown) : '';
+    const tools = messages.filter(message => message.role === 'tool');
+    const toolSuffix = tools.length
+        ? `${tools.length} ${tools.length === 1 ? 'tool' : 'tools'}`
+        : '';
+    const firstToolName = tools[0]?.tool?.name;
+    const detail = progressSummary
+        || (firstToolName ? `Ran ${firstToolName}` : 'Worked');
+    const withTools = toolSuffix && !progressSummary
+        ? `${detail} · ${toolSuffix}`
+        : detail;
+    return durationMs !== undefined
+        ? `Worked for ${formatWorkedDuration(durationMs)} · ${withTools}`
+        : withTools;
+}
+
+function worklogSegments(
+    group: readonly ConversationMessage[],
+    showThinking: boolean,
+    interactionId: string,
+    durationMs: number | undefined
+): ConversationWorklogSegment[] {
+    const rawSegments: ConversationMessage[][] = [];
+    let current: ConversationMessage[] | undefined;
+    group.forEach(message => {
+        if (!isWorklogEntry(message, showThinking)) {
+            current = undefined;
+            return;
+        }
+        // A visible progress update is a natural, provider-neutral action
+        // boundary. Tool-only runs stay together, which keeps batched shell
+        // calls readable without reintroducing one giant turn-wide bucket.
+        if (!current || message.role === 'progress') {
+            current = [];
+            rawSegments.push(current);
+        }
+        current.push(message);
+    });
+    return rawSegments.map((messages, index) => {
+        const firstMessageId = messages[0].id;
+        return {
+            id: `${interactionId}:worklog:${firstMessageId}`,
+            firstMessageId,
+            messageIds: new Set(messages.map(message => message.id)),
+            label: worklogSegmentLabel(
+                messages,
+                index === 0 ? durationMs : undefined
+            ),
+        };
+    });
+}
+
 function renderWorklogRow(
     interactionId: string,
-    durationMs?: number
+    worklogId: string,
+    label: string
 ): string {
-    const label = durationMs !== undefined
-        ? `Worked for ${formatWorkedDuration(durationMs)}`
-        : 'Worked';
-    const id = `${interactionId}:worklog`;
     return `<article class="conversation-message conversation-message-worklog"
-    data-message-id="${escapeAttribute(id)}"
-    data-conversation-message-id="${escapeAttribute(encodeURIComponent(id))}"
-    data-interaction-id="${escapeAttribute(interactionId)}">
+    data-message-id="${escapeAttribute(worklogId)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(worklogId))}"
+    data-interaction-id="${escapeAttribute(interactionId)}"
+    data-worklog-id="${escapeAttribute(worklogId)}">
     <button class="conversation-worklog-toggle"><span class="conversation-worklog-label">${escapeAttribute(label)}</span></button>
 </article>`;
+}
+
+function renderWorklogEntry(
+    html: string,
+    worklogId: string | undefined
+): string {
+    if (!html || !worklogId) {
+        return html;
+    }
+    return html.replace(
+        '<article ',
+        `<article data-worklog-id="${escapeAttribute(worklogId)}" `
+    );
 }
 
 function renderMessage(
@@ -4801,6 +4888,33 @@ function renderMessages(
                 now
             )
             : undefined;
+        const answerIndex = group.findIndex(
+            message => message.role === 'assistant'
+        );
+        const firstWorkIndex = group.findIndex(
+            message => isWorklogEntry(message, showThinking)
+        );
+        const durationMs = info ? worklogDurationMs(info) : undefined;
+        const worklogs = info
+            && info.responseState !== 'inProgress'
+            && answerIndex >= 0
+            && firstWorkIndex >= 0
+            ? worklogSegments(
+                group,
+                showThinking,
+                group[0].interactionId,
+                durationMs
+            )
+            : [];
+        const worklogByMessageId = new Map<string, ConversationWorklogSegment>();
+        const worklogStarts = new Map<string, ConversationWorklogSegment>();
+        worklogs.forEach(worklog => {
+            worklog.messageIds.forEach(messageId => {
+                worklogByMessageId.set(messageId, worklog);
+            });
+            worklogStarts.set(worklog.firstMessageId, worklog);
+            contentStream.mix(worklog.id).mix(worklog.label);
+        });
         const rendered = group.map(message => {
             const clock = message.role === 'user'
                 ? inputClock
@@ -4823,29 +4937,16 @@ function renderMessages(
                 messageSignature,
                 entry.version
             );
-            return entry.html;
+            const worklog = worklogByMessageId.get(message.id);
+            const header = worklogStarts.get(message.id);
+            return `${header
+                ? renderWorklogRow(
+                    group[0].interactionId,
+                    header.id,
+                    header.label
+                )
+                : ''}${renderWorklogEntry(entry.html, worklog?.id)}`;
         });
-        const answerIndex = group.findIndex(
-            message => message.role === 'assistant'
-        );
-        const firstWorkIndex = group.findIndex(
-            message => isWorklogEntry(message, showThinking)
-        );
-        if (info
-            && info.responseState !== 'inProgress'
-            && answerIndex >= 0
-            && firstWorkIndex >= 0) {
-            // The row heads the work group (accordion-style) so expanding
-            // reveals entries below the toggle instead of pushing it down.
-            const durationMs = worklogDurationMs(info);
-            contentStream
-                .mix(`${group[0].interactionId}:worklog`)
-                .mix(String(durationMs ?? ''));
-            rendered.splice(firstWorkIndex, 0, renderWorklogRow(
-                group[0].interactionId,
-                durationMs
-            ));
-        }
         return rendered.join('');
     });
     const html = groupHtml.join('');

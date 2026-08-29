@@ -1995,6 +1995,20 @@
     ]
   },
   {
+    "id": "CONVERSATION-TAIL-FOLLOW-001",
+    "domain": "webview",
+    "title": "AI Conversation keeps a reader who is following the conversation tail pinned to it across deferred history backfill, live refreshes, and a Session switch away and back, including when lazily decoded images or late diagram renders grow the transcript beneath them without emitting a scroll event",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/webview/conversationViewerScripts.js",
+      "src/webview/conversationReconcileScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-SEEK-LATEST-COMMAND-001",
     "domain": "session",
     "title": "Seek to Latest Conversation Interaction command reveals the open AI Conversation editor and navigates to its latest interaction exactly like the Latest navigation button, and points the user to open an editor when none is open",

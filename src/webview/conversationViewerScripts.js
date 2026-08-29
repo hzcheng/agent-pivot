@@ -2864,6 +2864,7 @@
         }
         var previousScrollHeight = scroll.scrollHeight;
         var previousScrollTop = scroll.scrollTop;
+        var previousScrollRange = previousScrollHeight - scroll.clientHeight;
         placeholder.after(template.content);
         if (message.complete) {
             placeholder.remove();
@@ -2895,10 +2896,15 @@
         );
         applyWorklogStates();
         // Content grew above the viewport: compensate so the same messages
-        // stay under the reader's eyes. A reader parked at the very top is
-        // waiting for this history, so keep that offset untouched.
+        // stay under the reader's eyes. A reader who scrolled to the very
+        // top is waiting for this history, so keep that offset untouched.
+        // Offset 0 alone does not prove that: a progressive first screen
+        // shorter than the viewport cannot scroll, so a reader looking at
+        // the tail also reports 0, and skipping the compensation there
+        // strands them on the oldest interaction the backfill delivers.
         var heightDelta = scroll.scrollHeight - previousScrollHeight;
-        if (heightDelta > 0 && previousScrollTop > 0) {
+        var parkedAtTop = previousScrollTop <= 0 && previousScrollRange > 0;
+        if (heightDelta > 0 && !parkedAtTop) {
             scroll.scrollTop = previousScrollTop + heightDelta;
         }
         reconcileController.trackEnd();

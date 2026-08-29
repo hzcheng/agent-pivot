@@ -101,12 +101,22 @@
         function attach() {
             scroll.addEventListener('scroll', trackConversationEnd, { passive: true });
             if (typeof ResizeObserver === 'function') {
-                var viewportObserver = new ResizeObserver(function () {
+                var followObserver = new ResizeObserver(function () {
                     if (state.followingEnd) scrollToConversationEnd();
                 });
-                viewportObserver.observe(scroll);
+                followObserver.observe(scroll);
+                // The transcript growing under a reader who is following
+                // the end moves the end away from them exactly like the
+                // viewport shrinking does, and it happens long after the
+                // page applied: images decode lazily and Mermaid diagrams
+                // render asynchronously. Growth emits no scroll event, so
+                // without this the physical offset silently drifts past the
+                // auto-scroll threshold while the reader never moved, and
+                // every later check that reads that offset — live refresh
+                // follow, frame stashing — concludes they walked away.
+                followObserver.observe(messages);
                 window.addEventListener('unload', function () {
-                    viewportObserver.disconnect();
+                    followObserver.disconnect();
                 });
             }
         }

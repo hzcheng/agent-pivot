@@ -342,6 +342,48 @@ test('WORKTREE-CHANGES-PANEL-001 review requires a verified baseline and open-sc
     assert.deepEqual(scm, [WT_PATH]);
 });
 
+test('WORKTREE-CHANGES-PANEL-001 review titles use the live branch shown in the sidebar', async () => {
+    const taskReviews = [];
+    const commitReviews = [];
+    const sha = 'c'.repeat(40);
+    const { controller } = fixture({
+        collector: new ChangesCollector({
+            execGit: async args => {
+                if (args.includes('status')) return { stdout: '', stderr: '' };
+                if (args.includes('symbolic-ref')) {
+                    return { stdout: 'refs/heads/main\n', stderr: '' };
+                }
+                if (args.includes('for-each-ref')) return { stdout: '', stderr: '' };
+                if (args.includes('rev-parse')) {
+                    return { stdout: `${sha}\n`, stderr: '' };
+                }
+                if (args.includes('merge-base')) return { stdout: '', stderr: '' };
+                if (args.includes('rev-list')) return { stdout: '0\n', stderr: '' };
+                if (args.includes('diff')) return { stdout: '', stderr: '' };
+                return { stdout: '', stderr: '' };
+            },
+            now: () => 1724000000000,
+        }),
+        openTaskResultReview: async (...args) => taskReviews.push(args),
+        openCommitReview: async (...args) => commitReviews.push(args),
+        commitsCollector: {
+            list: async () => ({
+                commits: [], hasMore: false, historyHead: sha,
+            }),
+            detail: async () => ({
+                files: [], totalFiles: 0, filesTruncated: false,
+            }),
+            commitExists: async () => true,
+        },
+    });
+    await controller.activate(TARGET);
+    await controller.handleReview('member-1');
+    await controller.handleCommitReview({ memberId: 'member-1', sha });
+
+    assert.equal(taskReviews[0][2], 'Task result · api (main)');
+    assert.equal(commitReviews[0][3], 'Commit ccccccc · api (main)');
+});
+
 test('WORKTREE-CHANGES-PANEL-001 remembers the selected member across reactivation', async () => {
     const { posted, controller } = fixture();
     await controller.activate(TARGET);

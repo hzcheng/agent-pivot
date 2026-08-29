@@ -218,6 +218,39 @@ test('WORKTREE-CHANGES-COLLECT-001 detached HEAD reports none via the quiet exit
         'a detached worktree still has a HEAD');
 });
 
+test('WORKTREE-CHANGES-COLLECT-001 non-local symbolic HEAD never falls back to a planned branch', async () => {
+    const { collector } = trackingCollector({
+        symbolicRef: 'refs/meta/custom\n',
+    });
+    const snapshot = await collector.collect('/worktrees/task', BASELINE);
+    assert.equal(snapshot.branchName, '',
+        'a readable symbolic target outside refs/heads has no local branch label');
+});
+
+test('WORKTREE-CHANGES-COLLECT-001 retains a readable branch when SCM status fails', async () => {
+    const calls = [];
+    const collector = new ChangesCollector({
+        execGit: async args => {
+            calls.push(args);
+            if (args.includes('status')) {
+                throw new Error('status timed out');
+            }
+            if (args.includes('symbolic-ref')) {
+                return { stdout: 'refs/heads/main\n', stderr: '' };
+            }
+            throw new Error(`unexpected Git query: ${args.join(' ')}`);
+        },
+        now: () => 1724000000000,
+    });
+    const snapshot = await collector.collect('/worktrees/task', BASELINE);
+    assert.equal(snapshot.availability, 'unreadable');
+    assert.equal(snapshot.branchName, 'main');
+    assert.ok(!('headSha' in snapshot));
+    assert.ok(!('upstream' in snapshot));
+    assert.equal(calls.length, 2,
+        'a degraded snapshot needs only status and the independent branch fact');
+});
+
 test('WORKTREE-CHANGES-COLLECT-001 tracking failures degrade to unknown, never to zero', async () => {
     // symbolic-ref itself fails (not the quiet detached exit).
     const brokenRef = trackingCollector({

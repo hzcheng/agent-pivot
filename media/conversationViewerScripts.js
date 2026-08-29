@@ -19,7 +19,7 @@
         'x1', 'y1', 'x2', 'y2',
         'pathLength', 'stroke-dasharray', 'stroke-dashoffset', 'transform',
         'data-message-id', 'data-conversation-message-id',
-        'data-interaction-id', 'data-worklog-id', 'data-conversation-run-command',
+        'data-interaction-id', 'data-worklog-id', 'data-tool-group-id', 'data-conversation-run-command',
     ];
     var maxMermaidDiagrams = 40;
     var conversationMathStyleToken = document.body.getAttribute(
@@ -152,9 +152,6 @@
     // already updated. It remains optional in the current document.
     var sidebarToggle = document.querySelector(
         '[data-action="toggle-sidebar"]'
-    );
-    var worklogAllToggle = document.querySelector(
-        '[data-action="toggle-worklog-all"]'
     );
     var sessionStatusRunning = document.querySelector(
         '[data-session-status-running]'
@@ -529,6 +526,7 @@
         messageIds: [],
         messageSignatures: new Map(),
         worklogExpanded: new Map(),
+        toolGroupExpanded: new Map(),
         tableSortDirections: new Map(),
         diffChangesOnly: new Set(),
         diffWrapLines: new Set(),
@@ -1780,6 +1778,7 @@
         state.messageIds = [];
         state.messageSignatures = new Map();
         state.worklogExpanded = new Map();
+        state.toolGroupExpanded = new Map();
         state.appliedHtmlSignature = undefined;
         copyPending = new Map();
         document.body.setAttribute(
@@ -1852,6 +1851,18 @@
         );
     }
 
+    function toolGroupRowForMessage(message) {
+        if (!message) return null;
+        var toolGroupId = message.getAttribute('data-tool-group-id');
+        if (!toolGroupId) return null;
+        return Array.prototype.find.call(
+            messages.querySelectorAll('.conversation-message-tool-group'),
+            function (row) {
+                return row.getAttribute('data-tool-group-id') === toolGroupId;
+            }
+        ) || null;
+    }
+
     function retargetCollapsedWorklogAnchor(anchor) {
         if (!anchor || !anchor.element || !anchor.element.closest) {
             return anchor;
@@ -1867,7 +1878,10 @@
             ) || null;
         }
         if (!message || !message.hidden) return anchor;
-        var row = worklogRowForMessage(message);
+        var toolGroupRow = toolGroupRowForMessage(message);
+        var row = toolGroupRow && !toolGroupRow.hidden
+            ? toolGroupRow
+            : worklogRowForMessage(message);
         if (!row) return anchor;
         return Object.assign({}, anchor, {
             element: row,
@@ -1880,33 +1894,6 @@
         return row.getAttribute('data-worklog-id')
             || row.getAttribute('data-interaction-id')
             || '';
-    }
-
-    function worklogRows() {
-        return Array.prototype.slice.call(
-            messages.querySelectorAll('.conversation-message-worklog')
-        );
-    }
-
-    function updateWorklogAllToggle() {
-        if (!worklogAllToggle) return;
-        var rows = worklogRows();
-        var allExpanded = rows.length > 0 && rows.every(function (row) {
-            return state.worklogExpanded.get(worklogKey(row)) === true;
-        });
-        worklogAllToggle.hidden = rows.length === 0;
-        worklogAllToggle.setAttribute(
-            'aria-label',
-            allExpanded ? 'Collapse all work' : 'Expand all work'
-        );
-        worklogAllToggle.setAttribute(
-            'title',
-            allExpanded ? 'Collapse all work' : 'Expand all work'
-        );
-        worklogAllToggle.setAttribute(
-            'aria-pressed',
-            allExpanded ? 'true' : 'false'
-        );
     }
 
     function applyWorklogStates() {
@@ -1928,9 +1915,8 @@
                     'conversation-worklog-expanded',
                     expanded
                 );
-                // The row heads the work group: entries after it (up to
-                // the next turn) collapse, so the toggle never moves when
-                // expanding.
+                // The row heads the complete process, so expanding reveals
+                // entries below it and never moves the control itself.
                 var sibling = row.nextElementSibling;
                 while (sibling
                     && (row.hasAttribute('data-worklog-id')
@@ -1938,6 +1924,9 @@
                         : sibling.getAttribute('data-interaction-id')
                             === interactionId)) {
                     if (sibling.classList.contains('conversation-message-tool')
+                        || sibling.classList.contains(
+                            'conversation-message-tool-group'
+                        )
                         || sibling.classList.contains(
                             'conversation-message-thinking'
                         )
@@ -1950,20 +1939,34 @@
                 }
             }
         );
-        updateWorklogAllToggle();
-    }
-
-    function setAllWorklogExpanded(expanded) {
-        worklogRows().forEach(function (row) {
-            var key = worklogKey(row);
-            if (!key) return;
-            if (expanded) {
-                state.worklogExpanded.set(key, true);
-            } else {
-                state.worklogExpanded.delete(key);
+        Array.prototype.forEach.call(
+            messages.querySelectorAll('.conversation-message-tool-group'),
+            function (row) {
+                var toolGroupId = row.getAttribute('data-tool-group-id');
+                if (!toolGroupId) return;
+                var expanded = state.toolGroupExpanded.get(toolGroupId) === true;
+                var toggle = row.querySelector('.conversation-tool-group-toggle');
+                if (toggle) {
+                    toggle.setAttribute(
+                        'aria-expanded',
+                        expanded ? 'true' : 'false'
+                    );
+                }
+                row.classList.toggle(
+                    'conversation-tool-group-expanded',
+                    expanded
+                );
+                var sibling = row.nextElementSibling;
+                while (sibling
+                    && sibling.getAttribute('data-tool-group-id')
+                        === toolGroupId) {
+                    if (sibling.classList.contains('conversation-message-tool')) {
+                        sibling.hidden = row.hidden || !expanded;
+                    }
+                    sibling = sibling.nextElementSibling;
+                }
             }
-        });
-        applyWorklogStates();
+        );
     }
 
     function nextCopyRequestId() {
@@ -2337,6 +2340,7 @@
             messageIds: state.messageIds,
             messageSignatures: state.messageSignatures,
             worklogExpanded: state.worklogExpanded,
+            toolGroupExpanded: state.toolGroupExpanded,
             scrollTop: scrollTop,
             anchor: anchor,
             followingEnd: followingEnd,
@@ -2453,6 +2457,7 @@
         state.messageIds = frame.messageIds;
         state.messageSignatures = frame.messageSignatures;
         state.worklogExpanded = frame.worklogExpanded;
+        state.toolGroupExpanded = frame.toolGroupExpanded || new Map();
         restoreFramePresentation(frame);
     }
 
@@ -2601,6 +2606,9 @@
             : null;
         var focusedWorklogId = focusedMessage
             ? focusedMessage.getAttribute('data-worklog-id')
+            : null;
+        var focusedToolGroupId = focusedMessage
+            ? focusedMessage.getAttribute('data-tool-group-id')
             : null;
         var focusedRenderingControl = document.activeElement
             && document.activeElement.closest
@@ -2816,19 +2824,44 @@
                 restoredFocus.tabIndex = -1;
                 restoredFocus.focus({ preventScroll: true });
             } else {
-                var worklogRow = focusedWorklogId
+                var worklogRow = focusedToolGroupId
                     ? Array.prototype.find.call(
                         messages.querySelectorAll(
-                            '.conversation-message-worklog'
+                            '.conversation-message-tool-group'
                         ),
                         function (candidate) {
-                            return candidate.getAttribute('data-worklog-id')
-                                === focusedWorklogId;
+                            return candidate.getAttribute('data-tool-group-id')
+                                === focusedToolGroupId;
                         }
                     ) || null
-                    : worklogRowForInteraction(focusedInteractionId);
+                    : focusedWorklogId
+                        ? Array.prototype.find.call(
+                            messages.querySelectorAll(
+                                '.conversation-message-worklog'
+                            ),
+                            function (candidate) {
+                                return candidate.getAttribute('data-worklog-id')
+                                    === focusedWorklogId;
+                            }
+                        ) || null
+                        : worklogRowForInteraction(focusedInteractionId);
+                if (!worklogRow || worklogRow.hidden) {
+                    worklogRow = focusedWorklogId
+                        ? Array.prototype.find.call(
+                            messages.querySelectorAll(
+                                '.conversation-message-worklog'
+                            ),
+                            function (candidate) {
+                                return candidate.getAttribute('data-worklog-id')
+                                    === focusedWorklogId;
+                            }
+                        ) || null
+                        : worklogRowForInteraction(focusedInteractionId);
+                }
                 var worklogToggle = worklogRow
-                    ? worklogRow.querySelector('.conversation-worklog-toggle')
+                    ? worklogRow.querySelector(
+                        '.conversation-tool-group-toggle, .conversation-worklog-toggle'
+                    )
                     : null;
                 if (worklogToggle) {
                     worklogToggle.focus({ preventScroll: true });
@@ -3328,20 +3361,6 @@
     latest.addEventListener('click', function () {
         postNavigation('conversation-viewer-latest');
     });
-    if (worklogAllToggle) {
-        worklogAllToggle.addEventListener('click', function () {
-            var scrollTop = scroll.scrollTop;
-            var overflowAnchor = scroll.style.overflowAnchor;
-            scroll.style.overflowAnchor = 'none';
-            setAllWorklogExpanded(
-                worklogAllToggle.getAttribute('aria-pressed') !== 'true'
-            );
-            void scroll.offsetHeight;
-            scroll.scrollTop = scrollTop;
-            scroll.style.overflowAnchor = overflowAnchor;
-            reconcileController.trackEnd();
-        });
-    }
     sessionNavButtons.forEach(function (button) {
         button.addEventListener('click', function () {
             post({
@@ -3424,6 +3443,30 @@
         // A manual disclosure change is not asynchronous transcript growth.
         // Re-evaluate follow state before the ResizeObserver runs so it does
         // not scroll this reader back to the tail after an expansion.
+        reconcileController.trackEnd();
+    });
+    messages.addEventListener('click', function (event) {
+        var toggle = event.target && event.target.closest
+            ? event.target.closest('.conversation-tool-group-toggle')
+            : null;
+        if (!toggle || !messages.contains(toggle)) return;
+        var row = toggle.closest('.conversation-message-tool-group');
+        var toolGroupId = row
+            ? row.getAttribute('data-tool-group-id')
+            : '';
+        if (!toolGroupId) return;
+        var scrollTop = scroll.scrollTop;
+        var overflowAnchor = scroll.style.overflowAnchor;
+        scroll.style.overflowAnchor = 'none';
+        if (state.toolGroupExpanded.get(toolGroupId) === true) {
+            state.toolGroupExpanded.delete(toolGroupId);
+        } else {
+            state.toolGroupExpanded.set(toolGroupId, true);
+        }
+        applyWorklogStates();
+        void scroll.offsetHeight;
+        scroll.scrollTop = scrollTop;
+        scroll.style.overflowAnchor = overflowAnchor;
         reconcileController.trackEnd();
     });
     messages.addEventListener('click', function (event) {

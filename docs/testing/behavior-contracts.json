@@ -2267,7 +2267,7 @@
   {
     "id": "CONVERSATION-WORKLOG-COLLAPSE-001",
     "domain": "webview",
-    "title": "AI Conversation keeps each completed turn's conclusion visible while splitting tool, thinking, and progress entries into independently toggled action groups; it preserves group disclosure state across live refreshes and offers an in-view expand/collapse-all control",
+    "title": "AI Conversation keeps each completed turn's conclusion visible behind one Worked-for disclosure; expanded model progress uses normal Assistant presentation, while contiguous tool calls form independently toggled icon-labelled groups that preserve their disclosure state across live refreshes",
     "priority": "P1",
     "status": "automated",
     "owners": [

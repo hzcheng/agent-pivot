@@ -230,8 +230,6 @@ async function openViewerPage(t, options = {}) {
                         title="Next question" aria-label="Next question">Next</button>
                     <button type="button" data-action="latest"
                         title="Last question" aria-label="Last question">Latest</button>
-                    <button type="button" data-action="toggle-worklog-all"
-                        aria-pressed="false" hidden>Expand all work</button>
                 </header>
                 <section class="conversation-telemetry"
                     data-conversation-telemetry hidden>
@@ -5178,6 +5176,103 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '        });\n'
                 + '    }\n',
             ''
+        // Tool groups are newer than this adjacent Viewer generation. First
+        // reduce the source to the prior single-worklog implementation; the
+        // established strips below then reconstruct the frozen fixture.
+        .replace(
+            "        'data-interaction-id', 'data-worklog-id', 'data-tool-group-id', 'data-conversation-run-command',\n",
+            "        'data-interaction-id', 'data-worklog-id', 'data-conversation-run-command',\n"
+        )
+        .replace('        toolGroupExpanded: new Map(),\n', '')
+        .replace('        state.toolGroupExpanded = new Map();\n', '')
+        .replace('            toolGroupExpanded: state.toolGroupExpanded,\n', '')
+        .replace(
+            '        state.toolGroupExpanded = frame.toolGroupExpanded || new Map();\n',
+            ''
+        )
+        .replace(
+            /\n    function toolGroupRowForMessage\(message\) \{[\s\S]*?\n    \}\n/,
+            ''
+        )
+        .replace(
+            '        var toolGroupRow = toolGroupRowForMessage(message);\n'
+                + '        var row = toolGroupRow && !toolGroupRow.hidden\n'
+                + '            ? toolGroupRow\n'
+                + '            : worklogRowForMessage(message);\n',
+            '        var row = worklogRowForMessage(message);\n'
+        )
+        .replace(
+            '                // The row heads the complete process, so expanding reveals\n'
+                + '                // entries below it and never moves the control itself.\n',
+            '                // The row heads the work group: entries after it (up to\n'
+                + '                // the next turn) collapse, so the toggle never moves when\n'
+                + '                // expanding.\n'
+        )
+        .replace(
+            "                        || sibling.classList.contains(\n"
+                + "                            'conversation-message-tool-group'\n"
+                + "                        )\n",
+            ''
+        )
+        .replace(
+            /\n        Array\.prototype\.forEach\.call\(\n            messages\.querySelectorAll\('\.conversation-message-tool-group'\),[\s\S]*?\n        \);\n    \}\n\n    function nextCopyRequestId/,
+            '\n    }\n\n    function nextCopyRequestId'
+        )
+        .replace(
+            "        var focusedToolGroupId = focusedMessage\n"
+                + "            ? focusedMessage.getAttribute('data-tool-group-id')\n"
+                + "            : null;\n",
+            ''
+        )
+        .replace(
+            /\n                if \(!worklogRow \|\| worklogRow\.hidden\) \{[\s\S]*?\n                \}\n                var worklogToggle =/,
+            '\n                var worklogToggle ='
+        )
+        .replace(
+            '                var worklogRow = focusedToolGroupId\n'
+                + '                    ? Array.prototype.find.call(\n'
+                + '                        messages.querySelectorAll(\n'
+                + "                            '.conversation-message-tool-group'\n"
+                + '                        ),\n'
+                + '                        function (candidate) {\n'
+                + "                            return candidate.getAttribute('data-tool-group-id')\n"
+                + '                                === focusedToolGroupId;\n'
+                + '                        }\n'
+                + '                    ) || null\n'
+                + '                    : focusedWorklogId\n'
+                + '                        ? Array.prototype.find.call(\n'
+                + '                            messages.querySelectorAll(\n'
+                + "                                '.conversation-message-worklog'\n"
+                + '                            ),\n'
+                + '                            function (candidate) {\n'
+                + "                                return candidate.getAttribute('data-worklog-id')\n"
+                + '                                    === focusedWorklogId;\n'
+                + '                            }\n'
+                + '                        ) || null\n'
+                + '                        : worklogRowForInteraction(focusedInteractionId);\n'
+                + '                var worklogToggle = worklogRow\n'
+                + '                    ? worklogRow.querySelector(\n'
+                + "                        '.conversation-tool-group-toggle, .conversation-worklog-toggle'\n"
+                + '                    )\n'
+                + '                    : null;\n',
+            '                var worklogRow = focusedWorklogId\n'
+                + '                    ? Array.prototype.find.call(\n'
+                + '                        messages.querySelectorAll(\n'
+                + "                            '.conversation-message-worklog'\n"
+                + '                        ),\n'
+                + '                        function (candidate) {\n'
+                + "                            return candidate.getAttribute('data-worklog-id')\n"
+                + '                                === focusedWorklogId;\n'
+                + '                        }\n'
+                + '                    ) || null\n'
+                + '                    : worklogRowForInteraction(focusedInteractionId);\n'
+                + '                var worklogToggle = worklogRow\n'
+                + "                    ? worklogRow.querySelector('.conversation-worklog-toggle')\n"
+                + '                    : null;\n'
+        )
+        .replace(
+            /\n    messages\.addEventListener\('click', function \(event\) \{\n        var toggle = event\.target && event\.target\.closest\n            \? event\.target\.closest\('\.conversation-tool-group-toggle'\)[\s\S]*?\n    \}\);\n    messages\.addEventListener\('click', function \(event\) \{\n        var star/,
+            "\n    messages.addEventListener('click', function (event) {\n        var star"
         )
         // Worklog disclosure now preserves the reader's scroll position and
         // re-evaluates tail-following. That is newer than the adjacent
@@ -8594,11 +8689,10 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
         },
     });
 
-    // The header chrome is one uniform row of five icon buttons; the work
-    // disclosure control remains hidden until the transcript has work
-    // groups. Sending lives in the comments toolbar, not the header.
+    // The header chrome is one uniform row of four icon buttons; sending
+    // lives in the comments toolbar, not the header.
     const navButtons = page.locator('.conversation-navigation [data-action]');
-    assert.equal(await navButtons.count(), 5);
+    assert.equal(await navButtons.count(), 4);
     assert.equal(
         await page.locator('[data-action="send-comments"]').count(),
         0,
@@ -8610,7 +8704,6 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
             icons: button.querySelectorAll('svg').length,
         }))),
         [
-            { text: '', icons: 1 },
             { text: '', icons: 1 },
             { text: '', icons: 1 },
             { text: '', icons: 1 },
@@ -12082,83 +12175,93 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a W
     );
 });
 
-test('CONVERSATION-WORKLOG-COLLAPSE-001 independently discloses completed action groups and toggles all work', async t => {
-    const page = await openViewerPage(t, {});
+test('CONVERSATION-WORKLOG-COLLAPSE-001 nests flat tool calls under independently disclosed tool groups', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 700, height: 500 },
+    });
     const user = `<article class="conversation-message conversation-message-user"
             data-message-id="input-4:user"
             data-conversation-message-id="input-4%3Auser"
             data-interaction-id="input-4"><section class="conversation-markdown"><p>Inspect and verify</p></section></article>`;
-    const action = (id, label, body) => `<article class="conversation-message conversation-message-worklog"
+    const modelText = (id, text) => `<article class="conversation-message conversation-message-assistant conversation-message-progress"
             data-message-id="${id}" data-conversation-message-id="${encodeURIComponent(id)}"
-            data-interaction-id="input-4" data-worklog-id="${id}">
-        <button class="conversation-worklog-toggle"><span class="conversation-worklog-label">${label}</span></button>
+            data-interaction-id="input-4" data-worklog-id="input-4:worklog">
+        <span class="conversation-role">Assistant</span>
+        <section class="conversation-markdown"><p>${text}</p></section>
+    </article>`;
+    const toolGroup = (id, label, body) => `<article class="conversation-message conversation-message-tool-group"
+            data-message-id="${id}" data-conversation-message-id="${encodeURIComponent(id)}"
+            data-interaction-id="input-4" data-worklog-id="input-4:worklog" data-tool-group-id="${id}">
+        <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-label">${label}</span></button>
     </article>
     <article class="conversation-message conversation-message-tool"
             data-message-id="${id}:tool" data-conversation-message-id="${encodeURIComponent(id + ':tool')}"
-            data-interaction-id="input-4" data-worklog-id="${id}">
+            data-interaction-id="input-4" data-worklog-id="input-4:worklog" data-tool-group-id="${id}">
         <div class="conversation-tool-call-static">${body}</div>
+    </article>`;
+    const worked = `<article class="conversation-message conversation-message-worklog"
+            data-message-id="input-4:worklog" data-conversation-message-id="input-4%3Aworklog"
+            data-interaction-id="input-4" data-worklog-id="input-4:worklog">
+        <button class="conversation-worklog-toggle"><span class="conversation-worklog-label">Worked for 1m 20s</span></button>
     </article>`;
     const answer = `<article class="conversation-message conversation-message-assistant"
             data-message-id="input-4:assistant:0"
             data-conversation-message-id="input-4%3Aassistant%3A0"
             data-interaction-id="input-4"><section class="conversation-markdown"><p>Checks passed.</p></section></article>`;
-    const firstId = 'input-4:worklog:progress-0';
-    const secondId = 'input-4:worklog:progress-1';
+    const firstId = 'input-4:tool-group:read';
+    const secondId = 'input-4:tool-group:test';
+    const processHtml = worked
+        + modelText('input-4:progress:0', 'Inspect the renderer.')
+        + toolGroup(firstId, 'Read viewer.ts', 'Read viewer.ts')
+        + modelText('input-4:progress:1', 'Run focused checks.')
+        + toolGroup(secondId, 'npm test', 'npm test');
     await sendPage(page, {
         ...hostileConversationPage,
         requestId: 62,
         updateKind: 'initial',
-        html: user
-            + action(firstId, 'Inspect renderer · 1 tool', 'Read viewer.ts')
-            + action(secondId, 'Run focused checks · 1 tool', 'npm test')
-            + answer,
+        html: user + processHtml + answer,
     });
 
-    const allToggle = page.locator('[data-action="toggle-worklog-all"]');
-    const firstTool = page.locator(`[data-worklog-id="${firstId}"]`)
+    const worklogToggle = page.locator('.conversation-worklog-toggle');
+    const firstGroup = page.locator(`[data-tool-group-id="${firstId}"]`)
+        .filter({ has: page.locator('.conversation-tool-group-toggle') });
+    const secondGroup = page.locator(`[data-tool-group-id="${secondId}"]`)
+        .filter({ has: page.locator('.conversation-tool-group-toggle') });
+    const firstTool = page.locator(`.conversation-message-tool[data-tool-group-id="${firstId}"]`)
         .filter({ hasText: 'Read viewer.ts' });
-    const secondTool = page.locator(`[data-worklog-id="${secondId}"]`)
+    const secondTool = page.locator(`.conversation-message-tool[data-tool-group-id="${secondId}"]`)
         .filter({ hasText: 'npm test' });
-    assert.equal(await firstTool.isHidden(), true);
-    assert.equal(await secondTool.isHidden(), true);
-    assert.equal(await page.locator('.conversation-message-assistant').isVisible(), true,
+    const processText = page.locator('.conversation-message-progress').first();
+    assert.equal(await processText.isHidden(), true);
+    assert.equal(await firstGroup.isHidden(), true);
+    assert.equal(await page.locator('.conversation-message-assistant')
+        .filter({ hasText: 'Checks passed.' }).isVisible(), true,
         'the final answer remains outside every collapsed work group');
-    assert.equal(await allToggle.isVisible(), true);
-    assert.equal(await allToggle.getAttribute('aria-label'), 'Expand all work');
-
-    await allToggle.click();
-    assert.equal(await firstTool.isVisible(), true);
-    assert.equal(await secondTool.isVisible(), true);
-    assert.equal(await allToggle.getAttribute('aria-label'), 'Collapse all work');
-
-    await page.locator(`[data-worklog-id="${firstId}"] .conversation-worklog-toggle`)
-        .click();
+    await worklogToggle.click();
+    assert.equal(await processText.isVisible(), true,
+        'expanded process text uses the normal Assistant message form');
+    assert.equal(await firstGroup.isVisible(), true);
     assert.equal(await firstTool.isHidden(), true,
-        'each group keeps an independent disclosure state');
-    assert.equal(await secondTool.isVisible(), true);
-    assert.equal(await allToggle.getAttribute('aria-label'), 'Expand all work');
+        'the second disclosure level keeps individual tool calls collapsed');
+
+    await firstGroup.locator('.conversation-tool-group-toggle').click();
+    assert.equal(await firstTool.isVisible(), true);
+    assert.equal(await secondTool.isHidden(), true,
+        'opening one tool group does not disclose another group');
 
     await sendPage(page, {
         ...hostileConversationPage,
         requestId: 63,
         updateKind: 'refresh',
-        html: user
-            + action(firstId, 'Inspect renderer · 1 tool', 'Read viewer.ts')
-            + action(secondId, 'Run focused checks · 1 tool', 'npm test')
-            + answer,
+        html: user + processHtml + answer,
     });
-    assert.equal(await firstTool.isHidden(), true,
-        'a refresh restores each action group by its stable worklog identity');
-    assert.equal(await secondTool.isVisible(), true);
-
-    await allToggle.click();
     assert.equal(await firstTool.isVisible(), true,
-        'Expand all restores only collapsed action groups');
-    assert.equal(await secondTool.isVisible(), true);
-    await allToggle.click();
-    assert.equal(await firstTool.isHidden(), true);
-    assert.equal(await secondTool.isHidden(), true,
-        'Collapse all hides every completed action group together');
+        'a refresh restores the expanded tool group by its stable identity');
+    await worklogToggle.click();
+    assert.equal(await firstGroup.isHidden(), true,
+        'the original Worked-for control still collapses the complete process');
 });
 
 test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 keeps plan and question cards visible when completed-turn work collapses', async t => {
@@ -12550,7 +12653,7 @@ test('CONVERSATION-DIFF-VISIBILITY-001 keeps the wrap choice across an authorita
         'the restored choice re-applies to the rendered lines, not just the button');
 });
 
-test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and collapses it when the answer lands', async t => {
+test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps an in-progress tool group collapsed and collapses all work when the answer lands', async t => {
     const page = await openViewerPage(t, {});
     const liveHtml = `<article class="conversation-message conversation-message-user"
             data-message-id="input-4:user"
@@ -12559,10 +12662,16 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and coll
         <span class="conversation-role">User</span>
         <section class="conversation-markdown"><p>Run the tests</p></section>
     </article>
+    <article class="conversation-message conversation-message-tool-group conversation-tool-group-running"
+            data-message-id="input-4:tool-group:0"
+            data-conversation-message-id="input-4%3Atool-group%3A0"
+            data-interaction-id="input-4" data-tool-group-id="input-4:tool-group:0">
+        <button class="conversation-tool-group-toggle">Shell npm test</button>
+    </article>
     <article class="conversation-message conversation-message-tool"
             data-message-id="input-4:tool:0"
             data-conversation-message-id="input-4%3Atool%3A0"
-            data-interaction-id="input-4">
+            data-interaction-id="input-4" data-tool-group-id="input-4:tool-group:0">
         <details class="conversation-tool-call">
             <summary><span class="conversation-tool-name">Shell</span> Shell npm test</summary>
             <pre class="conversation-tool-detail"><code>running</code></pre>
@@ -12580,28 +12689,34 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and coll
         }],
         atLatest: true,
     });
-    assert.equal(
-        await page.locator('.conversation-message-tool').isVisible(),
-        true,
-        'in-progress work stays expanded'
-    );
+    assert.equal(await page.locator('.conversation-message-tool-group').isVisible(), true,
+        'the live group shows the current tool');
+    assert.equal(await page.locator('.conversation-message-tool').isHidden(), true,
+        'the current tool details stay folded until the group is opened');
     assert.equal(
         await page.locator('.conversation-message-worklog').count(),
         0,
         'no row while the turn is live'
     );
 
-    const doneHtml = liveHtml.replace('running', '9 passing').replace(
-        '<article class="conversation-message conversation-message-tool"',
+    await page.locator('.conversation-tool-group-toggle').click();
+    assert.equal(await page.locator('.conversation-message-tool').isVisible(), true);
+
+    const doneHtml = liveHtml.replace('<code>running</code>', '<code>9 passing</code>')
+        .replaceAll(
+            'data-tool-group-id="input-4:tool-group:0"',
+            'data-tool-group-id="input-4:tool-group:0" data-worklog-id="input-4:worklog"'
+        ).replace(
+        '<article class="conversation-message conversation-message-tool-group conversation-tool-group-running"',
         `<article class="conversation-message conversation-message-worklog"
             data-message-id="input-4:worklog"
             data-conversation-message-id="input-4%3Aworklog"
-            data-interaction-id="input-4">
+            data-interaction-id="input-4" data-worklog-id="input-4:worklog">
         <button class="conversation-worklog-toggle">
             <span class="conversation-worklog-label">Worked for 45s</span>
         </button>
     </article>
-    <article class="conversation-message conversation-message-tool"`
+    <article class="conversation-message conversation-message-tool-group"`
     ) + `
     <article class="conversation-message conversation-message-assistant"
             data-message-id="input-4:assistant:0"
@@ -12622,6 +12737,7 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and coll
         true,
         'work collapses once the answer lands'
     );
+    assert.equal(await page.locator('.conversation-message-tool-group').isHidden(), true);
     const toggle = page.locator('.conversation-worklog-toggle');
     assert.match(await toggle.innerText(), /Worked for 45s/);
     assert.equal(await toggle.getAttribute('aria-expanded'), 'false');

@@ -53,11 +53,12 @@ Worktree 组模型上线后，一个 task（组）对应一到多个物理 workt
 
 权威解析规则（验收标准，顺序不可交换）：
 
-1. 读取 session 持久化的 `worktreeKey`（runtime binding / hydration 结果）；session 运行中 agent 临时 `cd` 产生的工具调用 cwd **不得**覆盖此身份。
-2. 用该 key 查当前 manifest：命中则改动集合 = 该组全部 `ready` member（`worktreeKey` 存在者）。
-3. manifest 未命中 → 查 **retired identity**（含 generation 判断）：命中则走 retired 降级（§7.3）。
-4. 无持久化身份时，用 session 初始 `cwd` 经 `ConversationWorktreeResolver` 做 live fallback：解析出则走**退化单 member 视图**。
-5. 以上皆无（非 git 会话）：按钮 `hidden`。
+1. 遥测报告的最新工作目录经 `ConversationWorktreeResolver` 解析为有效 `worktreeKey` 时，它代表 conversation 当前正在操作的 worktree，优先用于本次 Git 视图；初始 identity 解析期间收到的该遥测必须在激活后重放。
+2. 遥测目录缺失、不是 Git worktree 或解析失败时，读取 session 持久化的 `worktreeKey`（runtime binding / hydration 结果）作为稳定回退身份。
+3. 用上述 key 查当前 manifest：命中则改动集合 = 该组全部 `ready` member（`worktreeKey` 存在者），并默认显示该 key 对应的 member。
+4. manifest 未命中 → 查 **retired identity**（含 generation 判断）：命中则走 retired 降级（§7.3）。
+5. 无持久化身份时，用 session 初始 `cwd` 经 `ConversationWorktreeResolver` 做 live fallback：解析出则走**退化单 member 视图**。
+6. 以上皆无（非 git 会话）：按钮 `hidden`。
 
 跨平台与键值契约（实现前必须修复的现存缺陷）：
 

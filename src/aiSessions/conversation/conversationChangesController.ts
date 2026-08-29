@@ -3,6 +3,7 @@
 import * as path from 'path';
 import { createHash } from 'crypto';
 import type * as vscode from 'vscode';
+import { worktreeKeysEqual } from '../../worktreeIdentity';
 import {
     aggregateMemberChanges,
     ChangesCollector,
@@ -43,12 +44,15 @@ interface ChangesMemberSource {
     repoLabel: string;
     branchName: string;
     worktreePath: string;
+    worktreeKey?: WorktreeKey;
     baseline?: MemberBaseline;
     detached?: boolean;
 }
 
 interface ResolvedChangeSet {
     kind: 'ready' | 'retired' | 'unavailable';
+    /** The worktree that determined this view's member set. */
+    worktreeKey?: WorktreeKey;
     members: ChangesMemberSource[];
     /** Primary member of the owning group (default selection anchor). */
     primaryMemberId?: string;
@@ -145,6 +149,13 @@ export class ConversationChangesController {
     private pendingCollect = false;
     private state?: ConversationChangesState;
     private activationEpoch = 0;
+    /** Invalidates an older telemetry rebind before it can replace the view. */
+    private rebindEpoch = 0;
+    /** Telemetry can arrive while the initial session identity resolves. */
+    private pendingTelemetryWorktree?: {
+        target: ConversationViewerTarget;
+        path: string;
+    };
     /** Last selected member per session identity (PRD §5.3 选中持久化). */
     private readonly lastSelectionBySession = new Map<string, string>();
     private readonly collector: ChangesCollector;
@@ -163,10 +174,12 @@ export class ConversationChangesController {
 
     reset(): void {
         this.activationEpoch += 1;
+        this.rebindEpoch += 1;
         this.active?.watcher?.dispose();
         this.active = undefined;
         this.state = undefined;
         this.pendingCollect = false;
+        this.pendingTelemetryWorktree = undefined;
     }
 
     /** Target switch / initial load: resolve, collect, publish (PRD §5.4). */
@@ -179,6 +192,7 @@ export class ConversationChangesController {
         }
         this.active?.watcher?.dispose();
         const activationEpoch = ++this.activationEpoch;
+        this.rebindEpoch += 1;
         const changeSet = await this.resolveChangeSet(target);
         if (activationEpoch !== this.activationEpoch) {
             return;
@@ -199,24 +213,50 @@ export class ConversationChangesController {
             ?? changeSet.members[0]?.memberId;
         this.active = active;
         this.state = undefined;
-        if (changeSet.kind !== 'ready') {
+        const pending = this.pendingTelemetryWorktree;
+        if (pending && targetsEqual(pending.target, target)) {
+            this.pendingTelemetryWorktree = undefined;
+            await this.rebindToActiveWorktree(target, pending.path);
+        }
+        const current = this.active;
+        if (!current || !this.matchesActive(target)) {
+            return;
+        }
+        if (current.changeSet.kind !== 'ready') {
             // Terminal kinds publish immediately; a ready change set first
             // collects real snapshots so transient unknown states never
             // render as misleading counts (PRD §4.3).
-            this.publishState(active);
+            this.publishState(current);
         }
-        if (changeSet.kind === 'ready' && changeSet.members.length) {
-            active.watcher = this.options.watchRepositoryChanges?.(
-                changeSet.members.map(member => member.worktreePath),
+        if (current.changeSet.kind === 'ready'
+            && current.changeSet.members.length && !current.watcher) {
+            current.watcher = this.options.watchRepositoryChanges?.(
+                current.changeSet.members.map(member => member.worktreePath),
                 () => this.handleExternalChange(target));
         }
         await this.collectAndPublish(target);
     }
 
-    /** Piggyback refresh (telemetry cycle fallback, PRD §5.4). */
-    async onTelemetryRefreshed(target: ConversationViewerTarget): Promise<void> {
+    /**
+     * Piggyback refresh (telemetry cycle fallback, PRD §5.4). A resolved
+     * telemetry worktree is the conversation's latest working location and
+     * supersedes its launch-time identity for this live Git view.
+     */
+    async onTelemetryRefreshed(
+        target: ConversationViewerTarget,
+        activeWorktreePath?: string
+    ): Promise<void> {
         if (!this.matchesActive(target)) {
+            if (activeWorktreePath) {
+                this.pendingTelemetryWorktree = {
+                    target,
+                    path: activeWorktreePath,
+                };
+            }
             return;
+        }
+        if (activeWorktreePath) {
+            await this.rebindToActiveWorktree(target, activeWorktreePath);
         }
         await this.collectAndPublish(target);
     }
@@ -236,7 +276,8 @@ export class ConversationChangesController {
         }
         // Membership is re-resolved on refresh: add-repo, group merge, or
         // adopt changes the member set without any session switch.
-        const changeSet = await this.resolveChangeSet(active.target);
+        const changeSet = await this.resolveChangeSet(
+            active.target, active.changeSet.worktreeKey);
         if (this.active !== active) {
             return;
         }
@@ -588,23 +629,72 @@ export class ConversationChangesController {
     }
 
     private matchesActive(target: ConversationViewerTarget): boolean {
-        return !!this.active
-            && this.active.target.projectId === target.projectId
-            && this.active.target.provider === target.provider
-            && this.active.target.sessionId === target.sessionId;
+        return !!this.active && targetsEqual(this.active.target, target);
     }
 
     /**
      * Authoritative resolution order (PRD §4.1): persisted identity →
-     * manifest → retired identity → live fallback → hidden. A tool
-     * call's cwd never overrides the session's persisted identity.
+     * manifest → retired identity → live fallback → hidden. A resolved
+     * telemetry worktree, when supplied, is the current working location;
+     * otherwise the persisted session identity remains authoritative.
      */
+    private async rebindToActiveWorktree(
+        target: ConversationViewerTarget,
+        activeWorktreePath: string
+    ): Promise<void> {
+        const active = this.active;
+        if (!active || !this.matchesActive(target)) {
+            return;
+        }
+        const rebindEpoch = ++this.rebindEpoch;
+        let worktreeKey: WorktreeKey | undefined;
+        try {
+            worktreeKey = await this.options.resolveWorktreeKey(activeWorktreePath);
+        } catch (_error) {
+            return;
+        }
+        if (rebindEpoch !== this.rebindEpoch || this.active !== active
+            || !worktreeKey || (active.changeSet.worktreeKey
+            && worktreeKeysEqual(active.changeSet.worktreeKey, worktreeKey))) {
+            return;
+        }
+        const changeSet = await this.resolveChangeSet(target, worktreeKey);
+        if (rebindEpoch !== this.rebindEpoch || this.active !== active
+            || !this.matchesActive(target)) {
+            return;
+        }
+        active.watcher?.dispose();
+        const rebound: ActiveChanges = {
+            target,
+            changeSet,
+            snapshots: new Map(),
+        };
+        rebound.selectedMemberId = changeSet.members.find(member =>
+            member.worktreeKey
+            && worktreeKeysEqual(member.worktreeKey, worktreeKey))?.memberId
+            ?? (changeSet.primaryMemberId && changeSet.members.some(member =>
+                member.memberId === changeSet.primaryMemberId)
+                ? changeSet.primaryMemberId
+                : undefined)
+            ?? changeSet.members[0]?.memberId;
+        rebound.watcher = changeSet.kind === 'ready' && changeSet.members.length
+            ? this.options.watchRepositoryChanges?.(
+                changeSet.members.map(member => member.worktreePath),
+                () => this.handleExternalChange(target))
+            : undefined;
+        this.active = rebound;
+        if (changeSet.kind !== 'ready') {
+            this.publishState(rebound);
+        }
+    }
+
     private async resolveChangeSet(
-        target: ConversationViewerTarget
+        target: ConversationViewerTarget,
+        activeWorktreeKey?: WorktreeKey
     ): Promise<ResolvedChangeSet> {
         const identity = await this.options.resolveSessionIdentity(target);
         const navigationIdentity = identity?.navigationIdentity;
-        let key = identity?.worktreeKey;
+        let key = activeWorktreeKey || identity?.worktreeKey;
         if (!key && identity?.cwd) {
             key = await this.options.resolveWorktreeKey(identity.cwd);
         }
@@ -620,12 +710,13 @@ export class ConversationChangesController {
             return members.length
                 ? {
                     kind: 'ready',
+                    worktreeKey: key,
                     members,
                     ...(group.primaryMemberId
                         ? { primaryMemberId: group.primaryMemberId }
                         : {}),
                 }
-                : { kind: 'unavailable', members: [] };
+                : { kind: 'unavailable', worktreeKey: key, members: [] };
         }
         // Retired check must precede the live fallback (PRD §4.1): a
         // deleted worktree's session is retired, not unmanaged.
@@ -634,11 +725,12 @@ export class ConversationChangesController {
                 record.repositoryKey === key!.repositoryKey
                 && record.canonicalWorktreePath === key!.canonicalWorktreePath);
         if (retired) {
-            return { kind: 'retired', members: [] };
+            return { kind: 'retired', worktreeKey: key, members: [] };
         }
         // Degraded single-member view for unmanaged / legacy sessions.
         return {
             kind: 'ready',
+            worktreeKey: key,
             members: [{
                 // Protocol member ids are charset-restricted; hash the
                 // repository key (paths contain separators).
@@ -758,6 +850,7 @@ function memberSource(member: WorktreeGroupMember): ChangesMemberSource {
         repoLabel: repoLabelFromKey(member.repositoryKey),
         branchName: member.branchName,
         worktreePath: member.worktreeKey!.canonicalWorktreePath,
+        worktreeKey: member.worktreeKey,
         ...(member.baseline ? { baseline: member.baseline } : {}),
         ...(member.detached ? { detached: true } : {}),
     };
@@ -838,4 +931,13 @@ function isContainedIn(root: string, candidate: string): boolean {
 
 function sessionKey(target: ConversationViewerTarget): string {
     return `${target.projectId}:${target.provider}:${target.sessionId}`;
+}
+
+function targetsEqual(
+    left: ConversationViewerTarget,
+    right: ConversationViewerTarget
+): boolean {
+    return left.projectId === right.projectId
+        && left.provider === right.provider
+        && left.sessionId === right.sessionId;
 }

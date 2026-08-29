@@ -12,6 +12,8 @@ const {
 
 const REPO_KEY = '/repos/api/.git';
 const WT_PATH = '/repos/api/.worktrees/fix-login';
+const ACTIVE_WT_PATH = '/repos/api/.worktrees/refactor-auth';
+const OLDER_WT_PATH = '/repos/api/.worktrees/older-task';
 const BASELINE = {
     commitSha: 'a'.repeat(40),
     capturedAt: 1724000000000,
@@ -562,6 +564,271 @@ test('WORKTREE-CHANGES-PANEL-001 refresh re-resolves membership changes', async 
         'a member swap surfaces without reopening the conversation');
     assert.equal(state.selectedMemberId, 'member-2',
         'a vanished selection falls back to a live member');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 follows the worktree currently modified by the conversation', async () => {
+    const activeKey = {
+        repositoryKey: REPO_KEY,
+        canonicalWorktreePath: ACTIVE_WT_PATH,
+    };
+    const { posted, controller } = fixture({
+        resolveWorktreeKey: async candidate =>
+            candidate === ACTIVE_WT_PATH ? activeKey : undefined,
+        findGroupByWorktreeKey: (_navigationIdentity, key) =>
+            key.canonicalWorktreePath === ACTIVE_WT_PATH
+                ? {
+                    groupId: 'group-2',
+                    primaryMemberId: 'member-2',
+                    members: [{
+                        memberId: 'member-2',
+                        repositoryKey: REPO_KEY,
+                        worktreeKey: activeKey,
+                        branchName: 'agent-pivot/refactor-auth',
+                        path: ACTIVE_WT_PATH,
+                        state: 'ready',
+                        baseline: BASELINE,
+                    }],
+                }
+                : {
+                    groupId: 'group-1',
+                    primaryMemberId: 'member-1',
+                    members: [{
+                        memberId: 'member-1',
+                        repositoryKey: REPO_KEY,
+                        worktreeKey: {
+                            repositoryKey: REPO_KEY,
+                            canonicalWorktreePath: WT_PATH,
+                        },
+                        branchName: 'agent-pivot/fix-login',
+                        path: WT_PATH,
+                        state: 'ready',
+                        baseline: BASELINE,
+                    }],
+                },
+    });
+
+    await controller.activate(TARGET);
+    assert.equal(lastChanges(posted).selectedMemberId, 'member-1',
+        'the persisted session worktree supplies the initial selection');
+
+    await controller.onTelemetryRefreshed(TARGET, ACTIVE_WT_PATH);
+
+    const state = lastChanges(posted);
+    assert.equal(state.selectedMemberId, 'member-2');
+    assert.equal(state.detail.memberId, 'member-2',
+        'the Git sidebar switches to the worktree where the conversation is working');
+
+    await controller.handleRefresh();
+    assert.equal(lastChanges(posted).selectedMemberId, 'member-2',
+        'a manual refresh retains the telemetry-derived active worktree');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 replays telemetry received during initial changes activation', async () => {
+    let releaseIdentity;
+    let identityCalls = 0;
+    const activeKey = {
+        repositoryKey: REPO_KEY,
+        canonicalWorktreePath: ACTIVE_WT_PATH,
+    };
+    const { posted, controller } = fixture({
+        resolveSessionIdentity: () => {
+            identityCalls += 1;
+            if (identityCalls > 1) {
+                return Promise.resolve({
+                    worktreeKey: {
+                        repositoryKey: REPO_KEY,
+                        canonicalWorktreePath: WT_PATH,
+                    },
+                    navigationIdentity: 'nav',
+                });
+            }
+            return new Promise(resolve => {
+                releaseIdentity = resolve;
+            });
+        },
+        resolveWorktreeKey: async candidate =>
+            candidate === ACTIVE_WT_PATH ? activeKey : undefined,
+        findGroupByWorktreeKey: (_navigationIdentity, key) =>
+            key.canonicalWorktreePath === ACTIVE_WT_PATH
+                ? {
+                    groupId: 'group-2',
+                    primaryMemberId: 'member-2',
+                    members: [{
+                        memberId: 'member-2',
+                        repositoryKey: REPO_KEY,
+                        worktreeKey: activeKey,
+                        branchName: 'agent-pivot/refactor-auth',
+                        path: ACTIVE_WT_PATH,
+                        state: 'ready',
+                        baseline: BASELINE,
+                    }],
+                }
+                : {
+                    groupId: 'group-1',
+                    primaryMemberId: 'member-1',
+                    members: [{
+                        memberId: 'member-1',
+                        repositoryKey: REPO_KEY,
+                        worktreeKey: {
+                            repositoryKey: REPO_KEY,
+                            canonicalWorktreePath: WT_PATH,
+                        },
+                        branchName: 'agent-pivot/fix-login',
+                        path: WT_PATH,
+                        state: 'ready',
+                        baseline: BASELINE,
+                    }],
+                },
+    });
+
+    const activation = controller.activate(TARGET);
+    await new Promise(resolve => setImmediate(resolve));
+    await controller.onTelemetryRefreshed(TARGET, ACTIVE_WT_PATH);
+    releaseIdentity({
+        worktreeKey: {
+            repositoryKey: REPO_KEY,
+            canonicalWorktreePath: WT_PATH,
+        },
+        navigationIdentity: 'nav',
+    });
+    await activation;
+
+    assert.equal(lastChanges(posted).selectedMemberId, 'member-2',
+        'the first visible Changes state honors the already-resolved worktree');
+});
+
+test('WORKTREE-CHANGES-PANEL-001 discards an old collection when telemetry changes worktrees', async () => {
+    let releaseOldCollection;
+    const oldCollection = new Promise(resolve => {
+        releaseOldCollection = resolve;
+    });
+    let oldCollectionStarted = false;
+    const activeKey = {
+        repositoryKey: REPO_KEY,
+        canonicalWorktreePath: ACTIVE_WT_PATH,
+    };
+    const { posted, controller } = fixture({
+        resolveWorktreeKey: async candidate =>
+            candidate === ACTIVE_WT_PATH ? activeKey : undefined,
+        findGroupByWorktreeKey: (_navigationIdentity, key) =>
+            key.canonicalWorktreePath === ACTIVE_WT_PATH
+                ? {
+                    groupId: 'group-2', primaryMemberId: 'member-2', members: [{
+                        memberId: 'member-2', repositoryKey: REPO_KEY,
+                        worktreeKey: activeKey,
+                        branchName: 'agent-pivot/refactor-auth',
+                        path: ACTIVE_WT_PATH, state: 'ready', baseline: BASELINE,
+                    }],
+                }
+                : {
+                    groupId: 'group-1', primaryMemberId: 'member-1', members: [{
+                        memberId: 'member-1', repositoryKey: REPO_KEY,
+                        worktreeKey: {
+                            repositoryKey: REPO_KEY,
+                            canonicalWorktreePath: WT_PATH,
+                        },
+                        branchName: 'agent-pivot/fix-login',
+                        path: WT_PATH, state: 'ready', baseline: BASELINE,
+                    }],
+                },
+        collector: new ChangesCollector({
+            execGit: async (args, cwd) => {
+                if (args.includes('status')) {
+                    if (cwd === WT_PATH && !oldCollectionStarted) {
+                        oldCollectionStarted = true;
+                        await oldCollection;
+                        return { stdout: ' M stale.ts\0', stderr: '' };
+                    }
+                    return {
+                        stdout: cwd === ACTIVE_WT_PATH
+                            ? ' M active.ts\0' : '',
+                        stderr: '',
+                    };
+                }
+                if (args.includes('merge-base')) return { stdout: '', stderr: '' };
+                if (args.includes('rev-list')) return { stdout: '0\n', stderr: '' };
+                if (args.includes('diff')) return { stdout: '', stderr: '' };
+                return { stdout: '', stderr: '' };
+            },
+            now: () => 1724000000000,
+        }),
+    });
+
+    const activation = controller.activate(TARGET);
+    for (let attempt = 0; attempt < 20 && !oldCollectionStarted; attempt += 1) {
+        await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.equal(oldCollectionStarted, true, 'the old worktree collection began');
+
+    await controller.onTelemetryRefreshed(TARGET, ACTIVE_WT_PATH);
+    releaseOldCollection();
+    await activation;
+
+    const states = posted.filter(message =>
+        message.type === 'conversation-viewer-changes' && message.version === 2
+    ).map(message => message.changes);
+    assert.ok(states.length > 0, 'the rebound worktree publishes a new state');
+    assert.ok(states.every(state => state.selectedMemberId === 'member-2'),
+        'no result collected for the old worktree is published after the rebind');
+    assert.deepEqual(lastChanges(posted).detail.items.map(item => item.path),
+        ['active.ts']);
+});
+
+test('WORKTREE-CHANGES-PANEL-001 keeps the newest telemetry worktree when resolutions finish out of order', async () => {
+    let releaseOlder;
+    let releaseActive;
+    const olderResolution = new Promise(resolve => { releaseOlder = resolve; });
+    const activeResolution = new Promise(resolve => { releaseActive = resolve; });
+    const olderKey = {
+        repositoryKey: REPO_KEY,
+        canonicalWorktreePath: OLDER_WT_PATH,
+    };
+    const activeKey = {
+        repositoryKey: REPO_KEY,
+        canonicalWorktreePath: ACTIVE_WT_PATH,
+    };
+    const groupFor = (memberId, key) => ({
+        groupId: `group-${memberId}`,
+        primaryMemberId: memberId,
+        members: [{
+            memberId,
+            repositoryKey: REPO_KEY,
+            worktreeKey: key,
+            branchName: `agent-pivot/${memberId}`,
+            path: key.canonicalWorktreePath,
+            state: 'ready',
+            baseline: BASELINE,
+        }],
+    });
+    const { posted, controller } = fixture({
+        resolveWorktreeKey: candidate => {
+            if (candidate === OLDER_WT_PATH) return olderResolution;
+            if (candidate === ACTIVE_WT_PATH) return activeResolution;
+            return Promise.resolve(undefined);
+        },
+        findGroupByWorktreeKey: (_navigationIdentity, key) =>
+            key.canonicalWorktreePath === OLDER_WT_PATH
+                ? groupFor('member-older', olderKey)
+                : key.canonicalWorktreePath === ACTIVE_WT_PATH
+                    ? groupFor('member-active', activeKey)
+                    : groupFor('member-launch', {
+                        repositoryKey: REPO_KEY,
+                        canonicalWorktreePath: WT_PATH,
+                    }),
+    });
+    await controller.activate(TARGET);
+
+    const older = controller.onTelemetryRefreshed(TARGET, OLDER_WT_PATH);
+    await new Promise(resolve => setImmediate(resolve));
+    const active = controller.onTelemetryRefreshed(TARGET, ACTIVE_WT_PATH);
+    await new Promise(resolve => setImmediate(resolve));
+    releaseActive(activeKey);
+    await active;
+    releaseOlder(olderKey);
+    await older;
+
+    assert.equal(lastChanges(posted).selectedMemberId, 'member-active',
+        'a late resolution cannot replace the newer worktree selection');
 });
 
 test('WORKTREE-CHANGES-COMMITS-001 commits list responds with the stamped generation and member correlation', async () => {

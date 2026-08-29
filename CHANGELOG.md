@@ -4,6 +4,19 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-29
+
+### Added
+
+- Make an AI Conversation's Changes sidebar follow the worktree currently
+  being modified, while safely falling back to the conversation's persisted
+  worktree when live telemetry is unavailable.
+
+### Changed
+
+- Publish this minor release through the VS Code Marketplace while retaining
+  the Workspace Trust boundary and progressively rendered AI Conversations.
+
 ## [1.2.1] - 2026-08-28
 
 ### Fixed

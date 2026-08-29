@@ -14,8 +14,8 @@ const workflowPath = path.join(repositoryRoot, '.github', 'workflows', 'release-
 function validateReleaseContent({ readme, changelog, packageMetadata }) {
     assert.strictEqual(packageMetadata.displayName, 'Agent Pivot',
         'release metadata must use the Agent Pivot display name');
-    assert.strictEqual(packageMetadata.version, '1.2.1',
-        'the current Agent Pivot release must be version 1.2.1');
+    assert.strictEqual(packageMetadata.version, '1.3.0',
+        'the current Agent Pivot release must be version 1.3.0');
     const currentRelease = extractReleaseNotes(changelog, packageMetadata.version);
     const requiredReleaseFacts = [
         ['the Marketplace release channel', /VS Code Marketplace/i],

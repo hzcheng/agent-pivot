@@ -4524,10 +4524,23 @@ function toolIcon(name: string | undefined): string {
     )}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[toolIconKind(name)]}</svg>`;
 }
 
-function toolLabel(message: ConversationMessage): string {
-    const tool = message.tool;
-    const name = tool?.name || 'Tool';
-    return tool?.summary ? `${name} ${tool.summary}` : name;
+function toolActionLabel(name: string | undefined): string {
+    switch (toolIconKind(name)) {
+    case 'terminal':
+        return 'Ran command';
+    case 'file':
+        return 'Read file';
+    case 'edit':
+        return 'Edited file';
+    case 'search':
+        return 'Searched';
+    case 'git':
+        return 'Used Git';
+    case 'web':
+        return 'Browsed web';
+    default:
+        return 'Used tool';
+    }
 }
 
 function renderToolMessage(message: ConversationMessage): string {
@@ -4798,7 +4811,7 @@ function renderToolGroupRow(
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(toolGroup.id))}"
     data-interaction-id="${escapeAttribute(interactionId)}"
     data-tool-group-id="${escapeAttribute(toolGroup.id)}"${worklogAttribute}>
-    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${escapeAttribute(toolLabel(toolGroup.latestTool))}</span>${status}</button>
+    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${toolActionLabel(tool?.name)}</span>${status}</button>
 </article>`;
 }
 

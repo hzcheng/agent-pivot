@@ -8125,6 +8125,12 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps one completed work entry and nests
         /data-tool-group-id="input-1:tool-group:input-1:tool:1"/);
     assert.match(html, /conversation-tool-icon-file/);
     assert.match(html, /conversation-tool-icon-terminal/);
+    assert.match(html,
+        /conversation-tool-group-label">Read file<\/span>/,
+        'collapsed groups summarize the kind of file operation, not its path');
+    assert.match(html,
+        /conversation-tool-group-label">Ran command<\/span>/,
+        'collapsed groups summarize a command without previewing its arguments');
     assert.ok(
         html.indexOf('Inspect the renderer') < html.indexOf('Read viewer.ts')
             && html.indexOf('Read viewer.ts') < html.indexOf('Run focused checks')
@@ -8258,6 +8264,7 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and fall
     });
 
     await viewer.open(target('session-a', 'input-1'));
+    const inProgressHtml = decodeInitialPublication(panel.webview.html).html;
     assert.equal(
         panel.webview.html.includes('conversation-message-worklog'),
         false,
@@ -8268,8 +8275,11 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and fall
         true,
         'in-progress turns retain one collapsed group headed by the current tool'
     );
-    assert.match(panel.webview.html, /conversation-tool-group-running/);
-    assert.match(panel.webview.html, /conversation-tool-icon-terminal/);
+    assert.match(inProgressHtml, /conversation-tool-group-running/);
+    assert.match(inProgressHtml, /conversation-tool-icon-terminal/);
+    assert.match(inProgressHtml,
+        /conversation-tool-group-label">Ran command<\/span>/,
+        'a live group identifies the generic current action, not its command');
 
     const { viewer: fallbackViewer, panel: fallbackPanel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(

@@ -3276,12 +3276,26 @@
             ? row.getAttribute('data-interaction-id')
             : null;
         if (!interactionId) return;
+        // Revealing a hidden work entry can cause native scroll anchoring to
+        // move the toggle out from under the pointer. Disable it for this
+        // one layout change and retain the reader's exact scroll position.
+        var scrollTop = scroll.scrollTop;
+        var overflowAnchor = scroll.style.overflowAnchor;
+        scroll.style.overflowAnchor = 'none';
         if (state.worklogExpanded.get(interactionId) === true) {
             state.worklogExpanded.delete(interactionId);
         } else {
             state.worklogExpanded.set(interactionId, true);
         }
         applyWorklogStates();
+        // Force the visibility change to settle before re-enabling anchoring.
+        void scroll.offsetHeight;
+        scroll.scrollTop = scrollTop;
+        scroll.style.overflowAnchor = overflowAnchor;
+        // A manual disclosure change is not asynchronous transcript growth.
+        // Re-evaluate follow state before the ResizeObserver runs so it does
+        // not scroll this reader back to the tail after an expansion.
+        reconcileController.trackEnd();
     });
     messages.addEventListener('click', function (event) {
         var star = event.target && event.target.closest

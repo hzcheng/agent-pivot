@@ -4977,6 +4977,31 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Worklog disclosure now preserves the reader's scroll position and
+        // re-evaluates tail-following. That is newer than the adjacent
+        // generation reconstructed below, so remove the coupled statements
+        // before asserting its frozen source hash.
+        .replace(
+            '        // Revealing a hidden work entry can cause native scroll anchoring to\n'
+                + '        // move the toggle out from under the pointer. Disable it for this\n'
+                + '        // one layout change and retain the reader\'s exact scroll position.\n'
+                + '        var scrollTop = scroll.scrollTop;\n'
+                + '        var overflowAnchor = scroll.style.overflowAnchor;\n'
+                + "        scroll.style.overflowAnchor = 'none';\n",
+            ''
+        )
+        .replace(
+            '        applyWorklogStates();\n'
+                + '        // Force the visibility change to settle before re-enabling anchoring.\n'
+                + '        void scroll.offsetHeight;\n'
+                + '        scroll.scrollTop = scrollTop;\n'
+                + '        scroll.style.overflowAnchor = overflowAnchor;\n'
+                + '        // A manual disclosure change is not asynchronous transcript growth.\n'
+                + '        // Re-evaluate follow state before the ResizeObserver runs so it does\n'
+                + '        // not scroll this reader back to the tail after an expansion.\n'
+                + '        reconcileController.trackEnd();\n',
+            '        applyWorklogStates();\n'
+        )
         // Strip this generation's local rendering controls before replaying
         // the frozen adjacent Viewer generation below.
         .replace(
@@ -11627,6 +11652,16 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 strips inline emphasis tags fro
 
 test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a Worked-for row that toggles and survives refresh', async t => {
     const page = await openViewerPage(t, {});
+    const earlierContextArticle = `<article class="conversation-message conversation-message-user"
+            data-message-id="input-earlier:user"
+            data-conversation-message-id="input-earlier%3Auser"
+            data-interaction-id="input-earlier">
+        <span class="conversation-role">User</span>
+        <section class="conversation-markdown">${Array.from(
+            { length: 24 },
+            (_unused, index) => `<p>Earlier reading context ${index + 1}</p>`
+        ).join('')}</section>
+    </article>`;
     const userArticle = `<article class="conversation-message conversation-message-user"
             data-message-id="input-4:user"
             data-conversation-message-id="input-4%3Auser"
@@ -11649,7 +11684,10 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a W
             data-interaction-id="input-4">
         <details class="conversation-tool-call">
             <summary><span class="conversation-tool-name">Shell</span> Shell npm test</summary>
-            <pre class="conversation-tool-detail"><code>9 passing</code></pre>
+            <pre class="conversation-tool-detail"><code>${Array.from(
+                { length: 32 },
+                (_unused, index) => `${index + 1} passing`
+            ).join('\n')}</code></pre>
         </details>
     </article>`;
     const assistantArticle = `<article class="conversation-message conversation-message-assistant"
@@ -11661,7 +11699,7 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a W
     </article>`;
     // The row heads the work group so expanding reveals entries below the
     // toggle and the toggle itself never moves under the pointer.
-    const turnHtml = userArticle + worklogArticle + toolArticle
+    const turnHtml = earlierContextArticle + userArticle + worklogArticle + toolArticle
         + assistantArticle;
     await sendPage(page, {
         ...hostileConversationPage,
@@ -11683,14 +11721,56 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 collapses completed-turn work behind a W
         'completed-turn work starts collapsed');
     assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
 
+    const scrollTopBefore = await page.evaluate(async () => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        scroll.scrollTop = scroll.scrollHeight;
+        scroll.dispatchEvent(new Event('scroll'));
+        await new Promise(resolve => requestAnimationFrame(
+            () => requestAnimationFrame(resolve)
+        ));
+        return scroll.scrollTop;
+    });
+    assert.ok(scrollTopBefore > 0,
+        'the reader must be at a genuinely scrollable transcript tail');
     const toggleYBefore = (await toggle.boundingBox()).y;
     await toggle.click();
+    // Let the tail-follow ResizeObserver settle. Worklog expansion is a
+    // reader-initiated visibility change, so it must not pull the reader to
+    // the transcript end or move the toggle from under the pointer.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(
+        () => requestAnimationFrame(resolve)
+    )));
     assert.equal(await tool.isVisible(), true, 'click expands the worklog');
     assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(
+        await page.locator('[data-conversation-scroll]').evaluate(scroll => scroll.scrollTop),
+        scrollTopBefore,
+        'reader-initiated disclosure must retain the exact reading scroll position'
+    );
     assert.equal(
         (await toggle.boundingBox()).y,
         toggleYBefore,
         'expanding reveals entries below the toggle, never moving it'
+    );
+
+    const afterTailGrowth = await page.evaluate(async () => {
+        const messages = document.querySelector('[data-conversation-messages]');
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const tail = document.createElement('article');
+        tail.textContent = 'Later transcript growth';
+        tail.style.height = '240px';
+        messages.appendChild(tail);
+        await new Promise(resolve => requestAnimationFrame(
+            () => requestAnimationFrame(resolve)
+        ));
+        return scroll.scrollTop;
+    });
+    assert.equal(afterTailGrowth, scrollTopBefore,
+        'later tail growth must not re-enable following after a manual disclosure');
+    assert.equal(
+        (await toggle.boundingBox()).y,
+        toggleYBefore,
+        'later tail growth must leave the Worklog toggle at its reading position'
     );
 
     await sendPage(page, {

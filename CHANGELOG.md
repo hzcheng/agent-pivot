@@ -4,6 +4,37 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-29
+
+### Added
+
+- Make an AI Conversation's Changes sidebar follow the worktree currently
+  being modified, while safely falling back to the conversation's persisted
+  worktree when live telemetry is unavailable.
+- Add controlled rich AI Conversation rendering, including safe structured
+  content, side-by-side diffs, per-file line wrapping, and accessible local
+  controls that survive live refreshes.
+- Redesign Agent Pivot's Projects panel with compact grouped rows, tag
+  filtering, and inline project editing that stays available through updates.
+- Add a Save action to unsaved workspace rows in the OPEN window switcher.
+
+### Changed
+
+- Publish this minor release through the VS Code Marketplace while retaining
+  the Workspace Trust boundary and progressively rendered AI Conversations.
+- Keep AI Conversation readers pinned to the transcript tail only while they
+  are following it, while preserving a reader's deliberate position during
+  Worklog disclosure and live layout changes.
+
+### Fixed
+
+- Keep Agent Pivot dashboard tab and project-panel scrollports stable during refreshes,
+  filtering, and layout changes.
+- Keep unsaved-window save actions and inline project editing focused and
+  usable after authoritative Agent Pivot updates.
+- Preserve Conversation diff, chart, and rich-markup layout and accessibility
+  at narrow widths without allowing one pane to overlap another.
+
 ## [1.2.1] - 2026-08-28
 
 ### Fixed

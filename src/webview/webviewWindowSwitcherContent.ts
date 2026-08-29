@@ -65,6 +65,13 @@ export function getOpenWindowRowHtml(
     const pinSlot = row.canPin === false
         ? '<span class="open-window-pin-slot" aria-hidden="true"></span>'
         : `<button type="button" class="open-window-pin${row.pinned ? ' active' : ''}" data-action="toggle-open-workspace-pin" title="${pinTitle}" aria-label="${pinTitle}" aria-pressed="${row.pinned ? 'true' : 'false'}">${Icons.pin}</button>`;
+    // Saving is only meaningful for the current workspace: the current
+    // Extension Host owns its workspace and can refresh this row afterwards.
+    // Keep an empty fixed slot for saved and navigation rows so the action
+    // columns do not shift when the save affordance appears or disappears.
+    const saveSlot = isCurrent && row.showSaveAction
+        ? `<button type="button" class="open-window-save" data-action="save-current-workspace" title="Save Workspace" aria-label="Save Workspace">${Icons.save}</button>`
+        : '<span class="open-window-save-slot" aria-hidden="true"></span>';
     return `<div class="open-window-row${isCurrent ? ' open-window-row-current' : ''}${row.pinned ? ' open-window-row-pinned' : ''}${disabled ? ' open-window-row-disabled' : ''}" role="listitem" data-open-window-row data-id="${escapedCardId}" data-workspace-navigation-identity="${escapedIdentity}" data-window-kind="${row.kind}"${disabled ? ' data-navigation-disabled="true"' : ''}${row.canPin === false ? ' data-can-pin="false"' : ''}>
     <span class="open-window-indicator" aria-hidden="true"></span>
     <button type="button" class="open-window-focus" data-action="focus-open-window" title="${escapeAttribute(tooltip)}" aria-label="${escapeAttribute(focusLabel)}"${focusAria ? ' ' + focusAria : ''}>
@@ -72,6 +79,7 @@ export function getOpenWindowRowHtml(
         <span class="open-window-name">${escapedName}</span>
         <span class="open-window-jump-hint" aria-hidden="true">&#8599;</span>
     </button>
+    ${saveSlot}
     ${getCountSlot(row.attentionCount, 'open-window-attention', '<span class="open-window-attention-dot" aria-hidden="true"></span>', count => `${count} session${count === 1 ? '' : 's'} need${count === 1 ? 's' : ''} attention in this window`, 'Nothing needs attention')}
     ${getCountSlot(row.runningCount, 'open-window-running', '\u25CF', count => `${count} session${count === 1 ? '' : 's'} running in this window`, 'No running sessions')}
     ${pinSlot}

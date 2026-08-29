@@ -69,6 +69,7 @@ function renderSwitcherHtml() {
     const rows = buildOpenWindowRowViewModels([
         makeCard('__currentWorkspace-' + 'a'.repeat(24), 'current', {
             name: 'alpha', runningSessionCount: 2, attentionCount: 1, pinned: true,
+            showSaveAction: true,
         }),
         makeCard('__openWorkspaceNavigation-' + 'b'.repeat(24), 'navigation', {
             name: 'beta', runningSessionCount: 1, environment: 'ssh', environmentLabel: 'SSH',
@@ -142,6 +143,15 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
             environmentChipCount: document.querySelectorAll('.open-window-env-chip').length,
             pinPressed: rows.map(row => row.querySelector('[data-action="toggle-open-workspace-pin"]').getAttribute('aria-pressed')),
             moreHaspopup: rows.map(row => row.querySelector('[data-action="open-window-menu"]').getAttribute('aria-haspopup')),
+            saveButtons: rows.map(row => {
+                const button = row.querySelector('[data-action="save-current-workspace"]');
+                return button && { title: button.getAttribute('title'), ariaLabel: button.getAttribute('aria-label') };
+            }),
+            saveBeforeAttention: (() => {
+                const save = rows[0].querySelector('[data-action="save-current-workspace"]');
+                const attention = rows[0].querySelector('.open-window-attention');
+                return Boolean(save.compareDocumentPosition(attention) & Node.DOCUMENT_POSITION_FOLLOWING);
+            })(),
         };
     });
     assert.equal(structure.groupRole, 'list');
@@ -164,6 +174,21 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
     assert.equal(structure.environmentChipCount, 0);
     assert.deepEqual(structure.pinPressed, ['true', 'false', 'false']);
     assert.deepEqual(structure.moreHaspopup, ['menu', 'menu', 'menu']);
+    assert.deepEqual(structure.saveButtons, [
+        { title: 'Save Workspace', ariaLabel: 'Save Workspace' },
+        null,
+        null,
+    ]);
+    assert.equal(structure.saveBeforeAttention, true);
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 saves an unsaved current workspace from its row button', async t => {
+    const page = await openSwitcherPage(t);
+    await page.locator('[data-open-window-row][data-window-kind="current"] [data-action="save-current-workspace"]').click();
+    assert.deepEqual(await page.evaluate(() => window.__postedMessages), [{
+        type: 'save-current-workspace',
+        projectId: '__currentWorkspace-' + 'a'.repeat(24),
+    }]);
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 keeps window rows quiet by default and reserves emphasis for the current window', async t => {
@@ -490,6 +515,14 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
         const row = document.querySelectorAll('[data-open-window-row]')[1];
         return getComputedStyle(row.querySelector('[data-action="toggle-open-workspace-pin"]')).display !== 'none';
     });
+    const narrowSave = await narrow.evaluate(() => {
+        const row = document.querySelector('[data-open-window-row][data-window-kind="current"]');
+        const button = row.querySelector('[data-action="save-current-workspace"]');
+        return {
+            visible: getComputedStyle(button).display !== 'none',
+            overflows: row.scrollWidth > row.clientWidth,
+        };
+    });
     const compactLayout = await compact.evaluate(() =>
         Array.from(document.querySelectorAll('[data-open-window-row]')).map(row => {
             const pin = row.querySelector('[data-action="toggle-open-workspace-pin"]');
@@ -506,6 +539,8 @@ test('OPEN-WINDOW-SWITCHER-UI-001 responsive width matrix hides slots without sh
     // ≥360px：未 pin 的 ★ 在 DOM 中（hover 显示）；<280px：所有 Pin 槽位统一收起。
     assert.equal(widePinVisible, true);
     assert.equal(narrowPinVisible, false);
+    assert.deepEqual(narrowSave, { visible: true, overflows: false },
+        'an unsaved current workspace keeps Save Workspace available without horizontal overflow');
     assert.ok(compactLayout.every(item => item.pinDisplay !== 'none'),
         'every row retains its fixed Pin slot at compact widths');
     assert.deepEqual(compactLayout.map(item => item.pinVisibility), ['visible', 'hidden', 'hidden']);
@@ -1067,6 +1102,44 @@ test('OPEN-WINDOW-SWITCHER-UI-001 v4 replacement restores focus to the same row 
         });
     }, navigationCard.id);
     await assertFocusRestored('retry-open-window-navigation', 24);
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 direct save closes More and restores focus after its button disappears', async t => {
+    const currentCard = makeCard('__currentWorkspace-' + 's'.repeat(24), 'current', {
+        name: 'alpha', showSaveAction: true,
+    });
+    const navigationCard = makeCard('__openWorkspaceNavigation-' + 'n'.repeat(24), 'navigation', { name: 'beta' });
+    const page = await openProductionOpenTabPage(t, [currentCard, navigationCard]);
+    const currentRow = `[data-open-window-row][data-id="${currentCard.id}"]`;
+    const navigationMore = page.locator(
+        `[data-open-window-row][data-id="${navigationCard.id}"] [data-action="open-window-menu"]`
+    );
+
+    await navigationMore.click();
+    assert.equal(await navigationMore.getAttribute('aria-expanded'), 'true');
+    const saveButton = page.locator(`${currentRow} [data-action="save-current-workspace"]`);
+    await saveButton.click();
+    assert.deepEqual(await page.evaluate(() => window.__postedMessages), [{
+        type: 'save-current-workspace', projectId: currentCard.id,
+    }]);
+    assert.equal(await page.locator('#openWindowMenu.visible').count(), 0);
+    assert.equal(await navigationMore.getAttribute('aria-expanded'), 'false');
+
+    await postOpenWorkspacesUpdate(page, [
+        { ...currentCard, showSaveAction: false },
+        navigationCard,
+    ], 'ready', 31);
+    assert.equal(await page.locator(`${currentRow} [data-action="save-current-workspace"]`).count(), 0);
+    assert.deepEqual(await page.evaluate(() => ({
+        action: document.activeElement?.getAttribute('data-action'),
+        cardId: document.activeElement?.closest('[data-open-window-row]')?.getAttribute('data-id'),
+    })), { action: 'open-window-menu', cardId: currentCard.id },
+    'when Save Workspace disappears, focus moves to More in the same current-window row');
+
+    const blankSlotCursor = await page.locator(
+        `[data-open-window-row][data-id="${navigationCard.id}"] .open-window-save-slot`
+    ).evaluate(slot => getComputedStyle(slot).cursor);
+    assert.equal(blankSlotCursor, 'default');
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 outside-click menu close does not steal focus back to the trigger', async t => {

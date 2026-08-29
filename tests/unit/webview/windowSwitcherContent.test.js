@@ -54,6 +54,29 @@ test('window switcher renderer: current row carries the triple encoding and aria
     assert.ok(attentionIndex < runningIndex, 'attention count precedes the running count');
 });
 
+test('window switcher renderer: an unsaved current workspace gets a save button in its fixed action slot', () => {
+    const unsaved = getOpenWindowRowHtml(row({
+        kind: 'current',
+        cardId: '__currentWorkspace-' + 'a'.repeat(24),
+        showSaveAction: true,
+    }));
+    const saved = getOpenWindowRowHtml(row({
+        kind: 'current',
+        cardId: '__currentWorkspace-' + 'a'.repeat(24),
+        showSaveAction: false,
+    }));
+    const navigation = getOpenWindowRowHtml(row({ showSaveAction: true }));
+    assert.match(unsaved, /class="open-window-save"[^>]*data-action="save-current-workspace"/);
+    assert.match(unsaved, /title="Save Workspace"/);
+    assert.ok(
+        unsaved.indexOf('class="open-window-save"') < unsaved.indexOf('class="open-window-attention"'),
+        'Save Workspace appears before the attention indicator',
+    );
+    assert.match(saved, /class="open-window-save-slot"/);
+    assert.match(navigation, /class="open-window-save-slot"/);
+    assert.ok(!navigation.includes('data-action="save-current-workspace"'));
+});
+
 test('window switcher renderer: navigation row points at the focus affordance', () => {
     const html = getOpenWindowRowHtml(row());
     assert.match(html, /title="Focus window: beta/);

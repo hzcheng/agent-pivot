@@ -7636,7 +7636,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .digest('hex');
     assert.equal(
         sha256(previousViewerScriptWithoutAuxiliarySnapshots),
-        '696c5305cff730c862fc5296d57f3ca5fd0622d1af0a132bdd75b009dee935f8',
+        'b194d6594b220906ed4e54e70ecb36ffc2e97ecdf285211f91a67fb529713297',
         'the previous Viewer fixture must stay byte-exact'
     );
     assert.equal(
@@ -11958,41 +11958,33 @@ test('CONVERSATION-DIFF-VISIBILITY-001 renders diff cards with sanitized markup 
     assert.equal(narrow.scrollable, true, 'narrow views can scroll the full diff');
 });
 
-test('CONVERSATION-DIFF-VISIBILITY-001 keeps long diff lines inside their own pane', async t => {
-    // A code line far wider than half the viewport must not paint over the
-    // opposite pane, and must not be silently clipped either: a diff the reader
-    // cannot finish reading is as broken as one that overlaps.
-    const { page } = await openHostViewerDocument(t, {
-        includeStyles: true,
-        themeFixture: viewerThemeFixtures[0],
-        viewport: { width: 900, height: 600 },
-        markdown: [
-            '```diff',
-            '--- a/StreamProcessPipeline.java',
-            '+++ b/StreamProcessPipeline.java',
-            '@@ -86 +86 @@',
-            '         // 初始化Connector',
-            '         logger.info("taskInfo={}, Reader start Checkpoint={}", '
-                + 'taskInfo.toString(), JsonUtils.toJson(startCheckpoints));',
-            '         this.connector.init(new ArrayList<>(this.startCheckpoints.values()));',
-            '+        this.connector.start();',
-            '         this.monitor.setStartCheckpoint(startCheckpoints);',
-            '',
-            // A second hunk whose longest line differs, so panes sized per hunk
-            // would land at different offsets.
-            '@@ -121 +122 @@',
-            '         // 初始化Connector',
-            '         logger.info("taskInfo={}, Reader start with input Checkpoint={}", '
-                + 'taskInfo.toString(), JsonUtils.toJson(inputStartCheckpoints));',
-            '         this.connector.init(new ArrayList<>(inputStartCheckpoints.values()));',
-            '+        this.connector.start();',
-            '         this.monitor.setStartCheckpoint(inputStartCheckpoints);',
-            '```',
-        ].join('\n'),
-    });
+// Two hunks whose longest lines differ, so panes sized per hunk would land at
+// different offsets. Both far wider than half the viewport.
+const longDiffMarkdown = [
+    '```diff',
+    '--- a/StreamProcessPipeline.java',
+    '+++ b/StreamProcessPipeline.java',
+    '@@ -86 +86 @@',
+    '         // 初始化Connector',
+    '         logger.info("taskInfo={}, Reader start Checkpoint={}", '
+        + 'taskInfo.toString(), JsonUtils.toJson(startCheckpoints));',
+    '         this.connector.init(new ArrayList<>(this.startCheckpoints.values()));',
+    '+        this.connector.start();',
+    '         this.monitor.setStartCheckpoint(startCheckpoints);',
+    '',
+    '@@ -121 +122 @@',
+    '         // 初始化Connector',
+    '         logger.info("taskInfo={}, Reader start with input Checkpoint={}", '
+        + 'taskInfo.toString(), JsonUtils.toJson(inputStartCheckpoints));',
+    '         this.connector.init(new ArrayList<>(inputStartCheckpoints.values()));',
+    '+        this.connector.start();',
+    '         this.monitor.setStartCheckpoint(inputStartCheckpoints);',
+    '```',
+].join('\n');
 
-    await page.locator('.conversation-diff-row').first().waitFor();
-    const layout = await page.locator('.conversation-diff').evaluate(root => {
+/** Geometry shared by both wrap modes: nothing overlaps, panes stay aligned. */
+async function measureDiffLayout(page) {
+    return page.locator('.conversation-diff').evaluate(root => {
         const rows = [...root.querySelectorAll('.conversation-diff-row')]
             .map(row => [...row.querySelectorAll('.conversation-diff-line-text')])
             .filter(cells => cells.length === 2);
@@ -12001,35 +11993,111 @@ test('CONVERSATION-DIFF-VISIBILITY-001 keeps long diff lines inside their own pa
             return {
                 left: Math.round(box.left),
                 paintedRight: Math.round(box.left + cell.scrollWidth),
-                clipped: cell.scrollWidth > cell.clientWidth,
                 text: cell.textContent.trim().slice(0, 30),
             };
         };
+        const visibleOverlap = ([oldCell, newCell]) => {
+            // Painted width only escapes the cell when the cell does not clip.
+            const clips = getComputedStyle(oldCell).overflow !== 'visible';
+            const rightEdge = clips
+                ? Math.round(oldCell.getBoundingClientRect().right)
+                : measure(oldCell).paintedRight;
+            return rightEdge - Math.round(newCell.getBoundingClientRect().left);
+        };
         return {
             overlaps: rows
-                .map(([oldCell, newCell]) => ({
-                    ...measure(oldCell),
-                    into: measure(oldCell).paintedRight - measure(newCell).left,
-                }))
+                .map(cells => ({ ...measure(cells[0]), into: visibleOverlap(cells) }))
                 .filter(row => row.into > 0),
-            clipped: rows.flat().map(measure).filter(cell => cell.clipped),
-            // One offset across every hunk, not merely within one hunk: panes
-            // that shift between hunks are what makes a diff hard to read.
             newPaneStarts: new Set(rows.map(([, newCell]) =>
                 Math.round(newCell.getBoundingClientRect().left))).size,
+            anyTextExceedsItsPane: rows.flat()
+                .some(cell => cell.scrollWidth > cell.clientWidth),
             scrollingHunks: [...root.querySelectorAll('.conversation-diff-hunk')]
                 .filter(hunk => hunk.scrollWidth > hunk.clientWidth).length,
         };
     });
+}
+
+async function openLongDiff(t) {
+    const opened = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 900, height: 600 },
+        markdown: longDiffMarkdown,
+    });
+    await opened.page.locator('.conversation-diff-row').first().waitFor();
+    return opened;
+}
+
+test('CONVERSATION-DIFF-VISIBILITY-001 clips long diff lines at their own pane', async t => {
+    // Default matches the VS Code diff editor: lines do not wrap. Each line
+    // clips at its own edge, so a line wider than its pane can never paint
+    // across into the opposite one. The rest of the line is reached by turning
+    // wrapping on, not by scrolling: per-row scrollports cannot share one
+    // offset, so scrolling would leave the rows visibly ragged.
+    const { page } = await openLongDiff(t);
+    const layout = await measureDiffLayout(page);
 
     assert.deepEqual(layout.overlaps, [],
         'no diff line may paint across into the opposite pane');
-    assert.deepEqual(layout.clipped, [],
-        'no diff line may be clipped; long lines wrap inside their pane');
     assert.equal(layout.newPaneStarts, 1,
         'every row in every hunk starts its new pane at the same offset');
+    assert.equal(layout.anyTextExceedsItsPane, true,
+        'the unwrapped default keeps long lines at full width, clipped by the pane');
     assert.equal(layout.scrollingHunks, 0,
-        'a long line must not force a horizontal scroll that hides the opposite pane');
+        'no hunk scrolls horizontally, which would push the opposite pane out of view');
+});
+
+test('CONVERSATION-DIFF-VISIBILITY-001 wraps long diff lines once the reader turns wrapping on', async t => {
+    const { page } = await openLongDiff(t);
+    const toggle = page.locator('[data-conversation-diff-wrap-toggle]').first();
+    assert.equal(await toggle.getAttribute('aria-pressed'), 'false',
+        'wrapping starts off, matching the VS Code diff editor default');
+
+    await toggle.click();
+    assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+    const layout = await measureDiffLayout(page);
+
+    assert.deepEqual(layout.overlaps, [],
+        'no diff line may paint across into the opposite pane when wrapped');
+    assert.equal(layout.newPaneStarts, 1,
+        'wrapping must not shift the panes apart');
+    assert.equal(layout.anyTextExceedsItsPane, false,
+        'a wrapped line is fully readable without scrolling');
+    assert.equal(layout.scrollingHunks, 0,
+        'wrapping removes the need to scroll horizontally at all');
+});
+
+test('CONVERSATION-DIFF-VISIBILITY-001 keeps the wrap choice across an authoritative refresh', async t => {
+    const renderedHtml = await renderHostViewerDocument({ markdown: longDiffMarkdown });
+    const initial = decodeInitialPublication(renderedHtml);
+    const { page } = await openHostViewerDocument(t, {
+        renderedHtml,
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 900, height: 600 },
+    });
+    await page.locator('[data-conversation-diff-wrap-toggle]').first().click();
+
+    await sendPage(page, {
+        ...initial,
+        requestId: initial.requestId + 1,
+        updateKind: 'refresh',
+        htmlSignature: `${initial.htmlSignature}-refresh`,
+        html: initial.html.replace('startCheckpoints', 'startCheckpointsRenamed'),
+    });
+    await page.waitForFunction(signature => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === signature
+    ), `${initial.htmlSignature}-refresh`);
+
+    assert.equal(
+        await page.locator('[data-conversation-diff-wrap-toggle]').first()
+            .getAttribute('aria-pressed'),
+        'true',
+        'a Host-authored refresh must not silently discard the reader wrap choice');
+    assert.equal((await measureDiffLayout(page)).anyTextExceedsItsPane, false,
+        'the restored choice re-applies to the rendered lines, not just the button');
 });
 
 test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps in-progress work expanded and collapses it when the answer lands', async t => {

@@ -5183,6 +5183,22 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             "        'data-interaction-id', 'data-worklog-id', 'data-tool-group-id', 'data-conversation-run-command',\n",
             "        'data-interaction-id', 'data-worklog-id', 'data-conversation-run-command',\n"
         )
+        .replace(
+            "        'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',\n",
+            "        'fill', 'stroke', 'stroke-width', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',\n"
+        )
+        .replace(
+            /\n    \/\/ A streaming tail patch replaces one trailing interaction only\. Applying\n    \/\/ disclosure state to just those new rows keeps a tool-heavy transcript\n    \/\/ on the local-patch path instead of re-walking every prior tool group\.\n    function applyTailWorklogStates\(inserted\) \{[\s\S]*?\n    \}\n\n    function nextCopyRequestId/,
+            '\n    function nextCopyRequestId'
+        )
+        .replace(
+            '        applyTailWorklogStates(patch.inserted);\n',
+            '        applyWorklogStates();\n'
+        )
+        .replace(
+            '        applyTailWorklogStates(inserted);\n',
+            '        applyWorklogStates();\n'
+        )
         .replace('        toolGroupExpanded: new Map(),\n', '')
         .replace('        state.toolGroupExpanded = new Map();\n', '')
         .replace('            toolGroupExpanded: state.toolGroupExpanded,\n', '')
@@ -12214,9 +12230,9 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 nests flat tool calls under independentl
     const secondId = 'input-4:tool-group:test';
     const processHtml = worked
         + modelText('input-4:progress:0', 'Inspect the renderer.')
-        + toolGroup(firstId, 'Read viewer.ts', 'Read viewer.ts')
+        + toolGroup(firstId, 'Read file', 'Read viewer.ts')
         + modelText('input-4:progress:1', 'Run focused checks.')
-        + toolGroup(secondId, 'npm test', 'npm test');
+        + toolGroup(secondId, 'Ran command', 'npm test');
     await sendPage(page, {
         ...hostileConversationPage,
         requestId: 62,
@@ -12666,7 +12682,7 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps an in-progress tool group collapse
             data-message-id="input-4:tool-group:0"
             data-conversation-message-id="input-4%3Atool-group%3A0"
             data-interaction-id="input-4" data-tool-group-id="input-4:tool-group:0">
-        <button class="conversation-tool-group-toggle">Shell npm test</button>
+        <button class="conversation-tool-group-toggle">Running command</button>
     </article>
     <article class="conversation-message conversation-message-tool"
             data-message-id="input-4:tool:0"
@@ -14862,13 +14878,17 @@ test('CONVERSATION-PROGRESS-VISIBILITY-001 renders progress by default while Thi
             ],
         },
     });
-    const progress = opened.page.locator('.conversation-progress');
+    const progress = opened.page.locator(
+        '.conversation-message-assistant.conversation-message-progress'
+    );
     assert.equal(await progress.count(), 1);
     assert.match(await progress.innerText(), /Running the cross-provider checks\./);
     assert.equal(
-        await progress.locator('.conversation-progress-label').textContent(),
-        'Progress:'
+        await progress.locator('.conversation-role').textContent(),
+        'Assistant'
     );
+    assert.equal(await progress.locator('.conversation-progress').count(), 0,
+        'intermediate model text uses the normal Assistant presentation');
     assert.equal(
         await opened.page.locator('.conversation-message-thinking').count(),
         0

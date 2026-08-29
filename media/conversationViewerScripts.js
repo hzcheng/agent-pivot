@@ -15,7 +15,7 @@
         'data-conversation-diff-context-toggle', 'data-conversation-diff-wrap-toggle',
         'data-conversation-table-id',
         'data-conversation-diff-file-id', 'data-conversation-math-token',
-        'fill', 'stroke', 'stroke-width', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',
+        'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',
         'x1', 'y1', 'x2', 'y2',
         'pathLength', 'stroke-dasharray', 'stroke-dashoffset', 'transform',
         'data-message-id', 'data-conversation-message-id',
@@ -1969,6 +1969,60 @@
         );
     }
 
+    // A streaming tail patch replaces one trailing interaction only. Applying
+    // disclosure state to just those new rows keeps a tool-heavy transcript
+    // on the local-patch path instead of re-walking every prior tool group.
+    function applyTailWorklogStates(inserted) {
+        Array.prototype.forEach.call(inserted, function (row) {
+            if (!row.classList.contains('conversation-message-worklog')) {
+                return;
+            }
+            var interactionId = row.getAttribute('data-interaction-id');
+            if (!interactionId) return;
+            var worklogId = worklogKey(row);
+            var expanded = state.worklogExpanded.get(worklogId) === true;
+            var toggle = row.querySelector('.conversation-worklog-toggle');
+            if (toggle) {
+                toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            }
+            row.classList.toggle('conversation-worklog-expanded', expanded);
+            var sibling = row.nextElementSibling;
+            while (sibling
+                && (row.hasAttribute('data-worklog-id')
+                    ? sibling.getAttribute('data-worklog-id') === worklogId
+                    : sibling.getAttribute('data-interaction-id') === interactionId)) {
+                if (sibling.classList.contains('conversation-message-tool')
+                    || sibling.classList.contains('conversation-message-tool-group')
+                    || sibling.classList.contains('conversation-message-thinking')
+                    || sibling.classList.contains('conversation-message-progress')) {
+                    sibling.hidden = !expanded;
+                }
+                sibling = sibling.nextElementSibling;
+            }
+        });
+        Array.prototype.forEach.call(inserted, function (row) {
+            if (!row.classList.contains('conversation-message-tool-group')) {
+                return;
+            }
+            var toolGroupId = row.getAttribute('data-tool-group-id');
+            if (!toolGroupId) return;
+            var expanded = state.toolGroupExpanded.get(toolGroupId) === true;
+            var toggle = row.querySelector('.conversation-tool-group-toggle');
+            if (toggle) {
+                toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            }
+            row.classList.toggle('conversation-tool-group-expanded', expanded);
+            var sibling = row.nextElementSibling;
+            while (sibling
+                && sibling.getAttribute('data-tool-group-id') === toolGroupId) {
+                if (sibling.classList.contains('conversation-message-tool')) {
+                    sibling.hidden = row.hidden || !expanded;
+                }
+                sibling = sibling.nextElementSibling;
+            }
+        });
+    }
+
     function nextCopyRequestId() {
         copyRequestSequence += 1;
         return [
@@ -3039,7 +3093,7 @@
                 image.referrerPolicy = 'no-referrer';
             }
         );
-        applyWorklogStates();
+        applyTailWorklogStates(inserted);
         // Content grew above the viewport: compensate so the same messages
         // stay under the reader's eyes. A reader who scrolled to the very
         // top is waiting for this history, so keep that offset untouched.
@@ -3216,7 +3270,7 @@
                 }
             );
         });
-        applyWorklogStates();
+        applyTailWorklogStates(patch.inserted);
         applyRenderingControlStates();
         state.messageIds = ids;
         state.messageSignatures = signatures;

@@ -4488,23 +4488,26 @@ function copyMessage(message: ConversationMessage): ConversationMessage {
 
 function toolIconKind(name: string | undefined): string {
     const normalized = String(name || '').toLowerCase();
-    if (/(shell|terminal|command|exec|bash|powershell)/.test(normalized)) {
-        return 'terminal';
-    }
-    if (/(read|open|file)/.test(normalized)) {
-        return 'file';
-    }
-    if (/(write|edit|patch|apply|create|delete)/.test(normalized)) {
+    // Keep actions with a more specific meaning ahead of generic file/open
+    // names. Provider names such as `fileChange` and `WriteFile` otherwise
+    // look like a read merely because they contain "file".
+    if (/(write|edit|patch|apply|create|delete|replace|change)/.test(normalized)) {
         return 'edit';
     }
     if (/(search|find|grep|query)/.test(normalized)) {
         return 'search';
     }
+    if (/(fetch|browse|web|http|url)/.test(normalized)) {
+        return 'web';
+    }
+    if (/(shell|terminal|command|exec|bash|powershell)/.test(normalized)) {
+        return 'terminal';
+    }
     if (/(git|branch|commit|diff)/.test(normalized)) {
         return 'git';
     }
-    if (/(fetch|browse|web|http|url)/.test(normalized)) {
-        return 'web';
+    if (/(read|open|file)/.test(normalized)) {
+        return 'file';
     }
     return 'tool';
 }
@@ -4524,22 +4527,22 @@ function toolIcon(name: string | undefined): string {
     )}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[toolIconKind(name)]}</svg>`;
 }
 
-function toolActionLabel(name: string | undefined): string {
+function toolActionLabel(name: string | undefined, running: boolean): string {
     switch (toolIconKind(name)) {
     case 'terminal':
-        return 'Ran command';
+        return running ? 'Running command' : 'Ran command';
     case 'file':
-        return 'Read file';
+        return running ? 'Reading file' : 'Read file';
     case 'edit':
-        return 'Edited file';
+        return running ? 'Editing file' : 'Edited file';
     case 'search':
-        return 'Searched';
+        return running ? 'Searching' : 'Searched';
     case 'git':
-        return 'Used Git';
+        return running ? 'Using Git' : 'Used Git';
     case 'web':
-        return 'Browsed web';
+        return running ? 'Browsing web' : 'Browsed web';
     default:
-        return 'Used tool';
+        return running ? 'Using tool' : 'Used tool';
     }
 }
 
@@ -4801,17 +4804,14 @@ function renderToolGroupRow(
     const worklogAttribute = worklogId
         ? ` data-worklog-id="${escapeAttribute(worklogId)}"`
         : '';
-    const status = running
-        ? '<span class="conversation-tool-group-status">Running</span>'
-        : '';
-    return `<article class="conversation-message conversation-message-tool-group${running
+    return `<article class="conversation-message conversation-message-tool conversation-message-tool-group${running
         ? ' conversation-tool-group-running'
         : ''}"
     data-message-id="${escapeAttribute(toolGroup.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(toolGroup.id))}"
     data-interaction-id="${escapeAttribute(interactionId)}"
     data-tool-group-id="${escapeAttribute(toolGroup.id)}"${worklogAttribute}>
-    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${toolActionLabel(tool?.name)}</span>${status}</button>
+    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${toolActionLabel(tool?.name, running)}</span></button>
 </article>`;
 }
 
@@ -4991,10 +4991,15 @@ function renderMessages(
             const toolGroupStart = toolGroupStarts.get(message.id);
             const isWorklogEntryForTurn = worklogId !== undefined
                 && isWorklogEntry(message, showThinking);
+            // A turn can remain live while the model summarizes a completed
+            // tool result. Without provider tool lifecycle data, only call a
+            // group running when its latest tool is also the latest event.
             const runningToolGroup = info?.responseState === 'inProgress'
+                && toolGroupStart !== undefined
                 && toolGroupStart === toolGroupsForInteraction[
                     toolGroupsForInteraction.length - 1
-                ];
+                ] && toolGroupStart.latestTool.id
+                    === group[group.length - 1]?.id;
             return `${message.id === group[firstWorkIndex]?.id && worklogId
                 ? renderWorklogRow(
                     group[0].interactionId,

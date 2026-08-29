@@ -8140,6 +8140,32 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps one completed work entry and nests
     );
 });
 
+test('CONVERSATION-WORKLOG-COLLAPSE-001 summarizes known tool kinds without leaking paths or commands', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(sessionId, ['input-1']),
+        readPage: async request => ({
+            ...page(request.sessionId, 'input-1', 'visible'),
+            messages: [
+                { id: 'input-1:user', interactionId: 'input-1', role: 'user', markdown: 'Update files' },
+                { id: 'input-1:tool:change', interactionId: 'input-1', role: 'tool', markdown: '', tool: { name: 'fileChange', summary: 'src/a.ts' } },
+                { id: 'input-1:progress:0', interactionId: 'input-1', role: 'progress', markdown: 'Continue' },
+                { id: 'input-1:tool:write', interactionId: 'input-1', role: 'tool', markdown: '', tool: { name: 'WriteFile', summary: 'src/b.ts' } },
+                { id: 'input-1:progress:1', interactionId: 'input-1', role: 'progress', markdown: 'Check' },
+                { id: 'input-1:tool:search', interactionId: 'input-1', role: 'tool', markdown: '', tool: { name: 'FileSearch', summary: 'TODO' } },
+                { id: 'input-1:assistant', interactionId: 'input-1', role: 'assistant', markdown: 'Done.' },
+            ],
+            interactionStates: [{ interactionId: 'input-1', responseState: 'complete' }],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = decodeInitialPublication(panel.webview.html).html;
+    assert.equal((html.match(/conversation-tool-group-label">Edited file<\/span>/g) || []).length, 2);
+    assert.match(html, /conversation-tool-group-label">Searched<\/span>/);
+    assert.match(html, /conversation-tool-icon-edit/);
+    assert.match(html, /conversation-tool-icon-search/);
+});
+
 test('CONVERSATION-WORKLOG-COLLAPSE-001 renders Codex app-server duration in the Worked-for row', async t => {
     const adapter = new CodexConversationAdapter({
         client: {
@@ -8260,6 +8286,7 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and fall
         readPage: async request => worklogPage(request.sessionId, {
             responseState: 'inProgress',
             timestamp: 1_000,
+            withAnswer: false,
         }),
     });
 
@@ -8278,8 +8305,36 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and fall
     assert.match(inProgressHtml, /conversation-tool-group-running/);
     assert.match(inProgressHtml, /conversation-tool-icon-terminal/);
     assert.match(inProgressHtml,
-        /conversation-tool-group-label">Ran command<\/span>/,
+        /conversation-tool-group-label">Running command<\/span>/,
         'a live group identifies the generic current action, not its command');
+
+    const { viewer: progressViewer, panel: progressPanel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(sessionId, ['input-1']),
+        readPage: async request => ({
+            ...worklogPage(request.sessionId, {
+                responseState: 'inProgress',
+                withAnswer: false,
+            }),
+            messages: [
+                ...worklogPage(request.sessionId, {
+                    responseState: 'inProgress',
+                    withAnswer: false,
+                }).messages,
+                {
+                    id: 'input-1:progress:0', interactionId: 'input-1',
+                    role: 'progress', markdown: 'Reviewing the result.',
+                },
+            ],
+        }),
+    });
+    await progressViewer.open(target('session-live-progress', 'input-1'));
+    const postToolProgressHtml = decodeInitialPublication(
+        progressPanel.webview.html
+    ).html;
+    assert.doesNotMatch(postToolProgressHtml, /conversation-tool-group-running/,
+        'an earlier completed tool is not presented as the currently running step');
+    assert.match(postToolProgressHtml,
+        /conversation-tool-group-label">Ran command<\/span>/);
 
     const { viewer: fallbackViewer, panel: fallbackPanel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(

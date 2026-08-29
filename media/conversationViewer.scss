@@ -1042,7 +1042,6 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     display: inline-flex;
     max-width: min(100%, 42rem);
     align-items: center;
-    gap: 0.4rem;
     padding: 0.15rem 0.4rem 0.15rem 0;
     border: none;
     background: transparent;
@@ -1052,6 +1051,7 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
     &::before {
         content: '';
+        margin-right: 0.4rem;
         border: solid currentColor;
         border-width: 0 1.5px 1.5px 0;
         padding: 2.5px;
@@ -1068,6 +1068,10 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
         outline: 1px solid var(--vscode-focusBorder);
         outline-offset: 1px;
     }
+}
+
+.conversation-tool-group-toggle > * + * {
+    margin-left: 0.4rem;
 }
 
 .conversation-tool-group-expanded .conversation-tool-group-toggle::before {
@@ -1091,12 +1095,6 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.conversation-tool-group-status {
-    flex: 0 0 auto;
-    color: var(--vscode-progressBar-background, currentColor);
-    font-size: 0.9em;
 }
 
 .conversation-tool-group-running .conversation-tool-group-icon {
@@ -1302,7 +1300,6 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     summary {
         display: flex;
         align-items: center;
-        gap: 0.35rem;
         cursor: pointer;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1313,6 +1310,10 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
         }
     }
 
+    summary > * + * {
+        margin-left: 0.35rem;
+    }
+
     &[open] summary {
         white-space: normal;
     }
@@ -1321,10 +1322,13 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 .conversation-tool-call-static {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.conversation-tool-call-static > * + * {
+    margin-left: 0.35rem;
 }
 
 .conversation-diff {

@@ -375,6 +375,19 @@ function validateReleaseWorkflow(releaseWorkflow) {
     );
     assert.equal(workflow.jobs['release-extension-host'].needs, 'verify',
         'release-extension-host must need verify');
+    const extensionHostSource = findStep(workflow.jobs['release-extension-host'],
+        step => isMapping(step) && step.name === 'Resolve release source');
+    assert.ok(extensionHostSource && extensionHostSource.id === 'source'
+        && typeof extensionHostSource.run === 'string'
+        && extensionHostSource.run.includes('git ls-remote --exit-code --tags origin "refs/tags/$tag"')
+        && extensionHostSource.run.includes('ls_remote_status="$?"'),
+    'release-extension-host must resolve the same release source before activation');
+    const extensionHostCheckout = findStep(workflow.jobs['release-extension-host'],
+        step => isMapping(step) && step.name === 'Checkout release source');
+    assert.ok(extensionHostCheckout && extensionHostCheckout.uses === 'actions/checkout@v4'
+        && extensionHostCheckout.with
+        && extensionHostCheckout.with.ref === '${{ steps.source.outputs.ref }}',
+    'release-extension-host must check out the resolved immutable source before activation');
     const release = workflow.jobs.release;
     assert.ok(isMapping(release), 'GitHub release workflow must define release');
     assert.deepEqual(release.needs, ['verify', 'release-extension-host'],
@@ -384,10 +397,32 @@ function validateReleaseWorkflow(releaseWorkflow) {
     assert.equal(containsKey(workflow, 'continue-on-error'), false,
         'GitHub release workflow must not define continue-on-error');
 
-    validateMarketplacePublishJob(workflow, releaseWorkflow);
+    const source = findStep(release,
+        step => isMapping(step) && step.name === 'Resolve release source');
+    assert.ok(source && source.id === 'source' && typeof source.run === 'string'
+        && source.run.includes('git ls-remote --exit-code --tags origin "refs/tags/$tag"')
+        && source.run.includes('source_ref="$tag"')
+        && source.run.includes('Requested version $requested_version does not match package.json version $workflow_version.')
+        && source.run.includes('ls_remote_status="$?"')
+        && source.run.includes('Unable to resolve release tag $tag from origin.'),
+    'release retries must resolve an existing version from its immutable tag');
+    const sourceCheckout = findStep(release,
+        step => isMapping(step) && step.name === 'Checkout release source');
+    assert.ok(sourceCheckout && sourceCheckout.uses === 'actions/checkout@v4'
+        && sourceCheckout.with && sourceCheckout.with.ref === '${{ steps.source.outputs.ref }}',
+    'release packaging must check out the resolved immutable source');
+    const metadata = findStep(release,
+        step => isMapping(step) && step.name === 'Read package metadata');
+    assert.ok(metadata && typeof metadata.run === 'string'
+        && metadata.run.includes('tag="${{ steps.source.outputs.tag }}"')
+        && metadata.run.includes('source_sha="$(git rev-parse HEAD)"')
+        && metadata.run.includes('Release source package.json version $package_version does not match $tag.'),
+    'release packaging must reject a source whose package version does not match the resolved tag');
+
+    validateMarketplacePublishJob(workflow);
 }
 
-function validateMarketplacePublishJob(workflow, source) {
+function validateMarketplacePublishJob(workflow) {
     const job = workflow.jobs['publish-marketplace'];
     assert.ok(isMapping(job), 'GitHub release workflow must define publish-marketplace');
     assert.equal(job.name, 'publish-marketplace',
@@ -427,18 +462,38 @@ function validateMarketplacePublishJob(workflow, source) {
         'agent-pivot-${{ needs.release.outputs.version }}-vsix',
     'publish-marketplace must download the artifact produced by the release job');
 
-    const bridgePublish = source.indexOf(
+    const publish = findStep(job,
+        step => isMapping(step) && step.name === 'Publish extensions to the VS Code Marketplace');
+    assert.ok(publish && typeof publish.run === 'string',
+        'publish-marketplace must define the Marketplace publish command step');
+    const bridgePublish = publish.run.indexOf(
         'npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE"');
-    const mainPublish = source.indexOf(
+    const mainPublish = publish.run.indexOf(
         'npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE"');
     assert.ok(bridgePublish !== -1 && mainPublish !== -1,
         'publish-marketplace must publish both VSIX files with vsce');
     assert.ok(bridgePublish < mainPublish,
         'publish-marketplace must publish UI Bridge before the main extension');
-    assert.ok(source.includes('${{ secrets.VSCE_PAT }}'),
+    assert.ok(publish.run.includes(
+        'npx --yes @vscode/vsce publish --packagePath "$BRIDGE_VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation --skip-duplicate'
+    ) && publish.run.includes(
+        'npx --yes @vscode/vsce publish --packagePath "$VSIX_FILE" --pat "$VSCE_PAT" --allow-star-activation --skip-duplicate'
+    ), 'publish-marketplace must tolerate already-published VSIX versions when retrying a release');
+    assert.ok(String(publish.env && publish.env.VSCE_PAT).includes('${{ secrets.VSCE_PAT }}'),
         'publish-marketplace must authenticate with the VSCE_PAT repository secret');
-    assert.ok(source.includes('--allow-star-activation'),
+    assert.ok(publish.run.includes('--allow-star-activation'),
         'publish-marketplace must pass --allow-star-activation to vsce');
+    const createRelease = findStep(workflow.jobs.release,
+        step => isMapping(step) && step.name === 'Create GitHub release');
+    assert.ok(createRelease && typeof createRelease.run === 'string'
+        && createRelease.run.includes('Release $TAG already exists; retaining it.'),
+        'release retries must retain an existing GitHub Release');
+    assert.ok(createRelease.run.includes(
+        'gh release upload "$TAG" "$BRIDGE_VSIX_FILE" "$MAIN_VSIX_FILE" --clobber'
+    ), 'release retries must reconcile both VSIX assets after creating or retaining the GitHub Release');
+    assert.ok(createRelease.run.includes('gh release create "$TAG" --target "$SOURCE_SHA"')
+        && String(createRelease.env && createRelease.env.SOURCE_SHA).includes('${{ steps.meta.outputs.source_sha }}'),
+    'new releases must create their tag at the commit used to build the VSIX assets');
 }
 
 function includesShellCommand(script, command) {

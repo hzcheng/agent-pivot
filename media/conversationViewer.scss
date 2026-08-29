@@ -1306,10 +1306,6 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     line-height: 1.45;
 }
 
-.conversation-diff-grid {
-    min-width: 32rem;
-}
-
 .conversation-diff-context {
     display: block;
     background: var(--vscode-textCodeBlock-background);
@@ -1321,6 +1317,10 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     cursor: pointer;
     font-style: italic;
     user-select: none;
+}
+
+.conversation-diff-grid {
+    min-width: 32rem;
 }
 
 .conversation-diff-context-grid {
@@ -1353,7 +1353,13 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 .conversation-diff-line-text {
     min-width: 0;
     padding: 0 0.6rem 0 0.35rem;
-    white-space: pre;
+    // Wrap instead of holding one long unbreakable line. Each pane is capped at
+    // half the scrollport, so `pre` kept the text at full painted width and it
+    // rendered straight across the opposite pane. Wrapping keeps every line
+    // inside its own pane and fully readable without a horizontal scroll, which
+    // would otherwise push the opposite pane out of view.
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .conversation-diff-line-add {

@@ -38,8 +38,6 @@ const CONVERSATION_NAV_ICON_FIRST = '<svg viewBox="0 0 24 24" fill="none" stroke
 const CONVERSATION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const CONVERSATION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const CONVERSATION_NAV_ICON_LAST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 18 6-6-6-6"/><path d="M17 6v12"/></svg>';
-const CONVERSATION_SESSION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
-const CONVERSATION_SESSION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
 const CONVERSATION_FIND_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>';
 const CONVERSATION_FIND_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const CONVERSATION_FIND_ICON_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>';
@@ -211,10 +209,6 @@ export function renderConversationViewerDocument(
             </div>
         </main>
         <div class="conversation-session-nav-layer">
-            <button class="conversation-session-nav conversation-session-nav-previous"
-                type="button" data-session-nav="previous"
-                title="Previous window"
-                aria-label="Previous window">${CONVERSATION_SESSION_NAV_ICON_PREVIOUS}</button>
             <div class="conversation-session-controls">
                 <div class="conversation-question-navigation"
                     role="group" aria-label="Earlier questions">
@@ -241,10 +235,6 @@ export function renderConversationViewerDocument(
                         aria-label="Last question">${CONVERSATION_NAV_ICON_LAST}</button>
                 </div>
             </div>
-            <button class="conversation-session-nav conversation-session-nav-next"
-                type="button" data-session-nav="next"
-                title="Next window"
-                aria-label="Next window">${CONVERSATION_SESSION_NAV_ICON_NEXT}</button>
         </div>
         <div class="conversation-find" data-conversation-find hidden>
             <label class="conversation-find-field">

@@ -2802,7 +2802,7 @@
   {
     "id": "OPEN-WINDOW-CYCLE-RAILS-001",
     "domain": "open-project",
-    "title": "The AI Conversation bottom rails switch focus to the previous or next open window on one identity-sorted ring every window computes identically, with an empty-ring hint when no other window is open",
+    "title": "Adjacent-window cycling uses one identity-sorted ring every window computes identically, with an empty-ring hint when no other window is open, while the infrequently used action stays out of Conversation chrome",
     "priority": "P1",
     "status": "automated",
     "owners": [

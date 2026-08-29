@@ -9668,7 +9668,7 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
     ]);
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 renders ghost window-switch rails that post exact switch intents', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 keeps infrequently used window cycling out of the Conversation chrome', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
@@ -9678,118 +9678,13 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 ren
         markdown: 'Alpha beta gamma delta.',
     });
 
-    const buttons = page.locator('[data-session-nav]');
-    assert.equal(await buttons.count(), 2);
-    assert.deepEqual(
-        await buttons.evaluateAll(elements => elements.map(element => ({
-            direction: element.getAttribute('data-session-nav'),
-            label: element.getAttribute('aria-label'),
-            iconOnly: element.innerText === ''
-                && element.querySelectorAll('svg').length === 1,
-        }))),
-        [
-            {
-                direction: 'previous',
-                label: 'Previous window',
-                iconOnly: true,
-            },
-            {
-                direction: 'next',
-                label: 'Next window',
-                iconOnly: true,
-            },
-        ],
-        'window rails must be two icon-only buttons'
-    );
-
-    const rail = page.locator('.conversation-session-nav-layer');
-    assert.equal(await rail.evaluate(element =>
-        getComputedStyle(element).pointerEvents
-    ), 'none', 'the rail overlay must never block conversation interactions');
-
-    // Window switching is a lightweight rail, not a raised circular button.
-    const next = page.locator('[data-session-nav="next"]');
-    assert.deepEqual(
-        await next.evaluate(element => {
-            const style = getComputedStyle(element);
-            return {
-                position: style.position,
-                width: style.width,
-                height: style.height,
-                borderRadius: style.borderRadius,
-                borderTopWidth: style.borderTopWidth,
-                backgroundColor: style.backgroundColor,
-                boxShadow: style.boxShadow,
-                opacity: style.opacity,
-                iconPathCount: element.querySelectorAll('svg path').length,
-            };
-        }),
-        {
-            position: 'absolute',
-            width: '36px',
-            height: '36px',
-            borderRadius: '4px',
-            borderTopWidth: '0px',
-            backgroundColor: 'rgba(0, 0, 0, 0)',
-            boxShadow: 'none',
-            opacity: '0.45',
-            iconPathCount: 1,
-        },
-        'window rails must stay lightweight: no raised surface or first/last separator bar'
-    );
-
-    const previousBox = await page.locator('[data-session-nav="previous"]')
-        .boundingBox();
-    const nextBox = await next.boundingBox();
-    assert.equal(previousBox.x, 16);
-    assert.equal(previousBox.y + previousBox.height, 600 - 16);
-    assert.equal(nextBox.x + nextBox.width, 850 - 16);
-    assert.equal(nextBox.y + nextBox.height, 600 - 16);
-
-    await next.hover();
-    await page.waitForFunction(() =>
-        getComputedStyle(document.querySelector('[data-session-nav="next"]'))
-            .opacity === '1'
-    );
-    assert.equal(await next.evaluate(element =>
-        getComputedStyle(element).opacity
-    ), '1', 'window rails must become fully opaque on hover');
-
-    await next.click();
-    assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'conversation-viewer-switch-window',
-        version: 1,
-        direction: 'next',
-    });
-    await page.locator('[data-session-nav="previous"]').click();
-    assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'conversation-viewer-switch-window',
-        version: 1,
-        direction: 'previous',
-    });
-});
-
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 keeps window rails inside the conversation column when the side panel is open', async t => {
-    const { page } = await openHostViewerDocument(t, {
-        includeStyles: true,
-        themeFixture: viewerThemeFixtures[0],
-        viewport: { width: 850, height: 600 },
-        initialWebviewState: {
-            conversationCommentsPanel: { open: true, width: 192 },
-        },
-        interactionIds: ['input-1'],
-        interactionId: 'input-1',
-        markdown: 'Alpha beta gamma delta.',
-    });
-
-    const sidebar = page.locator('[data-conversation-sidebar]');
-    assert.equal(await sidebar.isVisible(), true);
-    const nextBox = await page.locator('[data-session-nav="next"]').boundingBox();
-    const sidebarBox = await sidebar.boundingBox();
-    assert.ok(
-        nextBox.x + nextBox.width <= sidebarBox.x,
-        `next rail right edge ${nextBox.x + nextBox.width} must stay left of the side panel at ${sidebarBox.x}`
-    );
+    assert.equal(await page.locator('[data-session-nav]').count(), 0);
+    assert.equal(await page.getByRole('button', {
+        name: 'Previous window', exact: true,
+    }).count(), 0);
+    assert.equal(await page.getByRole('button', {
+        name: 'Next window', exact: true,
+    }).count(), 0);
 });
 
 test('CONVERSATION-QUESTION-NAVIGATION-001 centers First, Previous, Next, and Last around the Session status dots', async t => {
@@ -9837,12 +9732,12 @@ test('CONVERSATION-QUESTION-NAVIGATION-001 centers First, Previous, Next, and La
         `${box.action} must share the status-dot row`
     ));
     assert.ok(
-        layout.statusLeft - layout.boxes[1].right >= 20,
-        'Previous must keep a deliberate 20px visual gutter from the status dots'
+        layout.statusLeft - layout.boxes[1].right >= 32,
+        'Previous must keep a deliberate 32px visual gutter from the status dots'
     );
     assert.ok(
-        layout.boxes[2].left - layout.statusRight >= 20,
-        'Next must keep a deliberate 20px visual gutter from the status dots'
+        layout.boxes[2].left - layout.statusRight >= 32,
+        'Next must keep a deliberate 32px visual gutter from the status dots'
     );
 
     for (const [action, type] of [
@@ -9859,13 +9754,10 @@ test('CONVERSATION-QUESTION-NAVIGATION-001 centers First, Previous, Next, and La
     }
 
     await page.setViewportSize({ width: 240, height: 600 });
-    await page.waitForFunction(() => document.querySelector(
-        '.conversation-session-nav-layer'
-    ).hasAttribute('data-compact-controls'));
     assert.equal(
-        await page.locator('[data-session-nav]').first().isHidden(),
-        true,
-        'window rails hide when their container is too narrow for safe hit targets'
+        await page.locator('[data-session-nav]').count(),
+        0,
+        'window rails stay absent at narrow widths'
     );
     const compactControls = await controls.boundingBox();
     assert.ok(compactControls.x >= 0
@@ -9873,19 +9765,10 @@ test('CONVERSATION-QUESTION-NAVIGATION-001 centers First, Previous, Next, and La
     'the question controls remain entirely within the narrow transcript');
 
     await page.setViewportSize({ width: 340, height: 600 });
-    assert.equal(
-        await page.locator('[data-session-nav]').first().isHidden(),
-        true,
-        'window rails stay hidden through the overlap boundary'
-    );
-    await page.emulateMedia({ reducedMotion: 'reduce', forcedColors: 'active' });
-    const railStyle = await page.locator('[data-session-nav]').first()
-        .evaluate(element => ({
-            opacity: getComputedStyle(element).opacity,
-            transitionDuration: getComputedStyle(element).transitionDuration,
-        }));
-    assert.equal(railStyle.opacity, '1');
-    assert.equal(railStyle.transitionDuration, '0s');
+    const narrowControls = await controls.boundingBox();
+    assert.ok(narrowControls.x >= 0
+        && narrowControls.x + narrowControls.width <= 340,
+    'the question controls compact before they can overflow a narrowed transcript');
 });
 
 test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read-only icon-action cards with edit mode and per-card send', async t => {
@@ -14961,7 +14844,7 @@ test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe loca
             '[data-conversation-session-status]'
         ).getBoundingClientRect();
         const navPrevious = document.querySelector(
-            '[data-session-nav="previous"]'
+            '[data-action="previous"]'
         ).getBoundingClientRect();
         return {
             centered: Math.abs(
@@ -14977,7 +14860,7 @@ test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe loca
     assert.equal(layout.centered, true,
         'session status must stay centered in the session-navigation row');
     assert.equal(layout.sameRow, true,
-        'session status must share the previous/next active session row');
+        'session status must share the question-navigation row');
     for (const width of [700, 240]) {
         await page.setViewportSize({ width, height: 500 });
         const fitsViewport = await page.locator(

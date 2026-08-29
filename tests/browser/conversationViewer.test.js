@@ -18897,6 +18897,281 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 applies history chunks in place
         '[data-conversation-messages] [data-message-id]').count(), 12);
 });
 
+// A progressively rendered page opens on its tail. When that tail is short
+// enough that the viewport cannot scroll yet, the reader sits at the end
+// with scrollTop 0 — by offset alone indistinguishable from a reader who
+// deliberately scrolled to the very top to wait for older history. The
+// backfill must not strand them on the oldest interaction.
+test('CONVERSATION-TAIL-FOLLOW-001 keeps the tail in view when deferred history backfills below a first screen that cannot scroll yet', async t => {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({
+        content: '.tail-block { height: 30px; margin: 0; }',
+    });
+    const article = index => `<article data-message-id="tail-${index}" `
+        + `data-interaction-id="tail-input-${index}">`
+        + '<section class="conversation-markdown">'
+        + `<p class="tail-block">tail block ${index}</p>`
+        + '</section></article>';
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: '<section class="conversation-deferred-messages">'
+            + 'Loading earlier messages…</section>'
+            + [6, 7, 8].map(article).join(''),
+        htmlSignature: 'tail-partial',
+        outline: Array.from({ length: 9 }, (_item, index) => ({
+            interactionId: `tail-input-${index}`,
+            userPreview: `input ${index}`,
+            responseState: 'complete',
+        })),
+        selectedInteractionId: 'tail-input-8',
+        selectedInput: 9,
+        totalInputs: 9,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'tail-partial'
+    ));
+
+    const opened = await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        return {
+            scrollTop: scroll.scrollTop,
+            scrollRange: scroll.scrollHeight - scroll.clientHeight,
+        };
+    });
+    assert.equal(opened.scrollTop, 0);
+    assert.ok(opened.scrollRange <= 0,
+        'the short first screen must not be scrollable for this check, got'
+            + ` a range of ${opened.scrollRange}px`);
+
+    await sendPage(page, {
+        type: 'conversation-viewer-history-chunk',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 2,
+        html: [3, 4, 5].map(article).join(''),
+        htmlSignature: 'tail-mid',
+        complete: false,
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-history-chunk',
+        version: 1,
+        subscriptionGeneration: 1,
+        requestId: 3,
+        html: [0, 1, 2].map(article).join(''),
+        htmlSignature: 'tail-full',
+        complete: true,
+    });
+
+    const settled = await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const viewport = scroll.getBoundingClientRect();
+        const newest = document.querySelector('[data-message-id="tail-8"]')
+            .getBoundingClientRect();
+        return {
+            count: document.querySelectorAll(
+                '[data-conversation-messages] [data-message-id]'
+            ).length,
+            placeholder: document.querySelectorAll(
+                '.conversation-deferred-messages'
+            ).length,
+            distanceToEnd: scroll.scrollHeight - scroll.clientHeight
+                - scroll.scrollTop,
+            newestFullyVisible: newest.top >= viewport.top - 1
+                && newest.bottom <= viewport.bottom + 1,
+        };
+    });
+    assert.equal(settled.count, 9, 'every backfilled slice is applied');
+    assert.equal(settled.placeholder, 0, 'the completing slice clears it');
+    assert.ok(settled.distanceToEnd <= 8,
+        'backfilling below a not-yet-scrollable first screen must keep the'
+            + ` reader on the tail, got ${settled.distanceToEnd}px to the end`);
+    assert.equal(settled.newestFullyVisible, true,
+        'the newest interaction stays rendered inside the viewport');
+});
+
+// Lazily decoded images and late Mermaid renders grow the transcript after
+// the reader settled on its end. No scroll event fires, so nothing tells
+// the viewer the reader is still there — the end must come back to them,
+// or every later check that reads the physical offset (live refresh follow,
+// frame stashing) concludes they walked away into the history.
+const asyncGrowthPage = (generation, sessionId, marker, signature,
+    options = {}) => {
+    const message = {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: options.requestId || generation * 10,
+        subscriptionGeneration: generation,
+        updateKind: options.updateKind || 'initial',
+        html: Array.from({ length: 8 }, (_item, index) =>
+            `<article data-message-id="${marker}-${index}" `
+                + `data-interaction-id="${marker}-input-${index}">`
+                + '<section class="conversation-markdown">'
+                + `<p class="grow-block">${marker} block ${index}</p>`
+                + '</section></article>').join(''),
+        htmlSignature: signature,
+        outline: Array.from({ length: 8 }, (_item, index) => ({
+            interactionId: `${marker}-input-${index}`,
+            userPreview: `${marker} ${index}`,
+            responseState: 'complete',
+        })),
+        selectedInteractionId: `${marker}-input-7`,
+        selectedInput: 8,
+        totalInputs: 8,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId,
+            interactionId: `${marker}-input-7`,
+            displayName: `${marker} session`,
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    };
+    if (options.restoreFrame) {
+        delete message.html;
+        message.restoreFrame = true;
+    }
+    return message;
+};
+
+// Grows the last interaction the way a lazily decoded image does: below
+// the reader, after the page applied, without any scroll event.
+async function growTranscriptTail(page, marker) {
+    const before = await page.evaluate(() => document.querySelector(
+        '[data-conversation-scroll]').scrollHeight);
+    await page.evaluate(id => {
+        const block = document.createElement('p');
+        block.className = 'grown-block';
+        block.textContent = 'late image';
+        document.querySelector(`[data-message-id="${id}"] section`)
+            .append(block);
+    }, `${marker}-7`);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(
+        () => requestAnimationFrame(resolve))));
+    return page.evaluate(previous => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        return {
+            growth: scroll.scrollHeight - previous,
+            distanceToEnd: scroll.scrollHeight - scroll.clientHeight
+                - scroll.scrollTop,
+        };
+    }, before);
+}
+
+async function openGrownTail(t, marker) {
+    const page = await openViewerPage(t);
+    await page.addStyleTag({
+        content: '.grow-block { height: 120px; margin: 0; }'
+            + ' .grown-block { height: 300px; margin: 0; }',
+    });
+    await sendPage(page, asyncGrowthPage(2, 'session-grow', marker, 'sig-g1'));
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-g1'
+    ));
+    assert.equal(await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        return scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop;
+    }), 0, 'opening at the latest interaction lands on the end');
+
+    const grown = await growTranscriptTail(page, marker);
+    assert.equal(grown.growth, 300,
+        `the growth must move the end out of reach, got ${grown.growth}px`);
+    assert.ok(grown.distanceToEnd <= 8,
+        'growth beneath a reader who is following the end keeps them on the'
+            + ` end, got ${grown.distanceToEnd}px to the end`);
+    return page;
+}
+
+test('CONVERSATION-TAIL-FOLLOW-001 still follows the tail on a live refresh after the transcript grew asynchronously beneath the reader', async t => {
+    const page = await openGrownTail(t, 'grow');
+
+    await sendPage(page, asyncGrowthPage(2, 'session-grow', 'grow', 'sig-g2', {
+        updateKind: 'refresh',
+        requestId: 21,
+    }));
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-g2'
+    ));
+
+    const refreshed = await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const viewport = scroll.getBoundingClientRect();
+        const newest = document.querySelector('[data-message-id="grow-7"]')
+            .getBoundingClientRect();
+        return {
+            distanceToEnd: scroll.scrollHeight - scroll.clientHeight
+                - scroll.scrollTop,
+            newestVisible: newest.bottom > viewport.top
+                && newest.top < viewport.bottom,
+        };
+    });
+    assert.ok(refreshed.distanceToEnd <= 8,
+        'a reader who never scrolled away keeps following the end across a'
+            + ` refresh, got ${refreshed.distanceToEnd}px to the end`);
+    assert.equal(refreshed.newestVisible, true,
+        'the newest interaction is rendered inside the viewport');
+});
+
+test('CONVERSATION-TAIL-FOLLOW-001 returns to the tail when a Session is reopened after the transcript grew asynchronously beneath the reader', async t => {
+    const page = await openGrownTail(t, 'grow');
+
+    await sendPage(page, asyncGrowthPage(3, 'session-other', 'other',
+        'sig-o1'));
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.htmlSignature === 'sig-o1'
+    ));
+    await sendPage(page, asyncGrowthPage(4, 'session-grow', 'grow', 'sig-g1', {
+        restoreFrame: true,
+    }));
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.requestId === 40
+    ));
+
+    const returned = await page.evaluate(() => {
+        const scroll = document.querySelector('[data-conversation-scroll]');
+        const viewport = scroll.getBoundingClientRect();
+        const newest = document.querySelector('[data-message-id="grow-7"]')
+            .getBoundingClientRect();
+        const oldest = document.querySelector('[data-message-id="grow-0"]')
+            .getBoundingClientRect();
+        return {
+            distanceToEnd: scroll.scrollHeight - scroll.clientHeight
+                - scroll.scrollTop,
+            newestVisible: newest.bottom > viewport.top
+                && newest.top < viewport.bottom,
+            oldestVisible: oldest.bottom > viewport.top
+                && oldest.top < viewport.bottom,
+        };
+    });
+    assert.ok(returned.distanceToEnd <= 8,
+        'reopening the Session returns the reader to the end they were'
+            + ` following, got ${returned.distanceToEnd}px to the end`);
+    assert.equal(returned.newestVisible, true,
+        'the newest interaction is rendered inside the viewport');
+    assert.equal(returned.oldestVisible, false,
+        'the reader is not stranded back on the oldest interaction');
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 clears a stalled progressive loading notice', async t => {
     const page = await openViewerPage(t);
     await page.evaluate(() => {

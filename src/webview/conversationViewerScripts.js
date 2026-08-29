@@ -12,7 +12,8 @@
         'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open', 'type',
         'role', 'aria-hidden', 'viewBox', 'preserveAspectRatio',
         'aria-sort', 'aria-pressed', 'data-conversation-sort-column', 'data-conversation-sort-direction',
-        'data-conversation-diff-context-toggle', 'data-conversation-table-id',
+        'data-conversation-diff-context-toggle', 'data-conversation-diff-wrap-toggle',
+        'data-conversation-table-id',
         'data-conversation-diff-file-id', 'data-conversation-math-token',
         'fill', 'stroke', 'stroke-width', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',
         'x1', 'y1', 'x2', 'y2',
@@ -509,6 +510,7 @@
         worklogExpanded: new Map(),
         tableSortDirections: new Map(),
         diffChangesOnly: new Set(),
+        diffWrapLines: new Set(),
         renderingControlsTarget: '',
         renderGeneration: 0,
         appliedHtmlSignature: undefined,
@@ -537,6 +539,22 @@
         );
     }
 
+    var renderingControlSelector = '[data-conversation-sort-column],'
+        + ' [data-conversation-diff-context-toggle],'
+        + ' [data-conversation-diff-wrap-toggle]';
+
+    /** Which diff header control an element is, so focus restores to the same one. */
+    function diffControlAttribute(element) {
+        if (!element || !element.hasAttribute) return '';
+        if (element.hasAttribute('data-conversation-diff-wrap-toggle')) {
+            return 'data-conversation-diff-wrap-toggle';
+        }
+        if (element.hasAttribute('data-conversation-diff-context-toggle')) {
+            return 'data-conversation-diff-context-toggle';
+        }
+        return '';
+    }
+
     function diffControlKey(file) {
         return renderingControlKey(
             file,
@@ -544,6 +562,17 @@
             file.getAttribute('data-conversation-diff-file-id')
         );
     }
+
+    function applyDiffWrap(file, wrap) {
+        file.classList.toggle('conversation-diff-wrap', wrap);
+        var toggle = file.querySelector('[data-conversation-diff-wrap-toggle]');
+        if (toggle) {
+            toggle.setAttribute('aria-pressed', String(wrap));
+            toggle.textContent = wrap ? 'No wrap' : 'Wrap lines';
+            toggle.title = wrap ? 'Stop wrapping long lines' : 'Wrap long lines';
+        }
+    }
+
 
     function applyTableSort(table, column, direction) {
         var body = table ? table.querySelector('tbody') : null;
@@ -602,6 +631,13 @@
                 toggle.setAttribute('aria-pressed', String(changesOnly));
                 toggle.textContent = changesOnly ? 'Show context' : 'Changes only';
                 toggle.title = changesOnly ? 'Show all context' : 'Show changes only';
+            }
+        );
+        Array.prototype.forEach.call(
+            messages.querySelectorAll('.conversation-diff-file'),
+            function (file) {
+                var key = diffControlKey(file);
+                applyDiffWrap(file, !!(key && state.diffWrapLines.has(key)));
             }
         );
     }
@@ -2465,14 +2501,17 @@
             : null;
         var focusedRenderingControl = document.activeElement
             && document.activeElement.closest
-            ? document.activeElement.closest(
-                '[data-conversation-sort-column], [data-conversation-diff-context-toggle]'
-            )
+            ? document.activeElement.closest(renderingControlSelector)
             : null;
         var focusedRenderingControlKey = focusedRenderingControl
             ? focusedRenderingControl.hasAttribute('data-conversation-sort-column')
                 ? tableControlKey(focusedRenderingControl.closest('table'))
                 : diffControlKey(focusedRenderingControl.closest('.conversation-diff-file'))
+            : '';
+        // Both diff toggles live in one file and share its control key, so the
+        // kind has to be carried too or focus lands on the wrong button.
+        var focusedDiffControl = focusedRenderingControl
+            ? diffControlAttribute(focusedRenderingControl)
             : '';
         var focusedSortColumn = focusedRenderingControl
             ? focusedRenderingControl.getAttribute('data-conversation-sort-column')
@@ -2484,6 +2523,7 @@
             state.renderingControlsTarget = incomingControlsTarget;
             state.tableSortDirections.clear();
             state.diffChangesOnly.clear();
+            state.diffWrapLines.clear();
         }
         var oldSignatures = state.messageSignatures;
         state.renderGeneration += 1;
@@ -2644,9 +2684,7 @@
                 || !focusedMessage.contains(document.activeElement))) {
             var restoredRenderingControl = focusedRenderingControlKey
                 ? Array.prototype.find.call(
-                    messages.querySelectorAll(
-                        '[data-conversation-sort-column], [data-conversation-diff-context-toggle]'
-                    ),
+                    messages.querySelectorAll(renderingControlSelector),
                     function (candidate) {
                         if (candidate.hasAttribute('data-conversation-sort-column')) {
                             return candidate.getAttribute('data-conversation-sort-column')
@@ -2654,8 +2692,9 @@
                                 && tableControlKey(candidate.closest('table'))
                                     === focusedRenderingControlKey;
                         }
-                        return diffControlKey(candidate.closest('.conversation-diff-file'))
-                            === focusedRenderingControlKey;
+                        return diffControlAttribute(candidate) === focusedDiffControl
+                            && diffControlKey(candidate.closest('.conversation-diff-file'))
+                                === focusedRenderingControlKey;
                     }
                 )
                 : null;
@@ -3251,6 +3290,21 @@
         outlineController.toggleBookmark(interactionId, 'card');
     });
     messages.addEventListener('click', function (event) {
+        var wrapToggle = event.target && event.target.closest
+            ? event.target.closest('[data-conversation-diff-wrap-toggle]')
+            : null;
+        if (wrapToggle && messages.contains(wrapToggle)) {
+            var wrapFile = wrapToggle.closest('.conversation-diff-file');
+            if (!wrapFile) return;
+            var wrap = !wrapFile.classList.contains('conversation-diff-wrap');
+            var wrapKey = diffControlKey(wrapFile);
+            if (wrapKey) {
+                if (wrap) state.diffWrapLines.add(wrapKey);
+                else state.diffWrapLines.delete(wrapKey);
+            }
+            applyDiffWrap(wrapFile, wrap);
+            return;
+        }
         var contextToggle = event.target && event.target.closest
             ? event.target.closest('[data-conversation-diff-context-toggle]')
             : null;

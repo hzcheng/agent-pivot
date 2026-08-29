@@ -138,7 +138,13 @@ function renderConversationDiffFile(diff: ConversationFileDiff, index: number): 
         ? `<span class="conversation-diff-kind conversation-diff-kind-${escapeHtml(diff.kind)}">${escapeHtml(diff.kind)}</span>`
         : '';
     const hunks = diff.hunks.map(renderDiffHunk).join('');
-    return `<section class="conversation-diff-file" data-conversation-diff-file-id="${index}"><section class="conversation-diff-file-header"><span class="conversation-diff-path" title="${escapeHtml(diff.path)}">${escapeHtml(diff.path)}</span>${kind}<span class="conversation-diff-counts"><span class="conversation-diff-count-add">+${diff.additions}</span> <span class="conversation-diff-count-del">−${diff.deletions}</span></span><button class="conversation-diff-context-toggle" type="button" data-conversation-diff-context-toggle aria-pressed="false" title="Show changes only">Changes only</button></section>${hunks}</section>`;
+    // Wrapping starts off, matching the VS Code diff editor, whose
+    // `diffEditor.wordWrap` inherits an editor default of `off`. The Webview
+    // owns the pressed state so the reader's choice survives a Host refresh.
+    const wrapToggle = '<button class="conversation-diff-wrap-toggle" type="button"'
+        + ' data-conversation-diff-wrap-toggle aria-pressed="false"'
+        + ' title="Wrap long lines">Wrap lines</button>';
+    return `<section class="conversation-diff-file" data-conversation-diff-file-id="${index}"><section class="conversation-diff-file-header"><span class="conversation-diff-path" title="${escapeHtml(diff.path)}">${escapeHtml(diff.path)}</span>${kind}<span class="conversation-diff-counts"><span class="conversation-diff-count-add">+${diff.additions}</span> <span class="conversation-diff-count-del">−${diff.deletions}</span></span>${wrapToggle}<button class="conversation-diff-context-toggle" type="button" data-conversation-diff-context-toggle aria-pressed="false" title="Show changes only">Changes only</button></section>${hunks}</section>`;
 }
 
 export function renderConversationDiffs(diffs: ConversationFileDiff[]): string {

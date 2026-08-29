@@ -1258,7 +1258,8 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     white-space: nowrap;
 }
 
-.conversation-diff-context-toggle {
+.conversation-diff-context-toggle,
+.conversation-diff-wrap-toggle {
     flex: 0 0 auto;
     padding: 0.1rem 0.35rem;
     border: 1px solid var(--vscode-panel-border);
@@ -1270,12 +1271,14 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     cursor: pointer;
 }
 
-.conversation-diff-context-toggle:hover {
+.conversation-diff-context-toggle:hover,
+.conversation-diff-wrap-toggle:hover {
     color: var(--vscode-foreground);
     background: var(--vscode-toolbar-hoverBackground, transparent);
 }
 
-.conversation-diff-context-toggle:focus-visible {
+.conversation-diff-context-toggle:focus-visible,
+.conversation-diff-wrap-toggle:focus-visible {
     outline: 1px solid var(--vscode-focusBorder);
     outline-offset: 1px;
 }
@@ -1353,13 +1356,21 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 .conversation-diff-line-text {
     min-width: 0;
     padding: 0 0.6rem 0 0.35rem;
-    // Wrap instead of holding one long unbreakable line. Each pane is capped at
-    // half the scrollport, so `pre` kept the text at full painted width and it
-    // rendered straight across the opposite pane. Wrapping keeps every line
-    // inside its own pane and fully readable without a horizontal scroll, which
-    // would otherwise push the opposite pane out of view.
+    // Unwrapped by default, as the VS Code diff editor is: a change within a
+    // line is harder to compare once the line is broken across visual rows.
+    // The line clips at its own edge so it can never paint across into the
+    // opposite pane, and the ellipsis marks that the line continues. Readers
+    // who want the rest of a long line turn wrapping on for that file.
+    white-space: pre;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.conversation-diff-wrap .conversation-diff-line-text {
     white-space: pre-wrap;
+    overflow: visible;
     overflow-wrap: anywhere;
+    text-overflow: clip;
 }
 
 .conversation-diff-line-add {

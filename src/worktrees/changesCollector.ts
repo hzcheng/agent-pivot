@@ -82,6 +82,11 @@ export interface MemberChangesSnapshot {
      */
     headSha?: string;
     /**
+     * Current local branch short name. An empty string is the known detached
+     * HEAD state; an absent value means the branch query itself failed.
+     */
+    branchName?: string;
+    /**
      * Tracking-branch state (changes-panel PRD §14.1 three-state chain),
      * collected independently of the baseline; absent only when the
      * member is unreadable.
@@ -261,6 +266,9 @@ export class ChangesCollector {
         if (tracking.headSha !== undefined) {
             snapshot.headSha = tracking.headSha;
         }
+        if (tracking.branchName !== undefined) {
+            snapshot.branchName = tracking.branchName;
+        }
         snapshot.upstream = tracking.upstream;
         if (!baseline) {
             return snapshot;
@@ -327,16 +335,24 @@ export class ChangesCollector {
      */
     private async collectTracking(
         worktreePath: string
-    ): Promise<{ headSha?: string; upstream: MemberUpstreamState }> {
+    ): Promise<{
+        branchName?: string;
+        headSha?: string;
+        upstream: MemberUpstreamState;
+    }> {
         // ① Current branch ref. `symbolic-ref -q` exits 1 quietly on a
         // detached HEAD — that is the fact "no branch" (→ none), while a
         // genuine failure (timeout, git gone) degrades to unknown.
         let branchRef: string | undefined;
+        let branchName: string | undefined;
         try {
             const symbolic = await this.execGit([
                 '-C', worktreePath, 'symbolic-ref', '-q', 'HEAD',
             ], worktreePath);
             branchRef = symbolic.stdout.trim() || undefined;
+            branchName = branchRef?.startsWith('refs/heads/')
+                ? branchRef.slice('refs/heads/'.length)
+                : undefined;
         } catch (error) {
             if (exitCode(error) !== 1) {
                 return {
@@ -344,6 +360,7 @@ export class ChangesCollector {
                     upstream: { status: 'unknown' },
                 };
             }
+            branchName = '';
         }
         // ② Upstream full ref for the branch; empty output = none.
         let fullRef: string | undefined;
@@ -356,6 +373,7 @@ export class ChangesCollector {
                 fullRef = refs.stdout.trim() || undefined;
             } catch (_error) {
                 return {
+                    ...(branchName !== undefined ? { branchName } : {}),
                     headSha: await this.revParseHead(worktreePath),
                     upstream: { status: 'unknown' },
                 };
@@ -363,6 +381,7 @@ export class ChangesCollector {
         }
         if (!fullRef) {
             return {
+                ...(branchName !== undefined ? { branchName } : {}),
                 headSha: await this.revParseHead(worktreePath),
                 upstream: { status: 'none' },
             };
@@ -381,10 +400,17 @@ export class ChangesCollector {
             upstreamSha = FULL_SHA_PATTERN.test(lines[1] || '')
                 ? lines[1] : undefined;
         } catch (_error) {
-            return { upstream: { status: 'unknown' } };
+            return {
+                ...(branchName !== undefined ? { branchName } : {}),
+                upstream: { status: 'unknown' },
+            };
         }
         if (!headSha || !upstreamSha) {
-            return { headSha, upstream: { status: 'unknown' } };
+            return {
+                ...(branchName !== undefined ? { branchName } : {}),
+                ...(headSha ? { headSha } : {}),
+                upstream: { status: 'unknown' },
+            };
         }
         // ④ Fork counts: left = behind, right = ahead (PRD §14.1 — the
         // order is easy to swap; the assertion message lives in tests).
@@ -396,9 +422,14 @@ export class ChangesCollector {
             ], worktreePath);
             const match = /^(\d+)\t(\d+)$/u.exec(counts.stdout.trim());
             if (!match) {
-                return { headSha, upstream: { status: 'unknown' } };
+                return {
+                    ...(branchName !== undefined ? { branchName } : {}),
+                    headSha,
+                    upstream: { status: 'unknown' },
+                };
             }
             return {
+                ...(branchName !== undefined ? { branchName } : {}),
                 headSha,
                 upstream: {
                     status: 'tracked',
@@ -409,7 +440,11 @@ export class ChangesCollector {
                 },
             };
         } catch (_error) {
-            return { headSha, upstream: { status: 'unknown' } };
+            return {
+                ...(branchName !== undefined ? { branchName } : {}),
+                headSha,
+                upstream: { status: 'unknown' },
+            };
         }
     }
 

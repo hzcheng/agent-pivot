@@ -73,6 +73,7 @@ test('WORKTREE-CHANGES-COLLECT-001 a tracked branch reports sha and diverged ahe
     const clean = await collector.collect(repo);
     assert.equal(clean.availability, 'baselineUnavailable',
         'tracking collection is independent of the baseline (PRD §14.1)');
+    assert.equal(clean.branchName, 'main');
     assert.equal(clean.headSha, git(repo, ['rev-parse', 'HEAD']));
     assert.deepEqual(clean.upstream, {
         status: 'tracked',

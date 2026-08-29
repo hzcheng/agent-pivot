@@ -185,6 +185,30 @@ test('WORKTREE-CHANGES-PANEL-001 member views carry headSha and the upstream tra
     });
 });
 
+test('WORKTREE-CHANGES-PANEL-001 member views prefer the current Git branch over the saved worktree plan', async () => {
+    const { posted, controller } = fixture({
+        collector: new ChangesCollector({
+            execGit: async args => {
+                if (args.includes('status')) {
+                    return { stdout: '', stderr: '' };
+                }
+                if (args.includes('symbolic-ref')) {
+                    return { stdout: 'refs/heads/main\n', stderr: '' };
+                }
+                if (args.includes('rev-parse')) {
+                    return { stdout: `${'c'.repeat(40)}\n`, stderr: '' };
+                }
+                return { stdout: '', stderr: '' };
+            },
+            now: () => 1724000000000,
+        }),
+    });
+    await controller.activate(TARGET);
+
+    assert.equal(lastChanges(posted).members[0].branchName, 'main',
+        'a manual branch switch must not leave the header on the stale plan');
+});
+
 test('WORKTREE-CHANGES-PANEL-001 unreadable member views omit headSha and upstream', async () => {
     const { posted, controller } = fixture({
         collector: new ChangesCollector({
@@ -231,6 +255,21 @@ test('WORKTREE-CHANGES-PANEL-001 unmanaged sessions degrade to a single-member v
                 ? { repositoryKey: REPO_KEY, canonicalWorktreePath: WT_PATH }
                 : undefined,
         findGroupByWorktreeKey: () => undefined,
+        collector: new ChangesCollector({
+            execGit: async args => {
+                if (args.includes('status')) {
+                    return { stdout: '', stderr: '' };
+                }
+                if (args.includes('symbolic-ref')) {
+                    return { stdout: 'refs/heads/main\n', stderr: '' };
+                }
+                if (args.includes('rev-parse')) {
+                    return { stdout: `${'c'.repeat(40)}\n`, stderr: '' };
+                }
+                return { stdout: '', stderr: '' };
+            },
+            now: () => 1724000000000,
+        }),
     });
     await controller.activate(TARGET);
     const state = lastChanges(posted);
@@ -240,6 +279,8 @@ test('WORKTREE-CHANGES-PANEL-001 unmanaged sessions degrade to a single-member v
         'the synthesized member id fits the protocol charset');
     assert.equal(state.members[0].availability, 'baselineUnavailable',
         'an unmanaged worktree never pretends a task start');
+    assert.equal(state.members[0].branchName, 'main',
+        'the header reports the live Git branch instead of its empty fallback');
 });
 
 test('WORKTREE-CHANGES-PANEL-001 non-git sessions publish nothing actionable', async () => {

@@ -863,7 +863,10 @@ function memberView(
     return {
         memberId: member.memberId,
         repoLabel: member.repoLabel.slice(0, MAX_MEMBER_LABEL_LENGTH),
-        branchName: member.branchName,
+        // The manifest's planned branch is a fallback only. A readable Git
+        // snapshot is authoritative so unmanaged and switched worktrees do
+        // not render a permanent '(no branch)' or a stale planned branch.
+        branchName: snapshot?.branchName ?? member.branchName,
         worktreePath: member.worktreePath,
         availability: snapshot?.availability
             ?? (member.baseline ? 'unreadable' : 'baselineUnavailable'),

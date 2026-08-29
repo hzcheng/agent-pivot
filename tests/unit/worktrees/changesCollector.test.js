@@ -170,6 +170,7 @@ test('WORKTREE-CHANGES-COLLECT-001 collects headSha and a tracked upstream in fo
     // No baseline: tracking collection is independent of it (PRD §14.1).
     const snapshot = await collector.collect('/worktrees/task');
     assert.equal(snapshot.availability, 'baselineUnavailable');
+    assert.equal(snapshot.branchName, 'fix-x');
     assert.equal(snapshot.headSha, HEAD_SHA);
     assert.deepEqual(snapshot.upstream, {
         status: 'tracked',
@@ -200,6 +201,7 @@ test('WORKTREE-CHANGES-COLLECT-001 no tracking branch is an explicit none, headS
     const snapshot = await collector.collect('/worktrees/task', BASELINE);
     assert.deepEqual(snapshot.upstream, { status: 'none' },
         'a successful but empty upstream query is a fact, not a failure');
+    assert.equal(snapshot.branchName, 'local-only');
     assert.equal(snapshot.headSha, HEAD_SHA);
     assert.ok(!seen.some(args => args.includes('--left-right')),
         'no upstream means no fork-count process');
@@ -210,6 +212,8 @@ test('WORKTREE-CHANGES-COLLECT-001 detached HEAD reports none via the quiet exit
     const { collector } = trackingCollector({ symbolicRef: detached });
     const snapshot = await collector.collect('/worktrees/task', BASELINE);
     assert.deepEqual(snapshot.upstream, { status: 'none' });
+    assert.equal(snapshot.branchName, '',
+        'a detached HEAD is a known absence, not a failed branch query');
     assert.equal(snapshot.headSha, HEAD_SHA,
         'a detached worktree still has a HEAD');
 });
@@ -254,6 +258,8 @@ test('WORKTREE-CHANGES-COLLECT-001 tracking failures degrade to unknown, never t
     });
     const fromGarbage = await garbageCount.collector.collect('/worktrees/task', BASELINE);
     assert.deepEqual(fromGarbage.upstream, { status: 'unknown' });
+    assert.equal(fromGarbage.branchName, 'fix-x',
+        'an upstream count failure must not discard a known current branch');
 });
 
 test('WORKTREE-CHANGES-COLLECT-001 unreadable members omit headSha and upstream entirely', async () => {

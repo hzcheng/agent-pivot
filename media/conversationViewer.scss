@@ -269,7 +269,10 @@ button {
     display: flex;
     max-width: calc(100% - 16px);
     align-items: center;
-    gap: 0.55rem;
+    // Keep the status dots as the stationary visual anchor. The left and right
+    // question groups sit 20px away, so their different-sized glyphs do not
+    // read as one mismatched control cluster.
+    gap: 1.25rem;
     transform: translateX(-50%);
     pointer-events: auto;
 }
@@ -331,19 +334,15 @@ button {
     align-items: center;
     justify-content: center;
     padding: 0;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 50%;
-    color: var(--vscode-foreground);
-    background: var(
-        --vscode-editorWidget-background,
-        var(--vscode-editor-background)
-    );
-    box-shadow: 0 2px 10px var(--vscode-widget-shadow);
+    border: 0;
+    border-radius: 4px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    box-shadow: none;
     cursor: pointer;
-    opacity: 0.3;
+    opacity: 0.45;
     pointer-events: auto;
-    transition: opacity 140ms ease, transform 140ms ease,
-        box-shadow 140ms ease, border-color 140ms ease;
+    transition: opacity 140ms ease, background-color 140ms ease;
 
     svg {
         display: block;
@@ -353,10 +352,11 @@ button {
 
     &:hover,
     &:focus-visible {
-        border-color: var(--vscode-focusBorder);
-        box-shadow: 0 6px 18px var(--vscode-widget-shadow);
+        background: var(
+            --vscode-toolbar-hoverBackground,
+            var(--vscode-list-hoverBackground)
+        );
         opacity: 1;
-        transform: translateY(-2px);
     }
 
     &:focus-visible {
@@ -364,9 +364,6 @@ button {
         outline-offset: 1px;
     }
 
-    &:active {
-        transform: translateY(0);
-    }
 }
 
 .conversation-session-nav-previous {

@@ -9707,7 +9707,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 ren
         getComputedStyle(element).pointerEvents
     ), 'none', 'the rail overlay must never block conversation interactions');
 
-    // Ghost affordances stay compact and translucent until hovered.
+    // Window switching is a lightweight rail, not a raised circular button.
     const next = page.locator('[data-session-nav="next"]');
     assert.deepEqual(
         await next.evaluate(element => {
@@ -9717,17 +9717,25 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 ren
                 width: style.width,
                 height: style.height,
                 borderRadius: style.borderRadius,
+                borderTopWidth: style.borderTopWidth,
+                backgroundColor: style.backgroundColor,
+                boxShadow: style.boxShadow,
                 opacity: style.opacity,
+                iconPathCount: element.querySelectorAll('svg path').length,
             };
         }),
         {
             position: 'absolute',
             width: '36px',
             height: '36px',
-            borderRadius: '50%',
-            opacity: '0.3',
+            borderRadius: '4px',
+            borderTopWidth: '0px',
+            backgroundColor: 'rgba(0, 0, 0, 0)',
+            boxShadow: 'none',
+            opacity: '0.45',
+            iconPathCount: 1,
         },
-        'window rails must render as compact translucent circles'
+        'window rails must stay lightweight: no raised surface or first/last separator bar'
     );
 
     const previousBox = await page.locator('[data-session-nav="previous"]')
@@ -9806,7 +9814,12 @@ test('CONVERSATION-QUESTION-NAVIGATION-001 centers First, Previous, Next, and La
             const bounds = document.querySelector(
                 `[data-action="${action}"]`
             ).getBoundingClientRect();
-            return { action, left: bounds.left, centerY: bounds.top + bounds.height / 2 };
+            return {
+                action,
+                left: bounds.left,
+                right: bounds.right,
+                centerY: bounds.top + bounds.height / 2,
+            };
         });
         const status = document.querySelector(
             '[data-conversation-session-status]'
@@ -9823,6 +9836,14 @@ test('CONVERSATION-QUESTION-NAVIGATION-001 centers First, Previous, Next, and La
         Math.abs(box.centerY - layout.statusCenterY) <= 2,
         `${box.action} must share the status-dot row`
     ));
+    assert.ok(
+        layout.statusLeft - layout.boxes[1].right >= 20,
+        'Previous must keep a deliberate 20px visual gutter from the status dots'
+    );
+    assert.ok(
+        layout.boxes[2].left - layout.statusRight >= 20,
+        'Next must keep a deliberate 20px visual gutter from the status dots'
+    );
 
     for (const [action, type] of [
         ['first', 'conversation-viewer-first'],

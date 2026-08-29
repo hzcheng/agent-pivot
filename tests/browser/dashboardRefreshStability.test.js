@@ -428,8 +428,12 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 restores the real Projects scrollport af
         html: longProjectsMarkup(projectIds), searchCatalog: catalog(),
         groupOrders: longProjectGroupOrders(projectIds), favoriteProjectIds: [],
     });
-    await waitForPageCondition(page, () => document.querySelector('#dashboard-tab-projects')
-        .getAttribute('data-header-fit-generation') === '2');
+    await waitForPageCondition(page, expectedScrollTop => {
+        const panel = document.querySelector('#dashboard-tab-projects');
+        return panel
+            && panel.getAttribute('data-header-fit-generation') === '2'
+            && panel.scrollTop === expectedScrollTop;
+    }, beforeScrollTop);
     assert.equal(await page.evaluate(() => document.querySelector('#dashboard-tab-projects').scrollTop), beforeScrollTop);
 });
 

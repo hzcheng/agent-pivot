@@ -5095,6 +5095,12 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '            && message.selectedInput >= 0\n'
         )
         .replace(
+            "            && message.selectedInteractionId.length > 0\n"
+                + "            && message.selectedInteractionId.length <= 512\n"
+                + "            && !/[\\u0000-\\u001f\\u007f]/.test(message.selectedInteractionId)\n",
+            ''
+        )
+        .replace(
             '    // A prior document can still expose this control while its script has\n'
                 + '    // already updated. It remains optional in the current document.\n'
                 + '    var sidebarToggle = document.querySelector(\n'

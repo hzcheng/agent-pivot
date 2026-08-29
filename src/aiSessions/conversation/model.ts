@@ -439,7 +439,8 @@ export function buildConversationPage(
     interactions: readonly ConversationInteraction[],
     request: ConversationPageRequest,
     sourceRevision: string,
-    encodeCursor: EncodeConversationCursor = () => ''
+    encodeCursor: EncodeConversationCursor = (interactionId, direction) =>
+        `${direction}:${interactionId}`
 ): ConversationPage {
     if (request.expectedRevision && request.expectedRevision !== sourceRevision) {
         throw new ConversationError('staleRevision');

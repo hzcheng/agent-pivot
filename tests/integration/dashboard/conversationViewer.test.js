@@ -7734,6 +7734,17 @@ test('CONVERSATION-VIEWER-PARTIAL-001 derives first and latest capped positions 
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.selectedInput, 2);
     assert.equal(publication.html.includes('Viewer cap input 2'), true);
+
+    for (let input = 3; input <= 21; input += 1) {
+        await panel.receive({
+            type: 'conversation-viewer-next',
+            version: 1,
+        });
+    }
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInput, 21);
+    assert.equal(publication.html.includes('Viewer cap input 21'), true);
 });
 
 test('CONVERSATION-TOOL-CALL-VISIBILITY-001 publishes collapsible tool-call markup', async () => {

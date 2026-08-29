@@ -1415,6 +1415,9 @@
             && (message.restoreFocus === undefined
                 || typeof message.restoreFocus === 'boolean')
             && typeof message.selectedInteractionId === 'string'
+            && message.selectedInteractionId.length > 0
+            && message.selectedInteractionId.length <= 512
+            && !/[\u0000-\u001f\u007f]/.test(message.selectedInteractionId)
             && (message.selectedOutsideOutline === undefined
                 || typeof message.selectedOutsideOutline === 'boolean')
             && validOutline(

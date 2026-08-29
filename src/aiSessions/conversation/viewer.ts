@@ -1871,6 +1871,10 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.navigateToInteraction(parsed.interactionId);
             return;
         }
+        if (parsed.type === 'conversation-viewer-first') {
+            await this.navigateFirst();
+            return;
+        }
         if (parsed.type === 'conversation-viewer-previous') {
             await this.navigate('before');
             return;
@@ -2248,6 +2252,27 @@ export class ConversationViewer implements ConversationViewerApi {
             expectedRevision: outline.sourceRevision,
             limit: CONVERSATION_LIMITS.maxPageInteractions,
         }, 'replace', false, 'navigation', latestInteractionId);
+    }
+
+    private async navigateFirst(): Promise<void> {
+        const target = this.target;
+        const outline = this.outlineController.snapshot;
+        const firstInteractionId = outline?.interactions[0]?.id;
+        if (!target || !outline || !firstInteractionId) {
+            return;
+        }
+        if (this.interactionIds().includes(firstInteractionId)) {
+            await this.publishSelection(firstInteractionId, 'navigation');
+            return;
+        }
+        await this.read({
+            provider: target.provider,
+            sessionId: this.effectiveSessionId(target),
+            anchorInteractionId: firstInteractionId,
+            direction: 'around',
+            expectedRevision: outline.sourceRevision,
+            limit: CONVERSATION_LIMITS.maxPageInteractions,
+        }, 'replace', false, 'navigation', firstInteractionId);
     }
 
     publishSessionStatus(): Promise<void> {

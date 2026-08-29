@@ -144,12 +144,10 @@
         '[data-telemetry-context-value]'
     );
     var telemetryLimits = document.querySelector('[data-telemetry-limits]');
+    var first = document.querySelector('[data-action="first"]');
     var previous = document.querySelector('[data-action="previous"]');
     var next = document.querySelector('[data-action="next"]');
     var latest = document.querySelector('[data-action="latest"]');
-    var sidebarToggle = document.querySelector(
-        '[data-action="toggle-sidebar"]'
-    );
     var sessionStatusRunning = document.querySelector(
         '[data-session-status-running]'
     );
@@ -396,8 +394,8 @@
     var restoreTarget = readJsonAttribute(
         'data-conversation-restore-target'
     );
-    var sidebarUiAvailable = !!sidebarToggle
-        && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
+    var sidebarUiAvailable = !!commentsWorkspace && !!commentsResizer
+        && !!sidebarRoot
         && !!outlineRoot
         && !!outlineSearch
         && !!outlineList && !!outlineEmpty && !!outlinePartial
@@ -780,7 +778,6 @@
     var sidebarController = window.__agentPivotConversation.sidebar.create({
         available: sidebarUiAvailable,
         vscodeApi: vscodeApi,
-        sidebarToggle: sidebarToggle,
         commentsWorkspace: commentsWorkspace,
         commentsResizer: commentsResizer,
         sidebarRoot: sidebarRoot,
@@ -2113,6 +2110,7 @@
             positionTooltip: position
                 ? position.getAttribute('data-tooltip')
                 : undefined,
+            firstDisabled: first ? first.disabled : undefined,
             previousDisabled: previous ? previous.disabled : undefined,
             nextDisabled: next ? next.disabled : undefined,
             latestDisabled: latest ? latest.disabled : undefined,
@@ -2176,6 +2174,9 @@
                 'data-tooltip',
                 presentation.positionTooltip
             );
+        }
+        if (first && typeof presentation.firstDisabled === 'boolean') {
+            first.disabled = presentation.firstDisabled;
         }
         if (previous && typeof presentation.previousDisabled === 'boolean') {
             previous.disabled = presentation.previousDisabled;
@@ -2636,6 +2637,7 @@
             );
         working.hidden = !latestInteractionRendered
             || latestInteraction.responseState !== 'inProgress';
+        if (first) first.disabled = !message.selectedInteractionId;
         previous.disabled = message.previousCursor === undefined;
         next.disabled = message.nextCursor === undefined;
         latest.disabled = !message.selectedInteractionId;
@@ -3202,6 +3204,11 @@
         passive: true,
     });
 
+    if (first) {
+        first.addEventListener('click', function () {
+            postNavigation('conversation-viewer-first');
+        });
+    }
     previous.addEventListener('click', function () {
         postNavigation('conversation-viewer-previous');
     });

@@ -222,6 +222,7 @@ async function openViewerPage(t, options = {}) {
                         data-conversation-display-name data-action="rename-session"
                         title="Rename session" aria-label="Rename session">Original session</button>
                     <span data-conversation-position>Input 0 of 0</span>
+                    <button type="button" data-action="first">First</button>
                     <button type="button" data-action="previous">Previous</button>
                     <button type="button" data-action="next">Next</button>
                     <button type="button" data-action="latest">Latest</button>
@@ -3067,9 +3068,10 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
     const { page } = await openHostViewerDocument(t);
 
     assert.equal(await page.evaluate(() => window.__acquireCount), 1);
-    await page.getByRole('button', { name: 'Previous', exact: true }).click();
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByRole('button', { name: 'Latest', exact: true }).click();
+    await page.getByRole('button', { name: 'First question', exact: true }).click();
+    await page.getByRole('button', { name: 'Previous question', exact: true }).click();
+    await page.getByRole('button', { name: 'Next question', exact: true }).click();
+    await page.getByRole('button', { name: 'Last question', exact: true }).click();
     const defaultPreventedBeforeTestGuard = await page.locator(
         'a[href="https://example.test/safe"]'
     ).evaluate(link => {
@@ -3093,6 +3095,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
             version: 1,
             focused: true,
         },
+        { type: 'conversation-viewer-first', version: 1 },
         { type: 'conversation-viewer-previous', version: 1 },
         { type: 'conversation-viewer-next', version: 1 },
         { type: 'conversation-viewer-latest', version: 1 },
@@ -3126,7 +3129,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
         activeSubagent: null,
     });
 
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     await page.locator('[data-telemetry-subagents]').click();
     const entry = page.locator('[data-subagent-id="a11111111"]');
     const finishedEntry = page.locator('[data-subagent-id="a22222222"]');
@@ -3202,7 +3205,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
         true,
         'the counter must reveal the telemetry bar even without usage data'
     );
-    await rebuilt.page.locator('[data-action="toggle-sidebar"]').click();
+    await rebuilt.page.locator('[data-conversation-position]').click();
     await counter.click();
     assert.equal(
         await rebuilt.page.locator('[data-telemetry-subagents]')
@@ -3411,7 +3414,7 @@ test('CONVERSATION-FOLLOW-FEEDBACK-001 shows a dismissible follow notice and cle
     );
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while Latest stays available', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while First and Last stay available', async t => {
     const { page } = await openHostViewerDocument(t, {
         interactionIds: ['input-only'],
         interactionId: 'input-only',
@@ -3422,11 +3425,13 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert
             isEnd: true,
         },
     });
-    const previous = page.getByRole('button', { name: 'Previous', exact: true });
-    const next = page.getByRole('button', { name: 'Next', exact: true });
-    const latest = page.getByRole('button', { name: 'Latest', exact: true });
+    const first = page.getByRole('button', { name: 'First question', exact: true });
+    const previous = page.getByRole('button', { name: 'Previous question', exact: true });
+    const next = page.getByRole('button', { name: 'Next question', exact: true });
+    const latest = page.getByRole('button', { name: 'Last question', exact: true });
 
     assert.equal(await page.evaluate(() => window.__acquireCount), 1);
+    assert.equal(await first.isDisabled(), false);
     assert.equal(await previous.isDisabled(), true);
     assert.equal(await next.isDisabled(), true);
     assert.equal(await latest.isDisabled(), false);
@@ -3441,9 +3446,11 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert
     await next.evaluate(element => element.click());
     assert.deepEqual(await postedIntents(page), initialFocus);
 
+    await first.click();
     await latest.click();
     assert.deepEqual(await postedIntents(page), [
         ...initialFocus,
+        { type: 'conversation-viewer-first', version: 1 },
         { type: 'conversation-viewer-latest', version: 1 },
     ]);
 });
@@ -3470,15 +3477,15 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     const sidebar = page.locator('[data-conversation-sidebar]');
     const outline = page.locator('[data-conversation-outline]');
     const comments = page.locator('[data-conversation-comments]');
-    const sidebarToggle = page.locator('[data-action="toggle-sidebar"]');
+    const outlinePill = page.locator('[data-conversation-position]');
 
     assert.equal(await sidebar.isHidden(), true);
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'false');
-    await sidebarToggle.click();
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'false');
+    await outlinePill.click();
     assert.equal(await sidebar.isVisible(), true);
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('[data-outline-interaction-id]').count(), 4);
     assert.deepEqual(
         await page.locator('[data-outline-interaction-id]')
@@ -3591,12 +3598,11 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
 
     // The telemetry pills are the view switchers (no sidebar tab row):
     // clicking the comments pill while the outline is open switches views.
-    const outlinePill = page.locator('[data-conversation-position]');
     await outlinePill.focus();
     await page.locator('[data-telemetry-comments]').click();
     assert.equal(await outline.isHidden(), true);
     assert.equal(await comments.isVisible(), true);
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'false');
     assert.equal(await sidebar.isVisible(), true);
     assert.equal(
         await page.locator('[data-telemetry-comments]')
@@ -3614,13 +3620,13 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     assert.equal(await sidebar.isHidden(), true);
     assert.equal(
         await page.evaluate(() =>
-            document.activeElement?.getAttribute('data-action')
+            document.activeElement?.hasAttribute('data-conversation-position')
         ),
-        'toggle-sidebar'
+        true
     );
-    await sidebarToggle.click();
-    assert.equal(await comments.isVisible(), true);
-    assert.equal(await outline.isHidden(), true);
+    await outlinePill.click();
+    assert.equal(await outline.isVisible(), true);
+    assert.equal(await comments.isHidden(), true);
     await page.locator('[data-conversation-position]').click();
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
@@ -3650,7 +3656,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         '[data-outline-bookmark-id="input-1"]'
     );
 
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     assert.deepEqual(await orderedIds(), [...interactionIds].reverse());
     const outlineLayout = await page.evaluate(() => {
         const outline = document.querySelector('[data-conversation-outline]');
@@ -4936,7 +4942,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps the outline usable with previous 
         },
     });
 
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     assert.equal(pageErrors.length, 0);
     assert.equal(
         await page.locator('[data-outline-interaction-id]').count(),
@@ -4951,7 +4957,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps the outline usable with previous 
 
 test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
     async function assertPanelViews(page, label) {
-        await page.locator('[data-action="toggle-sidebar"]').click();
+        await page.locator('[data-conversation-position]').click();
         assert.equal(
             await page.locator('[data-conversation-sidebar]').isVisible(),
             true,
@@ -4977,6 +4983,60 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // The question-first control and telemetry-only sidebar entry points
+        // postdate this frozen Viewer script generation. Restore its exact
+        // pre-control source while the current document keeps a hidden
+        // compatibility anchor for that older script.
+        .replace(
+            "    var first = document.querySelector('[data-action=\"first\"]');\n",
+            ''
+        )
+        .replace(
+            "    var latest = document.querySelector('[data-action=\"latest\"]');\n"
+                + "    var sessionStatusRunning = document.querySelector(\n",
+            "    var latest = document.querySelector('[data-action=\"latest\"]');\n"
+                + "    var sidebarToggle = document.querySelector(\n"
+                + "        '[data-action=\"toggle-sidebar\"]'\n"
+                + "    );\n"
+                + "    var sessionStatusRunning = document.querySelector(\n"
+        )
+        .replace(
+            '    var sidebarUiAvailable = !!commentsWorkspace && !!commentsResizer\n'
+                + '        && !!sidebarRoot\n',
+            '    var sidebarUiAvailable = !!sidebarToggle\n'
+                + '        && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot\n'
+        )
+        .replace(
+            '        available: sidebarUiAvailable,\n'
+                + '        vscodeApi: vscodeApi,\n'
+                + '        commentsWorkspace: commentsWorkspace,\n',
+            '        available: sidebarUiAvailable,\n'
+                + '        vscodeApi: vscodeApi,\n'
+                + '        sidebarToggle: sidebarToggle,\n'
+                + '        commentsWorkspace: commentsWorkspace,\n'
+        )
+        .replace(
+            '            firstDisabled: first ? first.disabled : undefined,\n',
+            ''
+        )
+        .replace(
+            "        if (first && typeof presentation.firstDisabled === 'boolean') {\n"
+                + '            first.disabled = presentation.firstDisabled;\n'
+                + '        }\n',
+            ''
+        )
+        .replace(
+            '        if (first) first.disabled = !message.selectedInteractionId;\n',
+            ''
+        )
+        .replace(
+            "    if (first) {\n"
+                + "        first.addEventListener('click', function () {\n"
+                + "            postNavigation('conversation-viewer-first');\n"
+                + '        });\n'
+                + '    }\n',
+            ''
+        )
         // Worklog disclosure now preserves the reader's scroll position and
         // re-evaluates tail-following. That is newer than the adjacent
         // generation reconstructed below, so remove the coupled statements
@@ -7789,7 +7849,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps unbookmarked controls visible in 
         interactionIds: ['input-1'],
         interactionId: 'input-1',
     });
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     const bookmark = page.locator('[data-outline-bookmark-id="input-1"]');
 
     assert.equal(await bookmark.evaluate(element =>
@@ -7821,7 +7881,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps four-digit input numbers inside 
         totalInteractions: 2000,
         outlinePartial: true,
     });
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
 
     const layout = await page.locator(
         '[data-outline-interaction-id="input-2000"]'
@@ -7941,15 +8001,15 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
         },
     };
     const { page } = await openHostViewerDocument(t, options);
-    const sidebarToggle = page.locator('[data-action="toggle-sidebar"]');
+    const outlinePill = page.locator('[data-conversation-position]');
     const panel = page.locator('[data-conversation-sidebar]');
     const comments = page.locator('[data-conversation-comments]');
     const resizer = page.locator('[data-comments-resizer]');
 
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'false');
     assert.equal(await panel.isHidden(), true);
-    await sidebarToggle.click();
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
+    await outlinePill.click();
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'true');
     assert.equal(await panel.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
     assert.equal(await resizer.getAttribute('aria-valuenow'), '240');
@@ -7971,8 +8031,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
         }
     );
 
-    await sidebarToggle.click();
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'false');
+    await outlinePill.click();
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'false');
     assert.equal(await panel.isHidden(), true);
     assert.equal(await resizer.isHidden(), true);
     assert.deepEqual(
@@ -7995,15 +8055,15 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             conversationCommentsPanel: { open: false, width: 312 },
         },
     });
-    const restoredToggle = restored.page.locator(
-        '[data-action="toggle-sidebar"]'
+    const restoredOutlinePill = restored.page.locator(
+        '[data-conversation-position]'
     );
-    assert.equal(await restoredToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await restoredOutlinePill.getAttribute('aria-pressed'), 'false');
     assert.equal(
         await restored.page.locator('[data-conversation-sidebar]').isHidden(),
         true
     );
-    await restoredToggle.click();
+    await restored.page.locator('[data-telemetry-comments]').click();
     assert.equal(
         await restored.page.locator('[data-conversation-comments]').isVisible(),
         true
@@ -8136,17 +8196,17 @@ test('CONVERSATION-COMMENTS-DOM-STABILITY-001 keeps the Conversation DOM intact 
     });
 
     await page.evaluate(() => {
-        const sidebarToggle = document.querySelector(
-            '[data-action="toggle-sidebar"]'
+        const outlinePill = document.querySelector(
+            '[data-conversation-position]'
         );
         const resizer = document.querySelector('[data-comments-resizer]');
         for (let index = 0; index < 100; index += 1) {
-            sidebarToggle.click();
+            outlinePill.click();
             resizer.dispatchEvent(new KeyboardEvent('keydown', {
                 key: index % 2 === 0 ? 'ArrowLeft' : 'ArrowRight',
                 bubbles: true,
             }));
-            sidebarToggle.click();
+            outlinePill.click();
         }
     });
     await page.evaluate(() => new Promise(resolve => {
@@ -8297,14 +8357,17 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
         },
     });
 
-    // The header chrome is one uniform row of four icon buttons; sending
-    // lives in the comments toolbar, not the header.
-    const navButtons = page.locator('.conversation-navigation [data-action]');
+    // Question navigation is grouped with the Session status dots at the
+    // bottom; sending lives in the comments toolbar, not the header.
+    const navButtons = page.locator('.conversation-session-controls [data-action]');
     assert.equal(await navButtons.count(), 4);
+    assert.equal(await page.locator('.conversation-header [data-action]').count(), 2,
+        'the header retains the session-rename control and one hidden compatibility anchor');
+    assert.equal(await page.locator('[data-action="toggle-sidebar"]').isHidden(), true);
     assert.equal(
         await page.locator('[data-action="send-comments"]').count(),
         0,
-        'header must not carry a Send button'
+        'conversation navigation must not carry a Send button'
     );
     assert.deepEqual(
         await navButtons.evaluateAll(buttons => buttons.map(button => ({
@@ -8317,7 +8380,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
             { text: '', icons: 1 },
             { text: '', icons: 1 },
         ],
-        'header buttons must stay icon-only'
+        'question-navigation buttons must stay icon-only'
     );
     assert.deepEqual(
         (await navButtons.evaluateAll(buttons =>
@@ -8326,8 +8389,8 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
                 return Math.round(box.width) + 'x' + Math.round(box.height);
             })))
         )),
-        ['28x28'],
-        'header buttons must render as one uniform row of 28px icons'
+        ['32x32'],
+        'question-navigation buttons must render as one uniform row of 32px icons'
     );
     assert.deepEqual(
         (await navButtons.evaluateAll(buttons =>
@@ -8337,8 +8400,8 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
                 )
             )))
         )),
-        [16],
-        'header icons must render at 16px'
+        [20],
+        'question-navigation icons must render at 20px'
     );
 
     const toolbarSend = page.locator(
@@ -9583,6 +9646,60 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 kee
         nextBox.x + nextBox.width <= sidebarBox.x,
         `next rail right edge ${nextBox.x + nextBox.width} must stay left of the side panel at ${sidebarBox.x}`
     );
+});
+
+test('CONVERSATION-QUESTION-NAVIGATION-001 centers First, Previous, Next, and Last around the Session status dots', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 850, height: 600 },
+        interactionIds: ['input-1', 'input-2', 'input-3'],
+        interactionId: 'input-2',
+        markdown: 'Alpha beta gamma delta.',
+    });
+    const controls = page.locator('.conversation-session-controls');
+    const actions = controls.locator('[data-action]');
+    assert.deepEqual(await actions.evaluateAll(elements => elements.map(
+        element => element.getAttribute('data-action')
+    )), ['first', 'previous', 'next', 'latest']);
+    assert.equal(await page.locator('[data-action="toggle-sidebar"]').isHidden(), true,
+        'the compatibility control is never exposed; telemetry controls are the side-panel entry points');
+
+    const layout = await page.evaluate(() => {
+        const boxes = ['first', 'previous', 'next', 'latest'].map(action => {
+            const bounds = document.querySelector(
+                `[data-action="${action}"]`
+            ).getBoundingClientRect();
+            return { action, left: bounds.left, centerY: bounds.top + bounds.height / 2 };
+        });
+        const status = document.querySelector(
+            '[data-conversation-session-status]'
+        ).getBoundingClientRect();
+        return { boxes, statusLeft: status.left, statusRight: status.right,
+            statusCenterY: status.top + status.height / 2 };
+    });
+    assert.ok(layout.boxes[0].left < layout.boxes[1].left
+        && layout.boxes[1].left < layout.statusLeft
+        && layout.statusRight < layout.boxes[2].left
+        && layout.boxes[2].left < layout.boxes[3].left,
+    'question controls must read First, Previous, dots, Next, Last');
+    layout.boxes.forEach(box => assert.ok(
+        Math.abs(box.centerY - layout.statusCenterY) <= 2,
+        `${box.action} must share the status-dot row`
+    ));
+
+    for (const [action, type] of [
+        ['first', 'conversation-viewer-first'],
+        ['previous', 'conversation-viewer-previous'],
+        ['next', 'conversation-viewer-next'],
+        ['latest', 'conversation-viewer-latest'],
+    ]) {
+        await page.locator(`[data-action="${action}"]`).click();
+        assert.deepEqual((await postedMessages(page)).at(-1), {
+            type,
+            version: 1,
+        });
+    }
 });
 
 test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read-only icon-action cards with edit mode and per-card send', async t => {
@@ -11223,17 +11340,22 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, preserv
         1
     );
 
-    await page.getByRole('button', { name: 'Previous', exact: true }).click();
+    await page.getByRole('button', { name: 'First question', exact: true }).click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-first',
+        version: 1,
+    });
+    await page.getByRole('button', { name: 'Previous question', exact: true }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-previous',
         version: 1,
     });
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Next question', exact: true }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-next',
         version: 1,
     });
-    await page.getByRole('button', { name: 'Latest', exact: true }).click();
+    await page.getByRole('button', { name: 'Last question', exact: true }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-latest',
         version: 1,
@@ -14259,7 +14381,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 pins running subagents above finish
         activeSubagent: null,
     });
 
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     await page.locator('[data-telemetry-subagents]').click();
     const ids = await page.locator('[data-subagent-id]').evaluateAll(
         elements => elements.map(element =>

@@ -4717,6 +4717,12 @@ test('CONVERSATION-VIEWER-NAVIGATION-002 moves within a loaded page without read
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.selectedInteractionId, 'input-12');
     assert.equal(reads, 1);
+
+    await panel.receive({ type: 'conversation-viewer-first', version: 1 });
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(reads, 1);
 });
 
 test('CONVERSATION-SEEK-LATEST-COMMAND-001 exposes Latest navigation on the viewer API for the seek command', async () => {

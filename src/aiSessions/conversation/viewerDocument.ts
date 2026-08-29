@@ -34,10 +34,10 @@ const CONVERSATION_COMMENT_ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" st
 const CONVERSATION_COMMENT_ICON_BOOKMARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2Z"/></svg>';
 const CONVERSATION_COMMENT_ICON_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>';
 const CONVERSATION_COMMENT_ICON_CHEVRON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const CONVERSATION_NAV_ICON_FIRST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 18-6-6 6-6"/><path d="M7 6v12"/></svg>';
 const CONVERSATION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>';
 const CONVERSATION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>';
-const CONVERSATION_NAV_ICON_LATEST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 6 5 5 5-5"/><path d="m7 13 5 5 5-5"/></svg>';
-const CONVERSATION_NAV_ICON_SIDEBAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>';
+const CONVERSATION_NAV_ICON_LAST = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 18 6-6-6-6"/><path d="M17 6v12"/></svg>';
 const CONVERSATION_SESSION_NAV_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m17 18-6-6 6-6"/><path d="M7 6v12"/></svg>';
 const CONVERSATION_SESSION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 18 6-6-6-6"/><path d="M17 6v12"/></svg>';
 const CONVERSATION_FIND_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>';
@@ -175,21 +175,8 @@ export function renderConversationViewerDocument(
                 target.displayName + duplicateId
             )}</button>
         </div>
-        <nav class="conversation-navigation" aria-label="Conversation navigation">
-            <button class="conversation-icon-button" type="button"
-                data-action="previous" title="Previous"
-                aria-label="Previous">${CONVERSATION_NAV_ICON_PREVIOUS}</button>
-            <button class="conversation-icon-button" type="button"
-                data-action="next" title="Next"
-                aria-label="Next">${CONVERSATION_NAV_ICON_NEXT}</button>
-            <button class="conversation-icon-button" type="button"
-                data-action="latest" title="Latest"
-                aria-label="Latest">${CONVERSATION_NAV_ICON_LATEST}</button>
-            <button class="conversation-icon-button" type="button"
-                data-action="toggle-sidebar" aria-controls="conversation-sidebar"
-                aria-expanded="false" title="Show side panel"
-                aria-label="Show side panel">${CONVERSATION_NAV_ICON_SIDEBAR}</button>
-        </nav>
+        <button type="button" data-action="toggle-sidebar" hidden
+            aria-hidden="true" tabindex="-1"></button>
     </header>
     ${renderConversationTelemetry(
         options.telemetrySnapshot,
@@ -228,11 +215,31 @@ export function renderConversationViewerDocument(
                 type="button" data-session-nav="previous"
                 title="Previous window"
                 aria-label="Previous window">${CONVERSATION_SESSION_NAV_ICON_PREVIOUS}</button>
-            <div class="conversation-session-status" data-conversation-session-status
-                role="group" aria-label="AI session status in this window">
-                ${renderSessionStatusDot('attention', sessionStatus.attentionSessionsLocal)}
-                ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal)}
-                ${renderSessionStatusDot('idle', sessionStatus.idleSessionsLocal)}
+            <div class="conversation-session-controls">
+                <div class="conversation-question-navigation"
+                    role="group" aria-label="Earlier questions">
+                    <button class="conversation-question-nav" type="button"
+                        data-action="first" title="First question"
+                        aria-label="First question">${CONVERSATION_NAV_ICON_FIRST}</button>
+                    <button class="conversation-question-nav" type="button"
+                        data-action="previous" title="Previous question"
+                        aria-label="Previous question">${CONVERSATION_NAV_ICON_PREVIOUS}</button>
+                </div>
+                <div class="conversation-session-status" data-conversation-session-status
+                    role="group" aria-label="AI session status in this window">
+                    ${renderSessionStatusDot('attention', sessionStatus.attentionSessionsLocal)}
+                    ${renderSessionStatusDot('running', sessionStatus.runningSessionsLocal)}
+                    ${renderSessionStatusDot('idle', sessionStatus.idleSessionsLocal)}
+                </div>
+                <div class="conversation-question-navigation"
+                    role="group" aria-label="Later questions">
+                    <button class="conversation-question-nav" type="button"
+                        data-action="next" title="Next question"
+                        aria-label="Next question">${CONVERSATION_NAV_ICON_NEXT}</button>
+                    <button class="conversation-question-nav" type="button"
+                        data-action="latest" title="Last question"
+                        aria-label="Last question">${CONVERSATION_NAV_ICON_LAST}</button>
+                </div>
             </div>
             <button class="conversation-session-nav conversation-session-nav-next"
                 type="button" data-session-nav="next"

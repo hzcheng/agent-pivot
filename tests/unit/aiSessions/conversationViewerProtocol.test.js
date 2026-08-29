@@ -16,6 +16,9 @@ const target = Object.freeze({
 
 test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer intent', () => {
     const messages = [{
+        type: 'conversation-viewer-first',
+        version: 1,
+    }, {
         type: 'conversation-viewer-previous',
         version: 1,
     }, {

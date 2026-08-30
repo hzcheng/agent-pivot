@@ -631,7 +631,7 @@ const productionScriptNames = [
     'webviewProjectScripts.js',
 ];
 
-function productionOpenTabDocument(cards, otherWindowsStatus = 'ready', showOpenTabLayoutNotice = false) {
+function productionOpenTabDocument(cards, otherWindowsStatus = 'ready') {
     return productionContent.getStewardContent(
         { extensionPath: '/extension' },
         {
@@ -652,7 +652,6 @@ function productionOpenTabDocument(cards, otherWindowsStatus = 'ready', showOpen
         2,
         undefined,
         undefined,
-        showOpenTabLayoutNotice,
     )
         .replace(/<meta[^>]*Content-Security-Policy[^>]*>/, '')
         .replace(/<link[^>]*rel="stylesheet"[^>]*>/, '')
@@ -661,11 +660,11 @@ function productionOpenTabDocument(cards, otherWindowsStatus = 'ready', showOpen
         .replace('class="dashboard-styles-pending"', '');
 }
 
-async function openProductionOpenTabPage(t, cards, otherWindowsStatus = 'ready', showOpenTabLayoutNotice = false) {
+async function openProductionOpenTabPage(t, cards, otherWindowsStatus = 'ready') {
     const page = await browser.newPage({ viewport: { width: 360, height: 600 } });
     t.after(() => page.close());
     page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
-    await page.setContent(productionOpenTabDocument(cards, otherWindowsStatus, showOpenTabLayoutNotice), { waitUntil: 'load' });
+    await page.setContent(productionOpenTabDocument(cards, otherWindowsStatus), { waitUntil: 'load' });
     await page.evaluate(() => {
         window.__postedMessages = [];
         window.normalizeDashboardSearchCatalog = catalog => catalog;
@@ -688,27 +687,12 @@ async function openProductionOpenTabPage(t, cards, otherWindowsStatus = 'ready',
     return page;
 }
 
-test('OPEN-WINDOW-SWITCHER-UI-001 production OPEN tab dismisses the one-time layout migration notice locally and posts exact actions', async t => {
+test('OPEN-WINDOW-SWITCHER-UI-001 production OPEN tab omits the retired layout migration notice', async t => {
     const currentCard = makeCard('__currentWorkspace-' + 'd'.repeat(24), 'current', { name: 'alpha' });
-    const page = await openProductionOpenTabPage(t, [currentCard], 'ready', true);
+    const page = await openProductionOpenTabPage(t, [currentCard]);
     const notice = page.locator('[data-open-tab-layout-notice]');
-    assert.equal(await notice.count(), 1);
-    assert.match(await notice.textContent(), /CHATS contains active sessions/);
-
-    await notice.locator('[data-action="open-open-tab-layout-migration-guide"]').click();
-    await notice.locator('[data-action="dismiss-open-tab-layout-notice"]').click();
-    assert.equal(await notice.isHidden(), false, 'dismissal stays pending until the Host confirms persistence');
-    assert.equal(await notice.getAttribute('aria-busy'), 'true');
-    assert.deepEqual(await page.evaluate(() => window.__postedMessages), [
-        { type: 'open-open-tab-layout-migration-guide', version: 1 },
-        { type: 'dismiss-open-tab-layout-notice', version: 1 },
-    ]);
-    await page.evaluate(() => {
-        window.dispatchEvent(new MessageEvent('message', { data: {
-            type: 'open-tab-layout-notice-dismissed', version: 1, outcome: 'dismissed',
-        } }));
-    });
-    assert.equal(await notice.isHidden(), true, 'only an authoritative success settlement hides the notice');
+    assert.equal(await notice.count(), 0,
+        'the retired layout-migration flag must not restore a one-time OPEN tab notice');
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 production OPEN tab routes row clicks and keeps row geometry across a v4 window-switch refresh', async t => {

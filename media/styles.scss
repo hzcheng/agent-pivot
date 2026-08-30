@@ -1337,44 +1337,6 @@ body .project {
     display: flex;
     flex-direction: column;
 
-    .open-tab-layout-notice {
-        display: flex;
-        flex: 0 0 auto;
-        align-items: flex-start;
-        gap: 8px;
-        margin: 6px 8px 0;
-        padding: 7px 8px;
-        border: 1px solid var(--vscode-panel-border);
-        border-left: 3px solid var(--vscode-focusBorder);
-        border-radius: 4px;
-        color: var(--vscode-foreground);
-        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
-        font-size: 11px;
-        line-height: 1.35;
-
-        &[hidden] {
-            display: none;
-        }
-    }
-
-    .open-tab-layout-notice-copy {
-        min-width: 0;
-        flex: 1 1 auto;
-    }
-
-    .open-tab-layout-notice-actions {
-        display: inline-flex;
-        flex: 0 0 auto;
-        align-items: center;
-        gap: 3px;
-
-        .steward-button {
-            min-height: 24px;
-            padding: 2px 6px;
-            font-size: 10px;
-        }
-    }
-
     .sticky-groups-wrapper {
         flex: 1 1 auto;
         min-height: 0;

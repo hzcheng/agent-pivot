@@ -8195,34 +8195,6 @@ function initProjects() {
             aiSessionControls.closeChatsViewMenus();
         }
 
-        var openTabLayoutNotice = e.target.closest('[data-open-tab-layout-notice]');
-        if (openTabLayoutNotice) {
-            if (e.target.closest('[data-action="dismiss-open-tab-layout-notice"]')) {
-                var dismissButton = openTabLayoutNotice.querySelector(
-                    '[data-action="dismiss-open-tab-layout-notice"]'
-                );
-                if (dismissButton && dismissButton.disabled) {
-                    return;
-                }
-                if (dismissButton) {
-                    dismissButton.disabled = true;
-                }
-                openTabLayoutNotice.setAttribute('aria-busy', 'true');
-                window.vscode.postMessage({
-                    type: 'dismiss-open-tab-layout-notice',
-                    version: 1,
-                });
-                return;
-            }
-            if (e.target.closest('[data-action="open-open-tab-layout-migration-guide"]')) {
-                window.vscode.postMessage({
-                    type: 'open-open-tab-layout-migration-guide',
-                    version: 1,
-                });
-                return;
-            }
-        }
-
         if (e.target.closest('[data-action="toggle-all-groups"]')) {
             groupCollapse.toggleAllGroups();
             return;
@@ -8302,28 +8274,6 @@ function initProjects() {
             || message.type === 'ai-sessions-updated')
             && worktreeGroupForm.isComposing()) {
             queueDeferredCompositionHostUpdate(message);
-            return;
-        }
-        if (message && message.type === 'open-tab-layout-notice-dismissed') {
-            var isNoticeSettlement = message.version === 1
-                && (message.outcome === 'dismissed' || message.outcome === 'failed')
-                && Object.keys(message).sort().join('\n') === ['outcome', 'type', 'version'].join('\n');
-            if (!isNoticeSettlement) {
-                return;
-            }
-            var openTabLayoutNotice = document.querySelector('[data-open-tab-layout-notice]');
-            if (!openTabLayoutNotice) {
-                return;
-            }
-            var dismissButton = openTabLayoutNotice.querySelector(
-                '[data-action="dismiss-open-tab-layout-notice"]'
-            );
-            openTabLayoutNotice.removeAttribute('aria-busy');
-            if (message.outcome === 'dismissed') {
-                openTabLayoutNotice.hidden = true;
-            } else if (dismissButton) {
-                dismissButton.disabled = false;
-            }
             return;
         }
         if (message

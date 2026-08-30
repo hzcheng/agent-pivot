@@ -4,23 +4,23 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
-## [1.3.2] - 2026-08-30
+## [1.4.0] - 2026-08-30
 
 ### Fixed
 
-- Keep AI Conversation tool-call summaries concise and truthful: collapsed
-  groups now describe the action type while expanded entries retain the exact
-  command or file detail.
-- Keep tool-heavy, progressively rendered AI Conversations on the local tail
-  update path, preserving responsive session switching and disclosure state.
+- Keep side-by-side Conversation diff code columns aligned, including wrapped
+  added and removed lines.
+- Restore Kimi Code Conversation availability and remove the obsolete
+  open-tab migration notice.
+- Keep Conversation navigation stable when rendering changes are rebased.
 
 ### Changed
 
-- Group completed-turn work behind a single Worked-for disclosure with nested,
-  independently expandable tool-action groups.
 - Continue publishing through the VS Code Marketplace with the existing
   Workspace Trust declaration and progressively rendered AI Conversation
   experience.
+- Prefer tmux when it is available while retaining an automatic terminal
+  fallback when it is not.
 
 ## [1.3.1] - 2026-08-30
 
@@ -28,6 +28,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 - Give the question controls a clear visual gutter around the status dots and
   remove the infrequently used previous-window and next-window controls.
+- Keep AI Conversation tool-call summaries concise and truthful: collapsed
+  groups now describe the action type while expanded entries retain the exact
+  command or file detail.
+- Keep tool-heavy, progressively rendered AI Conversations on the local tail
+  update path, preserving responsive session switching and disclosure state.
 
 ### Changed
 

@@ -1917,7 +1917,7 @@
   {
     "id": "CONVERSATION-PROVIDER-PARITY-001",
     "domain": "webview",
-    "title": "Codex, Claude, and Kimi share the same default progress, hidden-thinking, collapsed-tool, and live Working presentation",
+    "title": "Codex, Claude, and Kimi share the same normal-Assistant progress, hidden-thinking, collapsed-tool, and live Working presentation",
     "priority": "P0",
     "status": "automated",
     "owners": [

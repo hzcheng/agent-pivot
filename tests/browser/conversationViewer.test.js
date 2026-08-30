@@ -14967,9 +14967,23 @@ test('CONVERSATION-PROVIDER-PARITY-001 keeps default disclosure and live status 
             await page.locator('[data-telemetry-provider]').getAttribute('data-provider'),
             fixture.provider
         );
+        const progress = page.locator(
+            '.conversation-message-assistant.conversation-message-progress'
+        );
+        assert.equal(await progress.count(), 1);
         assert.match(
-            await page.locator('.conversation-progress').innerText(),
+            await progress.innerText(),
             new RegExp(`${fixture.label} is checking the workspace\\.`)
+        );
+        assert.equal(
+            await progress.locator('.conversation-role').textContent(),
+            'Assistant',
+            `${fixture.label} progress must use the normal Assistant presentation`
+        );
+        assert.equal(
+            await progress.locator('.conversation-progress').count(),
+            0,
+            `${fixture.label} must not render the retired progress-dot presentation`
         );
         assert.equal(
             await page.locator('.conversation-message-thinking').count(),

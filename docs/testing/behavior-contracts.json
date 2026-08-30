@@ -4683,6 +4683,7 @@
       "tests/contract/aiSessions/codexConversationAdapter.test.js",
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/contract/aiSessions/claudeConversationAdapter.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
       "tests/unit/aiSessions/codexRolloutContentSignature.test.js"
     ],
     "evidence": [

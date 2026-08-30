@@ -9,6 +9,7 @@ const test = require('node:test');
 const { KimiConversationAdapter } = require('../../../out/aiSessions/conversation/kimiAdapter');
 const { CONVERSATION_LIMITS } = require('../../../out/aiSessions/conversation/types');
 const KimiSessionService = require('../../../out/services/kimiSessionService').default;
+const { encodeSubagentSessionId } = require('../../../out/aiSessions/conversation/subagentSessions');
 
 const fixturePath = path.resolve(
     __dirname,
@@ -48,6 +49,79 @@ function createAdapter(source, overrides = {}) {
     });
 }
 
+async function createKimiCodeFixture(t) {
+    const providerHome = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-kimi-code-conversation-')
+    );
+    const sessionId = 'session_22222222-2222-4222-8222-222222222222';
+    const cwd = '/fixtures/kimi-code-project';
+    const sessionDir = path.join(
+        providerHome,
+        'sessions',
+        'wd_kimi-code-project_0123456789ab',
+        sessionId
+    );
+    const sourcePath = path.join(sessionDir, 'agents', 'main', 'wire.jsonl');
+    await fs.promises.mkdir(path.dirname(sourcePath), { recursive: true });
+    await fs.promises.writeFile(path.join(providerHome, 'session_index.jsonl'),
+        `${JSON.stringify({ sessionId, sessionDir, workDir: cwd })}\n`);
+    await fs.promises.writeFile(path.join(sessionDir, 'state.json'), JSON.stringify({
+        id: sessionId,
+        cwd,
+        title: 'Kimi Code conversation',
+        archived: false,
+    }));
+    await fs.promises.writeFile(sourcePath, [
+        {
+            type: 'turn.prompt',
+            agentId: 'main',
+            input: [{ type: 'text', text: 'Show the Kimi Code conversation.' }],
+            origin: { kind: 'user' },
+            time: 1_784_073_611_000,
+        },
+        {
+            type: 'context.append_loop_event',
+            agentId: 'main',
+            event: { type: 'step.begin', uuid: 'step-start', turnId: '1', step: 1 },
+            time: 1_784_073_611_001,
+        },
+        {
+            type: 'context.append_loop_event',
+            agentId: 'main',
+            event: {
+                type: 'content.part',
+                uuid: 'text-part',
+                turnId: '1',
+                step: 1,
+                stepUuid: 'step-start',
+                part: { type: 'text', text: 'Kimi Code response.' },
+            },
+            time: 1_784_073_611_002,
+        },
+        {
+            type: 'context.append_loop_event',
+            agentId: 'main',
+            event: {
+                type: 'step.end',
+                uuid: 'step-end',
+                turnId: '1',
+                step: 1,
+                finishReason: 'stop',
+            },
+            time: 1_784_073_611_003,
+        },
+        {
+            type: 'turn.ended',
+            agentId: 'main',
+            turnId: 1,
+            reason: 'completed',
+            time: 1_784_073_611_004,
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    t.after(() => fs.promises.rm(providerHome, { recursive: true, force: true }));
+    return { providerHome, sessionId, cwd, sourcePath };
+}
+
 async function readWholeConversation(adapter) {
     const outline = await adapter.readOutline(sessionId);
     const page = await adapter.readPage({
@@ -58,6 +132,93 @@ async function readWholeConversation(adapter) {
     });
     return { outline, page };
 }
+
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi Code discovers and renders its main-agent wire transcript', async t => {
+    const fixture = await createKimiCodeFixture(t);
+    const previousHome = process.env.KIMI_SHARE_DIR;
+    process.env.KIMI_SHARE_DIR = fixture.providerHome;
+    t.after(() => {
+        if (previousHome === undefined) delete process.env.KIMI_SHARE_DIR;
+        else process.env.KIMI_SHARE_DIR = previousHome;
+    });
+    const service = new KimiSessionService();
+    const sessions = service.getSessions({ forceRefresh: true, candidatePaths: [fixture.cwd] });
+    assert.equal(sessions.available, true);
+    assert.deepEqual(sessions.sessions.map(session => ({
+        id: session.id,
+        name: session.name,
+        cwd: session.cwd,
+    })), [{
+        id: fixture.sessionId,
+        name: 'Kimi Code conversation',
+        cwd: fixture.cwd,
+    }]);
+    const source = service.resolveConversationSource(fixture.sessionId);
+    assert.equal(source?.sourcePath, fixture.sourcePath);
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    const outline = await adapter.readOutline(fixture.sessionId);
+    assert.equal(outline.interactions.length, 1);
+    const page = await adapter.readPage({
+        provider: 'kimi',
+        sessionId: fixture.sessionId,
+        anchorInteractionId: outline.interactions[0].id,
+        direction: 'around',
+        expectedRevision: outline.sourceRevision,
+    });
+    assert.deepEqual(page.messages.map(message => message.markdown), [
+        'Show the Kimi Code conversation.',
+        'Kimi Code response.',
+    ]);
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi Code retains tool activity and appended assistant messages', async t => {
+    const source = await createFixture(t);
+    await fs.promises.writeFile(source.sourcePath, [
+        { type: 'turn.prompt', input: [{ type: 'text', text: 'Run a tool.' }, { type: 'image_url' }], origin: { kind: 'plugin_command', trigger: 'user-slash' }, time: 1_784_073_611_000 },
+        { type: 'context.append_loop_event', event: { type: 'step.begin', turnId: 1, stepUuid: 'step' }, time: 1_784_073_611_001 },
+        { type: 'context.append_loop_event', event: { type: 'tool.call', turnId: 1, stepUuid: 'step', toolCallId: 'call-1', name: 'Shell', args: { command: 'pwd' } }, time: 1_784_073_611_002 },
+        { type: 'context.append_loop_event', event: { type: 'tool.result', turnId: 1, toolCallId: 'call-1', result: { output: [{ type: 'text', text: '/workspace' }, { type: 'audio_url' }] } }, time: 1_784_073_611_003 },
+        { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'Tool completed.' }] }, time: 1_784_073_611_004 },
+        { type: 'turn.ended', turnId: 1, reason: 'completed', time: 1_784_073_611_005 },
+        { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'Goal continuation.' }] }, time: 1_784_073_611_006 },
+        { type: 'turn.ended', turnId: 2, reason: 'completed', time: 1_784_073_611_007 },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter(source);
+    t.after(() => adapter.dispose());
+    const outline = await adapter.readOutline(sessionId);
+    const page = await adapter.readPage({
+        provider: 'kimi', sessionId, anchorInteractionId: outline.interactions[0].id,
+        direction: 'around', expectedRevision: outline.sourceRevision,
+    });
+    assert.equal(page.messages[0].markdown, 'Run a tool. [Attachment]');
+    assert.equal(page.messages.some(message => message.role === 'tool'), true);
+    assert.match(page.messages.find(message => message.role === 'tool')?.tool?.detail || '', /workspace/);
+    assert.equal(page.messages.some(message => message.markdown === 'Tool completed.'), true);
+    assert.equal(page.messages.some(message => message.markdown === 'Goal continuation.'), true);
+});
+
+test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi Code reads agents beside main', async t => {
+    const fixture = await createKimiCodeFixture(t);
+    const workerDir = path.join(path.dirname(path.dirname(fixture.sourcePath)), 'worker-1');
+    await fs.promises.mkdir(workerDir, { recursive: true });
+    await fs.promises.writeFile(path.join(workerDir, 'wire.jsonl'), [
+        { type: 'turn.prompt', input: [{ type: 'text', text: 'Worker task.' }], origin: { kind: 'system_trigger', name: 'subagent' }, time: 1_784_073_611_000 },
+        { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'Worker result.' }] }, time: 1_784_073_611_001 },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    const adapter = createAdapter({ providerHome: fixture.providerHome, sourcePath: fixture.sourcePath });
+    t.after(() => adapter.dispose());
+    assert.deepEqual((await adapter.readSubagents(fixture.sessionId)).map(entry => [entry.id, entry.status]), [
+        ['worker-1', 'running'],
+    ]);
+    const workerId = encodeSubagentSessionId(fixture.sessionId, 'worker-1');
+    const outline = await adapter.readOutline(workerId);
+    const page = await adapter.readPage({
+        provider: 'kimi', sessionId: workerId, anchorInteractionId: outline.interactions[0].id,
+        direction: 'around', expectedRevision: outline.sourceRevision,
+    });
+    assert.equal(page.messages.some(message => message.markdown === 'Worker result.'), true);
+});
 
 async function restartSuffix(t, sourcePath, offset) {
     const bytes = await fs.promises.readFile(sourcePath);

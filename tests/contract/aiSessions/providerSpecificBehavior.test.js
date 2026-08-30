@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const Module = require('node:module');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
@@ -20,6 +21,34 @@ function setEnvironment(t, name, value) {
         if (previous === undefined) delete process.env[name];
         else process.env[name] = previous;
     });
+}
+
+function unsetEnvironment(t, name) {
+    const previous = process.env[name];
+    delete process.env[name];
+    t.after(() => {
+        if (previous !== undefined) process.env[name] = previous;
+    });
+}
+
+function setHomeDirectory(t, home) {
+    const originalHomedir = os.homedir;
+    os.homedir = () => home;
+    t.after(() => { os.homedir = originalHomedir; });
+}
+
+function writeKimiCodeSession(home, sessionId, workDir, title = sessionId) {
+    const sessionDir = path.join(home, 'sessions', `wd-${sessionId}`, sessionId);
+    const wirePath = path.join(sessionDir, 'agents', 'main', 'wire.jsonl');
+    fs.mkdirSync(path.dirname(wirePath), { recursive: true });
+    fs.writeFileSync(wirePath, '{"type":"turn.ended","reason":"completed"}\n', 'utf8');
+    fs.writeFileSync(path.join(sessionDir, 'state.json'), JSON.stringify({ title }), 'utf8');
+    fs.appendFileSync(path.join(home, 'session_index.jsonl'), `${JSON.stringify({
+        sessionId,
+        sessionDir,
+        workDir,
+    })}\n`, 'utf8');
+    return { sessionDir, wirePath };
 }
 
 function writeCodexSessionMetaFile(sessionsDir, sessionId, payload) {
@@ -246,6 +275,141 @@ test('SESSION-KIMI-NESTED-SUBAGENT-BOUNDARY-001 discovers only UUID directories 
     assert.equal(result.available, true);
     assert.deepEqual(result.sessions.map(session => session.id), [sessionId]);
     assert.equal(result.scannedFiles, 1);
+});
+
+test('SESSION-PROVIDER-001 Kimi keeps legacy and Kimi Code sessions discoverable together', t => {
+    const home = makeTempDirectory(t, 'provider-kimi-mixed-homes-');
+    const legacyHome = path.join(home, '.kimi');
+    const codeHome = path.join(home, '.kimi-code');
+    const legacyWorkDir = '/work/legacy';
+    const legacySessionId = '99999999-9999-4999-8999-999999999999';
+    const codeSessionId = 'session_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    unsetEnvironment(t, 'KIMI_SHARE_DIR');
+    setHomeDirectory(t, home);
+    fs.mkdirSync(legacyHome, { recursive: true });
+    fs.writeFileSync(path.join(legacyHome, 'kimi.json'), JSON.stringify({
+        work_dirs: [{ path: legacyWorkDir }],
+    }), 'utf8');
+    const legacySessionDir = path.join(legacyHome, 'sessions',
+        crypto.createHash('md5').update(legacyWorkDir, 'utf8').digest('hex'), legacySessionId);
+    fs.mkdirSync(legacySessionDir, { recursive: true });
+    fs.writeFileSync(path.join(legacySessionDir, 'wire.jsonl'), '{}\n', 'utf8');
+    fs.writeFileSync(path.join(legacySessionDir, 'state.json'), '{}', 'utf8');
+    fs.mkdirSync(codeHome, { recursive: true });
+    const code = writeKimiCodeSession(codeHome, codeSessionId, '/work/kimi-code', 'Kimi Code');
+
+    const service = new KimiSessionService();
+    const result = service.getSessions({ forceRefresh: true });
+    assert.deepEqual(new Set(result.sessions.map(session => session.id)), new Set([
+        legacySessionId,
+        codeSessionId,
+    ]));
+    assert.match(service.resolveConversationSource(legacySessionId)?.sourcePath, /wire\.jsonl$/);
+    assert.equal(service.resolveConversationSource(codeSessionId)?.sourcePath, code.wirePath);
+    assert.equal(service.archiveSession(legacySessionId), true);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(legacySessionDir, 'state.json'), 'utf8')).archived, true);
+});
+
+test('SESSION-FINGERPRINT-HASH-001 Kimi Code reads its session index once per listing and fingerprint', t => {
+    const home = makeTempDirectory(t, 'provider-kimi-code-index-');
+    const isolatedOsHome = makeTempDirectory(t, 'provider-kimi-code-index-os-home-');
+    const indexPath = path.join(home, 'session_index.jsonl');
+    setEnvironment(t, 'KIMI_SHARE_DIR', home);
+    unsetEnvironment(t, 'KIMI_CODE_HOME');
+    setHomeDirectory(t, isolatedOsHome);
+    for (let index = 0; index < 16; index += 1) {
+        writeKimiCodeSession(
+            home,
+            `session_${String(index).padStart(8, '0')}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+            `/work/kimi-code-${index}`
+        );
+    }
+    const originalOpenSync = fs.openSync;
+    let indexReads = 0;
+    fs.openSync = function (filePath) {
+        if (filePath === indexPath) indexReads++;
+        return originalOpenSync.apply(this, arguments);
+    };
+    t.after(() => { fs.openSync = originalOpenSync; });
+
+    const service = new KimiSessionService();
+    assert.equal(service.getSessions({ forceRefresh: true }).sessions.length, 16);
+    assert.equal(indexReads, 1, `expected one listing index read, saw ${indexReads}`);
+    indexReads = 0;
+    assert.ok(service.getSessionFingerprint().length > 0);
+    assert.equal(indexReads, 1, `expected one fingerprint index read, saw ${indexReads}`);
+    indexReads = 0;
+    service.getLifecycleSignals(Array.from({ length: 16 }, (_item, index) => ({
+        sessionId: `session_${String(index).padStart(8, '0')}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+        runStartedAtMs: 0,
+    })));
+    assert.equal(indexReads, 1, `expected one lifecycle index read, saw ${indexReads}`);
+});
+
+test('SESSION-PROVIDER-001 Kimi Code honors KIMI_CODE_HOME and last-write-wins index records', t => {
+    const home = makeTempDirectory(t, 'provider-kimi-code-home-');
+    const legacyOverride = makeTempDirectory(t, 'provider-kimi-code-legacy-override-');
+    const isolatedOsHome = makeTempDirectory(t, 'provider-kimi-code-os-home-');
+    const sessionId = 'session_cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    setEnvironment(t, 'KIMI_SHARE_DIR', legacyOverride);
+    setHomeDirectory(t, isolatedOsHome);
+    setEnvironment(t, 'KIMI_CODE_HOME', home);
+    writeKimiCodeSession(home, sessionId, '/work/stale', 'Stale location');
+    const current = writeKimiCodeSession(home, sessionId, '/work/current', 'Current location');
+    fs.appendFileSync(path.join(home, 'session_index.jsonl'), '{"sessionId":"bad","workDir":{}}\n', 'utf8');
+
+    const service = new KimiSessionService();
+    assert.deepEqual(service.getSessions({ forceRefresh: true }).sessions.map(session => ({
+        id: session.id,
+        cwd: session.cwd,
+        name: session.name,
+    })), [{ id: sessionId, cwd: '/work/current', name: 'Current location' }]);
+    assert.equal(service.resolveConversationSource(sessionId)?.sourcePath, current.wirePath);
+
+    fs.appendFileSync(path.join(home, 'session_index.jsonl'), `${JSON.stringify({
+        sessionId,
+        deleted: true,
+    })}\n`, 'utf8');
+    assert.equal(service.getSessions({ forceRefresh: true }).sessions.length, 0);
+    assert.equal(service.resolveConversationSource(sessionId), null);
+
+    const staleDefaultHome = path.join(isolatedOsHome, '.kimi-code');
+    writeKimiCodeSession(staleDefaultHome,
+        'session_dddddddd-dddd-4ddd-8ddd-dddddddddddd', '/work/default', 'Default location');
+    setEnvironment(t, 'KIMI_CODE_HOME', path.join(isolatedOsHome, 'missing-kimi-code-home'));
+    const configuredHomeService = new KimiSessionService();
+    assert.equal(configuredHomeService.getSessions({ forceRefresh: true }).sessions.length, 0,
+        'a configured but absent KIMI_CODE_HOME must not fall back to the default home');
+});
+
+test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 Kimi Code rejects an in-home symlinked session directory', t => {
+    const home = makeTempDirectory(t, 'provider-kimi-code-symlink-');
+    const isolatedOsHome = makeTempDirectory(t, 'provider-kimi-code-symlink-os-home-');
+    const outside = makeTempDirectory(t, 'provider-kimi-code-outside-');
+    const sessionId = 'session_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const outsideSessionDir = path.join(outside, sessionId);
+    const linkedSessionDir = path.join(home, 'sessions', 'wd-link', sessionId);
+    setEnvironment(t, 'KIMI_SHARE_DIR', home);
+    unsetEnvironment(t, 'KIMI_CODE_HOME');
+    setHomeDirectory(t, isolatedOsHome);
+    fs.mkdirSync(path.join(outsideSessionDir, 'agents', 'main'), { recursive: true });
+    fs.writeFileSync(path.join(outsideSessionDir, 'agents', 'main', 'wire.jsonl'), '{}\n', 'utf8');
+    fs.writeFileSync(path.join(outsideSessionDir, 'state.json'), '{"outside":true}', 'utf8');
+    fs.mkdirSync(path.dirname(linkedSessionDir), { recursive: true });
+    fs.symlinkSync(outsideSessionDir, linkedSessionDir, 'dir');
+    fs.writeFileSync(path.join(home, 'session_index.jsonl'), `${JSON.stringify({
+        sessionId,
+        sessionDir: linkedSessionDir,
+        workDir: '/work/kimi-code-link',
+    })}\n`, 'utf8');
+
+    const service = new KimiSessionService();
+    assert.equal(service.getSessions({ forceRefresh: true }).sessions.length, 0);
+    assert.equal(service.resolveConversationSource(sessionId), null);
+    assert.equal(service.archiveSession(sessionId), false);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(outsideSessionDir, 'state.json'), 'utf8')), {
+        outside: true,
+    });
 });
 
 test('WORKTREE-GROUPS-HISTORY-IDENTITY-001 Claude derives createdAt from the first event and Kimi stays degradable', t => {

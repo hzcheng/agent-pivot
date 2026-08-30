@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('./tempDirectory');
@@ -31,7 +32,13 @@ function withProviderHome(testContext, fixturesRoot, manifest, useFixtures, call
 
     const environmentVariable = manifest.environmentVariable;
     const previousValue = process.env[environmentVariable];
+    const previousKimiCodeHome = process.env.KIMI_CODE_HOME;
+    const originalHomedir = os.homedir;
     process.env[environmentVariable] = providerHome;
+    if (manifest.id === 'kimi') {
+        delete process.env.KIMI_CODE_HOME;
+        os.homedir = () => temporaryRoot;
+    }
     try {
         return callback(providerHome);
     } finally {
@@ -39,6 +46,14 @@ function withProviderHome(testContext, fixturesRoot, manifest, useFixtures, call
             delete process.env[environmentVariable];
         } else {
             process.env[environmentVariable] = previousValue;
+        }
+        if (manifest.id === 'kimi') {
+            if (previousKimiCodeHome === undefined) {
+                delete process.env.KIMI_CODE_HOME;
+            } else {
+                process.env.KIMI_CODE_HOME = previousKimiCodeHome;
+            }
+            os.homedir = originalHomedir;
         }
     }
 }

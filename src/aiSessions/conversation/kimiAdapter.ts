@@ -91,6 +91,12 @@ const SUBAGENT_DIRECTORY_PATTERN = /^[0-9a-z][0-9a-z-]{0,63}$/i;
 const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 const HISTORY_INDEX_SETTLE_MS = 250;
 
+function isKimiCodeMainWire(sourcePath: string): boolean {
+    return path.basename(sourcePath) === 'wire.jsonl'
+        && path.basename(path.dirname(sourcePath)) === 'main'
+        && path.basename(path.dirname(path.dirname(sourcePath))) === 'agents';
+}
+
 function extractShellWorkingDirectories(
     value: string,
     baseCwd?: string
@@ -242,6 +248,46 @@ function visibleMessage(value: string): string {
             normalized,
             CONVERSATION_LIMITS.maxMessageGraphemes - 1
         );
+}
+
+function visibleKimiCodeInput(value: unknown): string {
+    if (!Array.isArray(value)) {
+        return '';
+    }
+    return buildVisibleUserInput(value.reduce(
+        (parts: VisibleUserInputPart[], rawPart: unknown) => {
+            const part = asRecord(rawPart);
+            if (part?.type === 'text' && typeof part.text === 'string') {
+                parts.push({ kind: 'text', text: part.text });
+            } else if (part && (
+                part.type === 'image'
+                || part.type === 'image_url'
+                || part.type === 'audio_url'
+                || part.type === 'video_url'
+                || part.type === 'file'
+                || part.type === 'attachment'
+            )) {
+                parts.push({ kind: 'attachment' });
+            }
+            return parts;
+        },
+        []
+    ));
+}
+
+function isKimiCodeUserOrigin(value: unknown, allowSubagentTrigger = false): boolean {
+    const origin = asRecord(value);
+    if (origin?.kind === 'user') {
+        return true;
+    }
+    if (origin?.kind === 'skill_activation' || origin?.kind === 'plugin_command') {
+        return origin.trigger === 'user-slash';
+    }
+    if (origin?.kind === 'shell_command') {
+        return origin.phase === 'input';
+    }
+    return allowSubagentTrigger && origin?.kind === 'system_trigger'
+        && origin.name === 'subagent';
 }
 
 function interactionId(
@@ -638,10 +684,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         if (!candidate) {
             return [];
         }
-        const subagentsRoot = path.join(
-            path.dirname(candidate.sourcePath),
-            'subagents'
-        );
+        const subagentsRoot = isKimiCodeMainWire(candidate.sourcePath)
+            ? path.dirname(path.dirname(candidate.sourcePath))
+            : path.join(path.dirname(candidate.sourcePath), 'subagents');
         let dirents: fs.Dirent[];
         try {
             dirents = await fs.promises.readdir(subagentsRoot, {
@@ -651,19 +696,22 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             return [];
         }
         const now = Date.now();
+        const kimiCode = isKimiCodeMainWire(candidate.sourcePath);
         const entries: ConversationSubagentEntry[] = [];
         for (const dirent of dirents) {
             if (entries.length >= MAX_LISTED_SUBAGENTS) {
                 break;
             }
             if (!dirent.isDirectory()
+                || (isKimiCodeMainWire(candidate.sourcePath) && dirent.name === 'main')
                 || !SUBAGENT_DIRECTORY_PATTERN.test(dirent.name)) {
                 continue;
             }
             const entry = await readSubagentEntry(
                 path.join(subagentsRoot, dirent.name),
                 dirent.name,
-                now
+                now,
+                kimiCode
             );
             if (entry) {
                 entries.push(entry);
@@ -1053,12 +1101,18 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         const effectiveCandidate = split.subagentId
             ? {
                 providerHome: candidate.providerHome,
-                sourcePath: path.join(
-                    path.dirname(candidate.sourcePath),
-                    'subagents',
-                    split.subagentId,
-                    'wire.jsonl'
-                ),
+                sourcePath: isKimiCodeMainWire(candidate.sourcePath)
+                    ? path.join(
+                        path.dirname(path.dirname(candidate.sourcePath)),
+                        split.subagentId,
+                        'wire.jsonl'
+                    )
+                    : path.join(
+                        path.dirname(candidate.sourcePath),
+                        'subagents',
+                        split.subagentId,
+                        'wire.jsonl'
+                    ),
                 cwd: candidate.cwd,
             }
             : candidate;
@@ -1205,8 +1259,159 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 }
                 pendingThinking = null;
             };
+            const ensureOpenKimiCodeInteraction = (): boolean => {
+                if (openInteractionIndex !== undefined) {
+                    return true;
+                }
+                if (!interactions.length) {
+                    return false;
+                }
+                // Goal continuation can resume a completed turn without a
+                // second prompt; keep it with the task that started it.
+                openInteractionIndex = interactions.length - 1;
+                interactions[openInteractionIndex].responseState = 'inProgress';
+                return true;
+            };
             const normalizeRecord = (record: ConversationJsonlRecord): boolean | void => {
                 const envelope = asRecord(record.value);
+                const kimiCodeRecordType = envelope?.type;
+                if (typeof kimiCodeRecordType === 'string') {
+                    if (kimiCodeRecordType === 'turn.prompt'
+                        || kimiCodeRecordType === 'turn.steer') {
+                        if (!isKimiCodeUserOrigin(
+                            envelope.origin,
+                            Boolean(split.subagentId && isKimiCodeMainWire(candidate.sourcePath))
+                        )) {
+                            return;
+                        }
+                        flushThinking();
+                        flushText();
+                        const normalizedInput = visibleMessage(
+                            visibleKimiCodeInput(envelope.input)
+                        );
+                        if (!normalizedInput) {
+                            return;
+                        }
+                        if (openInteractionIndex !== undefined) {
+                            interactions[openInteractionIndex].responseState =
+                                'interrupted';
+                            openInteractionIndex = undefined;
+                        }
+                        toolTracker.discardPending();
+                        questionTracker.clear();
+                        approvalTracker.clear();
+                        const id = interactionId(
+                            sessionId,
+                            record.offset,
+                            envelope.time
+                        );
+                        if (interactions.some(interaction => interaction.id === id)) {
+                            return;
+                        }
+                        if (!toolTracker.hasPending()
+                            && questionTracker.size === 0
+                            && approvalTracker.size === 0) {
+                            addRestartPoint({
+                                offset: record.offset,
+                                recordEndOffset: record.proofEndOffset,
+                                recordDigest: record.proofDigest,
+                                prefixDigest: record.prefixDigest,
+                                interactionId: id,
+                            });
+                        }
+                        interactions.push({
+                            id,
+                            timestamp: timestampValue(envelope.time),
+                            userMarkdown: normalizedInput,
+                            userPreview: buildUserPreview(normalizedInput),
+                            userGraphemeCount: countGraphemes(normalizedInput),
+                            assistantMarkdown: [],
+                            responseState: 'inProgress',
+                        });
+                        openInteractionIndex = interactions.length - 1;
+                    } else if (kimiCodeRecordType === 'context.append_loop_event') {
+                        const loopEvent = asRecord(envelope.event);
+                        const part = asRecord(loopEvent?.part);
+                        stampActivity({ timestamp: envelope.time });
+                        if (loopEvent?.type === 'tool.call'
+                            && ensureOpenKimiCodeInteraction()
+                            && typeof loopEvent.name === 'string'
+                            && loopEvent.name) {
+                            flushThinking();
+                            flushText();
+                            const args = asRecord(loopEvent.args);
+                            toolTracker.begin(
+                                interactions[openInteractionIndex],
+                                typeof loopEvent.toolCallId === 'string'
+                                    ? loopEvent.toolCallId
+                                    : undefined,
+                                loopEvent.name,
+                                buildToolCallSummary(loopEvent.name, args),
+                                args ? capToolCallDetail(JSON.stringify(args)) : undefined
+                            );
+                        } else if (loopEvent?.type === 'tool.result') {
+                            flushThinking();
+                            flushText();
+                            const result = asRecord(loopEvent.result);
+                            const output = typeof result?.output === 'string'
+                                ? result.output
+                                : visibleKimiCodeInput(result?.output);
+                            toolTracker.finish(loopEvent.toolCallId, output || undefined);
+                        } else if (loopEvent?.type === 'content.part'
+                            && ensureOpenKimiCodeInteraction()
+                            && part?.type === 'think'
+                            && typeof part.think === 'string') {
+                            if (part.think === '') {
+                                return;
+                            }
+                            flushText();
+                            if (!pendingThinking) {
+                                pendingThinking = {
+                                    position: interactions[openInteractionIndex]
+                                        .assistantMarkdown.length,
+                                    text: '',
+                                };
+                            }
+                            pendingThinking.text += part.think;
+                            return;
+                        }
+                        flushThinking();
+                        if (loopEvent?.type === 'content.part'
+                            && ensureOpenKimiCodeInteraction()
+                            && part?.type === 'text'
+                            && typeof part.text === 'string') {
+                            if (!pendingText) {
+                                pendingText = { text: '' };
+                            }
+                            pendingText.text += part.text;
+                            return;
+                        }
+                        flushText();
+                    } else if (kimiCodeRecordType === 'context.append_message') {
+                        const message = asRecord(envelope.message);
+                        const content = visibleKimiCodeInput(message?.content);
+                        stampActivity({ timestamp: envelope.time });
+                        if (message?.role === 'assistant' && content
+                            && ensureOpenKimiCodeInteraction()) {
+                            flushThinking();
+                            if (!pendingText) {
+                                pendingText = { text: '' };
+                            }
+                            pendingText.text += content;
+                        }
+                    } else if (kimiCodeRecordType === 'turn.ended') {
+                        stampActivity({ timestamp: envelope.time });
+                        const completed = envelope.reason === 'completed';
+                        finishInteraction(completed ? 'complete' : 'interrupted');
+                        if (!completed) {
+                            toolTracker.discardPending();
+                            questionTracker.clear();
+                            approvalTracker.clear();
+                        }
+                    }
+                    return Boolean(historySlice && historyBoundary
+                        && record.endOffset >= historySliceEndOffset);
+                }
                 const event = asRecord(envelope?.message);
                 if (!event) {
                     return;
@@ -1646,7 +1851,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 if (!envelope || openInteractionIndex === undefined) {
                     return;
                 }
-                const value = timestampValue(envelope.timestamp);
+                const value = timestampValue(envelope.timestamp ?? envelope.time);
                 if (value !== undefined) {
                     interactions[openInteractionIndex].completedAt = value;
                 }
@@ -1857,11 +2062,13 @@ interface SubagentMeta {
 async function readSubagentEntry(
     directory: string,
     id: string,
-    now: number
+    now: number,
+    isKimiCode = false
 ): Promise<ConversationSubagentEntry | undefined> {
+    const wirePath = path.join(directory, 'wire.jsonl');
     let wireStat: fs.Stats;
     try {
-        wireStat = await fs.promises.stat(path.join(directory, 'wire.jsonl'));
+        wireStat = await fs.promises.stat(wirePath);
     } catch (_error) {
         return undefined;
     }
@@ -1870,12 +2077,58 @@ async function readSubagentEntry(
         id,
         label: subagentLabel(meta, id),
         ...(meta?.subagent_type ? { agentType: meta.subagent_type } : {}),
-        status: subagentStatus(meta?.status, wireStat.mtimeMs, now),
+        status: isKimiCode
+            ? await kimiCodeSubagentStatus(wirePath, wireStat.mtimeMs, now)
+            : subagentStatus(meta?.status, wireStat.mtimeMs, now),
         ...(Number.isFinite(meta?.created_at)
             ? { createdAt: Math.floor((meta?.created_at as number) * 1000) }
             : {}),
         updatedAt: Math.floor(wireStat.mtimeMs),
     };
+}
+
+async function kimiCodeSubagentStatus(
+    wirePath: string,
+    wireMtimeMs: number,
+    now: number
+): Promise<ConversationSubagentEntry['status']> {
+    try {
+        const handle = await fs.promises.open(wirePath, 'r');
+        let text: string;
+        try {
+            const stat = await handle.stat();
+            const start = Math.max(0, stat.size - 64 * 1024);
+            const buffer = Buffer.alloc(stat.size - start);
+            const result = await handle.read(buffer, 0, buffer.length, start);
+            text = buffer.subarray(0, result.bytesRead).toString('utf8');
+        } finally {
+            await handle.close();
+        }
+        const lines = text.split(/\r?\n/);
+        for (let index = lines.length - 1; index >= 0; index -= 1) {
+            let record: Record<string, any> | undefined;
+            try {
+                record = asRecord(JSON.parse(lines[index]));
+            } catch (_error) {
+                // A streaming writer can leave only the final JSON line torn.
+                continue;
+            }
+            if (record?.type === 'turn.ended') {
+                return record.reason === 'failed' ? 'failed'
+                    : record.reason === 'cancelled' || record.reason === 'killed'
+                        ? 'killed'
+                        : 'idle';
+            }
+            if (record) {
+                break;
+            }
+        }
+    } catch (_error) {
+        return 'quiet';
+    }
+    return now - wireMtimeMs <= SUBAGENT_RUNNING_FRESHNESS_MS
+        ? 'running'
+        : 'quiet';
 }
 
 async function readSubagentMeta(

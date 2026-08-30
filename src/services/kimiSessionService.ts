@@ -13,6 +13,8 @@ import { createKimiLifecycleAccumulator, AiSessionLifecycleRequest, AiSessionLif
 import SessionFingerprint from '../aiSessions/sessionFingerprint';
 import { Disposable } from './codexSessionService';
 
+const MAX_KIMI_CODE_INDEX_BYTES = 16 * 1024 * 1024;
+
 interface KimiWorkDirEntry {
     path?: string;
     last_session_id?: string;
@@ -24,6 +26,8 @@ interface KimiConfig {
 
 interface KimiSessionState {
     custom_title?: string;
+    title?: string;
+    cwd?: string;
     archived?: boolean;
     archived_at?: string;
     plan_mode?: boolean;
@@ -31,10 +35,18 @@ interface KimiSessionState {
 }
 
 interface KimiSessionCandidate {
+    kimiHome: string;
     workDir: string;
     sessionId: string;
     sessionDir: string;
     mtimeMs: number;
+}
+
+interface KimiCodeSessionIndexEntry {
+    sessionId: string;
+    sessionDir: string;
+    workDir: string;
+    deleted?: boolean;
 }
 
 export interface KimiSessionReadResult {
@@ -56,13 +68,16 @@ export default class KimiSessionService {
     private changeFingerprint: string = null;
 
     resolveConversationSource(sessionId: string): AiSessionConversationSourceCandidate | null {
-        const kimiHome = this.getKimiHome();
-        const sessionDir = kimiHome && this.findSessionDir(kimiHome, sessionId);
-        const sourcePath = sessionDir && path.join(sessionDir, 'wire.jsonl');
+        const location = this.findSessionLocation(sessionId);
+        const kimiHome = location?.kimiHome;
+        const sessionDir = location?.sessionDir;
+        const sourcePath = sessionDir && this.getWirePath(kimiHome, sessionDir);
         const workDir = sessionDir
             ? this.findWorkDirForSessionDir(kimiHome, sessionDir)
             : null;
         return sourcePath && fs.existsSync(sourcePath)
+            && (!this.isKimiCodeHome(kimiHome)
+                || this.isKimiCodePathContained(kimiHome, sourcePath))
             ? {
                 providerHome: kimiHome,
                 sourcePath,
@@ -78,26 +93,35 @@ export default class KimiSessionService {
             return this.filterResult(this.cachedResult, candidatePaths);
         }
 
-        let kimiHome = this.getKimiHome();
-        if (!kimiHome) {
+        const kimiHomes = this.getKimiHomes();
+        if (!kimiHomes.length) {
             return this.cacheResult({ available: false, sessions: [], scannedFiles: 0, parsedFiles: 0 });
-        }
-
-        let workDirs = this.getWorkDirs(kimiHome);
-        if (!workDirs.length) {
-            return this.cacheResult({ available: false, sessions: [], scannedFiles: 0, parsedFiles: 0 });
-        }
-
-        if (candidatePaths.length) {
-            workDirs = workDirs.filter(workDir => candidatePaths.some(candidatePath => aiSessionPathContains(candidatePath, workDir)));
-            if (!workDirs.length) {
-                return { available: true, sessions: [], scannedFiles: 0, parsedFiles: 0 };
-            }
         }
 
         let candidates: KimiSessionCandidate[] = [];
-        for (let workDir of workDirs) {
-            candidates.push(...this.getSessionCandidatesForWorkDir(kimiHome, workDir));
+        let available = false;
+        for (const kimiHome of kimiHomes) {
+            if (this.isKimiCodeHome(kimiHome)) {
+                available = true;
+                candidates.push(...this.getKimiCodeSessionCandidates(kimiHome));
+                continue;
+            }
+            const workDirs = this.getWorkDirs(kimiHome);
+            if (!workDirs.length) {
+                continue;
+            }
+            available = true;
+            for (const workDir of workDirs) {
+                candidates.push(...this.getSessionCandidatesForWorkDir(kimiHome, workDir));
+            }
+        }
+        if (!available) {
+            return this.cacheResult({ available: false, sessions: [], scannedFiles: 0, parsedFiles: 0 });
+        }
+        if (candidatePaths.length) {
+            candidates = candidates.filter(candidate => candidatePaths.some(candidatePath =>
+                aiSessionPathContains(candidatePath, candidate.workDir)
+            ));
         }
 
         let parsedFiles = 0;
@@ -107,7 +131,12 @@ export default class KimiSessionService {
             .slice(0, maxFiles || undefined)) {
             parsedFiles++;
             this.sessionDirsById.set(candidate.sessionId, candidate.sessionDir);
-            let session = this.readSession(candidate.workDir, candidate.sessionId, candidate.sessionDir);
+            let session = this.readSession(
+                candidate.kimiHome,
+                candidate.workDir,
+                candidate.sessionId,
+                candidate.sessionDir
+            );
             if (session) {
                 sessions.push(session);
             }
@@ -120,27 +149,41 @@ export default class KimiSessionService {
 
     getLifecycleSignals(requests: readonly AiSessionLifecycleRequest[]): Record<string, AiSessionLifecycleSignal> {
         let activeSessionIds = new Set<string>();
-        let kimiHome = this.getKimiHome();
-        if (!kimiHome) {
+        if (!this.getKimiHomes().length) {
             this.lifecycleReader.retain(activeSessionIds);
             return {};
         }
         let signals: Record<string, AiSessionLifecycleSignal> = {};
-        for (let request of requests || []) {
+        const requestsById = new Map<string, AiSessionLifecycleRequest>();
+        for (const request of requests || []) {
             if (!request?.sessionId || !Number.isFinite(request.runStartedAtMs)) {
                 continue;
             }
+            requestsById.set(request.sessionId, request);
+        }
+        const locations = this.findSessionLocations(Array.from(requestsById.keys()));
+        for (const request of requestsById.values()) {
             activeSessionIds.add(request.sessionId);
             if (signals[request.sessionId]) {
                 continue;
             }
-            let sessionDir = this.findSessionDir(kimiHome, request.sessionId);
-            if (!sessionDir) {
+            const location = locations.get(request.sessionId);
+            if (!location) {
                 this.lifecycleReader.delete(request.sessionId);
                 continue;
             }
-            let sessionFile = path.join(sessionDir, 'wire.jsonl');
-            if (!fs.existsSync(sessionFile)) {
+            let sessionFile = this.getWirePath(location.kimiHome, location.sessionDir);
+            const kimiCode = this.isKimiCodeHome(location.kimiHome);
+            let expectedWire: fs.Stats | undefined;
+            try {
+                expectedWire = kimiCode ? fs.lstatSync(sessionFile) : undefined;
+            } catch (_error) {
+                this.lifecycleReader.delete(request.sessionId);
+                continue;
+            }
+            if (!fs.existsSync(sessionFile)
+                || (kimiCode && (!expectedWire.isFile() || expectedWire.isSymbolicLink()
+                    || !this.isKimiCodePathContained(location.kimiHome, sessionFile)))) {
                 this.lifecycleReader.delete(request.sessionId);
                 continue;
             }
@@ -148,7 +191,18 @@ export default class KimiSessionService {
                 request.sessionId,
                 sessionFile,
                 request.runStartedAtMs,
-                () => createKimiLifecycleAccumulator(request.runStartedAtMs)
+                () => createKimiLifecycleAccumulator(request.runStartedAtMs),
+                kimiCode ? opened => {
+                    try {
+                        const current = fs.lstatSync(sessionFile);
+                        return this.sameFileIdentity(expectedWire, opened)
+                            && this.sameFileIdentity(expectedWire, current)
+                            && !current.isSymbolicLink()
+                            && this.isKimiCodePathContained(location.kimiHome, sessionFile);
+                    } catch (_error) {
+                        return false;
+                    }
+                } : undefined
             );
             if (signal) {
                 signals[request.sessionId] = signal;
@@ -163,22 +217,52 @@ export default class KimiSessionService {
             return false;
         }
 
-        let kimiHome = this.getKimiHome();
-        if (!kimiHome) {
-            return false;
-        }
-
-        let sessionDir = this.findSessionDir(kimiHome, sessionId);
-        if (!sessionDir) {
+        const location = this.findSessionLocation(sessionId);
+        if (!location) {
             return false;
         }
 
         try {
-            let statePath = path.join(sessionDir, 'state.json');
-            let state = this.readJson<KimiSessionState>(statePath) || {};
-            state.archived = true;
-            state.archived_at = new Date().toISOString();
-            fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+            let statePath = this.getStatePath(location.kimiHome, location.sessionDir);
+            if (!statePath) {
+                return false;
+            }
+            const kimiCode = this.isKimiCodeHome(location.kimiHome);
+            let beforeWrite = kimiCode
+                ? fs.lstatSync(statePath)
+                : undefined;
+            if (beforeWrite && (!beforeWrite.isFile() || beforeWrite.isSymbolicLink())) {
+                return false;
+            }
+            const noFollow = (fs.constants as any).O_NOFOLLOW || 0;
+            const descriptor = fs.openSync(
+                statePath,
+                fs.constants.O_RDWR | fs.constants.O_CREAT | noFollow,
+                0o600
+            );
+            try {
+                if (beforeWrite) {
+                    const opened = fs.fstatSync(descriptor);
+                    const current = fs.lstatSync(statePath);
+                    if (!this.sameFileIdentity(beforeWrite, opened)
+                        || !this.sameFileIdentity(beforeWrite, current)
+                        || !this.isKimiCodePathContained(location.kimiHome, statePath)) {
+                        return false;
+                    }
+                }
+                let state: KimiSessionState = {};
+                try {
+                    state = JSON.parse(fs.readFileSync(descriptor, 'utf8')) as KimiSessionState;
+                } catch (_error) {
+                    state = {};
+                }
+                state.archived = true;
+                state.archived_at = new Date().toISOString();
+                fs.ftruncateSync(descriptor, 0);
+                fs.writeSync(descriptor, JSON.stringify(state, null, 2), 0, 'utf8');
+            } finally {
+                fs.closeSync(descriptor);
+            }
             this.lifecycleReader.delete(sessionId);
             this.invalidateCache();
             return true;
@@ -256,14 +340,14 @@ export default class KimiSessionService {
         return filterAiSessionsByCandidatePaths(result, candidatePaths, session => session.workDir || session.cwd);
     }
 
-    private getKimiHome(): string {
-        let configuredHome = process.env.KIMI_SHARE_DIR;
-        if (configuredHome && fs.existsSync(configuredHome)) {
-            return configuredHome;
-        }
-
-        let defaultHome = path.join(os.homedir(), '.kimi');
-        return fs.existsSync(defaultHome) ? defaultHome : null;
+    private getKimiHomes(): string[] {
+        let legacyOverride = process.env.KIMI_SHARE_DIR;
+        let configuredCodeHome = process.env.KIMI_CODE_HOME;
+        let kimiCodeHome = configuredCodeHome || path.join(os.homedir(), '.kimi-code');
+        let legacyHome = legacyOverride || path.join(os.homedir(), '.kimi');
+        return Array.from(new Set([kimiCodeHome, legacyHome])).filter(home =>
+            (this.isKimiCodeHome(home) || fs.existsSync(home))
+        );
     }
 
     private getWorkDirs(kimiHome: string): string[] {
@@ -302,6 +386,7 @@ export default class KimiSessionService {
                 }
                 let sessionDir = path.join(sessionsDir, entry.name);
                 candidates.push({
+                    kimiHome,
                     workDir,
                     sessionId: entry.name,
                     sessionDir,
@@ -314,7 +399,49 @@ export default class KimiSessionService {
         }
     }
 
-    private findSessionDir(kimiHome: string, sessionId: string): string {
+    private getKimiCodeSessionCandidates(kimiHome: string): KimiSessionCandidate[] {
+        const candidates: KimiSessionCandidate[] = [];
+        const seenSessionIds = new Set<string>();
+        for (const entry of this.readKimiCodeSessionIndex(kimiHome)) {
+            const workDir = this.normalizePath(entry.workDir || '');
+            const sessionDir = this.resolveKimiCodeSessionDir(kimiHome, entry.sessionDir);
+            if (!workDir || !this.isKimiCodeSessionId(entry.sessionId)
+                || !sessionDir || path.basename(sessionDir) !== entry.sessionId
+                || seenSessionIds.has(entry.sessionId)) {
+                continue;
+            }
+            const wirePath = this.getWirePath(kimiHome, sessionDir);
+            if (!this.isKimiCodePathContained(kimiHome, wirePath)) {
+                continue;
+            }
+            seenSessionIds.add(entry.sessionId);
+            candidates.push({
+                kimiHome,
+                workDir,
+                sessionId: entry.sessionId,
+                sessionDir,
+                mtimeMs: this.getFileMtimeMs(wirePath),
+            });
+        }
+        return candidates;
+    }
+
+    private findSessionDir(
+        kimiHome: string,
+        sessionId: string,
+        codeIndex?: readonly KimiCodeSessionIndexEntry[]
+    ): string {
+        if (this.isKimiCodeHome(kimiHome)) {
+            const indexed = (codeIndex || this.readKimiCodeSessionIndex(kimiHome)).find(entry =>
+                entry.sessionId === sessionId
+            );
+            const sessionDir = indexed
+                ? this.resolveKimiCodeSessionDir(kimiHome, indexed.sessionDir)
+                : null;
+            return sessionDir && path.basename(sessionDir) === sessionId
+                ? sessionDir
+                : null;
+        }
         if (!this.isSessionId(sessionId)) {
             return null;
         }
@@ -349,18 +476,70 @@ export default class KimiSessionService {
         return null;
     }
 
+    private findSessionLocation(sessionId: string): { kimiHome: string; sessionDir: string } | null {
+        for (const kimiHome of this.getKimiHomes()) {
+            const sessionDir = this.findSessionDir(kimiHome, sessionId);
+            if (sessionDir) {
+                return { kimiHome, sessionDir };
+            }
+        }
+        return null;
+    }
+
+    private findSessionLocations(sessionIds: readonly string[]): Map<string, { kimiHome: string; sessionDir: string }> {
+        const homes = this.getKimiHomes();
+        const indexes = new Map<string, Map<string, KimiCodeSessionIndexEntry>>();
+        for (const home of homes) {
+            if (this.isKimiCodeHome(home)) {
+                indexes.set(home, new Map(this.readKimiCodeSessionIndex(home).map(entry => [
+                    entry.sessionId,
+                    entry,
+                ])));
+            }
+        }
+        const locations = new Map<string, { kimiHome: string; sessionDir: string }>();
+        for (const sessionId of sessionIds) {
+            for (const home of homes) {
+                const indexed = indexes.get(home)?.get(sessionId);
+                const sessionDir = indexed
+                    ? this.resolveKimiCodeSessionDir(home, indexed.sessionDir)
+                    : this.isKimiCodeHome(home)
+                        ? null
+                        : this.findSessionDir(home, sessionId);
+                if (sessionDir) {
+                    locations.set(sessionId, { kimiHome: home, sessionDir });
+                    break;
+                }
+            }
+        }
+        return locations;
+    }
+
     private findWorkDirForSessionDir(
         kimiHome: string,
         sessionDir: string
     ): string {
+        if (this.isKimiCodeHome(kimiHome)) {
+            const normalizedSessionDir = path.resolve(sessionDir);
+            const indexed = this.readKimiCodeSessionIndex(kimiHome).find(entry =>
+                this.resolveKimiCodeSessionDir(kimiHome, entry.sessionDir)
+                    === normalizedSessionDir
+            );
+            return this.normalizePath(indexed?.workDir || '') || null;
+        }
         const workDirHash = path.basename(path.dirname(sessionDir));
         return this.getWorkDirs(kimiHome).find(workDir =>
             this.getWorkDirHash(workDir) === workDirHash
         ) || null;
     }
 
-    private readSession(workDir: string, sessionId: string, sessionDir: string): CodexSession {
-        let wirePath = path.join(sessionDir, 'wire.jsonl');
+    private readSession(
+        kimiHome: string,
+        workDir: string,
+        sessionId: string,
+        sessionDir: string
+    ): CodexSession {
+        let wirePath = this.getWirePath(kimiHome, sessionDir);
         if (!fs.existsSync(wirePath)) {
             return null;
         }
@@ -375,14 +554,14 @@ export default class KimiSessionService {
             return null;
         }
 
-        let state = this.readJson<KimiSessionState>(path.join(sessionDir, 'state.json'));
+        let state = this.readJson<KimiSessionState>(this.getStatePath(kimiHome, sessionDir));
         if (state?.archived) {
             return null;
         }
 
         return {
             id: sessionId,
-            name: state?.custom_title || state?.plan_slug || sessionId,
+            name: state?.custom_title || state?.title || state?.plan_slug || sessionId,
             updatedAt: new Date(wireStat.mtimeMs).toISOString(),
             cwd: workDir,
             workDir,
@@ -391,16 +570,28 @@ export default class KimiSessionService {
     }
 
     private getSessionFingerprint(): string {
-        let kimiHome = this.getKimiHome();
-        if (!kimiHome) {
+        const kimiHomes = this.getKimiHomes();
+        if (!kimiHomes.length) {
             return 'missing';
         }
 
         let fingerprint = new SessionFingerprint();
-        fingerprint.addEntry(kimiHome);
-        fingerprint.addEntry(getAiSessionFileSignature(path.join(kimiHome, 'kimi.json')));
-        for (let workDir of this.getWorkDirs(kimiHome)) {
-            this.addWorkDirFingerprint(fingerprint, kimiHome, workDir);
+        for (const kimiHome of kimiHomes) {
+            fingerprint.addEntry(kimiHome);
+            if (this.isKimiCodeHome(kimiHome)) {
+                fingerprint.addEntry(getAiSessionFileSignature(path.join(kimiHome, 'session_index.jsonl')));
+                for (const candidate of this.getKimiCodeSessionCandidates(kimiHome)) {
+                    fingerprint.addEntry(candidate.workDir);
+                    fingerprint.addEntry(candidate.sessionId);
+                    fingerprint.addEntry(getAiSessionFileSignature(this.getStatePath(kimiHome, candidate.sessionDir)));
+                    fingerprint.addEntry(getAiSessionFileSignature(this.getWirePath(kimiHome, candidate.sessionDir)));
+                }
+                continue;
+            }
+            fingerprint.addEntry(getAiSessionFileSignature(path.join(kimiHome, 'kimi.json')));
+            for (let workDir of this.getWorkDirs(kimiHome)) {
+                this.addWorkDirFingerprint(fingerprint, kimiHome, workDir);
+            }
         }
         return fingerprint.digest();
     }
@@ -443,6 +634,135 @@ export default class KimiSessionService {
 
     private isSessionId(value: string): boolean {
         return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+    }
+
+    private isKimiCodeHome(kimiHome: string): boolean {
+        return fs.existsSync(path.join(kimiHome, 'session_index.jsonl'));
+    }
+
+    private isKimiCodeSessionId(value: unknown): value is string {
+        return typeof value === 'string'
+            && /^session_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+    }
+
+    private getWirePath(kimiHome: string, sessionDir: string): string {
+        return path.join(sessionDir, this.isKimiCodeHome(kimiHome)
+            ? 'agents/main/wire.jsonl'
+            : 'wire.jsonl');
+    }
+
+    private getStatePath(kimiHome: string, sessionDir: string): string | null {
+        const statePath = path.join(sessionDir, 'state.json');
+        if (!this.isKimiCodeHome(kimiHome)) {
+            return statePath;
+        }
+        try {
+            const stat = fs.lstatSync(statePath);
+            if (!stat.isFile() || stat.isSymbolicLink()) {
+                return null;
+            }
+            return this.isKimiCodePathContained(kimiHome, statePath)
+                ? statePath
+                : null;
+        } catch (error) {
+            return (error as NodeJS.ErrnoException).code === 'ENOENT'
+                ? statePath
+                : null;
+        }
+    }
+
+    private isKimiCodePathContained(kimiHome: string, value: string): boolean {
+        try {
+            return this.isPathContained(fs.realpathSync(kimiHome), fs.realpathSync(value));
+        } catch (_error) {
+            return false;
+        }
+    }
+
+    private isPathContained(home: string, value: string): boolean {
+        const relative = path.relative(home, value);
+        return Boolean(relative) && !path.isAbsolute(relative)
+            && !relative.startsWith(`..${path.sep}`) && relative !== '..';
+    }
+
+    private sameFileIdentity(left: fs.Stats | undefined, right: fs.Stats | undefined): boolean {
+        return Boolean(left && right
+            && Number.isFinite(left.dev) && left.dev !== 0
+            && Number.isFinite(left.ino) && left.ino !== 0
+            && Number.isFinite(left.birthtimeMs)
+            && Number.isFinite(right.dev) && right.dev === left.dev
+            && Number.isFinite(right.ino) && right.ino === left.ino
+            && Number.isFinite(right.birthtimeMs) && right.birthtimeMs === left.birthtimeMs);
+    }
+
+    private readKimiCodeSessionIndex(kimiHome: string): KimiCodeSessionIndexEntry[] {
+        try {
+            const indexPath = path.join(kimiHome, 'session_index.jsonl');
+            const noFollow = (fs.constants as any).O_NOFOLLOW || 0;
+            const descriptor = fs.openSync(indexPath, fs.constants.O_RDONLY | noFollow);
+            let contents: string;
+            try {
+                const stat = fs.fstatSync(descriptor);
+                if (!stat.isFile() || stat.size > MAX_KIMI_CODE_INDEX_BYTES) {
+                    return [];
+                }
+                const buffer = Buffer.alloc(stat.size);
+                const bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, 0);
+                contents = buffer.subarray(0, bytesRead).toString('utf8');
+            } finally {
+                fs.closeSync(descriptor);
+            }
+            const entries = new Map<string, KimiCodeSessionIndexEntry>();
+            for (const line of contents
+                .split(/\r?\n/)
+                .filter(Boolean)) {
+                try {
+                    const entry = JSON.parse(line) as Partial<KimiCodeSessionIndexEntry>;
+                    if (!entry || typeof entry !== 'object'
+                        || typeof entry.sessionId !== 'string'
+                        || !this.isKimiCodeSessionId(entry.sessionId)) {
+                        continue;
+                    }
+                    if (entry.deleted === true) {
+                        entries.delete(entry.sessionId);
+                    } else if (typeof entry.sessionDir === 'string'
+                        && typeof entry.workDir === 'string') {
+                        entries.set(entry.sessionId, {
+                            sessionId: entry.sessionId,
+                            sessionDir: entry.sessionDir,
+                            workDir: entry.workDir,
+                        });
+                    }
+                } catch (_error) {
+                    // Ignore a partially-written trailing index entry.
+                }
+            }
+            return Array.from(entries.values());
+        } catch (_error) {
+            return [];
+        }
+    }
+
+    private resolveKimiCodeSessionDir(kimiHome: string, value: unknown): string | null {
+        if (typeof value !== 'string' || !value) {
+            return null;
+        }
+        const resolvedHome = path.resolve(kimiHome);
+        const resolved = path.resolve(path.isAbsolute(value)
+            ? value
+            : path.join(kimiHome, value));
+        if (!this.isPathContained(resolvedHome, resolved)) {
+            return null;
+        }
+        try {
+            const canonicalHome = fs.realpathSync(kimiHome);
+            const canonicalSessionDir = fs.realpathSync(resolved);
+            return this.isPathContained(canonicalHome, canonicalSessionDir)
+                ? canonicalSessionDir
+                : null;
+        } catch (_error) {
+            return null;
+        }
     }
 
     private readJson<T>(filePath: string): T {

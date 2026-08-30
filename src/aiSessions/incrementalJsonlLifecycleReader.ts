@@ -32,14 +32,20 @@ export default class IncrementalJsonlLifecycleReader {
         key: string,
         filePath: string,
         runStartedAtMs: number,
-        createAccumulator: () => AiSessionLifecycleAccumulator
+        createAccumulator: () => AiSessionLifecycleAccumulator,
+        validateOpen?: (stat: fs.Stats) => boolean
     ): AiSessionLifecycleSignal | null {
         let previousCursor = this.cursors.get(key);
         let fd: number = null;
 
         try {
-            let stat = fs.statSync(filePath);
+            const noFollow = (fs.constants as any).O_NOFOLLOW || 0;
+            fd = fs.openSync(filePath, fs.constants.O_RDONLY | noFollow);
+            let stat = fs.fstatSync(fd);
             if (!stat.isFile()) {
+                return null;
+            }
+            if (validateOpen && !validateOpen(stat)) {
                 return null;
             }
 
@@ -69,7 +75,6 @@ export default class IncrementalJsonlLifecycleReader {
                 return cursor.accumulator.getSignal();
             }
 
-            fd = fs.openSync(filePath, 'r');
             while (cursor.offset < stat.size) {
                 let remaining = stat.size - cursor.offset;
                 let buffer = Buffer.alloc(Math.min(this.chunkBytes, remaining));

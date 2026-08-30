@@ -261,6 +261,9 @@ function visibleKimiCodeInput(value: unknown): string {
                 parts.push({ kind: 'text', text: part.text });
             } else if (part && (
                 part.type === 'image'
+                || part.type === 'image_url'
+                || part.type === 'audio_url'
+                || part.type === 'video_url'
                 || part.type === 'file'
                 || part.type === 'attachment'
             )) {
@@ -270,6 +273,14 @@ function visibleKimiCodeInput(value: unknown): string {
         },
         []
     ));
+}
+
+function isKimiCodeUserOrigin(value: unknown): boolean {
+    const origin = asRecord(value);
+    return origin?.kind === 'user'
+        || origin?.kind === 'skill_activation'
+        || origin?.kind === 'plugin_command'
+        || origin?.kind === 'shell_command';
 }
 
 function interactionId(
@@ -678,6 +689,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             return [];
         }
         const now = Date.now();
+        const kimiCode = isKimiCodeMainWire(candidate.sourcePath);
         const entries: ConversationSubagentEntry[] = [];
         for (const dirent of dirents) {
             if (entries.length >= MAX_LISTED_SUBAGENTS) {
@@ -691,7 +703,8 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             const entry = await readSubagentEntry(
                 path.join(subagentsRoot, dirent.name),
                 dirent.name,
-                now
+                now,
+                kimiCode
             );
             if (entry) {
                 entries.push(entry);
@@ -1239,14 +1252,26 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 }
                 pendingThinking = null;
             };
+            const ensureOpenKimiCodeInteraction = (): boolean => {
+                if (openInteractionIndex !== undefined) {
+                    return true;
+                }
+                if (!interactions.length) {
+                    return false;
+                }
+                // Goal continuation can resume a completed turn without a
+                // second prompt; keep it with the task that started it.
+                openInteractionIndex = interactions.length - 1;
+                interactions[openInteractionIndex].responseState = 'inProgress';
+                return true;
+            };
             const normalizeRecord = (record: ConversationJsonlRecord): boolean | void => {
                 const envelope = asRecord(record.value);
                 const kimiCodeRecordType = envelope?.type;
                 if (typeof kimiCodeRecordType === 'string') {
                     if (kimiCodeRecordType === 'turn.prompt'
                         || kimiCodeRecordType === 'turn.steer') {
-                        const origin = asRecord(envelope.origin);
-                        if (origin?.kind !== 'user') {
+                        if (!isKimiCodeUserOrigin(envelope.origin)) {
                             return;
                         }
                         flushThinking();
@@ -1299,7 +1324,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         const part = asRecord(loopEvent?.part);
                         stampActivity({ timestamp: envelope.time });
                         if (loopEvent?.type === 'tool.call'
-                            && openInteractionIndex !== undefined
+                            && ensureOpenKimiCodeInteraction()
                             && typeof loopEvent.name === 'string'
                             && loopEvent.name) {
                             flushThinking();
@@ -1320,10 +1345,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             const result = asRecord(loopEvent.result);
                             const output = typeof result?.output === 'string'
                                 ? result.output
-                                : undefined;
-                            toolTracker.finish(loopEvent.toolCallId, output);
+                                : visibleKimiCodeInput(result?.output);
+                            toolTracker.finish(loopEvent.toolCallId, output || undefined);
                         } else if (loopEvent?.type === 'content.part'
-                            && openInteractionIndex !== undefined
+                            && ensureOpenKimiCodeInteraction()
                             && part?.type === 'think'
                             && typeof part.think === 'string') {
                             if (part.think === '') {
@@ -1342,7 +1367,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         }
                         flushThinking();
                         if (loopEvent?.type === 'content.part'
-                            && openInteractionIndex !== undefined
+                            && ensureOpenKimiCodeInteraction()
                             && part?.type === 'text'
                             && typeof part.text === 'string') {
                             if (!pendingText) {
@@ -1357,7 +1382,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         const content = visibleKimiCodeInput(message?.content);
                         stampActivity({ timestamp: envelope.time });
                         if (message?.role === 'assistant' && content
-                            && openInteractionIndex !== undefined) {
+                            && ensureOpenKimiCodeInteraction()) {
                             flushThinking();
                             if (!pendingText) {
                                 pendingText = { text: '' };
@@ -2027,11 +2052,13 @@ interface SubagentMeta {
 async function readSubagentEntry(
     directory: string,
     id: string,
-    now: number
+    now: number,
+    isKimiCode = false
 ): Promise<ConversationSubagentEntry | undefined> {
+    const wirePath = path.join(directory, 'wire.jsonl');
     let wireStat: fs.Stats;
     try {
-        wireStat = await fs.promises.stat(path.join(directory, 'wire.jsonl'));
+        wireStat = await fs.promises.stat(wirePath);
     } catch (_error) {
         return undefined;
     }
@@ -2040,12 +2067,39 @@ async function readSubagentEntry(
         id,
         label: subagentLabel(meta, id),
         ...(meta?.subagent_type ? { agentType: meta.subagent_type } : {}),
-        status: subagentStatus(meta?.status, wireStat.mtimeMs, now),
+        status: isKimiCode
+            ? await kimiCodeSubagentStatus(wirePath, wireStat.mtimeMs, now)
+            : subagentStatus(meta?.status, wireStat.mtimeMs, now),
         ...(Number.isFinite(meta?.created_at)
             ? { createdAt: Math.floor((meta?.created_at as number) * 1000) }
             : {}),
         updatedAt: Math.floor(wireStat.mtimeMs),
     };
+}
+
+async function kimiCodeSubagentStatus(
+    wirePath: string,
+    wireMtimeMs: number,
+    now: number
+): Promise<ConversationSubagentEntry['status']> {
+    try {
+        const lines = (await fs.promises.readFile(wirePath, 'utf8'))
+            .trim().split(/\r?\n/);
+        for (let index = lines.length - 1; index >= 0; index -= 1) {
+            const record = asRecord(JSON.parse(lines[index]));
+            if (record?.type === 'turn.ended') {
+                return 'idle';
+            }
+            if (record) {
+                break;
+            }
+        }
+    } catch (_error) {
+        return 'quiet';
+    }
+    return now - wireMtimeMs <= SUBAGENT_RUNNING_FRESHNESS_MS
+        ? 'running'
+        : 'quiet';
 }
 
 async function readSubagentMeta(

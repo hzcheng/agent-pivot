@@ -175,12 +175,14 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi Code discovers and render
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi Code retains tool activity and appended assistant messages', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [
-        { type: 'turn.prompt', input: [{ type: 'text', text: 'Run a tool.' }], origin: { kind: 'user' }, time: 1_784_073_611_000 },
+        { type: 'turn.prompt', input: [{ type: 'text', text: 'Run a tool.' }, { type: 'image_url' }], origin: { kind: 'plugin_command' }, time: 1_784_073_611_000 },
         { type: 'context.append_loop_event', event: { type: 'step.begin', turnId: 1, stepUuid: 'step' }, time: 1_784_073_611_001 },
         { type: 'context.append_loop_event', event: { type: 'tool.call', turnId: 1, stepUuid: 'step', toolCallId: 'call-1', name: 'Shell', args: { command: 'pwd' } }, time: 1_784_073_611_002 },
-        { type: 'context.append_loop_event', event: { type: 'tool.result', turnId: 1, toolCallId: 'call-1', result: { output: '/workspace' } }, time: 1_784_073_611_003 },
+        { type: 'context.append_loop_event', event: { type: 'tool.result', turnId: 1, toolCallId: 'call-1', result: { output: [{ type: 'text', text: '/workspace' }, { type: 'audio_url' }] } }, time: 1_784_073_611_003 },
         { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'Tool completed.' }] }, time: 1_784_073_611_004 },
         { type: 'turn.ended', turnId: 1, reason: 'completed', time: 1_784_073_611_005 },
+        { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'Goal continuation.' }] }, time: 1_784_073_611_006 },
+        { type: 'turn.ended', turnId: 2, reason: 'completed', time: 1_784_073_611_007 },
     ].map(record => JSON.stringify(record)).join('\n') + '\n');
     const adapter = createAdapter(source);
     t.after(() => adapter.dispose());
@@ -189,8 +191,11 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi Code retains tool activit
         provider: 'kimi', sessionId, anchorInteractionId: outline.interactions[0].id,
         direction: 'around', expectedRevision: outline.sourceRevision,
     });
+    assert.equal(page.messages[0].markdown, 'Run a tool. [Attachment]');
     assert.equal(page.messages.some(message => message.role === 'tool'), true);
+    assert.match(page.messages.find(message => message.role === 'tool')?.tool?.detail || '', /workspace/);
     assert.equal(page.messages.some(message => message.markdown === 'Tool completed.'), true);
+    assert.equal(page.messages.some(message => message.markdown === 'Goal continuation.'), true);
 });
 
 test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi Code reads agents beside main', async t => {
@@ -200,11 +205,12 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi Code reads agents beside main'
     await fs.promises.writeFile(path.join(workerDir, 'wire.jsonl'), [
         { type: 'turn.prompt', input: [{ type: 'text', text: 'Worker task.' }], origin: { kind: 'user' }, time: 1_784_073_611_000 },
         { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'Worker result.' }] }, time: 1_784_073_611_001 },
-        { type: 'turn.ended', turnId: 1, reason: 'completed', time: 1_784_073_611_002 },
     ].map(record => JSON.stringify(record)).join('\n') + '\n');
     const adapter = createAdapter({ providerHome: fixture.providerHome, sourcePath: fixture.sourcePath });
     t.after(() => adapter.dispose());
-    assert.deepEqual((await adapter.readSubagents(fixture.sessionId)).map(entry => entry.id), ['worker-1']);
+    assert.deepEqual((await adapter.readSubagents(fixture.sessionId)).map(entry => [entry.id, entry.status]), [
+        ['worker-1', 'running'],
+    ]);
     const workerId = encodeSubagentSessionId(fixture.sessionId, 'worker-1');
     const outline = await adapter.readOutline(workerId);
     const page = await adapter.readPage({

@@ -312,8 +312,11 @@ test('SESSION-PROVIDER-001 Kimi keeps legacy and Kimi Code sessions discoverable
 
 test('SESSION-FINGERPRINT-HASH-001 Kimi Code reads its session index once per listing and fingerprint', t => {
     const home = makeTempDirectory(t, 'provider-kimi-code-index-');
+    const isolatedOsHome = makeTempDirectory(t, 'provider-kimi-code-index-os-home-');
     const indexPath = path.join(home, 'session_index.jsonl');
     setEnvironment(t, 'KIMI_SHARE_DIR', home);
+    unsetEnvironment(t, 'KIMI_CODE_HOME');
+    setHomeDirectory(t, isolatedOsHome);
     for (let index = 0; index < 16; index += 1) {
         writeKimiCodeSession(
             home,
@@ -345,9 +348,10 @@ test('SESSION-FINGERPRINT-HASH-001 Kimi Code reads its session index once per li
 
 test('SESSION-PROVIDER-001 Kimi Code honors KIMI_CODE_HOME and last-write-wins index records', t => {
     const home = makeTempDirectory(t, 'provider-kimi-code-home-');
+    const legacyOverride = makeTempDirectory(t, 'provider-kimi-code-legacy-override-');
     const isolatedOsHome = makeTempDirectory(t, 'provider-kimi-code-os-home-');
     const sessionId = 'session_cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-    unsetEnvironment(t, 'KIMI_SHARE_DIR');
+    setEnvironment(t, 'KIMI_SHARE_DIR', legacyOverride);
     setHomeDirectory(t, isolatedOsHome);
     setEnvironment(t, 'KIMI_CODE_HOME', home);
     writeKimiCodeSession(home, sessionId, '/work/stale', 'Stale location');
@@ -368,15 +372,26 @@ test('SESSION-PROVIDER-001 Kimi Code honors KIMI_CODE_HOME and last-write-wins i
     })}\n`, 'utf8');
     assert.equal(service.getSessions({ forceRefresh: true }).sessions.length, 0);
     assert.equal(service.resolveConversationSource(sessionId), null);
+
+    const staleDefaultHome = path.join(isolatedOsHome, '.kimi-code');
+    writeKimiCodeSession(staleDefaultHome,
+        'session_dddddddd-dddd-4ddd-8ddd-dddddddddddd', '/work/default', 'Default location');
+    setEnvironment(t, 'KIMI_CODE_HOME', path.join(isolatedOsHome, 'missing-kimi-code-home'));
+    const configuredHomeService = new KimiSessionService();
+    assert.equal(configuredHomeService.getSessions({ forceRefresh: true }).sessions.length, 0,
+        'a configured but absent KIMI_CODE_HOME must not fall back to the default home');
 });
 
 test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 Kimi Code rejects an in-home symlinked session directory', t => {
     const home = makeTempDirectory(t, 'provider-kimi-code-symlink-');
+    const isolatedOsHome = makeTempDirectory(t, 'provider-kimi-code-symlink-os-home-');
     const outside = makeTempDirectory(t, 'provider-kimi-code-outside-');
     const sessionId = 'session_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     const outsideSessionDir = path.join(outside, sessionId);
     const linkedSessionDir = path.join(home, 'sessions', 'wd-link', sessionId);
     setEnvironment(t, 'KIMI_SHARE_DIR', home);
+    unsetEnvironment(t, 'KIMI_CODE_HOME');
+    setHomeDirectory(t, isolatedOsHome);
     fs.mkdirSync(path.join(outsideSessionDir, 'agents', 'main'), { recursive: true });
     fs.writeFileSync(path.join(outsideSessionDir, 'agents', 'main', 'wire.jsonl'), '{}\n', 'utf8');
     fs.writeFileSync(path.join(outsideSessionDir, 'state.json'), '{"outside":true}', 'utf8');

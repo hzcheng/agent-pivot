@@ -8706,10 +8706,13 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
         },
     });
 
-    // The header chrome is one uniform row of four icon buttons; sending
-    // lives in the comments toolbar, not the header.
-    const navButtons = page.locator('.conversation-navigation [data-action]');
+    // Question navigation is grouped with the Session status dots at the
+    // bottom; sending lives in the comments toolbar, not the header.
+    const navButtons = page.locator('.conversation-session-controls [data-action]');
     assert.equal(await navButtons.count(), 4);
+    assert.equal(await page.locator('.conversation-header [data-action]').count(), 2,
+        'the header retains the session-rename control and one hidden compatibility anchor');
+    assert.equal(await page.locator('[data-action="toggle-sidebar"]').isHidden(), true);
     assert.equal(
         await page.locator('[data-action="send-comments"]').count(),
         0,

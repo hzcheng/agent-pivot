@@ -14,7 +14,7 @@ test('release content validation cannot satisfy current facts from historical no
     const changelog = [
         '# Changelog',
         '',
-        '## [1.3.1] - 2026-08-30',
+        '## [1.3.2] - 2026-08-30',
         '',
         '- An unrelated documentation fix.',
         '',
@@ -37,10 +37,10 @@ test('release content validation cannot satisfy current facts from historical no
             changelog,
             packageMetadata: {
                 displayName: 'Agent Pivot',
-                version: '1.3.1',
+                version: '1.3.2',
                 description: 'Workspace command center.',
             },
         }),
-        /1\.3\.1 CHANGELOG release must document the Marketplace release channel/,
+        /1\.3\.2 CHANGELOG release must document the Marketplace release channel/,
     );
 });

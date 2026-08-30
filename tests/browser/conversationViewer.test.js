@@ -222,10 +222,14 @@ async function openViewerPage(t, options = {}) {
                         data-conversation-display-name data-action="rename-session"
                         title="Rename session" aria-label="Rename session">Original session</button>
                     <span data-conversation-position>Input 0 of 0</span>
-                    <button type="button" data-action="first">First</button>
-                    <button type="button" data-action="previous">Previous</button>
-                    <button type="button" data-action="next">Next</button>
-                    <button type="button" data-action="latest">Latest</button>
+                    <button type="button" data-action="first"
+                        title="First question" aria-label="First question">First</button>
+                    <button type="button" data-action="previous"
+                        title="Previous question" aria-label="Previous question">Previous</button>
+                    <button type="button" data-action="next"
+                        title="Next question" aria-label="Next question">Next</button>
+                    <button type="button" data-action="latest"
+                        title="Last question" aria-label="Last question">Latest</button>
                 </header>
                 <section class="conversation-telemetry"
                     data-conversation-telemetry hidden>
@@ -370,7 +374,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies an authoritative cross-
     await sendPage(page, {
         ...hostileConversationPage,
         requestId: 2,
-        subscriptionGeneration: 1,
+        subscriptionGeneration: 2,
         html: '<article data-message-id="kimi-message" '
             + 'data-interaction-id="kimi-input"><p>Kimi response</p></article>',
         outline: [{

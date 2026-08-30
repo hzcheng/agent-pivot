@@ -98,6 +98,35 @@ test('PERSIST-LIFECYCLE-PARSER-001 [kimi] treats subagent progress events as run
     assert.match(signal.token, /^kimi:SubagentEvent:/);
 });
 
+test('PERSIST-LIFECYCLE-PARSER-001 [kimi] maps Kimi Code turn records', () => {
+    const signal = lifecycle.parseKimiLifecycleLines([
+        JSON.stringify({
+            type: 'turn.prompt',
+            turnId: 7,
+            origin: { kind: 'user' },
+            time: Date.parse('2026-07-24T08:00:00.000Z'),
+        }),
+        JSON.stringify({
+            type: 'context.append_loop_event',
+            event: { type: 'content.part', turnId: 7 },
+            time: Date.parse('2026-07-24T08:01:00.000Z'),
+        }),
+        JSON.stringify({
+            type: 'turn.ended',
+            turnId: 7,
+            reason: 'completed',
+            time: Date.parse('2026-07-24T08:02:00.000Z'),
+        }),
+    ], runStartedAtMs);
+
+    assert.ok(signal);
+    assert.equal(signal.phase, 'needsAttention');
+    assert.equal(signal.reason, 'completed');
+    assert.equal(signal.executionState, 'stopped');
+    assert.equal(signal.occurredAtMs, Date.parse('2026-07-24T08:02:00.000Z'));
+    assert.match(signal.token, /^kimi:turn\.ended:/);
+});
+
 test('PERSIST-LIFECYCLE-PARSER-001 [codex] treats ordinary turn progress as a running lease renewal', () => {
     const signal = lifecycle.parseCodexLifecycleLines([
         JSON.stringify({

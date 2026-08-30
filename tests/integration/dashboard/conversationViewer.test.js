@@ -78,6 +78,7 @@ const {
 const {
     KimiConversationAdapter,
 } = require('../../../out/aiSessions/conversation/kimiAdapter');
+const KimiSessionService = require('../../../out/services/kimiSessionService').default;
 const {
     CodexConversationAdapter,
 } = require('../../../out/aiSessions/conversation/codexAdapter');
@@ -7627,6 +7628,94 @@ test('CONVERSATION-VIEWER-PARTIAL-001 offsets capped-tail positions by omitted a
     assert.equal(publication.selectedInteractionId, 'input-2001');
     assert.equal(publication.selectedInput, 2_001);
     assert.equal(publication.totalInputs, 2_000);
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 renders a discovered Kimi Code session in the viewer', async t => {
+    const providerHome = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'steward-kimi-code-viewer-')
+    );
+    const sessionId = 'session_33333333-3333-4333-8333-333333333333';
+    const cwd = '/fixtures/kimi-code-viewer';
+    const sessionDir = path.join(
+        providerHome,
+        'sessions',
+        'wd_kimi-code-viewer_0123456789ab',
+        sessionId
+    );
+    const sourcePath = path.join(sessionDir, 'agents', 'main', 'wire.jsonl');
+    await fs.promises.mkdir(path.dirname(sourcePath), { recursive: true });
+    await fs.promises.writeFile(path.join(providerHome, 'session_index.jsonl'),
+        `${JSON.stringify({ sessionId, sessionDir, workDir: cwd })}\n`);
+    await fs.promises.writeFile(path.join(sessionDir, 'state.json'), JSON.stringify({
+        id: sessionId,
+        cwd,
+        title: 'Kimi Code viewer session',
+    }));
+    await fs.promises.writeFile(sourcePath, [
+        {
+            type: 'turn.prompt',
+            agentId: 'main',
+            input: [{ type: 'text', text: 'Render this Kimi Code session.' }],
+            origin: { kind: 'user' },
+            time: 1_784_073_611_000,
+        },
+        {
+            type: 'context.append_loop_event',
+            agentId: 'main',
+            event: {
+                type: 'content.part',
+                part: { type: 'text', text: 'Kimi Code is now visible.' },
+            },
+            time: 1_784_073_611_001,
+        },
+        {
+            type: 'turn.ended',
+            agentId: 'main',
+            turnId: 1,
+            reason: 'completed',
+            time: 1_784_073_611_002,
+        },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n');
+    t.after(() => fs.promises.rm(providerHome, {
+        recursive: true,
+        force: true,
+    }));
+
+    const previousHome = process.env.KIMI_SHARE_DIR;
+    process.env.KIMI_SHARE_DIR = providerHome;
+    t.after(() => {
+        if (previousHome === undefined) delete process.env.KIMI_SHARE_DIR;
+        else process.env.KIMI_SHARE_DIR = previousHome;
+    });
+
+    const service = new KimiSessionService();
+    const sessions = service.getSessions({ forceRefresh: true, candidatePaths: [cwd] });
+    assert.equal(sessions.sessions[0]?.id, sessionId);
+    const adapter = new KimiConversationAdapter({
+        resolveSource: id => service.resolveConversationSource(id),
+        watchSessionChanges: () => ({ dispose() {} }),
+        now: Date.now,
+        setTimeout(callback) {
+            callback();
+            return 1;
+        },
+        clearTimeout() {},
+    });
+    t.after(() => adapter.dispose());
+    const outline = await adapter.readOutline(sessionId);
+    const { viewer, panel } = createViewer({
+        readOutline: (_provider, id, signal) => adapter.readOutline(id, signal),
+        readPage: (request, signal) => adapter.readPage(request, signal),
+        watch: (_provider, id, callback) => adapter.watch(id, callback),
+    });
+
+    await viewer.open(target(sessionId, outline.interactions[0].id, {
+        provider: 'kimi',
+        expectedRevision: outline.sourceRevision,
+    }));
+    const publication = decodeInitialPublication(panel.webview.html);
+    assert.ok(publication.html.includes('Render this Kimi Code session.'));
+    assert.ok(publication.html.includes('Kimi Code is now visible.'));
 });
 
 test('CONVERSATION-VIEWER-PARTIAL-001 derives first and latest capped positions from a real Kimi adapter', async t => {

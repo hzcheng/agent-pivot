@@ -39,7 +39,7 @@ function createAccumulator(
                     continue;
                 }
 
-                let occurredAtMs = getOccurredAtMs(event?.timestamp);
+                let occurredAtMs = getOccurredAtMs(event?.timestamp ?? event?.time);
                 if (!Number.isFinite(occurredAtMs) || occurredAtMs < runStartedAtMs
                     || (latest && occurredAtMs < latest.occurredAtMs)) {
                     continue;
@@ -180,6 +180,26 @@ export function createKimiLifecycleAccumulator(runStartedAtMs: number): AiSessio
     // therefore means "interrupted", not "completed".
     let interruptedTurnPending = false;
     return createAccumulator(runStartedAtMs, (event, occurredAtMs) => {
+        if (event?.type === 'turn.prompt' || event?.type === 'turn.steer') {
+            return event?.origin?.kind === 'user'
+                ? running('kimi', event.type, occurredAtMs, event.turnId)
+                : null;
+        }
+        if (event?.type === 'context.append_loop_event') {
+            return running('kimi', event.type, occurredAtMs, event?.event?.turnId);
+        }
+        if (event?.type === 'turn.ended') {
+            switch (event.reason) {
+                case 'completed':
+                    return attention('kimi', event.type, occurredAtMs, 'completed', event.turnId);
+                case 'failed':
+                    return attention('kimi', event.type, occurredAtMs, 'failed', event.turnId);
+                case 'blocked':
+                    return attention('kimi', event.type, occurredAtMs, 'input-required', event.turnId);
+                default:
+                    return idle('kimi', event.type, occurredAtMs, event.turnId);
+            }
+        }
         let message = event?.message || {};
         let payload = message.payload || {};
         if (KIMI_RUNNING_EVENTS.has(message.type)) {

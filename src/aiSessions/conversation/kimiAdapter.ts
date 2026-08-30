@@ -244,6 +244,28 @@ function visibleMessage(value: string): string {
         );
 }
 
+function visibleKimiCodeInput(value: unknown): string {
+    if (!Array.isArray(value)) {
+        return '';
+    }
+    return buildVisibleUserInput(value.reduce(
+        (parts: VisibleUserInputPart[], rawPart: unknown) => {
+            const part = asRecord(rawPart);
+            if (part?.type === 'text' && typeof part.text === 'string') {
+                parts.push({ kind: 'text', text: part.text });
+            } else if (part && (
+                part.type === 'image'
+                || part.type === 'file'
+                || part.type === 'attachment'
+            )) {
+                parts.push({ kind: 'attachment' });
+            }
+            return parts;
+        },
+        []
+    ));
+}
+
 function interactionId(
     sessionId: string,
     offset: number,
@@ -1207,6 +1229,106 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             };
             const normalizeRecord = (record: ConversationJsonlRecord): boolean | void => {
                 const envelope = asRecord(record.value);
+                const kimiCodeRecordType = envelope?.type;
+                if (typeof kimiCodeRecordType === 'string') {
+                    if (kimiCodeRecordType === 'turn.prompt'
+                        || kimiCodeRecordType === 'turn.steer') {
+                        const origin = asRecord(envelope.origin);
+                        if (origin?.kind !== 'user') {
+                            return;
+                        }
+                        flushThinking();
+                        flushText();
+                        const normalizedInput = visibleMessage(
+                            visibleKimiCodeInput(envelope.input)
+                        );
+                        if (!normalizedInput) {
+                            return;
+                        }
+                        if (openInteractionIndex !== undefined) {
+                            interactions[openInteractionIndex].responseState =
+                                'interrupted';
+                            openInteractionIndex = undefined;
+                        }
+                        toolTracker.discardPending();
+                        questionTracker.clear();
+                        approvalTracker.clear();
+                        const id = interactionId(
+                            sessionId,
+                            record.offset,
+                            envelope.time
+                        );
+                        if (interactions.some(interaction => interaction.id === id)) {
+                            return;
+                        }
+                        if (!toolTracker.hasPending()
+                            && questionTracker.size === 0
+                            && approvalTracker.size === 0) {
+                            addRestartPoint({
+                                offset: record.offset,
+                                recordEndOffset: record.proofEndOffset,
+                                recordDigest: record.proofDigest,
+                                prefixDigest: record.prefixDigest,
+                                interactionId: id,
+                            });
+                        }
+                        interactions.push({
+                            id,
+                            timestamp: timestampValue(envelope.time),
+                            userMarkdown: normalizedInput,
+                            userPreview: buildUserPreview(normalizedInput),
+                            userGraphemeCount: countGraphemes(normalizedInput),
+                            assistantMarkdown: [],
+                            responseState: 'inProgress',
+                        });
+                        openInteractionIndex = interactions.length - 1;
+                    } else if (kimiCodeRecordType === 'context.append_loop_event') {
+                        const loopEvent = asRecord(envelope.event);
+                        const part = asRecord(loopEvent?.part);
+                        stampActivity({ timestamp: envelope.time });
+                        if (loopEvent?.type === 'content.part'
+                            && openInteractionIndex !== undefined
+                            && part?.type === 'think'
+                            && typeof part.think === 'string') {
+                            if (part.think === '') {
+                                return;
+                            }
+                            flushText();
+                            if (!pendingThinking) {
+                                pendingThinking = {
+                                    position: interactions[openInteractionIndex]
+                                        .assistantMarkdown.length,
+                                    text: '',
+                                };
+                            }
+                            pendingThinking.text += part.think;
+                            return;
+                        }
+                        flushThinking();
+                        if (loopEvent?.type === 'content.part'
+                            && openInteractionIndex !== undefined
+                            && part?.type === 'text'
+                            && typeof part.text === 'string') {
+                            if (!pendingText) {
+                                pendingText = { text: '' };
+                            }
+                            pendingText.text += part.text;
+                            return;
+                        }
+                        flushText();
+                    } else if (kimiCodeRecordType === 'turn.ended') {
+                        stampActivity({ timestamp: envelope.time });
+                        const completed = envelope.reason === 'completed';
+                        finishInteraction(completed ? 'complete' : 'interrupted');
+                        if (!completed) {
+                            toolTracker.discardPending();
+                            questionTracker.clear();
+                            approvalTracker.clear();
+                        }
+                    }
+                    return Boolean(historySlice && historyBoundary
+                        && record.endOffset >= historySliceEndOffset);
+                }
                 const event = asRecord(envelope?.message);
                 if (!event) {
                     return;
@@ -1646,7 +1768,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 if (!envelope || openInteractionIndex === undefined) {
                     return;
                 }
-                const value = timestampValue(envelope.timestamp);
+                const value = timestampValue(envelope.timestamp ?? envelope.time);
                 if (value !== undefined) {
                     interactions[openInteractionIndex].completedAt = value;
                 }

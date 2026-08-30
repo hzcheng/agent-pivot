@@ -99,14 +99,24 @@ export default class KimiSessionService {
         }
 
         let candidates: KimiSessionCandidate[] = [];
+        let available = false;
         for (const kimiHome of kimiHomes) {
             if (this.isKimiCodeHome(kimiHome)) {
+                available = true;
                 candidates.push(...this.getKimiCodeSessionCandidates(kimiHome));
                 continue;
             }
-            for (const workDir of this.getWorkDirs(kimiHome)) {
+            const workDirs = this.getWorkDirs(kimiHome);
+            if (!workDirs.length) {
+                continue;
+            }
+            available = true;
+            for (const workDir of workDirs) {
                 candidates.push(...this.getSessionCandidatesForWorkDir(kimiHome, workDir));
             }
+        }
+        if (!available) {
+            return this.cacheResult({ available: false, sessions: [], scannedFiles: 0, parsedFiles: 0 });
         }
         if (candidatePaths.length) {
             candidates = candidates.filter(candidate => candidatePaths.some(candidatePath =>

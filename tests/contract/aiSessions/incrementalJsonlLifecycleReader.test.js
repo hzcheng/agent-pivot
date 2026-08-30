@@ -77,16 +77,16 @@ test('PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001 SESSION-AI-SESSION-EXECUTIO
     assert.deepEqual(monitor.evaluate([{ key, signal: readSignal() }]), []);
     assert.equal(monitor.getSnapshot()[key].state, 'running');
 
-    const originalStatSync = fs.statSync;
-    fs.statSync = () => { throw new Error('forced stat failure'); };
-    t.after(() => { fs.statSync = originalStatSync; });
+    const originalFstatSync = fs.fstatSync;
+    fs.fstatSync = () => { throw new Error('forced descriptor stat failure'); };
+    t.after(() => { fs.fstatSync = originalFstatSync; });
     now = 1500;
     assert.deepEqual(monitor.evaluate([{ key, signal: readSignal() }]), []);
     now = 2002;
     assert.deepEqual(monitor.evaluate([{ key, signal: readSignal() }]), [key]);
     assert.equal(monitor.getSnapshot()[key].state, 'stopped');
 
-    fs.statSync = originalStatSync;
+    fs.fstatSync = originalFstatSync;
     now = 2100;
     assert.deepEqual(monitor.evaluate([{ key, signal: readSignal() }]), [key]);
     assert.equal(monitor.getSnapshot()[key].state, 'running');
@@ -171,8 +171,8 @@ test('PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001 resets on truncation and is
     assert.equal(reader.read(
         'codex:stat-failure', statFailurePath, RUN_STARTED_AT_MS, createAccumulator
     ).executionState, 'stopped');
-    const originalStatSync = fs.statSync;
-    fs.statSync = () => { throw new Error('forced stat failure'); };
+    const originalFstatSync = fs.fstatSync;
+    fs.fstatSync = () => { throw new Error('forced descriptor stat failure'); };
     assert.equal(reader.read(
         'codex:stat-failure', statFailurePath, nextRunStartedAtMs,
         () => createAccumulator(nextRunStartedAtMs)
@@ -180,13 +180,13 @@ test('PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001 resets on truncation and is
     assert.equal(reader.read(
         'codex:stat-failure', statFailurePath, RUN_STARTED_AT_MS, createAccumulator
     ), null, 'a stat failure must expose unavailable authority even with an exact cursor');
-    fs.statSync = originalStatSync;
+    fs.fstatSync = originalFstatSync;
     assert.equal(reader.read(
         'codex:stat-failure', statFailurePath, RUN_STARTED_AT_MS, createAccumulator
     ).executionState, 'stopped', 'a recovered source may reuse its exact cursor');
     t.after(() => {
         fs.openSync = originalOpenSync;
-        fs.statSync = originalStatSync;
+        fs.fstatSync = originalFstatSync;
     });
 
     const sourcePath = path.join(root, 'non-file-source.jsonl');

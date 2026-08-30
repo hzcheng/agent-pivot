@@ -48,9 +48,9 @@ function decodePowerShellPayload(command) {
     return Buffer.from(command.slice(prefix.length), 'base64').toString('utf16le');
 }
 
-test('RUNTIME-RUNTIME-CONFIGURATION-001 reads supported settings and fails closed to manifest defaults', () => {
+test('RUNTIME-RUNTIME-CONFIGURATION-001 RUNTIME-AUTO-TMUX-FALLBACK-001 defaults to automatic tmux preference and fails closed to manifest defaults', () => {
     assert.deepEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(configuration({})), {
-        mode: 'vscode', tmuxLayout: 'project', tmuxPath: 'tmux',
+        mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux',
     });
     assert.deepEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(configuration({
         aiSessionTerminalMode: 'tmux',
@@ -63,7 +63,7 @@ test('RUNTIME-RUNTIME-CONFIGURATION-001 reads supported settings and fails close
         { aiSessionTerminalMode: null, aiSessionTmuxLayout: 1, aiSessionTmuxPath: false },
     ]) {
         assert.deepEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(configuration(invalid)), {
-            mode: 'vscode', tmuxLayout: 'project', tmuxPath: 'tmux',
+            mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux',
         });
     }
 
@@ -72,7 +72,8 @@ test('RUNTIME-RUNTIME-CONFIGURATION-001 reads supported settings and fails close
     const mode = properties['agentPivot.aiSessionTerminalMode'];
     const layout = properties['agentPivot.aiSessionTmuxLayout'];
     const executable = properties['agentPivot.aiSessionTmuxPath'];
-    assert.deepEqual(mode.enum, ['vscode', 'tmux']);
+    assert.deepEqual(mode.enum, ['auto', 'vscode', 'tmux']);
+    assert.equal(mode.default, 'auto');
     assert.equal(mode.scope, 'machine');
     assert.equal(layout.default, 'project');
     assert.equal(layout.scope, 'machine');

@@ -153,7 +153,10 @@ function createVscode(lifecycle) {
                     modal: options?.modal === true,
                     items: (options ? items : rest).map(item => String(item)),
                 });
-                return undefined;
+                if (lifecycle.warningMessageError) {
+                    throw new Error('Warning notification rejected (fixture)');
+                }
+                return lifecycle.warningAction;
             },
             showInformationMessage: async () => undefined, showInputBox: async () => undefined,
             showQuickPick: async () => undefined, showOpenDialog: async () => undefined,
@@ -191,7 +194,11 @@ function createVscode(lifecycle) {
         executedCommands,
         env: {
             remoteName: undefined, machineId: 'fixture-machine',
-            clipboard: { writeText: async () => undefined }, openExternal: async () => true,
+            clipboard: { writeText: async () => undefined },
+            openExternal: async uri => {
+                lifecycle.openedExternalUris.push(uri.toString());
+                return lifecycle.openExternalResult;
+            },
         },
         extensions: { getExtension: () => undefined, all: [] },
     };
@@ -253,7 +260,11 @@ async function main() {
         postDisposePublications: [],
         postDisposeWebviewMessages: [],
         postedWebviewMessages: [],
+        openedExternalUris: [],
+        openExternalResult: true,
         warningMessages: [],
+        warningAction: mode === 'automatic-install-link' ? 'Install tmux' : undefined,
+        warningMessageError: mode === 'automatic-unsupported-notice-error',
         statusBarItems: [],
     };
     const vscode = createVscode(lifecycle);
@@ -426,7 +437,7 @@ async function main() {
         const { TmuxRuntimeBindingStore } = require('../../../out/aiSessions/tmuxRuntimeBindingStore');
         const { TmuxRuntimeDiscovery } = require('../../../out/aiSessions/tmuxRuntimeDiscovery');
         const { TmuxRuntimeUnavailableError } = require('../../../out/aiSessions/runtimeTypes');
-        const { fakeResumeRequest } = require('../../helpers/runtimeContract');
+        const { fakeCreateRequest, fakeResumeRequest } = require('../../helpers/runtimeContract');
         const { AiSessionAttentionController } = require('../../../out/aiSessions/attentionController');
         const AttentionBridgeClient = require('../../../out/aiSessions/attentionBridgeClient').default;
         const AiSessionAliasController = require('../../../out/aiSessions/aliasController').default;
@@ -535,8 +546,13 @@ async function main() {
         });
         const originalTmuxRefresh = TmuxRuntimeBackend.prototype.refresh;
         patch(TmuxRuntimeBackend.prototype, 'refresh', async function (...args) {
-            if (mode === 'fallback-choice') {
-                throw new TmuxRuntimeUnavailableError('not-found', 'tmux is unavailable (fixture)');
+            if (mode === 'fallback-choice' || mode === 'automatic-fallback'
+                || mode === 'automatic-unsupported-fallback' || mode === 'automatic-install-link'
+                || mode === 'automatic-unsupported-notice-error') {
+                throw new TmuxRuntimeUnavailableError(
+                    mode.startsWith('automatic-unsupported-') ? 'unsupported-platform' : 'not-found',
+                    'tmux is unavailable (fixture)'
+                );
             }
             return originalTmuxRefresh.apply(this, args);
         });
@@ -854,6 +870,15 @@ async function main() {
                 const unhinted = await coordinatorInstance.resume(fakeResumeRequest('fallback-unknown'));
                 fallbackResumeStatuses.push(unhinted.status);
             }
+            if (mode === 'automatic-fallback' || mode === 'automatic-unsupported-fallback'
+                || mode === 'automatic-install-link' || mode === 'automatic-unsupported-notice-error') {
+                await waitFor(() => Boolean(coordinatorInstance), 'runtime coordinator capture');
+                const resumed = await coordinatorInstance.resume(fakeResumeRequest('automatic-fallback-resume'));
+                fallbackResumeStatuses.push(resumed.status);
+                const created = await coordinatorInstance.create(fakeCreateRequest('automatic-fallback-create'));
+                fallbackResumeStatuses.push(created.status);
+                await waitFor(() => lifecycle.warningMessages.length >= 1, 'automatic tmux fallback notice');
+            }
             if (mode === 'opened-terminal-restore') {
                 refreshMessageBuildsBeforeOpenedTerminal = lifecycle.outputLines.filter(line =>
                     line.startsWith('[AiSessions] ')
@@ -988,6 +1013,7 @@ async function main() {
             directRestoreRefreshAfterSettlement,
             tmuxRuntimeFailureDiagnostics,
             warningMessages: lifecycle.warningMessages,
+            openedExternalUris: lifecycle.openedExternalUris,
             statusBarItems: lifecycle.statusBarItems.map(item => ({
                 alignment: item.alignment,
                 command: item.command,

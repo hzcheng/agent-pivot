@@ -260,10 +260,12 @@ logs a `status=...` line per sink — then inspect the delivery log with
 - Install and authenticate the Codex, Claude, or Kimi command-line tools you
   intend to use. Provider accounts and access are not included with Agent
   Pivot.
-- tmux is optional. To use it, install tmux on the extension host: locally for
-  a local window, on the SSH host, inside WSL, or inside the Dev Container.
-  Native Windows extension hosts can use Direct Terminal mode; the tmux
-  backend requires a POSIX extension host.
+- tmux is optional. Automatic terminal mode prefers tmux when it is installed
+  on the extension host, then falls back to a VS Code terminal and offers an
+  installation link when it is unavailable. Install tmux locally for a local
+  window, on the SSH host, inside WSL, or inside the Dev Container. Native
+  Windows extension hosts use VS Code Terminal; the tmux backend requires a
+  POSIX extension host.
 
 ## Getting started
 
@@ -290,8 +292,9 @@ Configure Agent Pivot in VS Code settings. Common settings include:
 
 - `agentPivot.storeProjectsInSettings`: store projects in user
   settings so VS Code Settings Sync can synchronize them.
-- `agentPivot.aiSessionTerminalMode`: use `vscode` (default) or `tmux` when
-  creating a runtime.
+- `agentPivot.aiSessionTerminalMode`: use `auto` (default) to prefer tmux and
+  fall back to VS Code Terminal, `vscode` to always use VS Code Terminal, or
+  `tmux` to require tmux and confirm any fallback.
 - `agentPivot.aiSessionTmuxLayout`: use one managed tmux session per project or
   one per AI session.
 - `agentPivot.aiSessionTmuxPath`: set one tmux executable name or absolute

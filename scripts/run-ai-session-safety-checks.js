@@ -5602,7 +5602,7 @@ function runWebviewContentChecks() {
     assert.ok(styles.includes('calc(3 * 42px + 2 * 2px)'));
     assert.deepStrictEqual(
         packageJson.contributes.configuration.properties['agentPivot.aiSessionTerminalMode'].enum,
-        ['vscode', 'tmux']
+        ['auto', 'vscode', 'tmux']
     );
     const runningAnimation = packageJson.contributes.configuration.properties[
         'agentPivot.aiSessionRunningCardAnimation'

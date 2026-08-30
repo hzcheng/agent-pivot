@@ -33,6 +33,7 @@ export function isValidAiSessionPromotionDisplayName(value: unknown): value is s
 }
 
 export type AiSessionRuntimeBackendId = 'vscode' | 'tmux';
+export type AiSessionTerminalMode = 'auto' | AiSessionRuntimeBackendId;
 export type AiSessionTmuxLayout = 'project' | 'session';
 export type AiSessionRuntimeState = 'pending' | 'active' | 'completed' | 'stopped' | 'conflict';
 
@@ -450,7 +451,7 @@ extends AiSessionPendingPromotionCandidate<TTerminal> {
 }
 
 export interface AiSessionRuntimeConfiguration {
-    mode: AiSessionRuntimeBackendId;
+    mode: AiSessionTerminalMode;
     tmuxLayout: AiSessionTmuxLayout;
     tmuxPath: string;
 }

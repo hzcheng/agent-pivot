@@ -748,6 +748,7 @@ async function initializeDashboard(
         getFreezeConversationSessionMetadata: () => freezeConversationSessionMetadata,
     });
     let aiSessionRuntimeConfiguration = initialAiSessionRuntimeConfiguration;
+    let automaticTmuxFallbackNoticeShown = false;
     const {
         conversationCommentStore,
         projectCommentStore,
@@ -831,6 +832,7 @@ async function initializeDashboard(
         tmux: tmuxRuntimeBackend,
         getConfiguration: () => ({ ...aiSessionRuntimeConfiguration }),
         chooseTmuxFallback: chooseAiSessionTmuxFallback,
+        notifyAutomaticTmuxFallback: notifyAutomaticTmuxFallback,
         hasLiveTmuxOwnership,
         hasKnownTmuxHint: async identity => Boolean(identity.sessionId
             && await tmuxRuntimeStore.getKnown(identity.provider, identity.sessionId,
@@ -3656,6 +3658,47 @@ async function initializeDashboard(
             return 'settings';
         }
         return choice === directAction ? 'direct' : 'cancel';
+    }
+
+    function notifyAutomaticTmuxFallback(fallback: AiSessionTmuxFallbackContext): void {
+        logAiSessionRuntimeFailure(`${fallback.operation}-automatic-fallback`, fallback.error);
+        if (automaticTmuxFallbackNoticeShown) {
+            return;
+        }
+        automaticTmuxFallbackNoticeShown = true;
+        if (fallback.error instanceof TmuxRuntimeUnavailableError
+            && fallback.error.reason === 'unsupported-platform') {
+            void vscode.window.showWarningMessage(
+                'Managed tmux sessions require a POSIX extension host. Agent Pivot started the AI session in VS Code Terminal.'
+            ).then(undefined, error =>
+                logError('Could not show the tmux platform recommendation.', error)
+            );
+            return;
+        }
+        const installAction = 'Install tmux';
+        const openSettingsAction = 'Open Settings';
+        const action = fallback.error instanceof TmuxRuntimeUnavailableError
+            && fallback.error.reason === 'not-found'
+            ? installAction
+            : openSettingsAction;
+        void vscode.window.showWarningMessage(
+            'tmux is unavailable in this extension host. Agent Pivot started the AI session in VS Code Terminal.',
+            action
+        ).then(choice => {
+            if (choice === installAction) {
+                void vscode.env.openExternal(
+                    vscode.Uri.parse('https://github.com/tmux/tmux/wiki/Installing')
+                ).then(opened => {
+                    if (!opened) {
+                        logError('Could not open the tmux installation guide.', new Error('VS Code declined the URI.'));
+                    }
+                }, error => logError('Could not open the tmux installation guide.', error));
+            } else if (choice === openSettingsAction) {
+                void showAgentPivotSettings().catch(error =>
+                    logError('Could not open Agent Pivot settings.', error)
+                );
+            }
+        }, error => logError('Could not show the tmux installation recommendation.', error));
     }
 
     async function handleAiSessionRuntimeConfigurationChanged(): Promise<void> {

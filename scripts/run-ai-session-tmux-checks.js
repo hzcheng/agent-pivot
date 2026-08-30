@@ -778,21 +778,22 @@ function runtimeRecordFilename(record) {
 
 function runRuntimeConfigurationChecks() {
     assert.deepStrictEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(config({})), {
-        mode: 'vscode', tmuxLayout: 'project', tmuxPath: 'tmux',
+        mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux',
     });
     assert.deepStrictEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(config({
         aiSessionTerminalMode: 'tmux', aiSessionTmuxLayout: 'session', aiSessionTmuxPath: '/opt/bin/tmux',
     })), { mode: 'tmux', tmuxLayout: 'session', tmuxPath: '/opt/bin/tmux' });
     assert.deepStrictEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(config({
         aiSessionTerminalMode: 'bad', aiSessionTmuxLayout: 'bad', aiSessionTmuxPath: '   ',
-    })), { mode: 'vscode', tmuxLayout: 'project', tmuxPath: 'tmux' });
+    })), { mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' });
     assert.deepStrictEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(config({
         aiSessionTerminalMode: null, aiSessionTmuxLayout: 1, aiSessionTmuxPath: false,
-    })), { mode: 'vscode', tmuxLayout: 'project', tmuxPath: 'tmux' });
+    })), { mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' });
 
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
     const properties = manifest.contributes.configuration.properties;
-    assert.deepStrictEqual(properties['agentPivot.aiSessionTerminalMode'].enum, ['vscode', 'tmux']);
+    assert.deepStrictEqual(properties['agentPivot.aiSessionTerminalMode'].enum, ['auto', 'vscode', 'tmux']);
+    assert.strictEqual(properties['agentPivot.aiSessionTerminalMode'].default, 'auto');
     assert.strictEqual(properties['agentPivot.aiSessionTerminalMode'].scope, 'machine');
     assert.strictEqual(properties['agentPivot.aiSessionTmuxLayout'].default, 'project');
     assert.strictEqual(properties['agentPivot.aiSessionTmuxPath'].scope, 'machine');
@@ -1291,6 +1292,27 @@ async function runTmuxClientChecks() {
     assert.deepStrictEqual(await client.checkAvailability(), { available: true, version: '3.2a' });
     assert.strictEqual(calls.filter(call => call.args[0] === '-V').length, 1);
     assert.deepStrictEqual(await client.listWindows(), []);
+
+    let tmuxInstalledAfterFallback = false;
+    let postInstallAvailabilityProbes = 0;
+    const postInstallClient = new tmuxClientModule.TmuxClient('tmux', {
+        run: async (_file, args) => {
+            if (args[0] === '-V') {
+                postInstallAvailabilityProbes++;
+                return tmuxInstalledAfterFallback
+                    ? { exitCode: 0, stdout: 'tmux 3.2a\n', stderr: '' }
+                    : { exitCode: null, stdout: '', stderr: '', failureCategory: 'not-found' };
+            }
+            return { exitCode: 0, stdout: `${requiredCommands.join('\n')}\n`, stderr: '' };
+        },
+    });
+    assert.strictEqual((await postInstallClient.checkAvailability()).available, false);
+    tmuxInstalledAfterFallback = true;
+    assert.deepStrictEqual(await postInstallClient.checkAvailability(true), {
+        available: true, version: '3.2a',
+    });
+    assert.strictEqual(postInstallAvailabilityProbes, 2,
+        'a forced refresh must re-probe tmux after installation');
 
     const emptyServerClient = new tmuxClientModule.TmuxClient('/opt/bin/tmux', {
         run: async (_file, args) => {

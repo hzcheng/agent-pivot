@@ -131,6 +131,111 @@ test('RUNTIME-RUNTIME-COORDINATOR-001 maps tmux unavailable choices without hidi
     await assert.rejects(failing.resume(fakeResumeRequest('fail-closed')), error => error === unexpected);
 });
 
+test('RUNTIME-AUTO-TMUX-FALLBACK-001 automatically starts in a VS Code terminal when preferred tmux is unavailable', async () => {
+    const direct = createFakeRuntimeBackend('vscode');
+    const unavailable = new TmuxRuntimeUnavailableError('not-found', 'tmux unavailable');
+    const fallbackChoices = [];
+    const fallbackNotifications = [];
+    const coordinator = createCoordinator(
+        direct,
+        createFakeRuntimeBackend('tmux', { refreshError: unavailable }),
+        {
+            getConfiguration: () => ({ mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' }),
+            chooseTmuxFallback: async context => { fallbackChoices.push(context); return 'cancel'; },
+            notifyAutomaticTmuxFallback: context => fallbackNotifications.push(context),
+        }
+    );
+
+    const resumed = await coordinator.resume(fakeResumeRequest('automatic-fallback'));
+    const created = await coordinator.create(fakeCreateRequest('automatic-fallback'));
+
+    assert.deepEqual([resumed.runtime.backend, created.runtime.backend], ['vscode', 'vscode']);
+    assert.deepEqual(fallbackChoices.map(choice => choice.operation), []);
+    assert.deepEqual(fallbackNotifications.map(notification => notification.operation), ['resume', 'create']);
+    assert.equal(direct.ensureResumeCalls, 1);
+    assert.equal(direct.ensurePendingCalls, 1);
+});
+
+test('RUNTIME-AUTO-TMUX-FALLBACK-001 prefers available tmux and does not notify or start a Direct runtime', async () => {
+    const direct = createFakeRuntimeBackend('vscode');
+    const tmux = createFakeRuntimeBackend('tmux');
+    const notifications = [];
+    const coordinator = createCoordinator(direct, tmux, {
+        getConfiguration: () => ({ mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' }),
+        notifyAutomaticTmuxFallback: context => notifications.push(context),
+    });
+
+    const resumed = await coordinator.resume(fakeResumeRequest('automatic-tmux-resume'));
+    const created = await coordinator.create(fakeCreateRequest('automatic-tmux-create'));
+
+    assert.deepEqual([resumed.runtime.backend, created.runtime.backend], ['tmux', 'tmux']);
+    assert.equal(tmux.ensureResumeCalls, 1);
+    assert.equal(tmux.ensurePendingCalls, 1);
+    assert.equal(direct.ensureResumeCalls, 0);
+    assert.equal(direct.ensurePendingCalls, 0);
+    assert.deepEqual(notifications, []);
+});
+
+test('RUNTIME-AUTO-TMUX-FALLBACK-001 does not announce a Direct fallback until its launch succeeds', async () => {
+    const unavailable = new TmuxRuntimeUnavailableError('not-found', 'tmux unavailable');
+    const notifications = [];
+    const failing = createCoordinator(
+        createFakeRuntimeBackend('vscode', { ensureError: new Error('Direct launch failed') }),
+        createFakeRuntimeBackend('tmux', { refreshError: unavailable }),
+        {
+            getConfiguration: () => ({ mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' }),
+            notifyAutomaticTmuxFallback: context => notifications.push(context),
+        }
+    );
+
+    await assert.rejects(failing.resume(fakeResumeRequest('automatic-direct-failure')), /Direct launch failed/);
+    assert.deepEqual(notifications, []);
+
+    const succeeding = createCoordinator(
+        createFakeRuntimeBackend('vscode'),
+        createFakeRuntimeBackend('tmux', { refreshError: unavailable }),
+        {
+            getConfiguration: () => ({ mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' }),
+            notifyAutomaticTmuxFallback: context => notifications.push(context),
+        }
+    );
+    assert.equal((await succeeding.resume(fakeResumeRequest('automatic-direct-success'))).status, 'started');
+    assert.deepEqual(notifications.map(notification => notification.operation), ['resume']);
+});
+
+test('RUNTIME-AUTO-TMUX-FALLBACK-001 falls back after a late tmux-unavailable error without bypassing known runtime protection', async () => {
+    const unavailable = new TmuxRuntimeUnavailableError('not-found', 'tmux unavailable');
+    const direct = createFakeRuntimeBackend('vscode');
+    const notifications = [];
+    const coordinator = createCoordinator(
+        direct,
+        createFakeRuntimeBackend('tmux', { ensureError: unavailable }),
+        {
+            getConfiguration: () => ({ mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' }),
+            notifyAutomaticTmuxFallback: context => notifications.push(context),
+        }
+    );
+
+    assert.equal((await coordinator.resume(fakeResumeRequest('automatic-late-resume'))).runtime.backend, 'vscode');
+    assert.equal((await coordinator.create(fakeCreateRequest('automatic-late-create'))).runtime.backend, 'vscode');
+    assert.deepEqual(notifications.map(notification => notification.operation), ['resume', 'create']);
+
+    const protectedDirect = createFakeRuntimeBackend('vscode');
+    const protectedChoices = [];
+    const protectedCoordinator = createCoordinator(
+        protectedDirect,
+        createFakeRuntimeBackend('tmux', { ensureError: unavailable }),
+        {
+            getConfiguration: () => ({ mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' }),
+            hasKnownTmuxHint: async () => true,
+            chooseTmuxFallback: async context => { protectedChoices.push(context); return 'cancel'; },
+        }
+    );
+    assert.equal((await protectedCoordinator.resume(fakeResumeRequest('automatic-known-late'))).status, 'cancelled');
+    assert.equal(protectedDirect.ensureResumeCalls, 0);
+    assert.deepEqual(protectedChoices.map(choice => choice.knownHint), [true]);
+});
+
 test('RUNTIME-DIRECT-CREATE-TMUX-FAULT-ISOLATION-001 creates directly when tmux refresh fails unexpectedly', async () => {
     const direct = createFakeRuntimeBackend('vscode');
     const tmuxFailure = new Error('stale tmux persistence lock');

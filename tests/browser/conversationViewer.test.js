@@ -222,9 +222,14 @@ async function openViewerPage(t, options = {}) {
                         data-conversation-display-name data-action="rename-session"
                         title="Rename session" aria-label="Rename session">Original session</button>
                     <span data-conversation-position>Input 0 of 0</span>
-                    <button type="button" data-action="previous">Previous</button>
-                    <button type="button" data-action="next">Next</button>
-                    <button type="button" data-action="latest">Latest</button>
+                    <button type="button" data-action="first"
+                        title="First question" aria-label="First question">First</button>
+                    <button type="button" data-action="previous"
+                        title="Previous question" aria-label="Previous question">Previous</button>
+                    <button type="button" data-action="next"
+                        title="Next question" aria-label="Next question">Next</button>
+                    <button type="button" data-action="latest"
+                        title="Last question" aria-label="Last question">Latest</button>
                 </header>
                 <section class="conversation-telemetry"
                     data-conversation-telemetry hidden>
@@ -1006,6 +1011,48 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when deferred
         sessionId: 'session-deferred',
         applyError: 'deferred decoration failure',
     });
+});
+
+test('CONVERSATION-QUESTION-NAVIGATION-001 applies a true-first selection outside the capped outline', async t => {
+    const page = await openViewerPage(t);
+    await sendPage(page, {
+        ...hostileConversationPage,
+        requestId: 2,
+        subscriptionGeneration: 2,
+        updateKind: 'navigation',
+        html: '<article data-message-id="first-message"'
+            + ' data-interaction-id="input-1"><p>first question</p></article>',
+        htmlSignature: 'first-question-outside-outline',
+        outline: [{
+            interactionId: 'input-102',
+            userPreview: 'First retained input',
+            responseState: 'complete',
+        }],
+        selectedInteractionId: 'input-1',
+        selectedOutsideOutline: true,
+        selectedInput: 1,
+        totalInputs: 2000,
+        partial: true,
+        previousCursor: undefined,
+        nextCursor: 'after-first',
+        target: {
+            projectId: 'project-1',
+            provider: 'codex',
+            sessionId: 'session-first',
+            interactionId: 'input-1',
+            displayName: 'First',
+        },
+        comments: { revision: 0, comments: [] },
+        projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    assert.equal(
+        await page.locator('[data-interaction-id="input-1"]').isVisible(),
+        true
+    );
+    const applied = (await postedMessages(page)).at(-1);
+    assert.equal(applied.type, 'conversation-viewer-applied');
+    assert.equal(applied.requestId, 2);
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 acknowledges a hidden retained Viewer without waiting for animation frames', async t => {
@@ -3067,9 +3114,10 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
     const { page } = await openHostViewerDocument(t);
 
     assert.equal(await page.evaluate(() => window.__acquireCount), 1);
-    await page.getByRole('button', { name: 'Previous', exact: true }).click();
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await page.getByRole('button', { name: 'Latest', exact: true }).click();
+    await page.getByRole('button', { name: 'First question', exact: true }).click();
+    await page.getByRole('button', { name: 'Previous question', exact: true }).click();
+    await page.getByRole('button', { name: 'Next question', exact: true }).click();
+    await page.getByRole('button', { name: 'Last question', exact: true }).click();
     const defaultPreventedBeforeTestGuard = await page.locator(
         'a[href="https://example.test/safe"]'
     ).evaluate(link => {
@@ -3093,6 +3141,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API 
             version: 1,
             focused: true,
         },
+        { type: 'conversation-viewer-first', version: 1 },
         { type: 'conversation-viewer-previous', version: 1 },
         { type: 'conversation-viewer-next', version: 1 },
         { type: 'conversation-viewer-latest', version: 1 },
@@ -3126,7 +3175,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
         activeSubagent: null,
     });
 
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     await page.locator('[data-telemetry-subagents]').click();
     const entry = page.locator('[data-subagent-id="a11111111"]');
     const finishedEntry = page.locator('[data-subagent-id="a22222222"]');
@@ -3202,7 +3251,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
         true,
         'the counter must reveal the telemetry bar even without usage data'
     );
-    await rebuilt.page.locator('[data-action="toggle-sidebar"]').click();
+    await rebuilt.page.locator('[data-conversation-position]').click();
     await counter.click();
     assert.equal(
         await rebuilt.page.locator('[data-telemetry-subagents]')
@@ -3411,7 +3460,7 @@ test('CONVERSATION-FOLLOW-FEEDBACK-001 shows a dismissible follow notice and cle
     );
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while Latest stays available', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert while First and Last stay available', async t => {
     const { page } = await openHostViewerDocument(t, {
         interactionIds: ['input-only'],
         interactionId: 'input-only',
@@ -3422,11 +3471,13 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert
             isEnd: true,
         },
     });
-    const previous = page.getByRole('button', { name: 'Previous', exact: true });
-    const next = page.getByRole('button', { name: 'Next', exact: true });
-    const latest = page.getByRole('button', { name: 'Latest', exact: true });
+    const first = page.getByRole('button', { name: 'First question', exact: true });
+    const previous = page.getByRole('button', { name: 'Previous question', exact: true });
+    const next = page.getByRole('button', { name: 'Next question', exact: true });
+    const latest = page.getByRole('button', { name: 'Last question', exact: true });
 
     assert.equal(await page.evaluate(() => window.__acquireCount), 1);
+    assert.equal(await first.isDisabled(), false);
     assert.equal(await previous.isDisabled(), true);
     assert.equal(await next.isDisabled(), true);
     assert.equal(await latest.isDisabled(), false);
@@ -3441,9 +3492,11 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps boundary navigation inert
     await next.evaluate(element => element.click());
     assert.deepEqual(await postedIntents(page), initialFocus);
 
+    await first.click();
     await latest.click();
     assert.deepEqual(await postedIntents(page), [
         ...initialFocus,
+        { type: 'conversation-viewer-first', version: 1 },
         { type: 'conversation-viewer-latest', version: 1 },
     ]);
 });
@@ -3470,15 +3523,15 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     const sidebar = page.locator('[data-conversation-sidebar]');
     const outline = page.locator('[data-conversation-outline]');
     const comments = page.locator('[data-conversation-comments]');
-    const sidebarToggle = page.locator('[data-action="toggle-sidebar"]');
+    const outlinePill = page.locator('[data-conversation-position]');
 
     assert.equal(await sidebar.isHidden(), true);
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'false');
-    await sidebarToggle.click();
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'false');
+    await outlinePill.click();
     assert.equal(await sidebar.isVisible(), true);
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('[data-outline-interaction-id]').count(), 4);
     assert.deepEqual(
         await page.locator('[data-outline-interaction-id]')
@@ -3591,12 +3644,11 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
 
     // The telemetry pills are the view switchers (no sidebar tab row):
     // clicking the comments pill while the outline is open switches views.
-    const outlinePill = page.locator('[data-conversation-position]');
     await outlinePill.focus();
     await page.locator('[data-telemetry-comments]').click();
     assert.equal(await outline.isHidden(), true);
     assert.equal(await comments.isVisible(), true);
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'false');
     assert.equal(await sidebar.isVisible(), true);
     assert.equal(
         await page.locator('[data-telemetry-comments]')
@@ -3614,14 +3666,19 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 filters the current Session outline an
     assert.equal(await sidebar.isHidden(), true);
     assert.equal(
         await page.evaluate(() =>
-            document.activeElement?.getAttribute('data-action')
+            document.activeElement?.hasAttribute('data-telemetry-comments')
         ),
-        'toggle-sidebar'
+        true
     );
-    await sidebarToggle.click();
+    await outlinePill.click();
+    assert.equal(await outline.isVisible(), true);
+    assert.equal(await comments.isHidden(), true);
+    // Any telemetry pill can reopen the panel after Escape; use Comments
+    // before selecting Outline again so this also exercises both view paths.
+    await page.locator('[data-telemetry-comments]').click();
     assert.equal(await comments.isVisible(), true);
     assert.equal(await outline.isHidden(), true);
-    await page.locator('[data-conversation-position]').click();
+    await outlinePill.click();
     assert.equal(await outline.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
 });
@@ -3650,7 +3707,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 settles stars authoritatively, filters 
         '[data-outline-bookmark-id="input-1"]'
     );
 
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     assert.deepEqual(await orderedIds(), [...interactionIds].reverse());
     const outlineLayout = await page.evaluate(() => {
         const outline = document.querySelector('[data-conversation-outline]');
@@ -4936,7 +4993,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps the outline usable with previous 
         },
     });
 
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     assert.equal(pageErrors.length, 0);
     assert.equal(
         await page.locator('[data-outline-interaction-id]').count(),
@@ -4949,9 +5006,35 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps the outline usable with previous 
     );
 });
 
+test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps a previous document sidebar toggle usable with the current Viewer script', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        interactionIds: ['input-1'],
+        interactionId: 'input-1',
+        transformHostDocument(html) {
+            return html.replace(
+                /<button type="button" data-action="toggle-sidebar" hidden\s+aria-hidden="true" tabindex="-1"><\/button>/,
+                '<button type="button" data-action="toggle-sidebar"'
+                    + ' aria-controls="conversation-sidebar"'
+                    + ' aria-expanded="false">Show side panel</button>'
+            );
+        },
+    });
+    const toggle = page.locator('[data-action="toggle-sidebar"]');
+    assert.equal(await toggle.isVisible(), true);
+    await toggle.click();
+    assert.equal(await page.locator('[data-conversation-sidebar]').isVisible(), true);
+    await page.locator('[data-outline-interaction-id]').first().focus();
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('[data-conversation-sidebar]').isHidden(), true);
+    assert.equal(
+        await page.evaluate(() => document.activeElement?.getAttribute('data-action')),
+        'toggle-sidebar'
+    );
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
     async function assertPanelViews(page, label) {
-        await page.locator('[data-action="toggle-sidebar"]').click();
+        await page.locator('[data-conversation-position]').click();
         assert.equal(
             await page.locator('[data-conversation-sidebar]').isVisible(),
             true,
@@ -4977,6 +5060,123 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // The question-first control and telemetry-only sidebar entry points
+        // postdate this frozen Viewer script generation. Restore its exact
+        // pre-control source while the current document keeps a hidden
+        // compatibility anchor for that older script.
+        .replace(
+            "    var first = document.querySelector('[data-action=\"first\"]');\n",
+            ''
+        )
+        .replace(
+            '    function validOutline(value, selectedInteractionId, selectedOutsideOutline) {\n',
+            '    function validOutline(value, selectedInteractionId) {\n'
+        )
+        .replace(
+            '        return identities.size === value.length\n'
+                + '            && (selectedOutsideOutline\n'
+                + '                ? !identities.has(selectedInteractionId)\n'
+                + '                : identities.has(selectedInteractionId));\n',
+            '        return identities.size === value.length\n'
+                + '            && identities.has(selectedInteractionId);\n'
+        )
+        .replace(
+            "            'tailInteractionId', 'tailHtml', 'selectedOutsideOutline',\n",
+            "            'tailInteractionId', 'tailHtml',\n"
+        )
+        .replace(
+            "            && (message.selectedOutsideOutline === undefined\n"
+                + "                || typeof message.selectedOutsideOutline === 'boolean')\n"
+                + '            && validOutline(\n'
+                + '                message.outline,\n'
+                + '                message.selectedInteractionId,\n'
+                + '                message.selectedOutsideOutline === true\n'
+                + '            )\n'
+                + '            && Number.isSafeInteger(message.selectedInput)\n'
+                + '            && message.selectedInput >= (message.selectedOutsideOutline ? 1 : 0)\n',
+            '            && validOutline(message.outline, message.selectedInteractionId)\n'
+                + '            && Number.isSafeInteger(message.selectedInput)\n'
+                + '            && message.selectedInput >= 0\n'
+        )
+        .replace(
+            "            && message.selectedInteractionId.length > 0\n"
+                + "            && message.selectedInteractionId.length <= 512\n"
+                + "            && !/[\\u0000-\\u001f\\u007f]/.test(message.selectedInteractionId)\n",
+            ''
+        )
+        .replace(
+            '    // A prior document can still expose this control while its script has\n'
+                + '    // already updated. It remains optional in the current document.\n'
+                + '    var sidebarToggle = document.querySelector(\n'
+                + "        '[data-action=\"toggle-sidebar\"]'\n"
+                + '    );\n',
+            ''
+        )
+        .replace(
+            "    var sessionNavLayer = document.querySelector(\n"
+                + "        '.conversation-session-nav-layer'\n"
+                + '    );\n'
+                + '    function updateSessionNavLayout() {\n'
+                + '        if (!sessionNavLayer) return;\n'
+                + '        sessionNavLayer.toggleAttribute(\n'
+                + "            'data-compact-controls',\n"
+                + '            sessionNavLayer.clientWidth <= 360\n'
+                + '        );\n'
+                + '    }\n'
+                + '    updateSessionNavLayout();\n'
+                + "    window.addEventListener('resize', updateSessionNavLayout);\n"
+                + "    if (typeof ResizeObserver === 'function' && sessionNavLayer) {\n"
+                + '        new ResizeObserver(updateSessionNavLayout).observe(sessionNavLayer);\n'
+                + '    }\n',
+            ''
+        )
+        .replace('        sidebarToggle: sidebarToggle,\n', '')
+        .replace(
+            "    var latest = document.querySelector('[data-action=\"latest\"]');\n"
+                + "    var sessionStatusRunning = document.querySelector(\n",
+            "    var latest = document.querySelector('[data-action=\"latest\"]');\n"
+                + "    var sidebarToggle = document.querySelector(\n"
+                + "        '[data-action=\"toggle-sidebar\"]'\n"
+                + "    );\n"
+                + "    var sessionStatusRunning = document.querySelector(\n"
+        )
+        .replace(
+            '    var sidebarUiAvailable = !!commentsWorkspace && !!commentsResizer\n'
+                + '        && !!sidebarRoot\n',
+            '    var sidebarUiAvailable = !!sidebarToggle\n'
+                + '        && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot\n'
+        )
+        .replace(
+            '        available: sidebarUiAvailable,\n'
+                + '        vscodeApi: vscodeApi,\n'
+                + '        commentsWorkspace: commentsWorkspace,\n',
+            '        available: sidebarUiAvailable,\n'
+                + '        vscodeApi: vscodeApi,\n'
+                + '        sidebarToggle: sidebarToggle,\n'
+                + '        commentsWorkspace: commentsWorkspace,\n'
+        )
+        .replace(
+            '            firstDisabled: first ? first.disabled : undefined,\n',
+            ''
+        )
+        .replace(
+            "        if (first && typeof presentation.firstDisabled === 'boolean') {\n"
+                + '            first.disabled = presentation.firstDisabled;\n'
+                + '        }\n',
+            ''
+        )
+        .replace(
+            '        if (first) first.disabled = !message.selectedInteractionId;\n',
+            ''
+        )
+        .replace(
+            "    if (first) {\n"
+                + "        first.addEventListener('click', function () {\n"
+                + "            postNavigation('conversation-viewer-first');\n"
+                + '        });\n'
+                + '    }\n',
+            ''
+        )
         // Worklog disclosure now preserves the reader's scroll position and
         // re-evaluates tail-following. That is newer than the adjacent
         // generation reconstructed below, so remove the coupled statements
@@ -7789,7 +7989,7 @@ test('CONVERSATION-OUTLINE-BOOKMARKS-001 keeps unbookmarked controls visible in 
         interactionIds: ['input-1'],
         interactionId: 'input-1',
     });
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     const bookmark = page.locator('[data-outline-bookmark-id="input-1"]');
 
     assert.equal(await bookmark.evaluate(element =>
@@ -7821,7 +8021,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps four-digit input numbers inside 
         totalInteractions: 2000,
         outlinePartial: true,
     });
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
 
     const layout = await page.locator(
         '[data-outline-interaction-id="input-2000"]'
@@ -7941,15 +8141,15 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
         },
     };
     const { page } = await openHostViewerDocument(t, options);
-    const sidebarToggle = page.locator('[data-action="toggle-sidebar"]');
+    const outlinePill = page.locator('[data-conversation-position]');
     const panel = page.locator('[data-conversation-sidebar]');
     const comments = page.locator('[data-conversation-comments]');
     const resizer = page.locator('[data-comments-resizer]');
 
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'false');
     assert.equal(await panel.isHidden(), true);
-    await sidebarToggle.click();
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'true');
+    await outlinePill.click();
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'true');
     assert.equal(await panel.isVisible(), true);
     assert.equal(await comments.isHidden(), true);
     assert.equal(await resizer.getAttribute('aria-valuenow'), '240');
@@ -7971,8 +8171,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
         }
     );
 
-    await sidebarToggle.click();
-    assert.equal(await sidebarToggle.getAttribute('aria-expanded'), 'false');
+    await outlinePill.click();
+    assert.equal(await outlinePill.getAttribute('aria-pressed'), 'false');
     assert.equal(await panel.isHidden(), true);
     assert.equal(await resizer.isHidden(), true);
     assert.deepEqual(
@@ -7995,15 +8195,15 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 CONVERSATION-COMMENTS-LAYOUT-001 share
             conversationCommentsPanel: { open: false, width: 312 },
         },
     });
-    const restoredToggle = restored.page.locator(
-        '[data-action="toggle-sidebar"]'
+    const restoredOutlinePill = restored.page.locator(
+        '[data-conversation-position]'
     );
-    assert.equal(await restoredToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await restoredOutlinePill.getAttribute('aria-pressed'), 'false');
     assert.equal(
         await restored.page.locator('[data-conversation-sidebar]').isHidden(),
         true
     );
-    await restoredToggle.click();
+    await restored.page.locator('[data-telemetry-comments]').click();
     assert.equal(
         await restored.page.locator('[data-conversation-comments]').isVisible(),
         true
@@ -8136,17 +8336,17 @@ test('CONVERSATION-COMMENTS-DOM-STABILITY-001 keeps the Conversation DOM intact 
     });
 
     await page.evaluate(() => {
-        const sidebarToggle = document.querySelector(
-            '[data-action="toggle-sidebar"]'
+        const outlinePill = document.querySelector(
+            '[data-conversation-position]'
         );
         const resizer = document.querySelector('[data-comments-resizer]');
         for (let index = 0; index < 100; index += 1) {
-            sidebarToggle.click();
+            outlinePill.click();
             resizer.dispatchEvent(new KeyboardEvent('keydown', {
                 key: index % 2 === 0 ? 'ArrowLeft' : 'ArrowRight',
                 bubbles: true,
             }));
-            sidebarToggle.click();
+            outlinePill.click();
         }
     });
     await page.evaluate(() => new Promise(resolve => {
@@ -8297,14 +8497,17 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
         },
     });
 
-    // The header chrome is one uniform row of four icon buttons; sending
-    // lives in the comments toolbar, not the header.
-    const navButtons = page.locator('.conversation-navigation [data-action]');
+    // Question navigation is grouped with the Session status dots at the
+    // bottom; sending lives in the comments toolbar, not the header.
+    const navButtons = page.locator('.conversation-session-controls [data-action]');
     assert.equal(await navButtons.count(), 4);
+    assert.equal(await page.locator('.conversation-header [data-action]').count(), 2,
+        'the header retains the session-rename control and one hidden compatibility anchor');
+    assert.equal(await page.locator('[data-action="toggle-sidebar"]').isHidden(), true);
     assert.equal(
         await page.locator('[data-action="send-comments"]').count(),
         0,
-        'header must not carry a Send button'
+        'conversation navigation must not carry a Send button'
     );
     assert.deepEqual(
         await navButtons.evaluateAll(buttons => buttons.map(button => ({
@@ -8317,7 +8520,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
             { text: '', icons: 1 },
             { text: '', icons: 1 },
         ],
-        'header buttons must stay icon-only'
+        'question-navigation buttons must stay icon-only'
     );
     assert.deepEqual(
         (await navButtons.evaluateAll(buttons =>
@@ -8326,8 +8529,8 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
                 return Math.round(box.width) + 'x' + Math.round(box.height);
             })))
         )),
-        ['28x28'],
-        'header buttons must render as one uniform row of 28px icons'
+        ['32x32'],
+        'question-navigation buttons must render as one uniform row of 32px icons'
     );
     assert.deepEqual(
         (await navButtons.evaluateAll(buttons =>
@@ -8337,8 +8540,8 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
                 )
             )))
         )),
-        [16],
-        'header icons must render at 16px'
+        [20],
+        'question-navigation icons must render at 20px'
     );
 
     const toolbarSend = page.locator(
@@ -9469,7 +9672,7 @@ test('CONVERSATION-COMMENTS-ORDERING-001 drags cards into a Host-authoritative o
     ]);
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 renders ghost window-switch rails that post exact switch intents', async t => {
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 keeps infrequently used window cycling out of the Conversation chrome', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
@@ -9479,110 +9682,97 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 ren
         markdown: 'Alpha beta gamma delta.',
     });
 
-    const buttons = page.locator('[data-session-nav]');
-    assert.equal(await buttons.count(), 2);
-    assert.deepEqual(
-        await buttons.evaluateAll(elements => elements.map(element => ({
-            direction: element.getAttribute('data-session-nav'),
-            label: element.getAttribute('aria-label'),
-            iconOnly: element.innerText === ''
-                && element.querySelectorAll('svg').length === 1,
-        }))),
-        [
-            {
-                direction: 'previous',
-                label: 'Previous window',
-                iconOnly: true,
-            },
-            {
-                direction: 'next',
-                label: 'Next window',
-                iconOnly: true,
-            },
-        ],
-        'window rails must be two icon-only buttons'
-    );
-
-    const rail = page.locator('.conversation-session-nav-layer');
-    assert.equal(await rail.evaluate(element =>
-        getComputedStyle(element).pointerEvents
-    ), 'none', 'the rail overlay must never block conversation interactions');
-
-    // Ghost affordances stay compact and translucent until hovered.
-    const next = page.locator('[data-session-nav="next"]');
-    assert.deepEqual(
-        await next.evaluate(element => {
-            const style = getComputedStyle(element);
-            return {
-                position: style.position,
-                width: style.width,
-                height: style.height,
-                borderRadius: style.borderRadius,
-                opacity: style.opacity,
-            };
-        }),
-        {
-            position: 'absolute',
-            width: '36px',
-            height: '36px',
-            borderRadius: '50%',
-            opacity: '0.3',
-        },
-        'window rails must render as compact translucent circles'
-    );
-
-    const previousBox = await page.locator('[data-session-nav="previous"]')
-        .boundingBox();
-    const nextBox = await next.boundingBox();
-    assert.equal(previousBox.x, 16);
-    assert.equal(previousBox.y + previousBox.height, 600 - 16);
-    assert.equal(nextBox.x + nextBox.width, 850 - 16);
-    assert.equal(nextBox.y + nextBox.height, 600 - 16);
-
-    await next.hover();
-    await page.waitForFunction(() =>
-        getComputedStyle(document.querySelector('[data-session-nav="next"]'))
-            .opacity === '1'
-    );
-    assert.equal(await next.evaluate(element =>
-        getComputedStyle(element).opacity
-    ), '1', 'window rails must become fully opaque on hover');
-
-    await next.click();
-    assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'conversation-viewer-switch-window',
-        version: 1,
-        direction: 'next',
-    });
-    await page.locator('[data-session-nav="previous"]').click();
-    assert.deepEqual((await postedMessages(page)).at(-1), {
-        type: 'conversation-viewer-switch-window',
-        version: 1,
-        direction: 'previous',
-    });
+    assert.equal(await page.locator('[data-session-nav]').count(), 0);
+    assert.equal(await page.getByRole('button', {
+        name: 'Previous window', exact: true,
+    }).count(), 0);
+    assert.equal(await page.getByRole('button', {
+        name: 'Next window', exact: true,
+    }).count(), 0);
 });
 
-test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 OPEN-WINDOW-CYCLE-RAILS-001 keeps window rails inside the conversation column when the side panel is open', async t => {
+test('CONVERSATION-QUESTION-NAVIGATION-001 centers First, Previous, Next, and Last around the Session status dots', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,
         themeFixture: viewerThemeFixtures[0],
         viewport: { width: 850, height: 600 },
-        initialWebviewState: {
-            conversationCommentsPanel: { open: true, width: 192 },
-        },
-        interactionIds: ['input-1'],
-        interactionId: 'input-1',
+        interactionIds: ['input-1', 'input-2', 'input-3'],
+        interactionId: 'input-2',
         markdown: 'Alpha beta gamma delta.',
     });
+    const controls = page.locator('.conversation-session-controls');
+    const actions = controls.locator('[data-action]');
+    assert.deepEqual(await actions.evaluateAll(elements => elements.map(
+        element => element.getAttribute('data-action')
+    )), ['first', 'previous', 'next', 'latest']);
+    assert.equal(await page.locator('[data-action="toggle-sidebar"]').isHidden(), true,
+        'the compatibility control is never exposed; telemetry controls are the side-panel entry points');
 
-    const sidebar = page.locator('[data-conversation-sidebar]');
-    assert.equal(await sidebar.isVisible(), true);
-    const nextBox = await page.locator('[data-session-nav="next"]').boundingBox();
-    const sidebarBox = await sidebar.boundingBox();
+    const layout = await page.evaluate(() => {
+        const boxes = ['first', 'previous', 'next', 'latest'].map(action => {
+            const bounds = document.querySelector(
+                `[data-action="${action}"]`
+            ).getBoundingClientRect();
+            return {
+                action,
+                left: bounds.left,
+                right: bounds.right,
+                centerY: bounds.top + bounds.height / 2,
+            };
+        });
+        const status = document.querySelector(
+            '[data-conversation-session-status]'
+        ).getBoundingClientRect();
+        return { boxes, statusLeft: status.left, statusRight: status.right,
+            statusCenterY: status.top + status.height / 2 };
+    });
+    assert.ok(layout.boxes[0].left < layout.boxes[1].left
+        && layout.boxes[1].left < layout.statusLeft
+        && layout.statusRight < layout.boxes[2].left
+        && layout.boxes[2].left < layout.boxes[3].left,
+    'question controls must read First, Previous, dots, Next, Last');
+    layout.boxes.forEach(box => assert.ok(
+        Math.abs(box.centerY - layout.statusCenterY) <= 2,
+        `${box.action} must share the status-dot row`
+    ));
     assert.ok(
-        nextBox.x + nextBox.width <= sidebarBox.x,
-        `next rail right edge ${nextBox.x + nextBox.width} must stay left of the side panel at ${sidebarBox.x}`
+        layout.statusLeft - layout.boxes[1].right >= 32,
+        'Previous must keep a deliberate 32px visual gutter from the status dots'
     );
+    assert.ok(
+        layout.boxes[2].left - layout.statusRight >= 32,
+        'Next must keep a deliberate 32px visual gutter from the status dots'
+    );
+
+    for (const [action, type] of [
+        ['first', 'conversation-viewer-first'],
+        ['previous', 'conversation-viewer-previous'],
+        ['next', 'conversation-viewer-next'],
+        ['latest', 'conversation-viewer-latest'],
+    ]) {
+        await page.locator(`[data-action="${action}"]`).click();
+        assert.deepEqual((await postedMessages(page)).at(-1), {
+            type,
+            version: 1,
+        });
+    }
+
+    await page.setViewportSize({ width: 240, height: 600 });
+    assert.equal(
+        await page.locator('[data-session-nav]').count(),
+        0,
+        'window rails stay absent at narrow widths'
+    );
+    const compactControls = await controls.boundingBox();
+    assert.ok(compactControls.x >= 0
+        && compactControls.x + compactControls.width <= 240,
+    'the question controls remain entirely within the narrow transcript');
+
+    await page.setViewportSize({ width: 340, height: 600 });
+    const narrowControls = await controls.boundingBox();
+    assert.ok(narrowControls.x >= 0
+        && narrowControls.x + narrowControls.width <= 340,
+    'the question controls compact before they can overflow a narrowed transcript');
 });
 
 test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-SUBMIT-002 renders read-only icon-action cards with edit mode and per-card send', async t => {
@@ -11223,17 +11413,22 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, preserv
         1
     );
 
-    await page.getByRole('button', { name: 'Previous', exact: true }).click();
+    await page.getByRole('button', { name: 'First question', exact: true }).click();
+    assert.deepEqual((await postedMessages(page)).at(-1), {
+        type: 'conversation-viewer-first',
+        version: 1,
+    });
+    await page.getByRole('button', { name: 'Previous question', exact: true }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-previous',
         version: 1,
     });
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Next question', exact: true }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-next',
         version: 1,
     });
-    await page.getByRole('button', { name: 'Latest', exact: true }).click();
+    await page.getByRole('button', { name: 'Last question', exact: true }).click();
     assert.deepEqual((await postedMessages(page)).at(-1), {
         type: 'conversation-viewer-latest',
         version: 1,
@@ -14259,7 +14454,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 pins running subagents above finish
         activeSubagent: null,
     });
 
-    await page.locator('[data-action="toggle-sidebar"]').click();
+    await page.locator('[data-conversation-position]').click();
     await page.locator('[data-telemetry-subagents]').click();
     const ids = await page.locator('[data-subagent-id]').evaluateAll(
         elements => elements.map(element =>
@@ -14653,7 +14848,7 @@ test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe loca
             '[data-conversation-session-status]'
         ).getBoundingClientRect();
         const navPrevious = document.querySelector(
-            '[data-session-nav="previous"]'
+            '[data-action="previous"]'
         ).getBoundingClientRect();
         return {
             centered: Math.abs(
@@ -14669,7 +14864,7 @@ test('CONVERSATION-SESSION-STATUS-001 renders clickable reduced-motion-safe loca
     assert.equal(layout.centered, true,
         'session status must stay centered in the session-navigation row');
     assert.equal(layout.sameRow, true,
-        'session status must share the previous/next active session row');
+        'session status must share the question-navigation row');
     for (const width of [700, 240]) {
         await page.setViewportSize({ width, height: 500 });
         const fitsViewport = await page.locator(

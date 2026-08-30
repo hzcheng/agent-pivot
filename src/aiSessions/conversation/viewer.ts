@@ -308,6 +308,7 @@ export interface ConversationViewerPageMessage {
     totalInputs: number;
     partial: boolean;
     atLatest: boolean;
+    selectedOutsideOutline?: boolean;
     previousCursor?: string;
     /** Cursor for on-demand retained-window history loading. This is kept
      * separate from `previousCursor`, which also drives ordinary selection
@@ -1871,6 +1872,10 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.navigateToInteraction(parsed.interactionId);
             return;
         }
+        if (parsed.type === 'conversation-viewer-first') {
+            await this.navigateFirst();
+            return;
+        }
         if (parsed.type === 'conversation-viewer-previous') {
             await this.navigate('before');
             return;
@@ -2123,14 +2128,54 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!target || !outline || !selectedInteractionId || !this.pages.length) {
             return false;
         }
-        const nextInteractionId = this.outlineController.adjacentInteractionId(
-            direction
-        );
+        const loadedInteractionIds = this.interactionIds();
+        const loadedIndex = loadedInteractionIds.indexOf(selectedInteractionId);
+        const loadedInteractionId = loadedIndex >= 0
+            ? loadedInteractionIds[loadedIndex + (direction === 'before' ? -1 : 1)]
+            : undefined;
+        const selectedInput = this.outlineController.selectedInput();
+        const nextInteractionId = loadedInteractionId
+            || (selectedInput === undefined
+                ? this.outlineController.adjacentInteractionId(direction)
+                : undefined);
         if (!nextInteractionId) {
-            return false;
+            const edge = direction === 'before'
+                ? this.pages[0].page
+                : this.pages[this.pages.length - 1].page;
+            const cursor = direction === 'before'
+                ? edge.previousCursor
+                : edge.nextCursor;
+            const states = edge.interactionStates;
+            const anchorInteractionId = direction === 'before'
+                ? states[0]?.interactionId
+                : states[states.length - 1]?.interactionId;
+            const selectedOutsideOutlineInput = selectedInput === undefined
+                ? undefined
+                : selectedInput + (direction === 'before' ? -1 : 1);
+            if (!cursor || !anchorInteractionId
+                || selectedOutsideOutlineInput === undefined) {
+                return false;
+            }
+            return this.read({
+                provider: target.provider,
+                sessionId: this.effectiveSessionId(target),
+                anchorInteractionId,
+                direction,
+                cursor,
+                expectedRevision: outline.sourceRevision,
+                limit: CONVERSATION_LIMITS.maxPageInteractions,
+            }, direction, false, 'navigation', anchorInteractionId, false,
+            undefined, selectedOutsideOutlineInput);
         }
+        const selectedOutsideOutlineInput = selectedInput !== undefined
+            ? selectedInput + (direction === 'before' ? -1 : 1)
+            : undefined;
         if (this.interactionIds().includes(nextInteractionId)) {
-            return this.publishSelection(nextInteractionId, 'navigation');
+            return this.publishSelection(
+                nextInteractionId,
+                'navigation',
+                selectedOutsideOutlineInput
+            );
         }
         const edge = direction === 'before'
             ? this.pages[0].page
@@ -2248,6 +2293,29 @@ export class ConversationViewer implements ConversationViewerApi {
             expectedRevision: outline.sourceRevision,
             limit: CONVERSATION_LIMITS.maxPageInteractions,
         }, 'replace', false, 'navigation', latestInteractionId);
+    }
+
+    private async navigateFirst(): Promise<void> {
+        const target = this.target;
+        const outline = this.outlineController.snapshot;
+        const firstInteractionId = outline?.firstInteractionId
+            || (!outline?.partial ? outline?.interactions[0]?.id : undefined);
+        if (!target || !outline || !firstInteractionId) {
+            return;
+        }
+        if (this.outlineController.contains(firstInteractionId)
+            && this.interactionIds().includes(firstInteractionId)) {
+            await this.publishSelection(firstInteractionId, 'navigation');
+            return;
+        }
+        await this.read({
+            provider: target.provider,
+            sessionId: this.effectiveSessionId(target),
+            anchorInteractionId: firstInteractionId,
+            direction: 'around',
+            expectedRevision: outline.sourceRevision,
+            limit: CONVERSATION_LIMITS.maxPageInteractions,
+        }, 'replace', false, 'navigation', firstInteractionId);
     }
 
     publishSessionStatus(): Promise<void> {
@@ -2395,17 +2463,22 @@ export class ConversationViewer implements ConversationViewerApi {
             const interactionIds = outline.interactions.map(
                 interaction => interaction.id
             );
+            const containsSelectedInteraction = (interactionId: string) =>
+                interactionIds.includes(interactionId)
+                || outline.firstInteractionId === interactionId
+                || (this.outlineController.isSelectedOutsideOutline()
+                    && this.outlineController.selection === interactionId);
             let advanceToLatest = followLatest
                 && interactionIds.includes(latestIfSelection as string);
             if (updateKind === 'initial'
-                && !interactionIds.includes(target.interactionId)) {
+                && !containsSelectedInteraction(target.interactionId)) {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
             if (updateKind === 'refresh'
                 && !advanceToLatest
                 && (!previousSelectedInteractionId
-                    || !interactionIds.includes(previousSelectedInteractionId))) {
+                    || !containsSelectedInteraction(previousSelectedInteractionId))) {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
@@ -2544,9 +2617,14 @@ export class ConversationViewer implements ConversationViewerApi {
                     if (updateKind === 'refresh'
                         && !advanceToLatest
                         && (!previousSelectedInteractionId
-                            || !retryInteractionIds.includes(
+                            || !(retryInteractionIds.includes(
                                 previousSelectedInteractionId
-                            ))) {
+                            ) || outline.firstInteractionId
+                                === previousSelectedInteractionId
+                                || (this.outlineController
+                                    .isSelectedOutsideOutline()
+                                    && this.outlineController.selection
+                                        === previousSelectedInteractionId)))) {
                         await this.publishFailure(replaceDocument, updateKind);
                         return false;
                     }
@@ -2559,9 +2637,16 @@ export class ConversationViewer implements ConversationViewerApi {
                     }
                     if (!outline.interactions.some(
                         interaction => interaction.id === selectedInteractionId
-                    )) {
-                        await this.publishFailure(replaceDocument, updateKind);
-                        return false;
+                    ) && outline.firstInteractionId !== selectedInteractionId) {
+                        const selectedInput = this.outlineController.selectedInput();
+                        if (selectedInput === undefined
+                            || !this.outlineController.selectOutsideOutline(
+                                selectedInteractionId,
+                                selectedInput
+                            )) {
+                            await this.publishFailure(replaceDocument, updateKind);
+                            return false;
+                        }
                     }
                     if (lifecycleProjectionInteractionId
                         && !outline.interactions.some(interaction =>
@@ -2603,7 +2688,13 @@ export class ConversationViewer implements ConversationViewerApi {
                 lifecycleProjectionInteractionId
                     ? selectedInteractionId
                     : page.anchorInteractionId
-            )) {
+            ) && (this.outlineController.selectedInput() === undefined
+                || !this.outlineController.selectOutsideOutline(
+                    lifecycleProjectionInteractionId
+                        ? selectedInteractionId
+                        : page.anchorInteractionId,
+                    this.outlineController.selectedInput()!
+                ))) {
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
@@ -2716,7 +2807,8 @@ export class ConversationViewer implements ConversationViewerApi {
         updateKind: ConversationViewerPageMessage['updateKind'],
         preferredInteractionId: string,
         preserveSelection = false,
-        earlierBackfill?: NonNullable<ConversationViewer['earlierPageBackfill']>
+        earlierBackfill?: NonNullable<ConversationViewer['earlierPageBackfill']>,
+        selectedOutsideOutlineInput?: number
     ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
@@ -2763,7 +2855,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 }
                 if (!outline.interactions.some(
                     interaction => interaction.id === preferredInteractionId
-                )) {
+                ) && outline.firstInteractionId !== preferredInteractionId) {
                     await this.publishFailure(replaceDocument, updateKind);
                     return false;
                 }
@@ -2798,7 +2890,11 @@ export class ConversationViewer implements ConversationViewerApi {
                 if (!this.outlineController.replace(
                     outline,
                     preferredInteractionId
-                )) {
+                ) && (selectedOutsideOutlineInput === undefined
+                    || !this.outlineController.selectOutsideOutline(
+                        preferredInteractionId,
+                        selectedOutsideOutlineInput
+                    ))) {
                     await this.publishFailure(replaceDocument, updateKind);
                     return false;
                 }
@@ -2812,7 +2908,12 @@ export class ConversationViewer implements ConversationViewerApi {
                     return false;
                 }
             } else {
-                if (!this.outlineController.select(page.anchorInteractionId)) {
+                if (!this.outlineController.select(page.anchorInteractionId)
+                    && (selectedOutsideOutlineInput === undefined
+                        || !this.outlineController.selectOutsideOutline(
+                            page.anchorInteractionId,
+                            selectedOutsideOutlineInput
+                        ))) {
                     await this.publishFailure(replaceDocument, updateKind);
                     return false;
                 }
@@ -2851,16 +2952,23 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private async publishSelection(
         interactionId: string,
-        updateKind: ConversationViewerPageMessage['updateKind']
+        updateKind: ConversationViewerPageMessage['updateKind'],
+        selectedOutsideOutlineInput?: number
     ): Promise<boolean> {
         const panel = this.panel;
         const target = this.target;
-        if (!panel || !target
-            || !this.outlineController.contains(interactionId)) {
+        if (!panel || !target || (!this.outlineController.contains(interactionId)
+            && (selectedOutsideOutlineInput === undefined
+                || !this.interactionIds().includes(interactionId)))) {
             return false;
         }
         this.abortController?.abort();
-        if (!this.outlineController.select(interactionId)) {
+        if (!this.outlineController.select(interactionId)
+            && (selectedOutsideOutlineInput === undefined
+                || !this.outlineController.selectOutsideOutline(
+                    interactionId,
+                    selectedOutsideOutlineInput
+                ))) {
             return false;
         }
         const requestId = this.allocateRequestId();
@@ -4160,8 +4268,9 @@ export class ConversationViewer implements ConversationViewerApi {
                 && first?.previousCursor !== undefined
                 ? first.previousCursor
                 : undefined,
-            nextCursor: selectedIndex >= 0
-                && selectedIndex < interactionIds.length - 1
+            nextCursor: (projection.selectedOutsideOutline
+                || (selectedIndex >= 0
+                    && selectedIndex < interactionIds.length - 1))
                 ? last?.nextCursor || ''
                 : undefined,
             stale: this.stale,

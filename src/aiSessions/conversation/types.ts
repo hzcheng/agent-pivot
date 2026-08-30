@@ -171,6 +171,8 @@ export interface ConversationOutline {
         'userMarkdown' | 'assistantMarkdown' | 'assistantPhases'>>;
     totalInteractions: number;
     partial: boolean;
+    /** The true oldest interaction when the bounded outline omits it. */
+    firstInteractionId?: string;
 }
 
 export interface ConversationPageRequest {

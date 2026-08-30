@@ -4717,6 +4717,12 @@ test('CONVERSATION-VIEWER-NAVIGATION-002 moves within a loaded page without read
         message.type === 'conversation-viewer-page').at(-1);
     assert.equal(publication.selectedInteractionId, 'input-12');
     assert.equal(reads, 1);
+
+    await panel.receive({ type: 'conversation-viewer-first', version: 1 });
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, 'input-1');
+    assert.equal(reads, 1);
 });
 
 test('CONVERSATION-SEEK-LATEST-COMMAND-001 exposes Latest navigation on the viewer API for the seek command', async () => {
@@ -7630,7 +7636,7 @@ test('CONVERSATION-VIEWER-PARTIAL-001 derives first and latest capped positions 
     const sourcePath = path.join(providerHome, 'wire.jsonl');
     const sessionId = '11111111-1111-4111-8111-111111111111';
     const records = [];
-    for (let number = 1; number <= 2_001; number += 1) {
+    for (let number = 1; number <= 2_101; number += 1) {
         records.push(JSON.stringify({
             timestamp: number,
             message: {
@@ -7691,10 +7697,10 @@ test('CONVERSATION-VIEWER-PARTIAL-001 derives first and latest capped positions 
             .replace(/&lt;/g, '<')
             .replace(/&amp;/g, '&')
     );
-    assert.equal(publication.selectedInput, 2);
+    assert.equal(publication.selectedInput, 102);
     assert.equal(publication.totalInputs, 2_000);
     assert.equal(publication.partial, true);
-    assert.equal(publication.html.includes('Viewer cap input 2'), true);
+    assert.equal(publication.html.includes('Viewer cap input 102'), true);
 
     await panel.receive({
         type: 'conversation-viewer-latest',
@@ -7702,13 +7708,43 @@ test('CONVERSATION-VIEWER-PARTIAL-001 derives first and latest capped positions 
     });
     publication = panel.postedMessages.filter(message =>
         message.type === 'conversation-viewer-page').at(-1);
-    assert.equal(publication.selectedInput, 2_001);
+    assert.equal(publication.selectedInput, 2_101);
     assert.equal(publication.totalInputs, 2_000);
     assert.equal(publication.partial, true);
     assert.equal(
-        publication.html.includes('Viewer cap input 2001'),
+        publication.html.includes('Viewer cap input 2101'),
         true
     );
+
+    await panel.receive({
+        type: 'conversation-viewer-first',
+        version: 1,
+    });
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInteractionId, capped.firstInteractionId);
+    assert.equal(publication.selectedInput, 1);
+    assert.equal(publication.html.includes('Viewer cap input 1'), true);
+
+    await panel.receive({
+        type: 'conversation-viewer-next',
+        version: 1,
+    });
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInput, 2);
+    assert.equal(publication.html.includes('Viewer cap input 2'), true);
+
+    for (let input = 3; input <= 21; input += 1) {
+        await panel.receive({
+            type: 'conversation-viewer-next',
+            version: 1,
+        });
+    }
+    publication = panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-page').at(-1);
+    assert.equal(publication.selectedInput, 21);
+    assert.equal(publication.html.includes('Viewer cap input 21'), true);
 });
 
 test('CONVERSATION-TOOL-CALL-VISIBILITY-001 publishes collapsible tool-call markup', async () => {

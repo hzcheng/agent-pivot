@@ -20,7 +20,8 @@ import type { ConversationSessionStatusKind } from './sessionStatusController';
 import { isSubagentId } from './subagentSessions';
 
 export interface ConversationViewerNavigationMessage {
-    type: 'conversation-viewer-previous'
+    type: 'conversation-viewer-first'
+        | 'conversation-viewer-previous'
         | 'conversation-viewer-next'
         | 'conversation-viewer-latest';
     version: 1;
@@ -432,6 +433,7 @@ export type ConversationViewerMessage =
     | ConversationViewerCommitReviewMessage;
 
 const NAVIGATION_MESSAGE_TYPES = new Set([
+    'conversation-viewer-first',
     'conversation-viewer-previous',
     'conversation-viewer-next',
     'conversation-viewer-latest',

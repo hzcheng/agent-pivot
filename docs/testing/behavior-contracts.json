@@ -2802,7 +2802,7 @@
   {
     "id": "OPEN-WINDOW-CYCLE-RAILS-001",
     "domain": "open-project",
-    "title": "The AI Conversation bottom rails switch focus to the previous or next open window on one identity-sorted ring every window computes identically, with an empty-ring hint when no other window is open",
+    "title": "Adjacent-window cycling uses one identity-sorted ring every window computes identically, with an empty-ring hint when no other window is open, while the infrequently used action stays out of Conversation chrome",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -2817,6 +2817,22 @@
       "src/aiSessions/conversation/viewerDocument.ts",
       "src/aiSessions/conversation/composition.ts",
       "src/dashboard.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "CONVERSATION-QUESTION-NAVIGATION-001",
+    "domain": "webview",
+    "title": "AI Conversation keeps its First, Previous, Next, and Last controls visibly grouped around a centered local-status anchor without crowding unlike control shapes",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "media/conversationViewer.scss",
       "src/webview/conversationViewerScripts.js"
     ]
   },

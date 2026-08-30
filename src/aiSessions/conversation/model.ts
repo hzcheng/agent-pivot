@@ -39,14 +39,15 @@ export function buildConversationOutline(
         userGraphemeCount: interaction.userGraphemeCount,
         responseState: interaction.responseState,
     }));
+    const capped = summaries.length > CONVERSATION_LIMITS.maxOutlineInteractions;
     return {
         provider,
         sessionId,
         sourceRevision,
         interactions: summaries.slice(-CONVERSATION_LIMITS.maxOutlineInteractions),
         totalInteractions: summaries.length,
-        partial: partial
-            || summaries.length > CONVERSATION_LIMITS.maxOutlineInteractions,
+        partial: partial || capped,
+        ...(capped && !partial ? { firstInteractionId: summaries[0]!.id } : {}),
     };
 }
 
@@ -438,7 +439,8 @@ export function buildConversationPage(
     interactions: readonly ConversationInteraction[],
     request: ConversationPageRequest,
     sourceRevision: string,
-    encodeCursor: EncodeConversationCursor = () => ''
+    encodeCursor: EncodeConversationCursor = (interactionId, direction) =>
+        `${direction}:${interactionId}`
 ): ConversationPage {
     if (request.expectedRevision && request.expectedRevision !== sourceRevision) {
         throw new ConversationError('staleRevision');

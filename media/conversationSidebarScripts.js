@@ -110,14 +110,16 @@
 
         function updateCommentsToggle() {
             if (!sidebarUiAvailable) return;
-            sidebarToggle.setAttribute(
-                'aria-expanded',
-                state.commentsPanelOpen ? 'true' : 'false'
-            );
-            sidebarToggle.setAttribute('aria-label',
-                state.commentsPanelOpen ? 'Hide side panel' : 'Show side panel');
-            sidebarToggle.setAttribute('title',
-                state.commentsPanelOpen ? 'Hide side panel' : 'Show side panel');
+            if (sidebarToggle) {
+                sidebarToggle.setAttribute(
+                    'aria-expanded',
+                    state.commentsPanelOpen ? 'true' : 'false'
+                );
+                sidebarToggle.setAttribute('aria-label',
+                    state.commentsPanelOpen ? 'Hide side panel' : 'Show side panel');
+                sidebarToggle.setAttribute('title',
+                    state.commentsPanelOpen ? 'Hide side panel' : 'Show side panel');
+            }
             if (telemetryPosition) {
                 telemetryPosition.setAttribute('aria-pressed',
                     state.commentsPanelOpen && state.sidebarView === 'outline' ? 'true' : 'false');
@@ -209,13 +211,15 @@
 
         function attach() {
             if (!sidebarUiAvailable) return;
-            sidebarToggle.addEventListener('click', function () {
-                setSidebarView(
-                    state.sidebarView,
-                    !state.commentsPanelOpen,
-                    true
-                );
-            });
+            if (sidebarToggle) {
+                sidebarToggle.addEventListener('click', function () {
+                    setSidebarView(
+                        state.sidebarView,
+                        !state.commentsPanelOpen,
+                        true
+                    );
+                });
+            }
             var resizingPointerId = null;
             commentsResizer.addEventListener('pointerdown', function (event) {
                 if (event.button !== 0) return;
@@ -267,7 +271,21 @@
             }
             event.preventDefault();
             setCommentsPanelOpen(false, true);
-            sidebarToggle.focus();
+            if (sidebarToggle && !sidebarToggle.hidden) {
+                sidebarToggle.focus();
+                return true;
+            }
+            var trigger = state.sidebarView === 'comments'
+                ? telemetryComments
+                : state.sidebarView === 'subagents'
+                ? telemetrySubagents
+                : state.sidebarView === 'changes'
+                ? telemetryChanges
+                : telemetryPosition;
+            if (trigger) trigger.focus();
+            // The legacy control is only a fallback for documents that do
+            // not have telemetry view selectors. Hidden compatibility
+            // anchors must never receive focus.
             return true;
         }
 

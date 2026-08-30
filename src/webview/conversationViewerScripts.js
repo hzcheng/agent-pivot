@@ -144,9 +144,12 @@
         '[data-telemetry-context-value]'
     );
     var telemetryLimits = document.querySelector('[data-telemetry-limits]');
+    var first = document.querySelector('[data-action="first"]');
     var previous = document.querySelector('[data-action="previous"]');
     var next = document.querySelector('[data-action="next"]');
     var latest = document.querySelector('[data-action="latest"]');
+    // A prior document can still expose this control while its script has
+    // already updated. It remains optional in the current document.
     var sidebarToggle = document.querySelector(
         '[data-action="toggle-sidebar"]'
     );
@@ -171,6 +174,21 @@
     var sessionNavButtons = Array.prototype.slice.call(
         document.querySelectorAll('[data-session-nav]')
     );
+    var sessionNavLayer = document.querySelector(
+        '.conversation-session-nav-layer'
+    );
+    function updateSessionNavLayout() {
+        if (!sessionNavLayer) return;
+        sessionNavLayer.toggleAttribute(
+            'data-compact-controls',
+            sessionNavLayer.clientWidth <= 360
+        );
+    }
+    updateSessionNavLayout();
+    window.addEventListener('resize', updateSessionNavLayout);
+    if (typeof ResizeObserver === 'function' && sessionNavLayer) {
+        new ResizeObserver(updateSessionNavLayout).observe(sessionNavLayer);
+    }
     var commentsWorkspace = document.querySelector('.conversation-workspace');
     var commentsResizer = document.querySelector('[data-comments-resizer]');
     var sidebarRoot = document.querySelector('[data-conversation-sidebar]');
@@ -396,8 +414,8 @@
     var restoreTarget = readJsonAttribute(
         'data-conversation-restore-target'
     );
-    var sidebarUiAvailable = !!sidebarToggle
-        && !!commentsWorkspace && !!commentsResizer && !!sidebarRoot
+    var sidebarUiAvailable = !!commentsWorkspace && !!commentsResizer
+        && !!sidebarRoot
         && !!outlineRoot
         && !!outlineSearch
         && !!outlineList && !!outlineEmpty && !!outlinePartial
@@ -780,7 +798,6 @@
     var sidebarController = window.__agentPivotConversation.sidebar.create({
         available: sidebarUiAvailable,
         vscodeApi: vscodeApi,
-        sidebarToggle: sidebarToggle,
         commentsWorkspace: commentsWorkspace,
         commentsResizer: commentsResizer,
         sidebarRoot: sidebarRoot,
@@ -798,6 +815,7 @@
         telemetryComments: telemetryComments,
         telemetrySubagents: telemetrySubagents,
         telemetryChanges: telemetryChanges,
+        sidebarToggle: sidebarToggle,
     });
     var changesController = changesUiAvailable
         ? window.__agentPivotConversation.changes.create({
@@ -1210,7 +1228,7 @@
                 .includes(entry.responseState);
     }
 
-    function validOutline(value, selectedInteractionId) {
+    function validOutline(value, selectedInteractionId, selectedOutsideOutline) {
         if (!Array.isArray(value)
             || value.length < 1
             || value.length > 2000
@@ -1221,7 +1239,9 @@
             return entry.interactionId;
         }));
         return identities.size === value.length
-            && identities.has(selectedInteractionId);
+            && (selectedOutsideOutline
+                ? !identities.has(selectedInteractionId)
+                : identities.has(selectedInteractionId));
     }
 
     function validSubagentEntry(value) {
@@ -1356,7 +1376,7 @@
             'earlierPageCursor',
             'nextCursor', 'subagents', 'activeSubagent', 'displayName',
             'target', 'comments', 'projectComments', 'bookmarks',
-            'tailInteractionId', 'tailHtml',
+            'tailInteractionId', 'tailHtml', 'selectedOutsideOutline',
         ]));
         if (Object.keys(message).some(function (key) {
             return !allowedKeys.has(key);
@@ -1395,9 +1415,18 @@
             && (message.restoreFocus === undefined
                 || typeof message.restoreFocus === 'boolean')
             && typeof message.selectedInteractionId === 'string'
-            && validOutline(message.outline, message.selectedInteractionId)
+            && message.selectedInteractionId.length > 0
+            && message.selectedInteractionId.length <= 512
+            && !/[\u0000-\u001f\u007f]/.test(message.selectedInteractionId)
+            && (message.selectedOutsideOutline === undefined
+                || typeof message.selectedOutsideOutline === 'boolean')
+            && validOutline(
+                message.outline,
+                message.selectedInteractionId,
+                message.selectedOutsideOutline === true
+            )
             && Number.isSafeInteger(message.selectedInput)
-            && message.selectedInput >= 0
+            && message.selectedInput >= (message.selectedOutsideOutline ? 1 : 0)
             && Number.isSafeInteger(message.totalInputs)
             && message.totalInputs >= 0
             && typeof message.partial === 'boolean'
@@ -2113,6 +2142,7 @@
             positionTooltip: position
                 ? position.getAttribute('data-tooltip')
                 : undefined,
+            firstDisabled: first ? first.disabled : undefined,
             previousDisabled: previous ? previous.disabled : undefined,
             nextDisabled: next ? next.disabled : undefined,
             latestDisabled: latest ? latest.disabled : undefined,
@@ -2176,6 +2206,9 @@
                 'data-tooltip',
                 presentation.positionTooltip
             );
+        }
+        if (first && typeof presentation.firstDisabled === 'boolean') {
+            first.disabled = presentation.firstDisabled;
         }
         if (previous && typeof presentation.previousDisabled === 'boolean') {
             previous.disabled = presentation.previousDisabled;
@@ -2636,6 +2669,7 @@
             );
         working.hidden = !latestInteractionRendered
             || latestInteraction.responseState !== 'inProgress';
+        if (first) first.disabled = !message.selectedInteractionId;
         previous.disabled = message.previousCursor === undefined;
         next.disabled = message.nextCursor === undefined;
         latest.disabled = !message.selectedInteractionId;
@@ -3202,6 +3236,11 @@
         passive: true,
     });
 
+    if (first) {
+        first.addEventListener('click', function () {
+            postNavigation('conversation-viewer-first');
+        });
+    }
     previous.addEventListener('click', function () {
         postNavigation('conversation-viewer-previous');
     });

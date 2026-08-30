@@ -419,6 +419,9 @@ export class ConversationCoordinator implements AiSessionDisposable {
             })),
             totalInteractions: outline.totalInteractions,
             partial: outline.partial,
+            ...(outline.firstInteractionId !== undefined
+                ? { firstInteractionId: outline.firstInteractionId }
+                : {}),
         };
     }
 
@@ -679,7 +682,10 @@ export class ConversationCoordinator implements AiSessionDisposable {
             || !Number.isSafeInteger(outline.totalInteractions)
             || outline.totalInteractions < 0
             || outline.totalInteractions < outline.interactions.length
-            || typeof outline.partial !== 'boolean') {
+            || typeof outline.partial !== 'boolean'
+            || (outline.firstInteractionId !== undefined
+                && (typeof outline.firstInteractionId !== 'string'
+                    || !outline.firstInteractionId))) {
             throw new ConversationError('unavailable');
         }
         if (!hasUniqueValues(outline.interactions.map(

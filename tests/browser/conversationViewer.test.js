@@ -12542,6 +12542,7 @@ const longDiffMarkdown = [
     '         logger.info("taskInfo={}, Reader start Checkpoint={}", '
         + 'taskInfo.toString(), JsonUtils.toJson(startCheckpoints));',
     '         this.connector.init(new ArrayList<>(this.startCheckpoints.values()));',
+    '-        this.connector.stop();',
     '+        this.connector.start();',
     '         this.monitor.setStartCheckpoint(startCheckpoints);',
     '',
@@ -12602,6 +12603,73 @@ async function openLongDiff(t) {
     return opened;
 }
 
+test('CONVERSATION-DIFF-VISIBILITY-001 gives diff markers a fixed gutter without shifting code', async t => {
+    const { page } = await openLongDiff(t);
+    const defaultFontFamily = await page.locator('.conversation-diff-hunk').first()
+        .evaluate(element => getComputedStyle(element).fontFamily);
+    await page.addStyleTag({
+        content: '.conversation-diff-hunk { font-family: sans-serif; }',
+    });
+    const layout = await page.locator('.conversation-diff').evaluate(root => {
+        const codeStart = line => {
+            const text = line.querySelector('.conversation-diff-line-text');
+            const marker = line.querySelector('.conversation-diff-line-marker');
+            const markerLength = marker ? marker.textContent.length : 1;
+            const walker = document.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+            let remaining = markerLength;
+            let node;
+            while ((node = walker.nextNode())) {
+                if (remaining < node.textContent.length) {
+                    const range = document.createRange();
+                    range.setStart(node, remaining);
+                    range.setEnd(node, remaining + 1);
+                    return Math.round(range.getBoundingClientRect().left);
+                }
+                remaining -= node.textContent.length;
+            }
+            return undefined;
+        };
+        const lines = [...root.querySelectorAll('.conversation-diff-line')];
+        const samples = lines.map(line => ({
+            marker: line.querySelector('.conversation-diff-line-marker')?.textContent
+                ?? line.querySelector('.conversation-diff-line-text').textContent[0],
+            side: line.classList.contains('conversation-diff-side-old') ? 'old' : 'new',
+            codeStart: codeStart(line),
+        }));
+        const codeStartsBySide = ['old', 'new'].map(side => new Set(
+            samples.filter(sample => sample.side === side)
+                .map(sample => sample.codeStart)
+        ).size);
+        return {
+            markerCount: root.querySelectorAll('.conversation-diff-line-marker').length,
+            markers: samples.map(sample => sample.marker),
+            codeStartsBySide,
+        };
+    });
+
+    assert.deepEqual(new Set(layout.markers), new Set([' ', '+', '-']),
+        'the fixture exercises context, addition, and deletion markers');
+    assert.equal(layout.markerCount, layout.markers.length,
+        'each marker has a fixed gutter element distinct from its code');
+    assert.deepEqual(layout.codeStartsBySide, [1, 1],
+        'each side begins code at one shared offset regardless of its marker');
+    assert.match(defaultFontFamily, /monospace/i,
+        'diff code uses the editor monospace font');
+    const markerGlyphs = await page.locator('.conversation-diff-line-marker')
+        .evaluateAll(markers => markers.map(marker => {
+            const range = document.createRange();
+            range.selectNodeContents(marker);
+            const markerBox = marker.getBoundingClientRect();
+            const glyphBox = range.getBoundingClientRect();
+            return {
+                startsInside: glyphBox.left >= markerBox.left,
+                endsInside: glyphBox.right <= markerBox.right,
+            };
+        }));
+    assert.ok(markerGlyphs.every(glyph => glyph.startsInside && glyph.endsInside),
+        'marker glyphs remain inside their fixed gutter');
+});
+
 test('CONVERSATION-DIFF-VISIBILITY-001 clips long diff lines at their own pane', async t => {
     // Default matches the VS Code diff editor: lines do not wrap. Each line
     // clips at its own edge, so a line wider than its pane can never paint
@@ -12639,6 +12707,20 @@ test('CONVERSATION-DIFF-VISIBILITY-001 wraps long diff lines once the reader tur
         'a wrapped line is fully readable without scrolling');
     assert.equal(layout.scrollingHunks, 0,
         'wrapping removes the need to scroll horizontally at all');
+    const wrappedCodeStarts = await page.locator('.conversation-diff-line-code')
+        .evaluateAll(cells => cells.map(cell => {
+            const startsByVisualRow = new Map();
+            for (const rect of cell.getClientRects()) {
+                const top = Math.round(rect.top);
+                const left = Math.round(rect.left);
+                startsByVisualRow.set(top, Math.min(startsByVisualRow.get(top) ?? left, left));
+            }
+            return [...startsByVisualRow.values()];
+        }).filter(starts => starts.length > 1));
+    assert.ok(wrappedCodeStarts.length > 0,
+        'the fixture includes code that wraps to a continuation line');
+    assert.ok(wrappedCodeStarts.every(starts => new Set(starts).size === 1),
+        'wrapped continuation lines stay in the same code column as their marker line');
 });
 
 test('CONVERSATION-DIFF-VISIBILITY-001 keeps the wrap choice across an authoritative refresh', async t => {

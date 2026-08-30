@@ -31,7 +31,7 @@ function renderDiffSide(side: DiffSide, position: 'old' | 'new'): string {
             ? '-'
             : ' ';
     const number = side.number === undefined ? '' : String(side.number);
-    return `<span class="conversation-diff-side conversation-diff-side-${position} conversation-diff-line conversation-diff-line-${side.line.type}"><span class="conversation-diff-line-number">${number}</span><span class="conversation-diff-line-text">${marker}${escapeHtml(side.line.text)}</span></span>`;
+    return `<span class="conversation-diff-side conversation-diff-side-${position} conversation-diff-line conversation-diff-line-${side.line.type}"><span class="conversation-diff-line-number">${number}</span><span class="conversation-diff-line-text conversation-diff-line-text-marked"><span class="conversation-diff-line-marker">${marker}</span><span class="conversation-diff-line-code">${escapeHtml(side.line.text)}</span></span></span>`;
 }
 
 function renderDiffRow(oldSide: DiffSide, newSide: DiffSide): string {

@@ -5176,6 +5176,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 + '        });\n'
                 + '    }\n',
             ''
+        )
         // Tool groups are newer than this adjacent Viewer generation. First
         // reduce the source to the prior single-worklog implementation; the
         // established strips below then reconstruct the frozen fixture.

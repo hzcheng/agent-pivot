@@ -275,12 +275,19 @@ function visibleKimiCodeInput(value: unknown): string {
     ));
 }
 
-function isKimiCodeUserOrigin(value: unknown): boolean {
+function isKimiCodeUserOrigin(value: unknown, allowSubagentTrigger = false): boolean {
     const origin = asRecord(value);
-    return origin?.kind === 'user'
-        || origin?.kind === 'skill_activation'
-        || origin?.kind === 'plugin_command'
-        || origin?.kind === 'shell_command';
+    if (origin?.kind === 'user') {
+        return true;
+    }
+    if (origin?.kind === 'skill_activation' || origin?.kind === 'plugin_command') {
+        return origin.trigger === 'user-slash';
+    }
+    if (origin?.kind === 'shell_command') {
+        return origin.phase === 'input';
+    }
+    return allowSubagentTrigger && origin?.kind === 'system_trigger'
+        && origin.name === 'subagent';
 }
 
 function interactionId(
@@ -1271,7 +1278,10 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 if (typeof kimiCodeRecordType === 'string') {
                     if (kimiCodeRecordType === 'turn.prompt'
                         || kimiCodeRecordType === 'turn.steer') {
-                        if (!isKimiCodeUserOrigin(envelope.origin)) {
+                        if (!isKimiCodeUserOrigin(
+                            envelope.origin,
+                            Boolean(split.subagentId && isKimiCodeMainWire(candidate.sourcePath))
+                        )) {
                             return;
                         }
                         flushThinking();
@@ -2083,12 +2093,31 @@ async function kimiCodeSubagentStatus(
     now: number
 ): Promise<ConversationSubagentEntry['status']> {
     try {
-        const lines = (await fs.promises.readFile(wirePath, 'utf8'))
-            .trim().split(/\r?\n/);
+        const handle = await fs.promises.open(wirePath, 'r');
+        let text: string;
+        try {
+            const stat = await handle.stat();
+            const start = Math.max(0, stat.size - 64 * 1024);
+            const buffer = Buffer.alloc(stat.size - start);
+            const result = await handle.read(buffer, 0, buffer.length, start);
+            text = buffer.subarray(0, result.bytesRead).toString('utf8');
+        } finally {
+            await handle.close();
+        }
+        const lines = text.split(/\r?\n/);
         for (let index = lines.length - 1; index >= 0; index -= 1) {
-            const record = asRecord(JSON.parse(lines[index]));
+            let record: Record<string, any> | undefined;
+            try {
+                record = asRecord(JSON.parse(lines[index]));
+            } catch (_error) {
+                // A streaming writer can leave only the final JSON line torn.
+                continue;
+            }
             if (record?.type === 'turn.ended') {
-                return 'idle';
+                return record.reason === 'failed' ? 'failed'
+                    : record.reason === 'cancelled' || record.reason === 'killed'
+                        ? 'killed'
+                        : 'idle';
             }
             if (record) {
                 break;

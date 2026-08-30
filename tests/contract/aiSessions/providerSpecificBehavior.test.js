@@ -324,13 +324,13 @@ test('SESSION-FINGERPRINT-HASH-001 Kimi Code reads its session index once per li
             `/work/kimi-code-${index}`
         );
     }
-    const originalReadFileSync = fs.readFileSync;
+    const originalOpenSync = fs.openSync;
     let indexReads = 0;
-    fs.readFileSync = function (filePath) {
+    fs.openSync = function (filePath) {
         if (filePath === indexPath) indexReads++;
-        return originalReadFileSync.apply(this, arguments);
+        return originalOpenSync.apply(this, arguments);
     };
-    t.after(() => { fs.readFileSync = originalReadFileSync; });
+    t.after(() => { fs.openSync = originalOpenSync; });
 
     const service = new KimiSessionService();
     assert.equal(service.getSessions({ forceRefresh: true }).sessions.length, 16);

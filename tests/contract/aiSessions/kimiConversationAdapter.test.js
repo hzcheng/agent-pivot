@@ -175,7 +175,7 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi Code discovers and render
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 Kimi Code retains tool activity and appended assistant messages', async t => {
     const source = await createFixture(t);
     await fs.promises.writeFile(source.sourcePath, [
-        { type: 'turn.prompt', input: [{ type: 'text', text: 'Run a tool.' }, { type: 'image_url' }], origin: { kind: 'plugin_command' }, time: 1_784_073_611_000 },
+        { type: 'turn.prompt', input: [{ type: 'text', text: 'Run a tool.' }, { type: 'image_url' }], origin: { kind: 'plugin_command', trigger: 'user-slash' }, time: 1_784_073_611_000 },
         { type: 'context.append_loop_event', event: { type: 'step.begin', turnId: 1, stepUuid: 'step' }, time: 1_784_073_611_001 },
         { type: 'context.append_loop_event', event: { type: 'tool.call', turnId: 1, stepUuid: 'step', toolCallId: 'call-1', name: 'Shell', args: { command: 'pwd' } }, time: 1_784_073_611_002 },
         { type: 'context.append_loop_event', event: { type: 'tool.result', turnId: 1, toolCallId: 'call-1', result: { output: [{ type: 'text', text: '/workspace' }, { type: 'audio_url' }] } }, time: 1_784_073_611_003 },
@@ -203,7 +203,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 Kimi Code reads agents beside main'
     const workerDir = path.join(path.dirname(path.dirname(fixture.sourcePath)), 'worker-1');
     await fs.promises.mkdir(workerDir, { recursive: true });
     await fs.promises.writeFile(path.join(workerDir, 'wire.jsonl'), [
-        { type: 'turn.prompt', input: [{ type: 'text', text: 'Worker task.' }], origin: { kind: 'user' }, time: 1_784_073_611_000 },
+        { type: 'turn.prompt', input: [{ type: 'text', text: 'Worker task.' }], origin: { kind: 'system_trigger', name: 'subagent' }, time: 1_784_073_611_000 },
         { type: 'context.append_message', message: { role: 'assistant', content: [{ type: 'text', text: 'Worker result.' }] }, time: 1_784_073_611_001 },
     ].map(record => JSON.stringify(record)).join('\n') + '\n');
     const adapter = createAdapter({ providerHome: fixture.providerHome, sourcePath: fixture.sourcePath });

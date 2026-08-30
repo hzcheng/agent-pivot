@@ -185,8 +185,8 @@ export default class KimiSessionService {
                 kimiCode ? opened => {
                     try {
                         const current = fs.lstatSync(sessionFile);
-                        return opened.dev === expectedWire?.dev && opened.ino === expectedWire?.ino
-                            && current.dev === expectedWire?.dev && current.ino === expectedWire?.ino
+                        return this.sameFileIdentity(expectedWire, opened)
+                            && this.sameFileIdentity(expectedWire, current)
                             && !current.isSymbolicLink()
                             && this.isKimiCodePathContained(location.kimiHome, sessionFile);
                     } catch (_error) {
@@ -217,31 +217,39 @@ export default class KimiSessionService {
             if (!statePath) {
                 return false;
             }
-            let beforeWrite = this.isKimiCodeHome(location.kimiHome)
+            const kimiCode = this.isKimiCodeHome(location.kimiHome);
+            let beforeWrite = kimiCode
                 ? fs.lstatSync(statePath)
                 : undefined;
             if (beforeWrite && (!beforeWrite.isFile() || beforeWrite.isSymbolicLink())) {
                 return false;
             }
-            let state = this.readJson<KimiSessionState>(statePath) || {};
-            state.archived = true;
-            state.archived_at = new Date().toISOString();
             const noFollow = (fs.constants as any).O_NOFOLLOW || 0;
             const descriptor = fs.openSync(
                 statePath,
-                fs.constants.O_WRONLY | fs.constants.O_CREAT | noFollow,
+                fs.constants.O_RDWR | fs.constants.O_CREAT | noFollow,
                 0o600
             );
             try {
                 if (beforeWrite) {
                     const opened = fs.fstatSync(descriptor);
-                    if (opened.dev !== beforeWrite.dev || opened.ino !== beforeWrite.ino
+                    const current = fs.lstatSync(statePath);
+                    if (!this.sameFileIdentity(beforeWrite, opened)
+                        || !this.sameFileIdentity(beforeWrite, current)
                         || !this.isKimiCodePathContained(location.kimiHome, statePath)) {
                         return false;
                     }
                 }
+                let state: KimiSessionState = {};
+                try {
+                    state = JSON.parse(fs.readFileSync(descriptor, 'utf8')) as KimiSessionState;
+                } catch (_error) {
+                    state = {};
+                }
+                state.archived = true;
+                state.archived_at = new Date().toISOString();
                 fs.ftruncateSync(descriptor, 0);
-                fs.writeFileSync(descriptor, JSON.stringify(state, null, 2));
+                fs.writeSync(descriptor, JSON.stringify(state, null, 2), 0, 'utf8');
             } finally {
                 fs.closeSync(descriptor);
             }
@@ -326,8 +334,8 @@ export default class KimiSessionService {
         let legacyOverride = process.env.KIMI_SHARE_DIR;
         let configuredCodeHome = process.env.KIMI_CODE_HOME;
         let kimiCodeHome = configuredCodeHome || path.join(os.homedir(), '.kimi-code');
-        let legacyHome = path.join(os.homedir(), '.kimi');
-        return Array.from(new Set([legacyOverride, kimiCodeHome, legacyHome].filter(Boolean))).filter(home =>
+        let legacyHome = legacyOverride || path.join(os.homedir(), '.kimi');
+        return Array.from(new Set([kimiCodeHome, legacyHome])).filter(home =>
             (this.isKimiCodeHome(home) || fs.existsSync(home))
         );
     }
@@ -667,15 +675,35 @@ export default class KimiSessionService {
             && !relative.startsWith(`..${path.sep}`) && relative !== '..';
     }
 
+    private sameFileIdentity(left: fs.Stats | undefined, right: fs.Stats | undefined): boolean {
+        return Boolean(left && right
+            && Number.isFinite(left.dev) && left.dev !== 0
+            && Number.isFinite(left.ino) && left.ino !== 0
+            && Number.isFinite(left.birthtimeMs)
+            && Number.isFinite(right.dev) && right.dev === left.dev
+            && Number.isFinite(right.ino) && right.ino === left.ino
+            && Number.isFinite(right.birthtimeMs) && right.birthtimeMs === left.birthtimeMs);
+    }
+
     private readKimiCodeSessionIndex(kimiHome: string): KimiCodeSessionIndexEntry[] {
         try {
             const indexPath = path.join(kimiHome, 'session_index.jsonl');
-            const stat = fs.statSync(indexPath);
-            if (!stat.isFile() || stat.size > MAX_KIMI_CODE_INDEX_BYTES) {
-                return [];
+            const noFollow = (fs.constants as any).O_NOFOLLOW || 0;
+            const descriptor = fs.openSync(indexPath, fs.constants.O_RDONLY | noFollow);
+            let contents: string;
+            try {
+                const stat = fs.fstatSync(descriptor);
+                if (!stat.isFile() || stat.size > MAX_KIMI_CODE_INDEX_BYTES) {
+                    return [];
+                }
+                const buffer = Buffer.alloc(stat.size);
+                const bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, 0);
+                contents = buffer.subarray(0, bytesRead).toString('utf8');
+            } finally {
+                fs.closeSync(descriptor);
             }
             const entries = new Map<string, KimiCodeSessionIndexEntry>();
-            for (const line of fs.readFileSync(indexPath, 'utf8')
+            for (const line of contents
                 .split(/\r?\n/)
                 .filter(Boolean)) {
                 try {

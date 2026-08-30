@@ -1917,7 +1917,7 @@
   {
     "id": "CONVERSATION-PROVIDER-PARITY-001",
     "domain": "webview",
-    "title": "Codex, Claude, and Kimi share the same default progress, hidden-thinking, collapsed-tool, and live Working presentation",
+    "title": "Codex, Claude, and Kimi share the same normal-Assistant progress, hidden-thinking, collapsed-tool, and live Working presentation",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -2267,7 +2267,7 @@
   {
     "id": "CONVERSATION-WORKLOG-COLLAPSE-001",
     "domain": "webview",
-    "title": "AI Conversation collapses each completed turn's tool, thinking, and progress entries behind one Worked-for row that toggles in place and keeps its state across live refreshes",
+    "title": "AI Conversation keeps each completed turn's conclusion visible behind one Worked-for disclosure; expanded model progress uses normal Assistant presentation, while contiguous tool calls form independently toggled icon-labelled groups that preserve their disclosure state across live refreshes",
     "priority": "P1",
     "status": "automated",
     "owners": [

@@ -4486,6 +4486,66 @@ function copyMessage(message: ConversationMessage): ConversationMessage {
     return copyConversationMessage(message);
 }
 
+function toolIconKind(name: string | undefined): string {
+    const normalized = String(name || '').toLowerCase();
+    // Keep actions with a more specific meaning ahead of generic file/open
+    // names. Provider names such as `fileChange` and `WriteFile` otherwise
+    // look like a read merely because they contain "file".
+    if (/(write|edit|patch|apply|create|delete|replace|change)/.test(normalized)) {
+        return 'edit';
+    }
+    if (/(search|find|grep|query)/.test(normalized)) {
+        return 'search';
+    }
+    if (/(fetch|browse|web|http|url)/.test(normalized)) {
+        return 'web';
+    }
+    if (/(shell|terminal|command|exec|bash|powershell)/.test(normalized)) {
+        return 'terminal';
+    }
+    if (/(git|branch|commit|diff)/.test(normalized)) {
+        return 'git';
+    }
+    if (/(read|open|file)/.test(normalized)) {
+        return 'file';
+    }
+    return 'tool';
+}
+
+function toolIcon(name: string | undefined): string {
+    const paths: Record<string, string> = {
+        terminal: '<path d="M4 5h16v14H4z"/><path d="m7 9 3 3-3 3M12 15h4"/>',
+        file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/>',
+        edit: '<path d="m4 16 9-9 3 3-9 9-4 1z"/><path d="m12 6 3 3"/>',
+        search: '<circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/>',
+        git: '<circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 6h3a4 4 0 0 1 4 4v6"/><path d="M8 6h10"/>',
+        web: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16"/>',
+        tool: '<path d="m14.7 6.3 3 3-8.8 8.8-3.8.8.8-3.8z"/><path d="m13 8 3 3"/>',
+    };
+    return `<svg class="conversation-tool-icon conversation-tool-icon-${toolIconKind(
+        name
+    )}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[toolIconKind(name)]}</svg>`;
+}
+
+function toolActionLabel(name: string | undefined, running: boolean): string {
+    switch (toolIconKind(name)) {
+    case 'terminal':
+        return running ? 'Running command' : 'Ran command';
+    case 'file':
+        return running ? 'Reading file' : 'Read file';
+    case 'edit':
+        return running ? 'Editing file' : 'Edited file';
+    case 'search':
+        return running ? 'Searching' : 'Searched';
+    case 'git':
+        return running ? 'Using Git' : 'Used Git';
+    case 'web':
+        return running ? 'Browsing web' : 'Browsed web';
+    default:
+        return running ? 'Using tool' : 'Used tool';
+    }
+}
+
 function renderToolMessage(message: ConversationMessage): string {
     const tool = message.tool;
     const summary = tool ? escapeAttribute(tool.summary) : '';
@@ -4509,10 +4569,11 @@ function renderToolMessage(message: ConversationMessage): string {
     const detailHtml = tool?.detail
         ? `<pre class="conversation-tool-detail"><code>${escapeAttribute(tool.detail)}</code></pre>`
         : '';
+    const icon = toolIcon(tool?.name);
     const body = tool && (tool.detail || diffsHtml)
-        ? `<details class="conversation-tool-call"><summary><span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</summary>
+        ? `<details class="conversation-tool-call"><summary>${icon}<span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</summary>
 ${diffsHtml}${detailHtml}</details>`
-        : `<div class="conversation-tool-call conversation-tool-call-static"><span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</div>`;
+        : `<div class="conversation-tool-call conversation-tool-call-static">${icon}<span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</div>`;
     return `<article class="conversation-message conversation-message-tool"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
@@ -4533,17 +4594,15 @@ function renderThinkingMessage(message: ConversationMessage): string {
 }
 
 function renderProgressMessage(message: ConversationMessage): string {
-    return `<article class="conversation-message conversation-message-progress"
+    return `<article class="conversation-message conversation-message-assistant conversation-message-progress"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
-    <section class="conversation-progress">
-        <span class="conversation-progress-label">Progress:</span>
-        <span class="conversation-progress-dot"></span>
-        <section class="conversation-markdown">${renderConversationMarkdown(
+    <span class="conversation-role">Assistant</span>
+    <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
-    </section>
+    <section class="conversation-message-actions"><button class="conversation-message-copy" title="Copy response"></button></section>
 </article>`;
 }
 
@@ -4683,6 +4742,41 @@ function worklogDurationMs(
         : undefined;
 }
 
+interface ConversationToolGroup {
+    id: string;
+    firstMessageId: string;
+    toolMessageIds: Set<string>;
+    latestTool: ConversationMessage;
+}
+
+function toolGroups(
+    group: readonly ConversationMessage[],
+    interactionId: string
+): ConversationToolGroup[] {
+    const rawGroups: ConversationMessage[][] = [];
+    let current: ConversationMessage[] | undefined;
+    group.forEach(message => {
+        if (message.role !== 'tool') {
+            current = undefined;
+            return;
+        }
+        if (!current) {
+            current = [];
+            rawGroups.push(current);
+        }
+        current.push(message);
+    });
+    return rawGroups.map(messages => {
+        const firstMessageId = messages[0].id;
+        return {
+            id: `${interactionId}:tool-group:${firstMessageId}`,
+            firstMessageId,
+            toolMessageIds: new Set(messages.map(message => message.id)),
+            latestTool: messages[messages.length - 1],
+        };
+    });
+}
+
 function renderWorklogRow(
     interactionId: string,
     durationMs?: number
@@ -4690,13 +4784,54 @@ function renderWorklogRow(
     const label = durationMs !== undefined
         ? `Worked for ${formatWorkedDuration(durationMs)}`
         : 'Worked';
-    const id = `${interactionId}:worklog`;
+    const worklogId = `${interactionId}:worklog`;
     return `<article class="conversation-message conversation-message-worklog"
-    data-message-id="${escapeAttribute(id)}"
-    data-conversation-message-id="${escapeAttribute(encodeURIComponent(id))}"
-    data-interaction-id="${escapeAttribute(interactionId)}">
+    data-message-id="${escapeAttribute(worklogId)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(worklogId))}"
+    data-interaction-id="${escapeAttribute(interactionId)}"
+    data-worklog-id="${escapeAttribute(worklogId)}">
     <button class="conversation-worklog-toggle"><span class="conversation-worklog-label">${escapeAttribute(label)}</span></button>
 </article>`;
+}
+
+function renderToolGroupRow(
+    interactionId: string,
+    toolGroup: ConversationToolGroup,
+    worklogId: string | undefined,
+    running: boolean
+): string {
+    const tool = toolGroup.latestTool.tool;
+    const worklogAttribute = worklogId
+        ? ` data-worklog-id="${escapeAttribute(worklogId)}"`
+        : '';
+    return `<article class="conversation-message conversation-message-tool conversation-message-tool-group${running
+        ? ' conversation-tool-group-running'
+        : ''}"
+    data-message-id="${escapeAttribute(toolGroup.id)}"
+    data-conversation-message-id="${escapeAttribute(encodeURIComponent(toolGroup.id))}"
+    data-interaction-id="${escapeAttribute(interactionId)}"
+    data-tool-group-id="${escapeAttribute(toolGroup.id)}"${worklogAttribute}>
+    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${toolActionLabel(tool?.name, running)}</span></button>
+</article>`;
+}
+
+function renderWorklogEntry(
+    html: string,
+    worklogId: string | undefined,
+    toolGroupId: string | undefined
+): string {
+    if (!html || (!worklogId && !toolGroupId)) {
+        return html;
+    }
+    const attributes = `${worklogId
+        ? `data-worklog-id="${escapeAttribute(worklogId)}" `
+        : ''}${toolGroupId
+        ? `data-tool-group-id="${escapeAttribute(toolGroupId)}" `
+        : ''}`;
+    return html.replace(
+        '<article ',
+        `<article ${attributes}`
+    );
 }
 
 function renderMessage(
@@ -4801,6 +4936,35 @@ function renderMessages(
                 now
             )
             : undefined;
+        const answerIndex = group.findIndex(
+            message => message.role === 'assistant'
+        );
+        const firstWorkIndex = group.findIndex(
+            message => isWorklogEntry(message, showThinking)
+        );
+        const durationMs = info ? worklogDurationMs(info) : undefined;
+        const worklogId = info
+            && info.responseState !== 'inProgress'
+            && answerIndex >= 0
+            && firstWorkIndex >= 0
+            ? `${group[0].interactionId}:worklog`
+            : undefined;
+        if (worklogId) {
+            contentStream.mix(worklogId).mix(String(durationMs ?? ''));
+        }
+        const toolGroupByMessageId = new Map<string, ConversationToolGroup>();
+        const toolGroupStarts = new Map<string, ConversationToolGroup>();
+        const toolGroupsForInteraction = toolGroups(
+            group,
+            group[0].interactionId
+        );
+        toolGroupsForInteraction.forEach(toolGroup => {
+            toolGroup.toolMessageIds.forEach(messageId => {
+                toolGroupByMessageId.set(messageId, toolGroup);
+            });
+            toolGroupStarts.set(toolGroup.firstMessageId, toolGroup);
+            contentStream.mix(toolGroup.id).mix(toolGroup.latestTool.id);
+        });
         const rendered = group.map(message => {
             const clock = message.role === 'user'
                 ? inputClock
@@ -4823,29 +4987,37 @@ function renderMessages(
                 messageSignature,
                 entry.version
             );
-            return entry.html;
+            const toolGroup = toolGroupByMessageId.get(message.id);
+            const toolGroupStart = toolGroupStarts.get(message.id);
+            const isWorklogEntryForTurn = worklogId !== undefined
+                && isWorklogEntry(message, showThinking);
+            // A turn can remain live while the model summarizes a completed
+            // tool result. Without provider tool lifecycle data, only call a
+            // group running when its latest tool is also the latest event.
+            const runningToolGroup = info?.responseState === 'inProgress'
+                && toolGroupStart !== undefined
+                && toolGroupStart === toolGroupsForInteraction[
+                    toolGroupsForInteraction.length - 1
+                ] && toolGroupStart.latestTool.id
+                    === group[group.length - 1]?.id;
+            return `${message.id === group[firstWorkIndex]?.id && worklogId
+                ? renderWorklogRow(
+                    group[0].interactionId,
+                    durationMs
+                )
+                : ''}${toolGroupStart
+                ? renderToolGroupRow(
+                    group[0].interactionId,
+                    toolGroupStart,
+                    worklogId,
+                    runningToolGroup
+                )
+                : ''}${renderWorklogEntry(
+                    entry.html,
+                    isWorklogEntryForTurn ? worklogId : undefined,
+                    toolGroup?.id
+                )}`;
         });
-        const answerIndex = group.findIndex(
-            message => message.role === 'assistant'
-        );
-        const firstWorkIndex = group.findIndex(
-            message => isWorklogEntry(message, showThinking)
-        );
-        if (info
-            && info.responseState !== 'inProgress'
-            && answerIndex >= 0
-            && firstWorkIndex >= 0) {
-            // The row heads the work group (accordion-style) so expanding
-            // reveals entries below the toggle instead of pushing it down.
-            const durationMs = worklogDurationMs(info);
-            contentStream
-                .mix(`${group[0].interactionId}:worklog`)
-                .mix(String(durationMs ?? ''));
-            rendered.splice(firstWorkIndex, 0, renderWorklogRow(
-                group[0].interactionId,
-                durationMs
-            ));
-        }
         return rendered.join('');
     });
     const html = groupHtml.join('');

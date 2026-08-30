@@ -15,11 +15,11 @@
         'data-conversation-diff-context-toggle', 'data-conversation-diff-wrap-toggle',
         'data-conversation-table-id',
         'data-conversation-diff-file-id', 'data-conversation-math-token',
-        'fill', 'stroke', 'stroke-width', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',
+        'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',
         'x1', 'y1', 'x2', 'y2',
         'pathLength', 'stroke-dasharray', 'stroke-dashoffset', 'transform',
         'data-message-id', 'data-conversation-message-id',
-        'data-interaction-id', 'data-conversation-run-command',
+        'data-interaction-id', 'data-worklog-id', 'data-tool-group-id', 'data-conversation-run-command',
     ];
     var maxMermaidDiagrams = 40;
     var conversationMathStyleToken = document.body.getAttribute(
@@ -526,6 +526,7 @@
         messageIds: [],
         messageSignatures: new Map(),
         worklogExpanded: new Map(),
+        toolGroupExpanded: new Map(),
         tableSortDirections: new Map(),
         diffChangesOnly: new Set(),
         diffWrapLines: new Set(),
@@ -1777,6 +1778,7 @@
         state.messageIds = [];
         state.messageSignatures = new Map();
         state.worklogExpanded = new Map();
+        state.toolGroupExpanded = new Map();
         state.appliedHtmlSignature = undefined;
         copyPending = new Map();
         document.body.setAttribute(
@@ -1833,6 +1835,34 @@
         ) || null;
     }
 
+    function worklogRowForMessage(message) {
+        if (!message) return null;
+        var worklogId = message.getAttribute('data-worklog-id');
+        if (worklogId) {
+            return Array.prototype.find.call(
+                messages.querySelectorAll('.conversation-message-worklog'),
+                function (row) {
+                    return row.getAttribute('data-worklog-id') === worklogId;
+                }
+            ) || null;
+        }
+        return worklogRowForInteraction(
+            message.getAttribute('data-interaction-id')
+        );
+    }
+
+    function toolGroupRowForMessage(message) {
+        if (!message) return null;
+        var toolGroupId = message.getAttribute('data-tool-group-id');
+        if (!toolGroupId) return null;
+        return Array.prototype.find.call(
+            messages.querySelectorAll('.conversation-message-tool-group'),
+            function (row) {
+                return row.getAttribute('data-tool-group-id') === toolGroupId;
+            }
+        ) || null;
+    }
+
     function retargetCollapsedWorklogAnchor(anchor) {
         if (!anchor || !anchor.element || !anchor.element.closest) {
             return anchor;
@@ -1848,9 +1878,10 @@
             ) || null;
         }
         if (!message || !message.hidden) return anchor;
-        var row = worklogRowForInteraction(
-            message.getAttribute('data-interaction-id')
-        );
+        var toolGroupRow = toolGroupRowForMessage(message);
+        var row = toolGroupRow && !toolGroupRow.hidden
+            ? toolGroupRow
+            : worklogRowForMessage(message);
         if (!row) return anchor;
         return Object.assign({}, anchor, {
             element: row,
@@ -1859,13 +1890,20 @@
         });
     }
 
+    function worklogKey(row) {
+        return row.getAttribute('data-worklog-id')
+            || row.getAttribute('data-interaction-id')
+            || '';
+    }
+
     function applyWorklogStates() {
         Array.prototype.forEach.call(
             messages.querySelectorAll('.conversation-message-worklog'),
             function (row) {
                 var interactionId = row.getAttribute('data-interaction-id');
                 if (!interactionId) return;
-                var expanded = state.worklogExpanded.get(interactionId) === true;
+                var worklogId = worklogKey(row);
+                var expanded = state.worklogExpanded.get(worklogId) === true;
                 var toggle = row.querySelector('.conversation-worklog-toggle');
                 if (toggle) {
                     toggle.setAttribute(
@@ -1877,14 +1915,18 @@
                     'conversation-worklog-expanded',
                     expanded
                 );
-                // The row heads the work group: entries after it (up to
-                // the next turn) collapse, so the toggle never moves when
-                // expanding.
+                // The row heads the complete process, so expanding reveals
+                // entries below it and never moves the control itself.
                 var sibling = row.nextElementSibling;
                 while (sibling
-                    && sibling.getAttribute('data-interaction-id')
-                        === interactionId) {
+                    && (row.hasAttribute('data-worklog-id')
+                        ? sibling.getAttribute('data-worklog-id') === worklogId
+                        : sibling.getAttribute('data-interaction-id')
+                            === interactionId)) {
                     if (sibling.classList.contains('conversation-message-tool')
+                        || sibling.classList.contains(
+                            'conversation-message-tool-group'
+                        )
                         || sibling.classList.contains(
                             'conversation-message-thinking'
                         )
@@ -1897,6 +1939,88 @@
                 }
             }
         );
+        Array.prototype.forEach.call(
+            messages.querySelectorAll('.conversation-message-tool-group'),
+            function (row) {
+                var toolGroupId = row.getAttribute('data-tool-group-id');
+                if (!toolGroupId) return;
+                var expanded = state.toolGroupExpanded.get(toolGroupId) === true;
+                var toggle = row.querySelector('.conversation-tool-group-toggle');
+                if (toggle) {
+                    toggle.setAttribute(
+                        'aria-expanded',
+                        expanded ? 'true' : 'false'
+                    );
+                }
+                row.classList.toggle(
+                    'conversation-tool-group-expanded',
+                    expanded
+                );
+                var sibling = row.nextElementSibling;
+                while (sibling
+                    && sibling.getAttribute('data-tool-group-id')
+                        === toolGroupId) {
+                    if (sibling.classList.contains('conversation-message-tool')) {
+                        sibling.hidden = row.hidden || !expanded;
+                    }
+                    sibling = sibling.nextElementSibling;
+                }
+            }
+        );
+    }
+
+    // A streaming tail patch replaces one trailing interaction only. Applying
+    // disclosure state to just those new rows keeps a tool-heavy transcript
+    // on the local-patch path instead of re-walking every prior tool group.
+    function applyTailWorklogStates(inserted) {
+        Array.prototype.forEach.call(inserted, function (row) {
+            if (!row.classList.contains('conversation-message-worklog')) {
+                return;
+            }
+            var interactionId = row.getAttribute('data-interaction-id');
+            if (!interactionId) return;
+            var worklogId = worklogKey(row);
+            var expanded = state.worklogExpanded.get(worklogId) === true;
+            var toggle = row.querySelector('.conversation-worklog-toggle');
+            if (toggle) {
+                toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            }
+            row.classList.toggle('conversation-worklog-expanded', expanded);
+            var sibling = row.nextElementSibling;
+            while (sibling
+                && (row.hasAttribute('data-worklog-id')
+                    ? sibling.getAttribute('data-worklog-id') === worklogId
+                    : sibling.getAttribute('data-interaction-id') === interactionId)) {
+                if (sibling.classList.contains('conversation-message-tool')
+                    || sibling.classList.contains('conversation-message-tool-group')
+                    || sibling.classList.contains('conversation-message-thinking')
+                    || sibling.classList.contains('conversation-message-progress')) {
+                    sibling.hidden = !expanded;
+                }
+                sibling = sibling.nextElementSibling;
+            }
+        });
+        Array.prototype.forEach.call(inserted, function (row) {
+            if (!row.classList.contains('conversation-message-tool-group')) {
+                return;
+            }
+            var toolGroupId = row.getAttribute('data-tool-group-id');
+            if (!toolGroupId) return;
+            var expanded = state.toolGroupExpanded.get(toolGroupId) === true;
+            var toggle = row.querySelector('.conversation-tool-group-toggle');
+            if (toggle) {
+                toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            }
+            row.classList.toggle('conversation-tool-group-expanded', expanded);
+            var sibling = row.nextElementSibling;
+            while (sibling
+                && sibling.getAttribute('data-tool-group-id') === toolGroupId) {
+                if (sibling.classList.contains('conversation-message-tool')) {
+                    sibling.hidden = row.hidden || !expanded;
+                }
+                sibling = sibling.nextElementSibling;
+            }
+        });
     }
 
     function nextCopyRequestId() {
@@ -2270,6 +2394,7 @@
             messageIds: state.messageIds,
             messageSignatures: state.messageSignatures,
             worklogExpanded: state.worklogExpanded,
+            toolGroupExpanded: state.toolGroupExpanded,
             scrollTop: scrollTop,
             anchor: anchor,
             followingEnd: followingEnd,
@@ -2386,6 +2511,7 @@
         state.messageIds = frame.messageIds;
         state.messageSignatures = frame.messageSignatures;
         state.worklogExpanded = frame.worklogExpanded;
+        state.toolGroupExpanded = frame.toolGroupExpanded || new Map();
         restoreFramePresentation(frame);
     }
 
@@ -2531,6 +2657,12 @@
             : null;
         var focusedInteractionId = focusedMessage
             ? focusedMessage.getAttribute('data-interaction-id')
+            : null;
+        var focusedWorklogId = focusedMessage
+            ? focusedMessage.getAttribute('data-worklog-id')
+            : null;
+        var focusedToolGroupId = focusedMessage
+            ? focusedMessage.getAttribute('data-tool-group-id')
             : null;
         var focusedRenderingControl = document.activeElement
             && document.activeElement.closest
@@ -2746,11 +2878,44 @@
                 restoredFocus.tabIndex = -1;
                 restoredFocus.focus({ preventScroll: true });
             } else {
-                var worklogRow = worklogRowForInteraction(
-                    focusedInteractionId
-                );
+                var worklogRow = focusedToolGroupId
+                    ? Array.prototype.find.call(
+                        messages.querySelectorAll(
+                            '.conversation-message-tool-group'
+                        ),
+                        function (candidate) {
+                            return candidate.getAttribute('data-tool-group-id')
+                                === focusedToolGroupId;
+                        }
+                    ) || null
+                    : focusedWorklogId
+                        ? Array.prototype.find.call(
+                            messages.querySelectorAll(
+                                '.conversation-message-worklog'
+                            ),
+                            function (candidate) {
+                                return candidate.getAttribute('data-worklog-id')
+                                    === focusedWorklogId;
+                            }
+                        ) || null
+                        : worklogRowForInteraction(focusedInteractionId);
+                if (!worklogRow || worklogRow.hidden) {
+                    worklogRow = focusedWorklogId
+                        ? Array.prototype.find.call(
+                            messages.querySelectorAll(
+                                '.conversation-message-worklog'
+                            ),
+                            function (candidate) {
+                                return candidate.getAttribute('data-worklog-id')
+                                    === focusedWorklogId;
+                            }
+                        ) || null
+                        : worklogRowForInteraction(focusedInteractionId);
+                }
                 var worklogToggle = worklogRow
-                    ? worklogRow.querySelector('.conversation-worklog-toggle')
+                    ? worklogRow.querySelector(
+                        '.conversation-tool-group-toggle, .conversation-worklog-toggle'
+                    )
                     : null;
                 if (worklogToggle) {
                     worklogToggle.focus({ preventScroll: true });
@@ -2928,7 +3093,7 @@
                 image.referrerPolicy = 'no-referrer';
             }
         );
-        applyWorklogStates();
+        applyTailWorklogStates(inserted);
         // Content grew above the viewport: compensate so the same messages
         // stay under the reader's eyes. A reader who scrolled to the very
         // top is waiting for this history, so keep that offset untouched.
@@ -3105,7 +3270,7 @@
                 }
             );
         });
-        applyWorklogStates();
+        applyTailWorklogStates(patch.inserted);
         applyRenderingControlStates();
         state.messageIds = ids;
         state.messageSignatures = signatures;
@@ -3311,20 +3476,18 @@
             : null;
         if (!toggle || !messages.contains(toggle)) return;
         var row = toggle.closest('.conversation-message-worklog');
-        var interactionId = row
-            ? row.getAttribute('data-interaction-id')
-            : null;
-        if (!interactionId) return;
+        var worklogId = row ? worklogKey(row) : '';
+        if (!worklogId) return;
         // Revealing a hidden work entry can cause native scroll anchoring to
         // move the toggle out from under the pointer. Disable it for this
         // one layout change and retain the reader's exact scroll position.
         var scrollTop = scroll.scrollTop;
         var overflowAnchor = scroll.style.overflowAnchor;
         scroll.style.overflowAnchor = 'none';
-        if (state.worklogExpanded.get(interactionId) === true) {
-            state.worklogExpanded.delete(interactionId);
+        if (state.worklogExpanded.get(worklogId) === true) {
+            state.worklogExpanded.delete(worklogId);
         } else {
-            state.worklogExpanded.set(interactionId, true);
+            state.worklogExpanded.set(worklogId, true);
         }
         applyWorklogStates();
         // Force the visibility change to settle before re-enabling anchoring.
@@ -3334,6 +3497,30 @@
         // A manual disclosure change is not asynchronous transcript growth.
         // Re-evaluate follow state before the ResizeObserver runs so it does
         // not scroll this reader back to the tail after an expansion.
+        reconcileController.trackEnd();
+    });
+    messages.addEventListener('click', function (event) {
+        var toggle = event.target && event.target.closest
+            ? event.target.closest('.conversation-tool-group-toggle')
+            : null;
+        if (!toggle || !messages.contains(toggle)) return;
+        var row = toggle.closest('.conversation-message-tool-group');
+        var toolGroupId = row
+            ? row.getAttribute('data-tool-group-id')
+            : '';
+        if (!toolGroupId) return;
+        var scrollTop = scroll.scrollTop;
+        var overflowAnchor = scroll.style.overflowAnchor;
+        scroll.style.overflowAnchor = 'none';
+        if (state.toolGroupExpanded.get(toolGroupId) === true) {
+            state.toolGroupExpanded.delete(toolGroupId);
+        } else {
+            state.toolGroupExpanded.set(toolGroupId, true);
+        }
+        applyWorklogStates();
+        void scroll.offsetHeight;
+        scroll.scrollTop = scrollTop;
+        scroll.style.overflowAnchor = overflowAnchor;
         reconcileController.trackEnd();
     });
     messages.addEventListener('click', function (event) {

@@ -8035,7 +8035,7 @@ function lifecycleProjectionPage(
     };
 }
 
-test('CONVERSATION-WORKLOG-COLLAPSE-001 publishes a Worked-for row between work entries and the answer', async () => {
+test('CONVERSATION-WORKLOG-COLLAPSE-001 publishes a completed action group between work entries and the answer', async () => {
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(
             sessionId,
@@ -8059,6 +8059,111 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 publishes a Worked-for row between work 
         && toolIndex > worklogIndex && answerIndex > toolIndex,
         'worklog row heads the work group so expanding never moves the toggle:'
             + ` ${userIndex}/${worklogIndex}/${toolIndex}/${answerIndex}`);
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 keeps one completed work entry and nests stable tool groups beneath it', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => ({
+            ...page(request.sessionId, 'input-1', 'visible'),
+            messages: [
+                {
+                    id: 'input-1:user', interactionId: 'input-1',
+                    role: 'user', markdown: 'Inspect and verify the viewer',
+                },
+                {
+                    id: 'input-1:progress:0', interactionId: 'input-1',
+                    role: 'progress', markdown: 'Inspect the renderer',
+                },
+                {
+                    id: 'input-1:tool:0', interactionId: 'input-1',
+                    role: 'tool', markdown: '',
+                    tool: { name: 'ReadFile', summary: 'Read viewer.ts' },
+                },
+                {
+                    id: 'input-1:progress:1', interactionId: 'input-1',
+                    role: 'progress', markdown: 'Run focused checks',
+                },
+                {
+                    id: 'input-1:tool:1', interactionId: 'input-1',
+                    role: 'tool', markdown: '',
+                    tool: { name: 'Shell', summary: 'Run tests' },
+                },
+                {
+                    id: 'input-1:assistant:0', interactionId: 'input-1',
+                    role: 'assistant', markdown: 'Checks passed.',
+                },
+            ],
+            interactionStates: [{
+                interactionId: 'input-1', responseState: 'complete',
+                timestamp: 1_000, completedAt: 81_000,
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = decodeInitialPublication(panel.webview.html).html;
+    assert.equal(
+        (html.match(/conversation-message-worklog/g) || []).length,
+        1,
+        'a completed turn keeps the original single Worked-for entry'
+    );
+    assert.equal(
+        (html.match(/conversation-message-tool-group/g) || []).length,
+        2,
+        'each model-text boundary starts a separately disclosed tool group'
+    );
+    assert.match(html, /Worked for 1m 20s/);
+    assert.match(html,
+        /data-worklog-id="input-1:worklog"/);
+    assert.match(html,
+        /data-tool-group-id="input-1:tool-group:input-1:tool:0"/);
+    assert.match(html,
+        /data-tool-group-id="input-1:tool-group:input-1:tool:1"/);
+    assert.match(html, /conversation-tool-icon-file/);
+    assert.match(html, /conversation-tool-icon-terminal/);
+    assert.match(html,
+        /conversation-tool-group-label">Read file<\/span>/,
+        'collapsed groups summarize the kind of file operation, not its path');
+    assert.match(html,
+        /conversation-tool-group-label">Ran command<\/span>/,
+        'collapsed groups summarize a command without previewing its arguments');
+    assert.ok(
+        html.indexOf('Inspect the renderer') < html.indexOf('Read viewer.ts')
+            && html.indexOf('Read viewer.ts') < html.indexOf('Run focused checks')
+            && html.indexOf('Run focused checks') < html.indexOf('Run tests')
+            && html.indexOf('Checks passed.') > html.indexOf('Run tests'),
+        'normal model text separates the tool groups while the answer stays visible'
+    );
+});
+
+test('CONVERSATION-WORKLOG-COLLAPSE-001 summarizes known tool kinds without leaking paths or commands', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(sessionId, ['input-1']),
+        readPage: async request => ({
+            ...page(request.sessionId, 'input-1', 'visible'),
+            messages: [
+                { id: 'input-1:user', interactionId: 'input-1', role: 'user', markdown: 'Update files' },
+                { id: 'input-1:tool:change', interactionId: 'input-1', role: 'tool', markdown: '', tool: { name: 'fileChange', summary: 'src/a.ts' } },
+                { id: 'input-1:progress:0', interactionId: 'input-1', role: 'progress', markdown: 'Continue' },
+                { id: 'input-1:tool:write', interactionId: 'input-1', role: 'tool', markdown: '', tool: { name: 'WriteFile', summary: 'src/b.ts' } },
+                { id: 'input-1:progress:1', interactionId: 'input-1', role: 'progress', markdown: 'Check' },
+                { id: 'input-1:tool:search', interactionId: 'input-1', role: 'tool', markdown: '', tool: { name: 'FileSearch', summary: 'TODO' } },
+                { id: 'input-1:assistant', interactionId: 'input-1', role: 'assistant', markdown: 'Done.' },
+            ],
+            interactionStates: [{ interactionId: 'input-1', responseState: 'complete' }],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = decodeInitialPublication(panel.webview.html).html;
+    assert.equal((html.match(/conversation-tool-group-label">Edited file<\/span>/g) || []).length, 2);
+    assert.match(html, /conversation-tool-group-label">Searched<\/span>/);
+    assert.match(html, /conversation-tool-icon-edit/);
+    assert.match(html, /conversation-tool-icon-search/);
 });
 
 test('CONVERSATION-WORKLOG-COLLAPSE-001 renders Codex app-server duration in the Worked-for row', async t => {
@@ -8169,10 +8274,7 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 renders the sum of Codex subagent turn d
         }],
     }, timedTurns[1]]));
     assert.equal(untimedHtml.includes('Worked for 20s'), false);
-    assert.equal(
-        untimedHtml.includes('conversation-worklog-label">Worked</span>'),
-        true
-    );
+    assert.equal(untimedHtml.includes('Untimed progress'), true);
 });
 
 test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and falls back without timing', async () => {
@@ -8184,15 +8286,55 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and fall
         readPage: async request => worklogPage(request.sessionId, {
             responseState: 'inProgress',
             timestamp: 1_000,
+            withAnswer: false,
         }),
     });
 
     await viewer.open(target('session-a', 'input-1'));
+    const inProgressHtml = decodeInitialPublication(panel.webview.html).html;
     assert.equal(
         panel.webview.html.includes('conversation-message-worklog'),
         false,
-        'in-progress turns keep their work expanded without a row'
+        'in-progress turns do not render the completed Worked-for entry'
     );
+    assert.equal(
+        panel.webview.html.includes('conversation-message-tool-group'),
+        true,
+        'in-progress turns retain one collapsed group headed by the current tool'
+    );
+    assert.match(inProgressHtml, /conversation-tool-group-running/);
+    assert.match(inProgressHtml, /conversation-tool-icon-terminal/);
+    assert.match(inProgressHtml,
+        /conversation-tool-group-label">Running command<\/span>/,
+        'a live group identifies the generic current action, not its command');
+
+    const { viewer: progressViewer, panel: progressPanel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(sessionId, ['input-1']),
+        readPage: async request => ({
+            ...worklogPage(request.sessionId, {
+                responseState: 'inProgress',
+                withAnswer: false,
+            }),
+            messages: [
+                ...worklogPage(request.sessionId, {
+                    responseState: 'inProgress',
+                    withAnswer: false,
+                }).messages,
+                {
+                    id: 'input-1:progress:0', interactionId: 'input-1',
+                    role: 'progress', markdown: 'Reviewing the result.',
+                },
+            ],
+        }),
+    });
+    await progressViewer.open(target('session-live-progress', 'input-1'));
+    const postToolProgressHtml = decodeInitialPublication(
+        progressPanel.webview.html
+    ).html;
+    assert.doesNotMatch(postToolProgressHtml, /conversation-tool-group-running/,
+        'an earlier completed tool is not presented as the currently running step');
+    assert.match(postToolProgressHtml,
+        /conversation-tool-group-label">Ran command<\/span>/);
 
     const { viewer: fallbackViewer, panel: fallbackPanel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(
@@ -8205,7 +8347,7 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 omits the row while in progress and fall
     const html = fallbackPanel.webview.html;
     assert.equal(html.includes('conversation-message-worklog'), true);
     assert.equal(html.includes('&gt;Worked&lt;/span'), true,
-        'turns without timing fall back to a plain Worked label');
+        'turns without timing retain the original plain Worked label');
     assert.equal(html.includes('Worked for'), false);
 });
 

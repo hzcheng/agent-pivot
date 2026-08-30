@@ -479,9 +479,10 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 }
 
 .conversation-message-progress {
-    margin: 0.4rem 0 0.4rem 0.25rem;
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.92em;
+    // Progress is authored model text, not a status bullet. It deliberately
+    // shares the Assistant card treatment so expanded work remains readable.
+    color: inherit;
+    font-size: inherit;
 }
 
 .conversation-progress {
@@ -1032,8 +1033,87 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     font-size: 0.85em;
 }
 
+.conversation-message-tool-group {
+    margin: 0.375rem 0;
+    font-size: 0.85em;
+}
+
+.conversation-tool-group-toggle {
+    display: inline-flex;
+    max-width: min(100%, 42rem);
+    align-items: center;
+    padding: 0.15rem 0.4rem 0.15rem 0;
+    border: none;
+    background: transparent;
+    color: var(--vscode-descriptionForeground);
+    font: inherit;
+    cursor: pointer;
+
+    &::before {
+        content: '';
+        margin-right: 0.4rem;
+        border: solid currentColor;
+        border-width: 0 1.5px 1.5px 0;
+        padding: 2.5px;
+        transform: rotate(-45deg);
+        transition: transform 120ms ease;
+    }
+
+    &:hover,
+    &:focus-visible {
+        color: var(--vscode-foreground);
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+}
+
+.conversation-tool-group-toggle > * + * {
+    margin-left: 0.4rem;
+}
+
+.conversation-tool-group-expanded .conversation-tool-group-toggle::before {
+    transform: rotate(45deg);
+}
+
+.conversation-tool-group-icon,
+.conversation-tool-icon {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    flex: 0 0 auto;
+    vertical-align: -0.16em;
+}
+
+.conversation-tool-group-icon {
+    display: inline-flex;
+}
+
+.conversation-tool-group-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-tool-group-running .conversation-tool-group-icon {
+    animation: conversation-tool-running 1.2s ease-in-out infinite;
+}
+
+@keyframes conversation-tool-running {
+    50% { opacity: 0.42; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .conversation-tool-group-running .conversation-tool-group-icon {
+        animation: none;
+    }
+}
+
 .conversation-worklog-toggle {
     display: inline-flex;
+    max-width: min(100%, 42rem);
     align-items: center;
     gap: 0.35rem;
     padding: 0.1rem 0.4rem 0.1rem 0;
@@ -1062,6 +1142,12 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
         outline: 1px solid var(--vscode-focusBorder);
         outline-offset: 1px;
     }
+}
+
+.conversation-worklog-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .conversation-worklog-expanded .conversation-worklog-toggle::before {
@@ -1212,6 +1298,8 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
 .conversation-tool-call {
     summary {
+        display: flex;
+        align-items: center;
         cursor: pointer;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -1222,15 +1310,25 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
         }
     }
 
+    summary > * + * {
+        margin-left: 0.35rem;
+    }
+
     &[open] summary {
         white-space: normal;
     }
 }
 
 .conversation-tool-call-static {
+    display: flex;
+    align-items: center;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.conversation-tool-call-static > * + * {
+    margin-left: 0.35rem;
 }
 
 .conversation-diff {

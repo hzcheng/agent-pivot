@@ -748,6 +748,7 @@ async function initializeDashboard(
         getFreezeConversationSessionMetadata: () => freezeConversationSessionMetadata,
     });
     let aiSessionRuntimeConfiguration = initialAiSessionRuntimeConfiguration;
+    let automaticTmuxFallbackNoticeShown = false;
     const {
         conversationCommentStore,
         projectCommentStore,
@@ -831,6 +832,7 @@ async function initializeDashboard(
         tmux: tmuxRuntimeBackend,
         getConfiguration: () => ({ ...aiSessionRuntimeConfiguration }),
         chooseTmuxFallback: chooseAiSessionTmuxFallback,
+        notifyAutomaticTmuxFallback: notifyAutomaticTmuxFallback,
         hasLiveTmuxOwnership,
         hasKnownTmuxHint: async identity => Boolean(identity.sessionId
             && await tmuxRuntimeStore.getKnown(identity.provider, identity.sessionId,
@@ -3656,6 +3658,27 @@ async function initializeDashboard(
             return 'settings';
         }
         return choice === directAction ? 'direct' : 'cancel';
+    }
+
+    function notifyAutomaticTmuxFallback(fallback: AiSessionTmuxFallbackContext): void {
+        logAiSessionRuntimeFailure(`${fallback.operation}-automatic-fallback`, fallback.error);
+        if (automaticTmuxFallbackNoticeShown) {
+            return;
+        }
+        automaticTmuxFallbackNoticeShown = true;
+        const installAction = 'Install tmux';
+        void vscode.window.showWarningMessage(
+            'tmux is unavailable in this extension host. Agent Pivot started the AI session in VS Code Terminal.',
+            installAction
+        ).then(choice => {
+            if (choice === installAction) {
+                void vscode.env.openExternal(
+                    vscode.Uri.parse('https://github.com/tmux/tmux/wiki/Installing')
+                ).then(undefined, error =>
+                    logError('Could not open the tmux installation guide.', error)
+                );
+            }
+        }, error => logError('Could not show the tmux installation recommendation.', error));
     }
 
     async function handleAiSessionRuntimeConfigurationChanged(): Promise<void> {

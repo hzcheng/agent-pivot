@@ -305,12 +305,18 @@
                 "agentPivot.aiSessionTerminalMode": {
                     "type": "string",
                     "enum": [
+                        "auto",
                         "vscode",
                         "tmux"
                     ],
-                    "default": "vscode",
+                    "enumDescriptions": [
+                        "Prefer managed tmux sessions when available, otherwise start in a VS Code terminal.",
+                        "Always run AI sessions directly in VS Code terminals.",
+                        "Require managed tmux sessions and ask before falling back when tmux is unavailable."
+                    ],
+                    "default": "auto",
                     "scope": "machine",
-                    "description": "Choose whether new AI sessions run in VS Code terminals or managed tmux sessions. tmux preserves a process only while its execution host remains awake and running."
+                    "description": "Choose how new AI sessions run. Automatic mode prefers managed tmux sessions and uses VS Code Terminal when tmux is unavailable. tmux preserves a process only while its execution host remains awake and running."
                 },
                 "agentPivot.aiSessionYoloMode": {
                     "type": "boolean",

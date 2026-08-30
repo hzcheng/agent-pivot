@@ -48,6 +48,7 @@ export interface AiSessionRuntimeCoordinatorDependencies<TTerminal> {
     tmux: ClosableRuntimeBackend<TTerminal>;
     getConfiguration(): AiSessionRuntimeConfiguration;
     chooseTmuxFallback(context: AiSessionTmuxFallbackContext): Promise<AiSessionTmuxFallbackChoice>;
+    notifyAutomaticTmuxFallback?(context: AiSessionTmuxFallbackContext): void;
     hasLiveTmuxOwnership?(): Promise<boolean>;
     hasKnownTmuxHint?(identity: AiSessionRuntimeIdentity): Promise<boolean>;
     clearKnownTmuxHint?(identity: AiSessionRuntimeIdentity): Promise<void>;
@@ -89,7 +90,7 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
         const persistedLiveOwnership = this.dependencies.hasLiveTmuxOwnership
             ? await this.dependencies.hasLiveTmuxOwnership()
             : true;
-        if (configuration.mode === 'vscode' && !cachedLiveOwnership && !persistedLiveOwnership
+        if (configuration.mode !== 'tmux' && !cachedLiveOwnership && !persistedLiveOwnership
             && this.isTmuxUnavailable(outcome.tmuxError)) {
             return;
         }
@@ -397,6 +398,9 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
             return { status: 'started', runtime: cloneRuntime(runtime) };
         }
         if (refresh.tmuxError && this.isTmuxUnavailable(refresh.tmuxError)) {
+            if (configuration.mode === 'auto') {
+                return this.resumeViaAutomaticDirect(request, refresh.tmuxError);
+            }
             return this.resumeViaExplicitDirect(request, refresh.tmuxError, false);
         }
 
@@ -415,7 +419,9 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
             }
             const hasKnownHint = !!this.dependencies.hasKnownTmuxHint
                 && await this.dependencies.hasKnownTmuxHint(cloneAiSessionRuntimeIdentity(request.identity));
-            return this.resumeViaExplicitDirect(request, error, hasKnownHint);
+            return configuration.mode === 'auto' && !hasKnownHint
+                ? this.resumeViaAutomaticDirect(request, error)
+                : this.resumeViaExplicitDirect(request, error, hasKnownHint);
         }
     }
 
@@ -449,6 +455,9 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
             throw refresh.tmuxError;
         }
         if (refresh.tmuxError && this.isTmuxUnavailable(refresh.tmuxError)) {
+            if (configuration.mode === 'auto') {
+                return this.createViaAutomaticDirect(request, refresh.tmuxError);
+            }
             return this.createViaExplicitDirect(request, refresh.tmuxError);
         }
         try {
@@ -461,8 +470,32 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
             if (!this.isTmuxUnavailable(error)) {
                 throw error;
             }
-            return this.createViaExplicitDirect(request, error);
+            return configuration.mode === 'auto'
+                ? this.createViaAutomaticDirect(request, error)
+                : this.createViaExplicitDirect(request, error);
         }
+    }
+
+    private async resumeViaAutomaticDirect(
+        request: AiSessionResumeRuntimeRequest,
+        error: unknown
+    ): Promise<AiSessionRuntimeActionResult<TTerminal>> {
+        this.dependencies.notifyAutomaticTmuxFallback?.({
+            operation: 'resume', knownHint: false, error,
+        });
+        const runtime = await this.dependencies.direct.ensureResume(request);
+        return { status: 'started', runtime: cloneRuntime(runtime) };
+    }
+
+    private async createViaAutomaticDirect(
+        request: AiSessionCreateRuntimeRequest,
+        error: unknown
+    ): Promise<AiSessionRuntimeActionResult<TTerminal>> {
+        this.dependencies.notifyAutomaticTmuxFallback?.({
+            operation: 'create', knownHint: false, error,
+        });
+        const runtime = await this.dependencies.direct.ensurePending(request);
+        return { status: 'started', runtime: cloneRuntime(runtime) };
     }
 
     private async resumeViaExplicitDirect(

@@ -426,7 +426,7 @@ async function main() {
         const { TmuxRuntimeBindingStore } = require('../../../out/aiSessions/tmuxRuntimeBindingStore');
         const { TmuxRuntimeDiscovery } = require('../../../out/aiSessions/tmuxRuntimeDiscovery');
         const { TmuxRuntimeUnavailableError } = require('../../../out/aiSessions/runtimeTypes');
-        const { fakeResumeRequest } = require('../../helpers/runtimeContract');
+        const { fakeCreateRequest, fakeResumeRequest } = require('../../helpers/runtimeContract');
         const { AiSessionAttentionController } = require('../../../out/aiSessions/attentionController');
         const AttentionBridgeClient = require('../../../out/aiSessions/attentionBridgeClient').default;
         const AiSessionAliasController = require('../../../out/aiSessions/aliasController').default;
@@ -535,7 +535,7 @@ async function main() {
         });
         const originalTmuxRefresh = TmuxRuntimeBackend.prototype.refresh;
         patch(TmuxRuntimeBackend.prototype, 'refresh', async function (...args) {
-            if (mode === 'fallback-choice') {
+            if (mode === 'fallback-choice' || mode === 'automatic-fallback') {
                 throw new TmuxRuntimeUnavailableError('not-found', 'tmux is unavailable (fixture)');
             }
             return originalTmuxRefresh.apply(this, args);
@@ -853,6 +853,14 @@ async function main() {
                 fallbackResumeStatuses.push(hinted.status);
                 const unhinted = await coordinatorInstance.resume(fakeResumeRequest('fallback-unknown'));
                 fallbackResumeStatuses.push(unhinted.status);
+            }
+            if (mode === 'automatic-fallback') {
+                await waitFor(() => Boolean(coordinatorInstance), 'runtime coordinator capture');
+                const resumed = await coordinatorInstance.resume(fakeResumeRequest('automatic-fallback-resume'));
+                fallbackResumeStatuses.push(resumed.status);
+                const created = await coordinatorInstance.create(fakeCreateRequest('automatic-fallback-create'));
+                fallbackResumeStatuses.push(created.status);
+                await waitFor(() => lifecycle.warningMessages.length >= 1, 'automatic tmux fallback notice');
             }
             if (mode === 'opened-terminal-restore') {
                 refreshMessageBuildsBeforeOpenedTerminal = lifecycle.outputLines.filter(line =>

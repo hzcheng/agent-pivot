@@ -4262,6 +4262,24 @@
     ]
   },
   {
+    "id": "RUNTIME-AUTO-TMUX-FALLBACK-001",
+    "domain": "runtime",
+    "title": "Automatic terminal mode prefers tmux and starts in VS Code Terminal when tmux is unavailable",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/aiSessions/runtimePrimitives.test.js",
+      "tests/contract/aiSessions/runtimeCoordinator.test.js",
+      "tests/contract/aiSessions/runtimeComposition.test.js"
+    ],
+    "evidence": [
+      "package.json",
+      "src/aiSessions/runtimeConfiguration.ts",
+      "src/aiSessions/runtimeCoordinator.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
     "id": "RUNTIME-RUNTIME-CONTROLLER-001",
     "domain": "runtime",
     "title": "Runtime Controller behavior",

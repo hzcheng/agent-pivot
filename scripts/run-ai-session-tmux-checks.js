@@ -778,21 +778,22 @@ function runtimeRecordFilename(record) {
 
 function runRuntimeConfigurationChecks() {
     assert.deepStrictEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(config({})), {
-        mode: 'vscode', tmuxLayout: 'project', tmuxPath: 'tmux',
+        mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux',
     });
     assert.deepStrictEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(config({
         aiSessionTerminalMode: 'tmux', aiSessionTmuxLayout: 'session', aiSessionTmuxPath: '/opt/bin/tmux',
     })), { mode: 'tmux', tmuxLayout: 'session', tmuxPath: '/opt/bin/tmux' });
     assert.deepStrictEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(config({
         aiSessionTerminalMode: 'bad', aiSessionTmuxLayout: 'bad', aiSessionTmuxPath: '   ',
-    })), { mode: 'vscode', tmuxLayout: 'project', tmuxPath: 'tmux' });
+    })), { mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' });
     assert.deepStrictEqual(runtimeConfiguration.readAiSessionRuntimeConfiguration(config({
         aiSessionTerminalMode: null, aiSessionTmuxLayout: 1, aiSessionTmuxPath: false,
-    })), { mode: 'vscode', tmuxLayout: 'project', tmuxPath: 'tmux' });
+    })), { mode: 'auto', tmuxLayout: 'project', tmuxPath: 'tmux' });
 
     const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
     const properties = manifest.contributes.configuration.properties;
-    assert.deepStrictEqual(properties['agentPivot.aiSessionTerminalMode'].enum, ['vscode', 'tmux']);
+    assert.deepStrictEqual(properties['agentPivot.aiSessionTerminalMode'].enum, ['auto', 'vscode', 'tmux']);
+    assert.strictEqual(properties['agentPivot.aiSessionTerminalMode'].default, 'auto');
     assert.strictEqual(properties['agentPivot.aiSessionTerminalMode'].scope, 'machine');
     assert.strictEqual(properties['agentPivot.aiSessionTmuxLayout'].default, 'project');
     assert.strictEqual(properties['agentPivot.aiSessionTmuxPath'].scope, 'machine');

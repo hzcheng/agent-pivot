@@ -483,6 +483,23 @@ test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 production tmux fallback prompt is mo
     );
 });
 
+test('RUNTIME-AUTO-TMUX-FALLBACK-001 production automatic mode recommends tmux installation without blocking VS Code terminal fallback', () => {
+    const result = runProductionActivation('automatic-fallback');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.fallbackResumeStatuses, ['started', 'started']);
+    assert.deepEqual(result.warningMessages, [{
+        message: 'tmux is unavailable in this extension host. Agent Pivot started the AI session in VS Code Terminal.',
+        modal: false,
+        items: ['Install tmux'],
+    }]);
+    assert.deepEqual(
+        result.tmuxRuntimeFailureDiagnostics.filter(
+            diagnostic => diagnostic.operation.endsWith('-automatic-fallback')
+        ).map(diagnostic => diagnostic.operation),
+        ['resume-automatic-fallback', 'create-automatic-fallback']
+    );
+});
+
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 RUNTIME-RUNTIME-CONFIGURATION-001 CONVERSATION-THINKING-VISIBILITY-001 production configuration change routes runtime and Conversation settings', () => {
     const result = runProductionActivation('configuration-change');
     assert.equal(result.failure, null);

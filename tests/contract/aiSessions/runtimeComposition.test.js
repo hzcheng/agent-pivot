@@ -500,6 +500,29 @@ test('RUNTIME-AUTO-TMUX-FALLBACK-001 production automatic mode recommends tmux i
     );
 });
 
+test('RUNTIME-AUTO-TMUX-FALLBACK-001 does not offer a tmux installation on unsupported extension hosts', () => {
+    const result = runProductionActivation('automatic-unsupported-fallback');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.fallbackResumeStatuses, ['started', 'started']);
+    assert.deepEqual(result.warningMessages, [{
+        message: 'Managed tmux sessions require a POSIX extension host. Agent Pivot started the AI session in VS Code Terminal.',
+        modal: false,
+        items: [],
+    }]);
+});
+
+test('RUNTIME-AUTO-TMUX-FALLBACK-001 ignores an unsupported-host notification rejection after Direct fallback succeeds', () => {
+    const result = runProductionActivation('automatic-unsupported-notice-error');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.fallbackResumeStatuses, ['started', 'started']);
+});
+
+test('RUNTIME-AUTO-TMUX-FALLBACK-001 opens the tmux installation guide when selected', () => {
+    const result = runProductionActivation('automatic-install-link');
+    assert.equal(result.failure, null);
+    assert.deepEqual(result.openedExternalUris, ['https://github.com/tmux/tmux/wiki/Installing']);
+});
+
 test('RUNTIME-HOST-RUNTIME-COMPOSITION-001 RUNTIME-RUNTIME-CONFIGURATION-001 CONVERSATION-THINKING-VISIBILITY-001 production configuration change routes runtime and Conversation settings', () => {
     const result = runProductionActivation('configuration-change');
     assert.equal(result.failure, null);

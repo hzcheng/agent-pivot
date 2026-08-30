@@ -228,8 +228,8 @@ export class TmuxClient {
         this.executablePath = normalizeExecutablePath(executablePath);
     }
 
-    checkAvailability(): Promise<TmuxAvailability> {
-        if (!this.availabilityPromise) {
+    checkAvailability(force: boolean = false): Promise<TmuxAvailability> {
+        if (force || !this.availabilityPromise) {
             this.availabilityPromise = this.probeAvailability();
         }
         return this.availabilityPromise;

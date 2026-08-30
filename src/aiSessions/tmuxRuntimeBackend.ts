@@ -158,7 +158,7 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
     }
 
     async refresh(force: boolean = false): Promise<void> {
-        await this.requireAvailable();
+        await this.requireAvailable(force);
         try {
             await this.dependencies.discovery.refresh(force);
         } catch (error) {
@@ -1205,14 +1205,14 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
         };
     }
 
-    private async requireAvailable(): Promise<void> {
+    private async requireAvailable(force: boolean = false): Promise<void> {
         if (this.dependencies.platform === 'win32') {
             throw new TmuxRuntimeUnavailableError(
                 'unsupported-platform',
                 'Managed tmux runtimes require a POSIX extension host.'
             );
         }
-        const availability = await this.dependencies.client.checkAvailability();
+        const availability = await this.dependencies.client.checkAvailability(force);
         if ('category' in availability) {
             throw new TmuxRuntimeUnavailableError(
                 unavailableReason(availability.category),

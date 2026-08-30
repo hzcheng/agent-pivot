@@ -1293,6 +1293,27 @@ async function runTmuxClientChecks() {
     assert.strictEqual(calls.filter(call => call.args[0] === '-V').length, 1);
     assert.deepStrictEqual(await client.listWindows(), []);
 
+    let tmuxInstalledAfterFallback = false;
+    let postInstallAvailabilityProbes = 0;
+    const postInstallClient = new tmuxClientModule.TmuxClient('tmux', {
+        run: async (_file, args) => {
+            if (args[0] === '-V') {
+                postInstallAvailabilityProbes++;
+                return tmuxInstalledAfterFallback
+                    ? { exitCode: 0, stdout: 'tmux 3.2a\n', stderr: '' }
+                    : { exitCode: null, stdout: '', stderr: '', failureCategory: 'not-found' };
+            }
+            return { exitCode: 0, stdout: `${requiredCommands.join('\n')}\n`, stderr: '' };
+        },
+    });
+    assert.strictEqual((await postInstallClient.checkAvailability()).available, false);
+    tmuxInstalledAfterFallback = true;
+    assert.deepStrictEqual(await postInstallClient.checkAvailability(true), {
+        available: true, version: '3.2a',
+    });
+    assert.strictEqual(postInstallAvailabilityProbes, 2,
+        'a forced refresh must re-probe tmux after installation');
+
     const emptyServerClient = new tmuxClientModule.TmuxClient('/opt/bin/tmux', {
         run: async (_file, args) => {
             if (args[0] === '-V') {

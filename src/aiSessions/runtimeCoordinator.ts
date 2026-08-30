@@ -480,10 +480,10 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
         request: AiSessionResumeRuntimeRequest,
         error: unknown
     ): Promise<AiSessionRuntimeActionResult<TTerminal>> {
+        const runtime = await this.dependencies.direct.ensureResume(request);
         this.dependencies.notifyAutomaticTmuxFallback?.({
             operation: 'resume', knownHint: false, error,
         });
-        const runtime = await this.dependencies.direct.ensureResume(request);
         return { status: 'started', runtime: cloneRuntime(runtime) };
     }
 
@@ -491,10 +491,10 @@ export class AiSessionRuntimeCoordinator<TTerminal = vscode.Terminal> {
         request: AiSessionCreateRuntimeRequest,
         error: unknown
     ): Promise<AiSessionRuntimeActionResult<TTerminal>> {
+        const runtime = await this.dependencies.direct.ensurePending(request);
         this.dependencies.notifyAutomaticTmuxFallback?.({
             operation: 'create', knownHint: false, error,
         });
-        const runtime = await this.dependencies.direct.ensurePending(request);
         return { status: 'started', runtime: cloneRuntime(runtime) };
     }
 

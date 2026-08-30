@@ -47,8 +47,18 @@ export class ConversationOutlineController {
         outline: ConversationOutline,
         selectedInteractionId: string
     ): boolean {
+        const inOutline = outline.interactions.some(
+            interaction => interaction.id === selectedInteractionId
+        );
+        const isTrueFirst = outline.firstInteractionId === selectedInteractionId;
+        if (!inOutline && !isTrueFirst) {
+            return false;
+        }
         this.outline = outline;
-        return this.select(selectedInteractionId);
+        this.selectedInteractionId = selectedInteractionId;
+        this.selectedOutsideOutline = !inOutline;
+        this.selectedOutsideOutlineInput = this.selectedOutsideOutline ? 1 : undefined;
+        return true;
     }
 
     select(interactionId: string): boolean {
@@ -57,7 +67,9 @@ export class ConversationOutlineController {
         }
         const inOutline = this.contains(interactionId);
         const isTrueFirst = this.outline.firstInteractionId === interactionId;
-        if (!inOutline && !isTrueFirst) return false;
+        if (!inOutline && !isTrueFirst) {
+            return false;
+        }
         this.selectedInteractionId = interactionId;
         this.selectedOutsideOutline = !inOutline;
         this.selectedOutsideOutlineInput = this.selectedOutsideOutline ? 1 : undefined;

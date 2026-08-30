@@ -335,6 +335,39 @@ test('SESSION-FINGERPRINT-HASH-001 Kimi Code reads its session index once per li
     indexReads = 0;
     assert.ok(service.getSessionFingerprint().length > 0);
     assert.equal(indexReads, 1, `expected one fingerprint index read, saw ${indexReads}`);
+    indexReads = 0;
+    service.getLifecycleSignals(Array.from({ length: 16 }, (_item, index) => ({
+        sessionId: `session_${String(index).padStart(8, '0')}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+        runStartedAtMs: 0,
+    })));
+    assert.equal(indexReads, 1, `expected one lifecycle index read, saw ${indexReads}`);
+});
+
+test('SESSION-PROVIDER-001 Kimi Code honors KIMI_CODE_HOME and last-write-wins index records', t => {
+    const home = makeTempDirectory(t, 'provider-kimi-code-home-');
+    const isolatedOsHome = makeTempDirectory(t, 'provider-kimi-code-os-home-');
+    const sessionId = 'session_cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    unsetEnvironment(t, 'KIMI_SHARE_DIR');
+    setHomeDirectory(t, isolatedOsHome);
+    setEnvironment(t, 'KIMI_CODE_HOME', home);
+    writeKimiCodeSession(home, sessionId, '/work/stale', 'Stale location');
+    const current = writeKimiCodeSession(home, sessionId, '/work/current', 'Current location');
+    fs.appendFileSync(path.join(home, 'session_index.jsonl'), '{"sessionId":"bad","workDir":{}}\n', 'utf8');
+
+    const service = new KimiSessionService();
+    assert.deepEqual(service.getSessions({ forceRefresh: true }).sessions.map(session => ({
+        id: session.id,
+        cwd: session.cwd,
+        name: session.name,
+    })), [{ id: sessionId, cwd: '/work/current', name: 'Current location' }]);
+    assert.equal(service.resolveConversationSource(sessionId)?.sourcePath, current.wirePath);
+
+    fs.appendFileSync(path.join(home, 'session_index.jsonl'), `${JSON.stringify({
+        sessionId,
+        deleted: true,
+    })}\n`, 'utf8');
+    assert.equal(service.getSessions({ forceRefresh: true }).sessions.length, 0);
+    assert.equal(service.resolveConversationSource(sessionId), null);
 });
 
 test('SECURITY-AI-SESSION-CONVERSATION-SOURCE-001 Kimi Code rejects an in-home symlinked session directory', t => {

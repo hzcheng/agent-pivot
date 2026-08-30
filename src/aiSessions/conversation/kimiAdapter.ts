@@ -91,6 +91,12 @@ const SUBAGENT_DIRECTORY_PATTERN = /^[0-9a-z][0-9a-z-]{0,63}$/i;
 const SUBAGENT_RUNNING_FRESHNESS_MS = 5 * 60 * 1000;
 const HISTORY_INDEX_SETTLE_MS = 250;
 
+function isKimiCodeMainWire(sourcePath: string): boolean {
+    return path.basename(sourcePath) === 'wire.jsonl'
+        && path.basename(path.dirname(sourcePath)) === 'main'
+        && path.basename(path.dirname(path.dirname(sourcePath))) === 'agents';
+}
+
 function extractShellWorkingDirectories(
     value: string,
     baseCwd?: string
@@ -660,10 +666,9 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         if (!candidate) {
             return [];
         }
-        const subagentsRoot = path.join(
-            path.dirname(candidate.sourcePath),
-            'subagents'
-        );
+        const subagentsRoot = isKimiCodeMainWire(candidate.sourcePath)
+            ? path.dirname(path.dirname(candidate.sourcePath))
+            : path.join(path.dirname(candidate.sourcePath), 'subagents');
         let dirents: fs.Dirent[];
         try {
             dirents = await fs.promises.readdir(subagentsRoot, {
@@ -679,6 +684,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                 break;
             }
             if (!dirent.isDirectory()
+                || (isKimiCodeMainWire(candidate.sourcePath) && dirent.name === 'main')
                 || !SUBAGENT_DIRECTORY_PATTERN.test(dirent.name)) {
                 continue;
             }
@@ -1075,12 +1081,18 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         const effectiveCandidate = split.subagentId
             ? {
                 providerHome: candidate.providerHome,
-                sourcePath: path.join(
-                    path.dirname(candidate.sourcePath),
-                    'subagents',
-                    split.subagentId,
-                    'wire.jsonl'
-                ),
+                sourcePath: isKimiCodeMainWire(candidate.sourcePath)
+                    ? path.join(
+                        path.dirname(path.dirname(candidate.sourcePath)),
+                        split.subagentId,
+                        'wire.jsonl'
+                    )
+                    : path.join(
+                        path.dirname(candidate.sourcePath),
+                        'subagents',
+                        split.subagentId,
+                        'wire.jsonl'
+                    ),
                 cwd: candidate.cwd,
             }
             : candidate;
@@ -1286,7 +1298,31 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                         const loopEvent = asRecord(envelope.event);
                         const part = asRecord(loopEvent?.part);
                         stampActivity({ timestamp: envelope.time });
-                        if (loopEvent?.type === 'content.part'
+                        if (loopEvent?.type === 'tool.call'
+                            && openInteractionIndex !== undefined
+                            && typeof loopEvent.name === 'string'
+                            && loopEvent.name) {
+                            flushThinking();
+                            flushText();
+                            const args = asRecord(loopEvent.args);
+                            toolTracker.begin(
+                                interactions[openInteractionIndex],
+                                typeof loopEvent.toolCallId === 'string'
+                                    ? loopEvent.toolCallId
+                                    : undefined,
+                                loopEvent.name,
+                                buildToolCallSummary(loopEvent.name, args),
+                                args ? capToolCallDetail(JSON.stringify(args)) : undefined
+                            );
+                        } else if (loopEvent?.type === 'tool.result') {
+                            flushThinking();
+                            flushText();
+                            const result = asRecord(loopEvent.result);
+                            const output = typeof result?.output === 'string'
+                                ? result.output
+                                : undefined;
+                            toolTracker.finish(loopEvent.toolCallId, output);
+                        } else if (loopEvent?.type === 'content.part'
                             && openInteractionIndex !== undefined
                             && part?.type === 'think'
                             && typeof part.think === 'string') {
@@ -1316,6 +1352,18 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                             return;
                         }
                         flushText();
+                    } else if (kimiCodeRecordType === 'context.append_message') {
+                        const message = asRecord(envelope.message);
+                        const content = visibleKimiCodeInput(message?.content);
+                        stampActivity({ timestamp: envelope.time });
+                        if (message?.role === 'assistant' && content
+                            && openInteractionIndex !== undefined) {
+                            flushThinking();
+                            if (!pendingText) {
+                                pendingText = { text: '' };
+                            }
+                            pendingText.text += content;
+                        }
                     } else if (kimiCodeRecordType === 'turn.ended') {
                         stampActivity({ timestamp: envelope.time });
                         const completed = envelope.reason === 'completed';

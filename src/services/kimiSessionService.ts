@@ -41,9 +41,10 @@ interface KimiSessionCandidate {
 }
 
 interface KimiCodeSessionIndexEntry {
-    sessionId?: string;
-    sessionDir?: string;
-    workDir?: string;
+    sessionId: string;
+    sessionDir: string;
+    workDir: string;
+    deleted?: boolean;
 }
 
 export interface KimiSessionReadResult {
@@ -141,21 +142,28 @@ export default class KimiSessionService {
             return {};
         }
         let signals: Record<string, AiSessionLifecycleSignal> = {};
-        for (let request of requests || []) {
+        const requestsById = new Map<string, AiSessionLifecycleRequest>();
+        for (const request of requests || []) {
             if (!request?.sessionId || !Number.isFinite(request.runStartedAtMs)) {
                 continue;
             }
+            requestsById.set(request.sessionId, request);
+        }
+        const locations = this.findSessionLocations(Array.from(requestsById.keys()));
+        for (const request of requestsById.values()) {
             activeSessionIds.add(request.sessionId);
             if (signals[request.sessionId]) {
                 continue;
             }
-            const location = this.findSessionLocation(request.sessionId);
+            const location = locations.get(request.sessionId);
             if (!location) {
                 this.lifecycleReader.delete(request.sessionId);
                 continue;
             }
             let sessionFile = this.getWirePath(location.kimiHome, location.sessionDir);
-            if (!fs.existsSync(sessionFile)) {
+            if (!fs.existsSync(sessionFile)
+                || (this.isKimiCodeHome(location.kimiHome)
+                    && !this.isKimiCodePathContained(location.kimiHome, sessionFile))) {
                 this.lifecycleReader.delete(request.sessionId);
                 continue;
             }
@@ -191,7 +199,17 @@ export default class KimiSessionService {
             let state = this.readJson<KimiSessionState>(statePath) || {};
             state.archived = true;
             state.archived_at = new Date().toISOString();
-            fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+            const noFollow = (fs.constants as any).O_NOFOLLOW || 0;
+            const descriptor = fs.openSync(
+                statePath,
+                fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | noFollow,
+                0o600
+            );
+            try {
+                fs.writeFileSync(descriptor, JSON.stringify(state, null, 2));
+            } finally {
+                fs.closeSync(descriptor);
+            }
             this.lifecycleReader.delete(sessionId);
             this.invalidateCache();
             return true;
@@ -270,14 +288,17 @@ export default class KimiSessionService {
     }
 
     private getKimiHomes(): string[] {
-        let configuredHome = process.env.KIMI_SHARE_DIR;
-        if (configuredHome && fs.existsSync(configuredHome)) {
-            return [configuredHome];
+        let legacyOverride = process.env.KIMI_SHARE_DIR;
+        if (legacyOverride && fs.existsSync(legacyOverride)) {
+            return [legacyOverride];
         }
 
-        let kimiCodeHome = path.join(os.homedir(), '.kimi-code');
+        let configuredCodeHome = process.env.KIMI_CODE_HOME;
+        let kimiCodeHome = configuredCodeHome && fs.existsSync(configuredCodeHome)
+            ? configuredCodeHome
+            : path.join(os.homedir(), '.kimi-code');
         let legacyHome = path.join(os.homedir(), '.kimi');
-        return [kimiCodeHome, legacyHome].filter(home =>
+        return Array.from(new Set([kimiCodeHome, legacyHome])).filter(home =>
             (this.isKimiCodeHome(home) || fs.existsSync(home))
         );
     }
@@ -358,11 +379,14 @@ export default class KimiSessionService {
         return candidates;
     }
 
-    private findSessionDir(kimiHome: string, sessionId: string): string {
+    private findSessionDir(
+        kimiHome: string,
+        sessionId: string,
+        codeIndex?: readonly KimiCodeSessionIndexEntry[]
+    ): string {
         if (this.isKimiCodeHome(kimiHome)) {
-            const indexed = this.readKimiCodeSessionIndex(kimiHome).find(entry =>
+            const indexed = (codeIndex || this.readKimiCodeSessionIndex(kimiHome)).find(entry =>
                 entry.sessionId === sessionId
-                    && this.isKimiCodeSessionId(entry.sessionId)
             );
             const sessionDir = indexed
                 ? this.resolveKimiCodeSessionDir(kimiHome, indexed.sessionDir)
@@ -413,6 +437,27 @@ export default class KimiSessionService {
             }
         }
         return null;
+    }
+
+    private findSessionLocations(sessionIds: readonly string[]): Map<string, { kimiHome: string; sessionDir: string }> {
+        const homes = this.getKimiHomes();
+        const indexes = new Map<string, readonly KimiCodeSessionIndexEntry[]>();
+        for (const home of homes) {
+            if (this.isKimiCodeHome(home)) {
+                indexes.set(home, this.readKimiCodeSessionIndex(home));
+            }
+        }
+        const locations = new Map<string, { kimiHome: string; sessionDir: string }>();
+        for (const sessionId of sessionIds) {
+            for (const home of homes) {
+                const sessionDir = this.findSessionDir(home, sessionId, indexes.get(home));
+                if (sessionDir) {
+                    locations.set(sessionId, { kimiHome: home, sessionDir });
+                    break;
+                }
+            }
+        }
+        return locations;
     }
 
     private findWorkDirForSessionDir(
@@ -558,7 +603,7 @@ export default class KimiSessionService {
         }
         try {
             const stat = fs.lstatSync(statePath);
-            if (!stat.isFile() && !stat.isSymbolicLink()) {
+            if (!stat.isFile() || stat.isSymbolicLink()) {
                 return null;
             }
             return this.isKimiCodePathContained(kimiHome, statePath)
@@ -581,25 +626,38 @@ export default class KimiSessionService {
 
     private isPathContained(home: string, value: string): boolean {
         const relative = path.relative(home, value);
-        return Boolean(relative) && !relative.startsWith(`..${path.sep}`) && relative !== '..';
+        return Boolean(relative) && !path.isAbsolute(relative)
+            && !relative.startsWith(`..${path.sep}`) && relative !== '..';
     }
 
     private readKimiCodeSessionIndex(kimiHome: string): KimiCodeSessionIndexEntry[] {
         try {
-            const entries: KimiCodeSessionIndexEntry[] = [];
+            const entries = new Map<string, KimiCodeSessionIndexEntry>();
             for (const line of fs.readFileSync(path.join(kimiHome, 'session_index.jsonl'), 'utf8')
                 .split(/\r?\n/)
                 .filter(Boolean)) {
                 try {
-                    const entry = JSON.parse(line) as KimiCodeSessionIndexEntry;
-                    if (entry && typeof entry === 'object') {
-                        entries.push(entry);
+                    const entry = JSON.parse(line) as Partial<KimiCodeSessionIndexEntry>;
+                    if (!entry || typeof entry !== 'object'
+                        || typeof entry.sessionId !== 'string'
+                        || !this.isKimiCodeSessionId(entry.sessionId)) {
+                        continue;
+                    }
+                    if (entry.deleted === true) {
+                        entries.delete(entry.sessionId);
+                    } else if (typeof entry.sessionDir === 'string'
+                        && typeof entry.workDir === 'string') {
+                        entries.set(entry.sessionId, {
+                            sessionId: entry.sessionId,
+                            sessionDir: entry.sessionDir,
+                            workDir: entry.workDir,
+                        });
                     }
                 } catch (_error) {
                     // Ignore a partially-written trailing index entry.
                 }
             }
-            return entries;
+            return Array.from(entries.values());
         } catch (_error) {
             return [];
         }

@@ -6,17 +6,23 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [1.3.1] - 2026-08-30
 
-### Changed
-
-- Keep the VS Code Marketplace distribution and Workspace Trust boundary while
-  AI Conversations continue to render progressively.
-- Move question navigation to the Conversation footer, keeping First and
-  Previous left of the local status dots and Next and Last right of them.
-
 ### Fixed
 
 - Give the question controls a clear visual gutter around the status dots and
   remove the infrequently used previous-window and next-window controls.
+- Keep AI Conversation tool-call summaries concise and truthful: collapsed
+  groups now describe the action type while expanded entries retain the exact
+  command or file detail.
+- Keep tool-heavy, progressively rendered AI Conversations on the local tail
+  update path, preserving responsive session switching and disclosure state.
+
+### Changed
+
+- Continue publishing through the VS Code Marketplace with the existing
+  Workspace Trust declaration and progressively rendered AI Conversation
+  experience.
+- Move question navigation to the Conversation footer, keeping First and
+  Previous left of the local status dots and Next and Last right of them.
 
 ## [1.3.0] - 2026-08-29
 

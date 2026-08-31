@@ -57,6 +57,36 @@ test('CONVERSATION-WORKING-INDICATOR-001 synchronizes the viewed Conversation li
         'the Dashboard lifecycle callback must project running/stopped state before refreshing');
 });
 
+test('CONVERSATION-WORKING-INDICATOR-001 does not refresh a newly selected Conversation after an older lifecycle reconcile', async () => {
+    const refreshes = [];
+    let currentTarget = {
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    };
+    let releaseReconcile;
+    const viewer = {
+        getCurrentTarget: () => currentTarget,
+        refresh: async () => {
+            refreshes.push(currentTarget.sessionId);
+        },
+    };
+    const reconcile = () => new Promise(resolve => {
+        releaseReconcile = resolve;
+    });
+
+    const refresh = refreshViewedConversationForExecutionLifecycle(
+        viewer, ['codex:session-a'], reconcile
+    );
+    await Promise.resolve();
+    currentTarget = {
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    };
+    releaseReconcile();
+
+    assert.equal(await refresh, false);
+    assert.deepEqual(refreshes, [],
+        'a lifecycle edge for the previous session must not replace the newly selected reader');
+});
+
 test('CONVERSATION-WORKING-INDICATOR-001 delivers a completed viewed lifecycle through the Dashboard handler without refreshing for another session', async () => {
     const operations = [];
     const viewer = {

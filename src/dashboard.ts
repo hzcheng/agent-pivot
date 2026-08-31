@@ -392,6 +392,13 @@ export async function refreshViewedConversationForExecutionLifecycle(
     } catch (_error) {
         // Refresh is still useful when the best-effort authority pass fails.
     }
+    const currentTarget = viewer.getCurrentTarget();
+    if (!currentTarget
+        || currentTarget.projectId !== viewedTarget.projectId
+        || currentTarget.provider !== viewedTarget.provider
+        || currentTarget.sessionId !== viewedTarget.sessionId) {
+        return false;
+    }
     void viewer.refresh();
     return true;
 }

@@ -983,10 +983,13 @@ function createAvailableConversationCapability(
                         options.resolveReboundTarget
                     );
                 }
-                const reconciledTarget = viewer.getCurrentTarget();
-                if (expectedTarget && (!reconciledTarget
-                    || !hasSameConversationSession(reconciledTarget, expectedTarget))) {
-                    return false;
+                if (expectedTarget) {
+                    const reconciledTarget = viewer.getCurrentTarget();
+                    if (!reconciledTarget || !hasSameConversationSession(
+                        reconciledTarget, expectedTarget
+                    )) {
+                        return false;
+                    }
                 }
                 await viewer.reconcileAuthority(target => {
                     if (expectedTarget && !hasSameConversationSession(

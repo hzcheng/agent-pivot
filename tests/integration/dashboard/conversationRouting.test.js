@@ -906,14 +906,18 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-002 fire-and-forget reconcile isolates v
         'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         'private prompt',
     ].join(' ');
+    let reconcileAuthorityCalled = false;
     const harness = createDashboardConversationHarness({
         viewerReconcileAuthority: async () => {
+            reconcileAuthorityCalled = true;
             throw new Error(secret);
         },
     });
     await harness.activate();
 
     await assert.doesNotReject(harness.capability.reconcile());
+    assert.equal(reconcileAuthorityCalled, true,
+        'unscoped reconciliation must reach the injected authority failure');
     assert.deepEqual(harness.diagnostics, [{
         event: 'conversation-read',
         category: 'unavailable',

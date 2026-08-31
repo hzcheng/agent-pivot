@@ -15,7 +15,25 @@ export interface AiSessionExecutionControllerOptions {
     getActiveSessions: () => AiSessionActiveTerminalRuntime[];
     getSessionKey?: (providerId: AiSessionProviderId, sessionId: string) => string;
     scheduleRefresh: (reason: string) => void;
+    /**
+     * Runs for execution-state edges and newly accepted terminal signals.
+     * Unlike a list-view refresh, Conversation can remain visible while that
+     * view is hidden, so it needs its own lifecycle notification.
+     */
+    onExecutionLifecycleChanged?: (changedKeys: readonly string[]) => void;
     nowMs: () => number;
+}
+
+/**
+ * Conversation only needs to reload when its own provider/session lifecycle
+ * changed; a background session edge must not replace the reader's page.
+ */
+export function shouldRefreshConversationForExecutionChange(
+    changedKeys: readonly string[],
+    providerId: AiSessionProviderId,
+    sessionId: string
+): boolean {
+    return changedKeys.includes(getAiSessionKey(providerId, sessionId));
 }
 
 export class AiSessionExecutionController {
@@ -43,6 +61,13 @@ export class AiSessionExecutionController {
         })));
         if (changedKeys.length) {
             this.options.scheduleRefresh('execution');
+        }
+        const conversationRefreshKeys = Array.from(new Set([
+            ...changedKeys,
+            ...this.monitor.getAcceptedTerminalKeys(),
+        ]));
+        if (conversationRefreshKeys.length) {
+            this.options.onExecutionLifecycleChanged?.(conversationRefreshKeys);
         }
     }
 

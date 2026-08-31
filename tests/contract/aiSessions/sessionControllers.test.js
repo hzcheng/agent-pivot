@@ -6,7 +6,10 @@ const { AiSessionCreationController } = require('../../../out/aiSessions/creatio
 const { AiSessionResumeController } = require('../../../out/aiSessions/resumeController');
 const { AiSessionTerminalCommandController } = require('../../../out/aiSessions/terminalCommandController');
 const { AiSessionRuntimeTargetChangedError } = require('../../../out/aiSessions/runtimeTypes');
-const { AiSessionExecutionController } = require('../../../out/aiSessions/executionController');
+const {
+    AiSessionExecutionController,
+    shouldRefreshConversationForExecutionChange,
+} = require('../../../out/aiSessions/executionController');
 const {
     AiSessionLifecycleSignalReader,
 } = require('../../../out/aiSessions/lifecycleSignalReader');
@@ -1825,12 +1828,15 @@ test('SESSION-AI-SESSION-TERMINAL-COMMAND-CONTROLLER-001 focuses the workbench o
     ]);
 });
 
-test('SESSION-AI-SESSION-EXECUTION-CONTROLLER-001 schedules one refresh only when lifecycle output changes', () => {
+test('SESSION-AI-SESSION-EXECUTION-CONTROLLER-001 CONVERSATION-WORKING-INDICATOR-001 schedules Dashboard and Conversation refreshes only when lifecycle output changes', () => {
     const refreshes = [];
+    const conversationRefreshes = [];
     let token = 'one';
     const controller = new AiSessionExecutionController({
         getActiveSessions: () => [{ provider: 'codex', sessionId: 's', runStartedAtMs: 1 }],
-        scheduleRefresh: reason => refreshes.push(reason), nowMs: () => 1,
+        scheduleRefresh: reason => refreshes.push(reason),
+        onExecutionLifecycleChanged: keys => conversationRefreshes.push(keys),
+        nowMs: () => 1,
     });
     const signals = () => ({ codex: { s: {
         token, occurredAtMs: token === 'one' ? 2 : 3, executionState: token === 'one' ? 'running' : 'stopped',
@@ -1840,11 +1846,62 @@ test('SESSION-AI-SESSION-EXECUTION-CONTROLLER-001 schedules one refresh only whe
     token = 'two';
     controller.evaluate(signals());
     assert.deepEqual(refreshes, ['execution', 'execution']);
+    assert.deepEqual(conversationRefreshes, [
+        ['codex:s'],
+        ['codex:s'],
+    ], 'every lifecycle edge must refresh the Conversation independently of Dashboard visibility');
     assert.equal(controller.getSnapshot()['codex:s'].state, 'stopped');
 
     assert.deepEqual(controller.getLifecycleRequests(), {
         codex: [{ sessionId: 's', runStartedAtMs: 1 }],
     }, 'the controller publishes its request set for the shared reader to merge');
+});
+
+test('CONVERSATION-WORKING-INDICATOR-001 refreshes only the Conversation whose execution state changed', () => {
+    const changedKeys = ['codex:background-session'];
+    assert.equal(
+        shouldRefreshConversationForExecutionChange(
+            changedKeys, 'codex', 'session-a'
+        ),
+        false,
+        'an unrelated lifecycle edge must not re-render the viewed Conversation'
+    );
+    assert.equal(
+        shouldRefreshConversationForExecutionChange(
+            changedKeys, 'codex', 'background-session'
+        ),
+        true
+    );
+});
+
+test('CONVERSATION-WORKING-INDICATOR-001 refreshes on a first-observed terminal lifecycle signal', () => {
+    const refreshes = [];
+    const conversationRefreshes = [];
+    const controller = new AiSessionExecutionController({
+        getActiveSessions: () => [{
+            provider: 'codex', sessionId: 'session-a', runStartedAtMs: 1,
+        }],
+        scheduleRefresh: reason => refreshes.push(reason),
+        onExecutionLifecycleChanged: keys => conversationRefreshes.push(keys),
+        nowMs: () => 10,
+    });
+    const completed = {
+        codex: {
+            'session-a': {
+                token: 'completed-first-observation',
+                occurredAtMs: 10,
+                executionState: 'stopped',
+            },
+        },
+    };
+
+    controller.evaluate(completed);
+    controller.evaluate(completed);
+
+    assert.deepEqual(refreshes, [],
+        'the stopped execution projection did not change from its initial value');
+    assert.deepEqual(conversationRefreshes, [['codex:session-a']],
+        'the first terminal token still clears a stale Working presentation once');
 });
 
 test('SESSION-AI-SESSION-EXECUTION-MONITOR-001 reads lifecycle signals once for the union of every consumer', () => {

@@ -187,7 +187,10 @@ import {
     submitConversationPrompt,
 } from './aiSessions/conversation/submission';
 import { AiSessionDashboardController } from './aiSessions/dashboardController';
-import { AiSessionExecutionController } from './aiSessions/executionController';
+import {
+    AiSessionExecutionController,
+    shouldRefreshConversationForExecutionChange,
+} from './aiSessions/executionController';
 import {
     AiSessionAttentionController,
 } from './aiSessions/attentionController';
@@ -363,6 +366,25 @@ const DASHBOARD_BOOTSTRAP_PHASE_ORDER = [
 const DASHBOARD_MODULE_LOADED_AT_MS = performance.now();
 let activeAiSessionAttentionBridgeClient: AttentionBridgeClient | null = null;
 let activeOpenWorkspaceBridgeClient: OpenWorkspaceBridgeClient | null = null;
+
+/**
+ * Runs the Conversation half of an execution lifecycle update. The list view
+ * can be hidden while a Conversation panel remains open, so this path must
+ * not depend on a list-view refresh reaching its after-refresh hook.
+ */
+export function refreshViewedConversationForExecutionLifecycle(
+    viewer: Pick<ConversationCapability['viewer'], 'getCurrentTarget' | 'refresh'> | undefined,
+    changedKeys: readonly string[]
+): boolean {
+    const viewedTarget = viewer?.getCurrentTarget();
+    if (!viewedTarget || !shouldRefreshConversationForExecutionChange(
+        changedKeys, viewedTarget.provider, viewedTarget.sessionId
+    )) {
+        return false;
+    }
+    void viewer.refresh();
+    return true;
+}
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     const monotonicNowMs = () => performance.now();
@@ -1507,6 +1529,11 @@ async function initializeDashboard(
             if (openWorkspaceController) {
                 openWorkspaceController.publish();
             }
+        },
+        onExecutionLifecycleChanged: changedKeys => {
+            refreshViewedConversationForExecutionLifecycle(
+                conversationCapability?.viewer, changedKeys
+            );
         },
         nowMs: () => Date.now(),
     });

@@ -24,47 +24,51 @@ const {
     refreshViewedConversationForExecutionLifecycle,
 } = loadDashboard();
 
-test('CONVERSATION-WORKING-INDICATOR-001 refreshes the viewed Conversation only for its matching lifecycle edge', async () => {
-    const refreshes = [];
+test('CONVERSATION-WORKING-INDICATOR-001 synchronizes the viewed Conversation lifecycle before refreshing its matching edge', async () => {
+    const operations = [];
     const viewer = {
         getCurrentTarget: () => ({
             projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
         }),
         refresh: async () => {
-            refreshes.push('refresh');
+            operations.push('refresh');
         },
+    };
+    const reconcile = async () => {
+        operations.push('reconcile');
     };
 
     assert.equal(
-        refreshViewedConversationForExecutionLifecycle(
-            viewer, ['codex:background-session']
+        await refreshViewedConversationForExecutionLifecycle(
+            viewer, ['codex:background-session'], reconcile
         ),
         false
     );
-    await Promise.resolve();
-    assert.deepEqual(refreshes, [],
+    assert.deepEqual(operations, [],
         'background lifecycle edges must not replace the current reader page');
 
     assert.equal(
-        refreshViewedConversationForExecutionLifecycle(
-            viewer, ['codex:session-a']
+        await refreshViewedConversationForExecutionLifecycle(
+            viewer, ['codex:session-a'], reconcile
         ),
         true
     );
-    await Promise.resolve();
-    assert.deepEqual(refreshes, ['refresh'],
-        'the Dashboard lifecycle callback must refresh the viewed Conversation');
+    assert.deepEqual(operations, ['reconcile', 'refresh'],
+        'the Dashboard lifecycle callback must project running/stopped state before refreshing');
 });
 
 test('CONVERSATION-WORKING-INDICATOR-001 delivers a completed viewed lifecycle through the Dashboard handler without refreshing for another session', async () => {
-    const refreshes = [];
+    const operations = [];
     const viewer = {
         getCurrentTarget: () => ({
             projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
         }),
         refresh: async () => {
-            refreshes.push('refresh');
+            operations.push('refresh');
         },
+    };
+    const reconcile = async () => {
+        operations.push('reconcile');
     };
     let sessionState = 'running';
     let backgroundState = 'running';
@@ -75,7 +79,9 @@ test('CONVERSATION-WORKING-INDICATOR-001 delivers a completed viewed lifecycle t
         ],
         scheduleRefresh: () => undefined,
         onExecutionLifecycleChanged: changedKeys => {
-            refreshViewedConversationForExecutionLifecycle(viewer, changedKeys);
+            void refreshViewedConversationForExecutionLifecycle(
+                viewer, changedKeys, reconcile
+            );
         },
         nowMs: () => 10,
     });
@@ -95,18 +101,20 @@ test('CONVERSATION-WORKING-INDICATOR-001 delivers a completed viewed lifecycle t
     });
 
     controller.evaluate(signals());
-    await Promise.resolve();
-    refreshes.length = 0;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(operations, ['reconcile', 'refresh'],
+        'a running edge after restoring a Conversation must seed its lifecycle projection');
+    operations.length = 0;
 
     backgroundState = 'stopped';
     controller.evaluate(signals());
-    await Promise.resolve();
-    assert.deepEqual(refreshes, [],
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(operations, [],
         'an unrelated completed session must not refresh the viewed Conversation');
 
     sessionState = 'stopped';
     controller.evaluate(signals());
-    await Promise.resolve();
-    assert.deepEqual(refreshes, ['refresh'],
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(operations, ['reconcile', 'refresh'],
         'the viewed completion must refresh its Conversation even when only lifecycle state changed');
 });

@@ -372,15 +372,25 @@ let activeOpenWorkspaceBridgeClient: OpenWorkspaceBridgeClient | null = null;
  * can be hidden while a Conversation panel remains open, so this path must
  * not depend on a list-view refresh reaching its after-refresh hook.
  */
-export function refreshViewedConversationForExecutionLifecycle(
+export async function refreshViewedConversationForExecutionLifecycle(
     viewer: Pick<ConversationCapability['viewer'], 'getCurrentTarget' | 'refresh'> | undefined,
-    changedKeys: readonly string[]
-): boolean {
+    changedKeys: readonly string[],
+    reconcileConversation?: () => void | Promise<void>
+): Promise<boolean> {
     const viewedTarget = viewer?.getCurrentTarget();
     if (!viewedTarget || !shouldRefreshConversationForExecutionChange(
         changedKeys, viewedTarget.provider, viewedTarget.sessionId
     )) {
         return false;
+    }
+    // A restored Conversation has not necessarily passed through the normal
+    // open flow that seeds its coordinator with the latest execution state.
+    // Reconcile first so the ensuing refresh projects a running latest turn
+    // as inProgress even when its list view is hidden.
+    try {
+        await reconcileConversation?.();
+    } catch (_error) {
+        // Refresh is still useful when the best-effort authority pass fails.
     }
     void viewer.refresh();
     return true;
@@ -1531,8 +1541,10 @@ async function initializeDashboard(
             }
         },
         onExecutionLifecycleChanged: changedKeys => {
-            refreshViewedConversationForExecutionLifecycle(
-                conversationCapability?.viewer, changedKeys
+            void refreshViewedConversationForExecutionLifecycle(
+                conversationCapability?.viewer,
+                changedKeys,
+                () => conversationCapability?.reconcile()
             );
         },
         nowMs: () => Date.now(),

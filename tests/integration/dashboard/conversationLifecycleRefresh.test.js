@@ -36,6 +36,8 @@ test('CONVERSATION-WORKING-INDICATOR-001 synchronizes the viewed Conversation li
     };
     const reconcile = async () => {
         operations.push('reconcile');
+        await viewer.refresh();
+        return true;
     };
 
     assert.equal(
@@ -54,7 +56,7 @@ test('CONVERSATION-WORKING-INDICATOR-001 synchronizes the viewed Conversation li
         true
     );
     assert.deepEqual(operations, ['reconcile', 'refresh'],
-        'the Dashboard lifecycle callback must project running/stopped state before refreshing');
+        'the Dashboard lifecycle callback must project running/stopped state with one refresh');
 });
 
 test('CONVERSATION-WORKING-INDICATOR-001 does not refresh a newly selected Conversation after an older lifecycle reconcile', async () => {
@@ -87,6 +89,31 @@ test('CONVERSATION-WORKING-INDICATOR-001 does not refresh a newly selected Conve
         'a lifecycle edge for the previous session must not replace the newly selected reader');
 });
 
+test('CONVERSATION-WORKING-INDICATOR-001 falls back to one direct refresh when lifecycle reconciliation cannot refresh', async () => {
+    const operations = [];
+    const viewer = {
+        getCurrentTarget: () => ({
+            projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+        }),
+        refresh: async () => {
+            operations.push('refresh');
+        },
+    };
+
+    assert.equal(
+        await refreshViewedConversationForExecutionLifecycle(
+            viewer,
+            ['codex:session-a'],
+            async () => {
+                operations.push('reconcile');
+                return false;
+            }
+        ),
+        true
+    );
+    assert.deepEqual(operations, ['reconcile', 'refresh']);
+});
+
 test('CONVERSATION-WORKING-INDICATOR-001 delivers a completed viewed lifecycle through the Dashboard handler without refreshing for another session', async () => {
     const operations = [];
     const viewer = {
@@ -99,6 +126,8 @@ test('CONVERSATION-WORKING-INDICATOR-001 delivers a completed viewed lifecycle t
     };
     const reconcile = async () => {
         operations.push('reconcile');
+        await viewer.refresh();
+        return true;
     };
     let sessionState = 'running';
     let backgroundState = 'running';

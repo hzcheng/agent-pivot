@@ -375,7 +375,7 @@ let activeOpenWorkspaceBridgeClient: OpenWorkspaceBridgeClient | null = null;
 export async function refreshViewedConversationForExecutionLifecycle(
     viewer: Pick<ConversationCapability['viewer'], 'getCurrentTarget' | 'refresh'> | undefined,
     changedKeys: readonly string[],
-    reconcileConversation?: () => void | Promise<void>
+    reconcileConversation?: () => boolean | void | Promise<boolean | void>
 ): Promise<boolean> {
     const viewedTarget = viewer?.getCurrentTarget();
     if (!viewedTarget || !shouldRefreshConversationForExecutionChange(
@@ -387,8 +387,9 @@ export async function refreshViewedConversationForExecutionLifecycle(
     // open flow that seeds its coordinator with the latest execution state.
     // Reconcile first so the ensuing refresh projects a running latest turn
     // as inProgress even when its list view is hidden.
+    let reconciled = false;
     try {
-        await reconcileConversation?.();
+        reconciled = await reconcileConversation?.() === true;
     } catch (_error) {
         // Refresh is still useful when the best-effort authority pass fails.
     }
@@ -399,7 +400,9 @@ export async function refreshViewedConversationForExecutionLifecycle(
         || currentTarget.sessionId !== viewedTarget.sessionId) {
         return false;
     }
-    void viewer.refresh();
+    if (!reconciled) {
+        void viewer.refresh();
+    }
     return true;
 }
 

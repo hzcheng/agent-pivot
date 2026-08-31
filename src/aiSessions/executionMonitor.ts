@@ -26,6 +26,7 @@ interface Entry extends AiSessionExecutionSnapshot {
 
 export default class AiSessionExecutionMonitor {
     private readonly entries = new Map<string, Entry>();
+    private acceptedTerminalKeys: string[] = [];
     private readonly now: () => number;
     private readonly staleRunningTimeoutMs: number;
 
@@ -37,6 +38,7 @@ export default class AiSessionExecutionMonitor {
     evaluate(inputs: AiSessionExecutionInput[]): string[] {
         const seen = new Set<string>();
         const changed = new Set<string>();
+        const acceptedTerminalKeys = new Set<string>();
         for (const input of inputs || []) {
             if (!input?.key) {
                 continue;
@@ -52,6 +54,9 @@ export default class AiSessionExecutionMonitor {
             if (acceptsLifecycleSignal(entry, signal)) {
                 recordAcceptedLifecycleSignal(entry, signal);
                 entry.lastSignalAtMs = this.now();
+                if (signal.executionState === 'stopped') {
+                    acceptedTerminalKeys.add(input.key);
+                }
                 if (entry.state !== signal.executionState) {
                     entry.state = signal.executionState;
                     entry.stateChangedAt = signal.occurredAtMs;
@@ -93,7 +98,14 @@ export default class AiSessionExecutionMonitor {
                 changed.add(key);
             }
         }
+        this.acceptedTerminalKeys = Array.from(acceptedTerminalKeys);
         return Array.from(changed);
+    }
+
+    /** Terminal signals carry new Conversation content even when the initial
+     * execution projection was already stopped. */
+    getAcceptedTerminalKeys(): readonly string[] {
+        return this.acceptedTerminalKeys;
     }
 
     getSnapshot(): Record<string, AiSessionExecutionSnapshot> {

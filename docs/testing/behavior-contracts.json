@@ -2249,17 +2249,21 @@
       "tests/contract/aiSessions/incrementalJsonlLifecycleReader.test.js",
       "tests/contract/aiSessions/codexConversationAdapter.test.js",
       "tests/contract/aiSessions/conversationCoordinator.test.js",
+      "tests/contract/aiSessions/sessionControllers.test.js",
+      "tests/integration/dashboard/conversationLifecycleRefresh.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
       "src/services/codexSessionService.ts",
       "src/aiSessions/executionMonitor.ts",
+      "src/aiSessions/executionController.ts",
       "src/aiSessions/incrementalJsonlLifecycleReader.ts",
       "src/aiSessions/conversation/codexAdapter.ts",
       "src/aiSessions/conversation/composition.ts",
       "src/aiSessions/conversation/viewer.ts",
       "src/aiSessions/conversation/viewerDocument.ts",
+      "src/dashboard.ts",
       "src/webview/conversationViewerScripts.js",
       "media/conversationViewer.scss"
     ]

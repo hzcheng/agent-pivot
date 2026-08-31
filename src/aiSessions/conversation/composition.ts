@@ -131,7 +131,7 @@ export interface ConversationCapability {
     freezeSessionMetadata(
         target: ConversationSessionOpenTarget
     ): Promise<boolean>;
-    reconcile(): Promise<void>;
+    reconcile(expectedTarget?: ConversationSessionOpenTarget): Promise<boolean>;
     dispose(): void;
 }
 
@@ -965,17 +965,38 @@ function createAvailableConversationCapability(
             viewer.rebindSession(previous, next),
         freezeSessionMetadata: target =>
             viewer.freezeSessionMetadata(target),
-        async reconcile(): Promise<void> {
+        async reconcile(expectedTarget?: ConversationSessionOpenTarget): Promise<boolean> {
             if (disposed) {
-                return;
+                return false;
             }
             try {
+                if (expectedTarget) {
+                    const currentTarget = viewer.getCurrentTarget();
+                    if (!currentTarget || !hasSameConversationSession(
+                        currentTarget, expectedTarget
+                    )) {
+                        return false;
+                    }
+                }
                 if (options.resolveReboundTarget) {
                     await viewer.reconcileReboundSession(
                         options.resolveReboundTarget
                     );
                 }
+                if (expectedTarget) {
+                    const reconciledTarget = viewer.getCurrentTarget();
+                    if (!reconciledTarget || !hasSameConversationSession(
+                        reconciledTarget, expectedTarget
+                    )) {
+                        return false;
+                    }
+                }
                 await viewer.reconcileAuthority(target => {
+                    if (expectedTarget && !hasSameConversationSession(
+                        target, expectedTarget
+                    )) {
+                        return false;
+                    }
                     const authoritativeTarget = resolveExactTarget(
                         options,
                         target
@@ -1007,8 +1028,10 @@ function createAvailableConversationCapability(
                         taskName: displayMetadata.conversationTaskName || '',
                     };
                 });
+                return true;
             } catch (_error) {
                 reportUnavailable(options.onDiagnostic);
+                return false;
             }
         },
         dispose(): void {
@@ -1089,7 +1112,9 @@ function createUnavailableConversationCapability(): ConversationCapability {
         async freezeSessionMetadata(): Promise<boolean> {
             return false;
         },
-        async reconcile(): Promise<void> {},
+        async reconcile(): Promise<boolean> {
+            return false;
+        },
         dispose(): void {
             if (disposed) {
                 return;

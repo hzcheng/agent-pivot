@@ -324,7 +324,7 @@ function createDashboardConversationHarness(options = {}) {
         ...(options.useConcreteViewer
             ? {}
             : {
-                createViewer: () => {
+                createViewer: options.createViewer || (() => {
                     let disposed = false;
                     return {
                         isOpen: () => false,
@@ -341,7 +341,7 @@ function createDashboardConversationHarness(options = {}) {
                             events.push('dispose:viewer');
                         },
                     };
-                },
+                }),
             }),
     };
 
@@ -390,6 +390,7 @@ function createDashboardConversationHarness(options = {}) {
                 setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
                 clearTimer: handle => clearTimeout(handle),
                 onDiagnostic: event => diagnostics.push(event),
+                resolveReboundTarget: options.resolveReboundTarget,
                 getWorkspaceRootHostPaths:
                     options.getWorkspaceRootHostPaths,
                 commentStore: options.commentStore,
@@ -862,20 +863,61 @@ test('PRODUCTION-CONVERSATION-LIFECYCLE-001 keeps the exact viewer authority lif
     await harness.dispose();
 });
 
+test('CONVERSATION-WORKING-INDICATOR-001 scopes lifecycle reconciliation across a deferred session rebind', async () => {
+    let currentTarget = {
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    };
+    let releaseRebind;
+    const calls = [];
+    const viewer = {
+        getCurrentTarget: () => currentTarget,
+        reconcileReboundSession: () => new Promise(resolve => {
+            releaseRebind = resolve;
+        }),
+        reconcileAuthority: async () => {
+            calls.push('reconcile-authority');
+        },
+        dispose() {},
+    };
+    const harness = createDashboardConversationHarness({
+        createViewer: () => viewer,
+        resolveReboundTarget: target => target,
+    });
+    await harness.activate();
+
+    const reconcile = harness.capability.reconcile({
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    });
+    await Promise.resolve();
+    currentTarget = {
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    };
+    releaseRebind();
+
+    assert.equal(await reconcile, false);
+    assert.deepEqual(calls, [],
+        'an old lifecycle edge must not reconcile authority for the replacement session');
+    await harness.dispose();
+});
+
 test('PRODUCTION-CONVERSATION-LIFECYCLE-002 fire-and-forget reconcile isolates viewer failures to one sanitized diagnostic', async () => {
     const secret = [
         '/private/viewer/reconcile',
         'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         'private prompt',
     ].join(' ');
+    let reconcileAuthorityCalled = false;
     const harness = createDashboardConversationHarness({
         viewerReconcileAuthority: async () => {
+            reconcileAuthorityCalled = true;
             throw new Error(secret);
         },
     });
     await harness.activate();
 
     await assert.doesNotReject(harness.capability.reconcile());
+    assert.equal(reconcileAuthorityCalled, true,
+        'unscoped reconciliation must reach the injected authority failure');
     assert.deepEqual(harness.diagnostics, [{
         event: 'conversation-read',
         category: 'unavailable',

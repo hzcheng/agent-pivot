@@ -5422,6 +5422,19 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 routes absolute and workspace-relative f
     }], 'file resolution remains bound to the viewed conversation target');
 });
 
+test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps absolute code locations reachable from the workspace when a Conversation is bound to a worktree', () => {
+    const dashboardSource = fs.readFileSync(
+        path.join(__dirname, '../../../src/dashboard.ts'),
+        'utf8'
+    );
+
+    assert.match(
+        dashboardSource,
+        /const roots = 'relativePath' in targetFile && authoritativeRoots\.length > 0\n\s*\? authoritativeRoots\n\s*:\s*\[\.\.\.authoritativeRoots, \.\.\.workspaceRoots\];/,
+        'relative links must stay scoped to the conversation worktree, while an exact absolute path may use every trusted workspace root'
+    );
+});
+
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 routes one exact selection send to the active terminal inserter', async () => {
     const inserted = [];
     const { viewer, panel } = createViewer({

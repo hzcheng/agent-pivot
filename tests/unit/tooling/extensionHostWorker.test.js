@@ -4,6 +4,8 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+    VSCODE_DOWNLOAD_TIMEOUT_MS,
+    downloadVSCodeWithRetry,
     main,
     runExtensionHostWorker,
 } = require('../../../scripts/run-extension-host-worker');
@@ -67,6 +69,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 installs verified VSIX bytes before H
     assert.deepEqual(calls[0][1], {
         version: '9.8.7',
         extensionDevelopmentPath: '/repository',
+        timeout: VSCODE_DOWNLOAD_TIMEOUT_MS,
     });
     assert.deepEqual(calls[1].slice(1), [
         '/repository',
@@ -89,6 +92,35 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 installs verified VSIX bytes before H
     ]);
     assert.match(logs.join('\n'), /Verified installed .* verified-sha/);
     assert.match(logs.join('\n'), /Running installed Extension Host smoke/);
+});
+
+// RELEASE-SCHEDULED-EXTENSION-HOST-001
+test('RELEASE-SCHEDULED-EXTENSION-HOST-001 retries only transient VS Code download failures', async () => {
+    const logs = [];
+    let attempts = 0;
+    const executablePath = await downloadVSCodeWithRetry(async () => {
+        attempts += 1;
+        if (attempts === 1) {
+            throw new AggregateError([
+                Object.assign(new Error('connection timed out'), { code: 'ETIMEDOUT' }),
+            ], 'VS Code metadata request failed');
+        }
+        return '/downloaded/code';
+    }, { version: '9.8.7' }, { log: message => logs.push(message) });
+
+    assert.equal(executablePath, '/downloaded/code');
+    assert.equal(attempts, 2);
+    assert.match(logs.join('\n'), /transient network error; retrying/);
+
+    attempts = 0;
+    await assert.rejects(
+        downloadVSCodeWithRetry(async () => {
+            attempts += 1;
+            throw new Error('Invalid version 9.8.7');
+        }, { version: '9.8.7' }, { log: () => {} }),
+        /Invalid version 9.8.7/
+    );
+    assert.equal(attempts, 1, 'non-network download errors must not be retried');
 });
 
 // RELEASE-SCHEDULED-EXTENSION-HOST-001

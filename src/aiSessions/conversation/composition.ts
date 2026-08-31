@@ -966,12 +966,18 @@ function createAvailableConversationCapability(
         freezeSessionMetadata: target =>
             viewer.freezeSessionMetadata(target),
         async reconcile(expectedTarget?: ConversationSessionOpenTarget): Promise<boolean> {
-            const currentTarget = viewer.getCurrentTarget();
-            if (disposed || (expectedTarget && (!currentTarget
-                || !hasSameConversationSession(currentTarget, expectedTarget)))) {
+            if (disposed) {
                 return false;
             }
             try {
+                if (expectedTarget) {
+                    const currentTarget = viewer.getCurrentTarget();
+                    if (!currentTarget || !hasSameConversationSession(
+                        currentTarget, expectedTarget
+                    )) {
+                        return false;
+                    }
+                }
                 if (options.resolveReboundTarget) {
                     await viewer.reconcileReboundSession(
                         options.resolveReboundTarget

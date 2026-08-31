@@ -12,6 +12,45 @@ const {
     installPackagedExtensions,
 } = require('./lib/extensionHostLauncher');
 
+const VSCODE_DOWNLOAD_TIMEOUT_MS = 60_000;
+const VSCODE_DOWNLOAD_ATTEMPTS = 2;
+
+function isRetriableVSCodeDownloadError(error) {
+    if (!error) return false;
+    const retriableCodes = new Set([
+        'ECONNABORTED',
+        'ECONNRESET',
+        'ECONNREFUSED',
+        'EAI_AGAIN',
+        'ENETUNREACH',
+        'ETIMEDOUT',
+    ]);
+    if (retriableCodes.has(error.code)) return true;
+    if (Array.isArray(error.errors)
+        && error.errors.some(isRetriableVSCodeDownloadError)) return true;
+    return /@vscode\/test-electron request timeout/.test(String(error.message || error));
+}
+
+async function downloadVSCodeWithRetry(download, options, logger) {
+    for (let attempt = 1; attempt <= VSCODE_DOWNLOAD_ATTEMPTS; attempt += 1) {
+        try {
+            return await download({
+                ...options,
+                timeout: VSCODE_DOWNLOAD_TIMEOUT_MS,
+            });
+        } catch (error) {
+            if (!isRetriableVSCodeDownloadError(error)
+                || attempt === VSCODE_DOWNLOAD_ATTEMPTS) {
+                throw error;
+            }
+            logger.log(
+                `VS Code download attempt ${attempt} failed with a transient network error; retrying.`
+            );
+        }
+    }
+    throw new Error('VS Code download retry loop exited unexpectedly.');
+}
+
 function notifyParentOfCompletion(message) {
     if (typeof process.send !== 'function') return Promise.resolve();
     return new Promise((resolve, reject) => {
@@ -38,10 +77,10 @@ async function runExtensionHostWorker(repositoryRoot, environment, options = {})
     logger.log(
         `Installing release VSIX files into isolated VS Code ${version}.`
     );
-    const vscodeExecutablePath = await download({
+    const vscodeExecutablePath = await downloadVSCodeWithRetry(download, {
         version,
         extensionDevelopmentPath: repositoryRoot,
-    });
+    }, logger);
     const installation = install(
         repositoryRoot,
         environment,
@@ -81,6 +120,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+    VSCODE_DOWNLOAD_ATTEMPTS,
+    VSCODE_DOWNLOAD_TIMEOUT_MS,
+    downloadVSCodeWithRetry,
+    isRetriableVSCodeDownloadError,
     main,
     runExtensionHostWorker,
 };

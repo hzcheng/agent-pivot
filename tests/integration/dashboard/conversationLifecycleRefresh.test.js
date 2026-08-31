@@ -89,6 +89,45 @@ test('CONVERSATION-WORKING-INDICATOR-001 does not refresh a newly selected Conve
         'a lifecycle edge for the previous session must not replace the newly selected reader');
 });
 
+test('CONVERSATION-WORKING-INDICATOR-001 scopes lifecycle reconciliation to the originally viewed Conversation', async () => {
+    const refreshes = [];
+    let currentTarget = {
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+    };
+    let releaseReconcile;
+    const viewer = {
+        getCurrentTarget: () => currentTarget,
+        refresh: async () => {
+            refreshes.push(currentTarget.sessionId);
+        },
+    };
+    const reconcile = expectedTarget => new Promise(resolve => {
+        releaseReconcile = async () => {
+            const targetMatches = !expectedTarget
+                || (expectedTarget.projectId === currentTarget.projectId
+                    && expectedTarget.provider === currentTarget.provider
+                    && expectedTarget.sessionId === currentTarget.sessionId);
+            if (targetMatches) {
+                await viewer.refresh();
+            }
+            resolve(targetMatches);
+        };
+    });
+
+    const refresh = refreshViewedConversationForExecutionLifecycle(
+        viewer, ['codex:session-a'], reconcile
+    );
+    await Promise.resolve();
+    currentTarget = {
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-b',
+    };
+    await releaseReconcile();
+
+    assert.equal(await refresh, false);
+    assert.deepEqual(refreshes, [],
+        'a rebind that finishes after navigation must not refresh the replacement reader');
+});
+
 test('CONVERSATION-WORKING-INDICATOR-001 falls back to one direct refresh when lifecycle reconciliation cannot refresh', async () => {
     const operations = [];
     const viewer = {

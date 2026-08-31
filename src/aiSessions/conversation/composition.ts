@@ -131,7 +131,7 @@ export interface ConversationCapability {
     freezeSessionMetadata(
         target: ConversationSessionOpenTarget
     ): Promise<boolean>;
-    reconcile(): Promise<boolean>;
+    reconcile(expectedTarget?: ConversationSessionOpenTarget): Promise<boolean>;
     dispose(): void;
 }
 
@@ -965,8 +965,10 @@ function createAvailableConversationCapability(
             viewer.rebindSession(previous, next),
         freezeSessionMetadata: target =>
             viewer.freezeSessionMetadata(target),
-        async reconcile(): Promise<boolean> {
-            if (disposed) {
+        async reconcile(expectedTarget?: ConversationSessionOpenTarget): Promise<boolean> {
+            const currentTarget = viewer.getCurrentTarget();
+            if (disposed || (expectedTarget && (!currentTarget
+                || !hasSameConversationSession(currentTarget, expectedTarget)))) {
                 return false;
             }
             try {
@@ -975,7 +977,17 @@ function createAvailableConversationCapability(
                         options.resolveReboundTarget
                     );
                 }
+                const reconciledTarget = viewer.getCurrentTarget();
+                if (expectedTarget && (!reconciledTarget
+                    || !hasSameConversationSession(reconciledTarget, expectedTarget))) {
+                    return false;
+                }
                 await viewer.reconcileAuthority(target => {
+                    if (expectedTarget && !hasSameConversationSession(
+                        target, expectedTarget
+                    )) {
+                        return false;
+                    }
                     const authoritativeTarget = resolveExactTarget(
                         options,
                         target

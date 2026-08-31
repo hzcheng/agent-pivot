@@ -174,6 +174,9 @@ import {
     createConversationCapability,
     resolveConversationCommandLocation,
 } from './aiSessions/conversation/composition';
+import type {
+    ConversationSessionOpenTarget,
+} from './aiSessions/conversation/composition';
 import {
     ConversationPanelRestoreCoordinator,
 } from './aiSessions/conversation/panelRestoreCoordinator';
@@ -375,7 +378,9 @@ let activeOpenWorkspaceBridgeClient: OpenWorkspaceBridgeClient | null = null;
 export async function refreshViewedConversationForExecutionLifecycle(
     viewer: Pick<ConversationCapability['viewer'], 'getCurrentTarget' | 'refresh'> | undefined,
     changedKeys: readonly string[],
-    reconcileConversation?: () => boolean | void | Promise<boolean | void>
+    reconcileConversation?: (
+        target: ConversationSessionOpenTarget
+    ) => boolean | void | Promise<boolean | void>
 ): Promise<boolean> {
     const viewedTarget = viewer?.getCurrentTarget();
     if (!viewedTarget || !shouldRefreshConversationForExecutionChange(
@@ -389,7 +394,7 @@ export async function refreshViewedConversationForExecutionLifecycle(
     // as inProgress even when its list view is hidden.
     let reconciled = false;
     try {
-        reconciled = await reconcileConversation?.() === true;
+        reconciled = await reconcileConversation?.(viewedTarget) === true;
     } catch (_error) {
         // Refresh is still useful when the best-effort authority pass fails.
     }
@@ -1554,7 +1559,7 @@ async function initializeDashboard(
             void refreshViewedConversationForExecutionLifecycle(
                 conversationCapability?.viewer,
                 changedKeys,
-                () => conversationCapability?.reconcile()
+                target => conversationCapability?.reconcile(target)
             );
         },
         nowMs: () => Date.now(),

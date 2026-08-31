@@ -1932,12 +1932,16 @@ async function initializeDashboard(
                 && authoritativeRoot.length > 0
                 ? [authoritativeRoot]
                 : [];
-            // A session with a persisted worktree/cwd must never fall through
-            // to a same-named file in the primary workspace. Only legacy
-            // sessions without an authoritative location use dashboard roots.
-            const roots = authoritativeRoots.length > 0
+            const workspaceRoots = actionTarget?.workspace.roots
+                .map(root => root.hostPath) || [];
+            // A relative reference must stay within the session's authoritative
+            // worktree/cwd when it has one: falling through could open a
+            // same-named primary-workspace file. An absolute reference already
+            // names its file, so it may also resolve inside another trusted
+            // workspace root (for example, a sibling code directory).
+            const roots = 'relativePath' in targetFile && authoritativeRoots.length > 0
                 ? authoritativeRoots
-                : actionTarget?.workspace.roots.map(root => root.hostPath) || [];
+                : [...authoritativeRoots, ...workspaceRoots];
             for (const rootPath of roots) {
                 let canonicalRoot: string;
                 try {

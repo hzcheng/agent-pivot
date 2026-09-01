@@ -277,6 +277,19 @@
                 || documentValue.querySelector('parsererror')) {
                 throw new Error('Mermaid returned invalid SVG.');
             }
+            // Preserve the participant-label anchor as a presentation
+            // attribute so it cannot depend on Mermaid's embedded CSS.
+            Array.prototype.forEach.call(
+                root.querySelectorAll('text.actor'),
+                function (label) {
+                    label.setAttribute('text-anchor', 'middle');
+                    label.style.setProperty(
+                        'text-anchor',
+                        'middle',
+                        'important'
+                    );
+                }
+            );
             var viewBox = (root.getAttribute('viewBox') || '')
                 .trim()
                 .split(/[\s,]+/)

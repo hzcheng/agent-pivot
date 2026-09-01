@@ -13406,6 +13406,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints
                 text: text.textContent,
                 bounds: bounds(text),
                 centerX: Number(text.getAttribute('x')),
+                textAnchor: text.getAttribute('text-anchor'),
             }));
             renderedSvg.remove();
             const figureRect = element.getBoundingClientRect();
@@ -13427,6 +13428,8 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints
                         Math.abs(label.centerX - (box.x + box.width / 2)) < 0.1
                         && label.bounds.width <= box.width - 16
                     )),
+                participantLabelsCentered: actorLabels.length > 0
+                    && actorLabels.every(label => label.textAnchor === 'middle'),
             };
         });
 
@@ -13437,6 +13440,11 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints
             outcome.participantLabelsInsideBoxes,
             true,
             `every participant label stays inside its box at ${width}px`
+        );
+        assert.equal(
+            outcome.participantLabelsCentered,
+            true,
+            `every participant label is centered inside its box at ${width}px`
         );
         assert.equal(
             outcome.rightEdgeVisible,

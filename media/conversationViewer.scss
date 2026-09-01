@@ -1670,9 +1670,19 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 .conversation-mermaid {
     max-width: 100%;
     margin: 1rem 0;
+    padding-bottom: 0.25rem;
     overflow-x: auto;
+    overflow-y: hidden;
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 2px;
+    }
 
     .conversation-mermaid-image {
+        display: block;
+        width: auto;
+        max-width: none;
         min-width: min(100%, 24rem);
         margin: 0 auto;
     }

@@ -203,7 +203,9 @@ test.after(async () => {
 });
 
 async function openViewerPage(t, options = {}) {
-    const page = await browser.newPage({ viewport: { width: 700, height: 500 } });
+    const page = await browser.newPage({
+        viewport: options.viewport || { width: 700, height: 500 },
+    });
     t.after(() => page.close());
     await page.setContent(`<!doctype html>
         <html>
@@ -318,7 +320,9 @@ async function openViewerPage(t, options = {}) {
         await page.evaluate(() => {
             window.__mermaidRenders = [];
             window.mermaid = {
-                initialize() {},
+                initialize(configuration) {
+                    window.__mermaidInitializeOptions = configuration;
+                },
                 render(id, source) {
                     return new Promise(resolve => {
                         window.__mermaidRenders.push({ id, source, resolve });
@@ -13227,6 +13231,247 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only
         1
     );
     assert.match(await diagram.getAttribute('src'), /^blob:/);
+    assert.equal(
+        await page.locator('.conversation-code-block').count(),
+        0,
+        'a rendered Mermaid diagram does not retain code-block chrome'
+    );
+    assert.equal(await page.locator('.conversation-code-lang').count(), 0);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps wide Mermaid diagrams readable with horizontal scrolling', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.addStyleTag({ content: viewerCss });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="wide-mermaid"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">sequenceDiagram
+                    participant Client
+                    participant LongRunningConfigurationService
+                    Client-&gt;&gt;LongRunningConfigurationService: configure a wide diagram</code></pre>
+            </section>
+        </article>`,
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 1600 640">
+                <rect width="1600" height="640" fill="#ffffff"></rect>
+                <text x="1520" y="320">LongRunningConfigurationService</text>
+            </svg>`,
+        });
+    });
+    const figure = page.locator('.conversation-mermaid');
+    await figure.waitFor();
+    const dimensions = await figure.evaluate(element => {
+        const image = element.querySelector('.conversation-mermaid-image');
+        return {
+            clientWidth: element.clientWidth,
+            scrollWidth: element.scrollWidth,
+            imageWidth: image.clientWidth,
+        };
+    });
+
+    assert.ok(
+        dimensions.scrollWidth > dimensions.clientWidth,
+        'wide diagrams remain horizontally scrollable instead of being shrunk'
+    );
+    assert.equal(dimensions.imageWidth, 1600);
+    assert.equal(await figure.getAttribute('tabindex'), '0');
+    assert.equal(await figure.getAttribute('role'), 'group');
+    await figure.focus();
+    await page.keyboard.press('ArrowRight');
+    assert.ok(
+        await figure.evaluate(element => element.scrollLeft) > 0,
+        'keyboard users can scroll a wide Mermaid diagram'
+    );
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints reachable at default and narrow widths', async t => {
+    for (const width of [700, 320]) {
+        const page = await openViewerPage(t, {
+            includeMermaid: true,
+            viewport: { width, height: 500 },
+        });
+        await page.addStyleTag({ content: viewerCss });
+        await sendPage(page, {
+            ...hostileConversationPage,
+            html: `<article data-message-id="actual-wide-mermaid-${width}"
+                data-interaction-id="input-4">
+                <section class="conversation-markdown">
+                    <pre><code class="language-mermaid">sequenceDiagram
+                        participant Manager
+                        participant RedDBJobValidator
+                        participant TopologyClient
+                        participant MetaServer
+                        participant RedDBSourceSplit
+                        participant ChildJobConfig
+                        Manager-&gt;&gt;RedDBJobValidator: validate configuration
+                        RedDBJobValidator-&gt;&gt;TopologyClient: query partitions
+                        TopologyClient-&gt;&gt;MetaServer: fetch topology
+                        MetaServer--&gt;&gt;TopologyClient: topology result
+                        TopologyClient--&gt;&gt;RedDBJobValidator: partitions
+                        RedDBJobValidator-&gt;&gt;RedDBSourceSplit: create task group
+                        RedDBSourceSplit--&gt;&gt;ChildJobConfig: worker configuration</code></pre>
+                </section>
+            </article>`,
+        });
+        const figure = page.locator('.conversation-mermaid');
+        const image = figure.locator('.conversation-mermaid-image');
+        await image.waitFor();
+        await page.waitForFunction(() => {
+            const diagram = document.querySelector('.conversation-mermaid-image');
+            return diagram && diagram.complete && diagram.naturalWidth > 0;
+        });
+        const outcome = await figure.evaluate(async element => {
+            const imageElement = element.querySelector(
+                '.conversation-mermaid-image'
+            );
+            const svg = await fetch(imageElement.src).then(response => response.text());
+            const parsed = new DOMParser().parseFromString(
+                svg,
+                'image/svg+xml'
+            );
+            const sourceSvg = parsed.documentElement;
+            const renderedSvg = document.importNode(sourceSvg, true);
+            renderedSvg.style.position = 'fixed';
+            renderedSvg.style.visibility = 'hidden';
+            renderedSvg.style.pointerEvents = 'none';
+            document.body.appendChild(renderedSvg);
+            const endpoint = Array.prototype.find.call(
+                renderedSvg.querySelectorAll('text'),
+                text => text.textContent.includes('ChildJobConfig')
+            );
+            const endpointBounds = endpoint && endpoint.getBBox();
+            const viewBox = renderedSvg.viewBox.baseVal;
+            renderedSvg.remove();
+            element.scrollLeft = element.scrollWidth;
+            const figureRect = element.getBoundingClientRect();
+            const imageRect = imageElement.getBoundingClientRect();
+            return {
+                containsEndpoint: svg.includes('ChildJobConfig'),
+                endpointInsideViewBox: !!endpointBounds
+                    && endpointBounds.x >= viewBox.x
+                    && endpointBounds.y >= viewBox.y
+                    && endpointBounds.x + endpointBounds.width
+                        <= viewBox.x + viewBox.width
+                    && endpointBounds.y + endpointBounds.height
+                        <= viewBox.y + viewBox.height,
+                horizontallyScrollable: element.scrollWidth > element.clientWidth,
+                rightEdgeVisible: Math.abs(imageRect.right - figureRect.right) <= 1,
+            };
+        });
+
+        assert.equal(outcome.containsEndpoint, true);
+        assert.equal(outcome.endpointInsideViewBox, true);
+        assert.equal(outcome.horizontallyScrollable, true);
+        assert.equal(
+            outcome.rightEdgeVisible,
+            true,
+            `the right sequence endpoint is reachable at ${width}px`
+        );
+    }
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 exposes Mermaid scrolling semantics only when needed', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.addStyleTag({ content: viewerCss });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="small-mermaid"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">flowchart LR
+                    A[One] --&gt; B[Two]</code></pre>
+            </section>
+        </article>`,
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 100 80">
+                <text x="0" y="40">Small diagram</text>
+            </svg>`,
+        });
+    });
+    const figure = page.locator('.conversation-mermaid');
+    await figure.waitFor();
+
+    assert.equal(await figure.getAttribute('tabindex'), null);
+    assert.equal(await figure.getAttribute('role'), null);
+    assert.equal(await figure.getAttribute('aria-label'), null);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 updates Mermaid scrolling semantics after a cached figure is restored', async t => {
+    const page = await openViewerPage(t, {
+        controlledMermaid: true,
+        viewport: { width: 700, height: 500 },
+    });
+    await page.addStyleTag({ content: viewerCss });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="cached-mermaid"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">flowchart LR
+                    A[Cached] --&gt; B[Responsive]</code></pre>
+            </section>
+        </article>`,
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 600 80">
+                <text x="0" y="40">Cached diagram</text>
+            </svg>`,
+        });
+    });
+    const figure = page.locator('.conversation-mermaid');
+    await figure.waitFor();
+    assert.equal(await figure.getAttribute('tabindex'), null);
+    await figure.evaluate(element => {
+        window.__stashedMermaidFigure = element;
+        element.remove();
+    });
+    await page.waitForTimeout(50);
+    await page.setViewportSize({ width: 320, height: 500 });
+    await page.evaluate(() => {
+        document.querySelector('[data-conversation-messages]').appendChild(
+            window.__stashedMermaidFigure
+        );
+    });
+    await page.waitForFunction(() => document.querySelector(
+        '.conversation-mermaid'
+    ).getAttribute('tabindex') === '0');
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 uses the editor foreground for Mermaid sequence labels and connectors', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="sequence-theme"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">sequenceDiagram
+                    Client-&gt;&gt;Server: request</code></pre>
+            </section>
+        </article>`,
+    });
+    await page.waitForFunction(() => window.__mermaidInitializeOptions);
+    const theme = await page.evaluate(() =>
+        window.__mermaidInitializeOptions.themeVariables
+    );
+
+    assert.equal(theme.actorTextColor, '#d4d4d4');
+    assert.equal(theme.actorLineColor, '#d4d4d4');
+    assert.equal(theme.signalColor, '#d4d4d4');
+    assert.equal(theme.signalTextColor, '#d4d4d4');
+    assert.equal(theme.labelTextColor, '#d4d4d4');
 });
 
 test('CONVERSATION-READING-FOCUS-001 reserves Mermaid dimensions before Blob image decoding can shift layout', async t => {
@@ -13464,15 +13709,25 @@ test('CONVERSATION-READING-FOCUS-001 keeps an intra-message paragraph stable whi
 
 test('CONVERSATION-READING-FOCUS-001 preserves an unchanged rendered Mermaid diagram across live refreshes', async t => {
     const page = await openViewerPage(t, { includeMermaid: true });
-    const diagramMessage = `<article data-message-id="diagram"
+    const diagramMessage = text => `<article data-message-id="diagram"
         data-interaction-id="input-4">
         <section class="conversation-markdown">
-            <pre><code class="language-mermaid">flowchart TB
-                A[Large diagram] --&gt; B[Stable node]
-                B --&gt; C[Reading anchor]</code></pre>
+            <section class="conversation-code-block">
+                <section class="conversation-code-header">
+                    <span class="conversation-code-lang">mermaid</span>
+                    <span class="conversation-code-actions">
+                        <button class="conversation-code-copy" title="Copy code"></button>
+                    </span>
+                </section>
+                <pre><code class="language-mermaid">flowchart TB
+                    A[Large diagram] --&gt; B[Stable node]
+                    B --&gt; C[Reading anchor]</code></pre>
+            </section>
+            <p>${text}</p>
         </section>
     </article>`;
-    const baseHtml = diagramMessage + messageHtml('after-diagram', 12);
+    const baseHtml = diagramMessage('Initial response')
+        + messageHtml('after-diagram', 12);
     await sendPage(page, {
         ...hostileConversationPage,
         html: baseHtml,
@@ -13507,7 +13762,9 @@ test('CONVERSATION-READING-FOCUS-001 preserves an unchanged rendered Mermaid dia
         ...hostileConversationPage,
         requestId: 2,
         updateKind: 'refresh',
-        html: baseHtml + messageHtml('after-diagram-new', 1),
+        html: diagramMessage('Updated response')
+            + messageHtml('after-diagram', 12)
+            + messageHtml('after-diagram-new', 1),
         selectedInput: 12,
         totalInputs: 13,
     });
@@ -13521,6 +13778,11 @@ test('CONVERSATION-READING-FOCUS-001 preserves an unchanged rendered Mermaid dia
     assert.equal(
         await page.locator('.conversation-mermaid-image').getAttribute('src'),
         originalSource
+    );
+    assert.equal(
+        await page.locator('.conversation-code-block').count(),
+        0,
+        'a preserved Mermaid diagram does not restore code-block chrome'
     );
     assert.equal(
         await page.evaluate(() =>

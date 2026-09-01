@@ -4,8 +4,30 @@
     function create(options) {
         var objectUrls = [];
         var sources = new WeakMap();
+        var scrollObservers = new WeakMap();
+        var observedFigures = new Set();
         var initialized = false;
         var loadPromise = null;
+
+        function figuresIn(root) {
+            if (!root) return Array.from(observedFigures);
+            var figures = [];
+            if (root.nodeType === 1
+                && root.classList.contains('conversation-mermaid')) {
+                figures.push(root);
+            }
+            if (!root.querySelectorAll) return figures;
+            return figures.concat(Array.prototype.slice.call(
+                root.querySelectorAll('.conversation-mermaid')
+            ));
+        }
+
+        function stopObserving(figure) {
+            var observer = scrollObservers.get(figure);
+            if (observer) observer.disconnect();
+            scrollObservers.delete(figure);
+            observedFigures.delete(figure);
+        }
 
         function release(root) {
             var urls = root
@@ -29,6 +51,7 @@
             objectUrls = objectUrls.filter(function (url) {
                 return !released.has(url);
             });
+            figuresIn(root).forEach(stopObserving);
         }
 
         // Global release that spares the given subtrees: stashed
@@ -36,8 +59,12 @@
         // everything else is revoked.
         function releaseExcept(exceptNodes) {
             var keep = new Set();
+            var keepFigures = new Set();
             Array.prototype.forEach.call(exceptNodes || [], function (node) {
                 if (!node || node.nodeType !== 1) return;
+                figuresIn(node).forEach(function (figure) {
+                    keepFigures.add(figure);
+                });
                 Array.prototype.forEach.call(
                     node.querySelectorAll(
                         '.conversation-mermaid-image[src^="blob:"]'
@@ -60,6 +87,9 @@
                 }
             });
             objectUrls = kept;
+            Array.from(observedFigures).forEach(function (figure) {
+                if (!keepFigures.has(figure)) stopObserving(figure);
+            });
         }
 
         function themeValue(name, fallback) {
@@ -76,6 +106,10 @@
                 return false;
             }
             try {
+                var foreground = themeValue(
+                    '--vscode-editor-foreground',
+                    '#d4d4d4'
+                );
                 window.mermaid.initialize({
                     startOnLoad: false,
                     securityLevel: 'strict',
@@ -108,14 +142,8 @@
                             '--vscode-editor-foreground',
                             '#d4d4d4'
                         ),
-                        primaryBorderColor: themeValue(
-                            '--vscode-panel-border',
-                            '#454545'
-                        ),
-                        lineColor: themeValue(
-                            '--vscode-descriptionForeground',
-                            '#a0a0a0'
-                        ),
+                        primaryBorderColor: foreground,
+                        lineColor: foreground,
                         secondaryColor: themeValue(
                             '--vscode-input-background',
                             '#252526'
@@ -124,6 +152,14 @@
                             '--vscode-editor-background',
                             '#1e1e1e'
                         ),
+                        textColor: foreground,
+                        actorTextColor: foreground,
+                        actorLineColor: foreground,
+                        signalColor: foreground,
+                        signalTextColor: foreground,
+                        labelTextColor: foreground,
+                        noteTextColor: foreground,
+                        sequenceNumberColor: foreground,
                     },
                 });
                 initialized = true;
@@ -169,6 +205,15 @@
                 return line.length > 0;
             }) || 'diagram';
             return 'Mermaid diagram: ' + summary.slice(0, 120);
+        }
+
+        function replacementNode(pre) {
+            return pre.parentElement
+                && pre.parentElement.classList.contains(
+                    'conversation-code-block'
+                )
+                ? pre.parentElement
+                : pre;
         }
 
         function normalizeSvg(svg) {
@@ -233,6 +278,35 @@
                     }
                     var figure = document.createElement('figure');
                     figure.className = 'conversation-mermaid';
+                    var scrollLabel = 'Scrollable ' + alt(sanitized)
+                        + '. Use arrow keys to view the entire diagram.';
+                    var updateScrollableState = function () {
+                        var scrollable = figure.scrollWidth > figure.clientWidth;
+                        if (scrollable) {
+                            figure.setAttribute('tabindex', '0');
+                            figure.setAttribute('role', 'group');
+                            figure.setAttribute('aria-label', scrollLabel);
+                            return;
+                        }
+                        figure.removeAttribute('tabindex');
+                        figure.removeAttribute('role');
+                        figure.removeAttribute('aria-label');
+                    };
+                    figure.addEventListener('keydown', function (event) {
+                        if (figure.scrollWidth <= figure.clientWidth) return;
+                        if (event.key === 'ArrowLeft') {
+                            figure.scrollLeft -= 40;
+                        } else if (event.key === 'ArrowRight') {
+                            figure.scrollLeft += 40;
+                        } else if (event.key === 'Home') {
+                            figure.scrollLeft = 0;
+                        } else if (event.key === 'End') {
+                            figure.scrollLeft = figure.scrollWidth;
+                        } else {
+                            return;
+                        }
+                        event.preventDefault();
+                    });
                     sources.set(figure, source);
                     var image = document.createElement('img');
                     image.className = 'conversation-mermaid-image';
@@ -253,12 +327,23 @@
                             return;
                         }
                         objectUrls.push(objectUrl);
-                        var readingAnchor = options.captureAnchor(pre);
+                        var replacement = replacementNode(pre);
+                        var readingAnchor = options.captureAnchor(replacement);
                         var previousScrollTop = options.scroll.scrollTop;
-                        pre.replaceWith(figure);
+                        replacement.replaceWith(figure);
                         if (readingAnchor
-                            && readingAnchor.element === pre) {
+                            && readingAnchor.element === replacement) {
                             readingAnchor.element = figure;
+                        }
+                        updateScrollableState();
+                        if (typeof ResizeObserver === 'function') {
+                            var resizeObserver = new ResizeObserver(function () {
+                                if (!figure.isConnected) return;
+                                updateScrollableState();
+                            });
+                            resizeObserver.observe(figure);
+                            scrollObservers.set(figure, resizeObserver);
+                            observedFigures.add(figure);
                         }
                         options.restoreAnchor(
                             readingAnchor,
@@ -356,7 +441,7 @@
                     var figures = figuresBySource.get(source);
                     var figure = figures && figures.shift();
                     if (figure && code.parentElement) {
-                        code.parentElement.replaceWith(figure);
+                        replacementNode(code.parentElement).replaceWith(figure);
                         return;
                     }
                     var blocks = pendingBySource.get(source);

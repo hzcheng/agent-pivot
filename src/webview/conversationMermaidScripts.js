@@ -4,13 +4,12 @@
     function create(options) {
         var objectUrls = [];
         var sources = new WeakMap();
-        var scrollObservers = new WeakMap();
-        var observedFigures = new Set();
+        var preview = null;
         var initialized = false;
         var loadPromise = null;
 
         function figuresIn(root) {
-            if (!root) return Array.from(observedFigures);
+            if (!root) return [];
             var figures = [];
             if (root.nodeType === 1
                 && root.classList.contains('conversation-mermaid')) {
@@ -22,11 +21,14 @@
             ));
         }
 
-        function stopObserving(figure) {
-            var observer = scrollObservers.get(figure);
-            if (observer) observer.disconnect();
-            scrollObservers.delete(figure);
-            observedFigures.delete(figure);
+        function closePreview(figure) {
+            if (!preview || (figure && preview.figure !== figure)) return;
+            var dialog = preview.dialog;
+            preview = null;
+            if (dialog.open && typeof dialog.close === 'function') {
+                dialog.close();
+            }
+            dialog.remove();
         }
 
         function release(root) {
@@ -51,7 +53,11 @@
             objectUrls = objectUrls.filter(function (url) {
                 return !released.has(url);
             });
-            figuresIn(root).forEach(stopObserving);
+            if (root) {
+                figuresIn(root).forEach(closePreview);
+            } else {
+                closePreview();
+            }
         }
 
         // Global release that spares the given subtrees: stashed
@@ -87,9 +93,7 @@
                 }
             });
             objectUrls = kept;
-            Array.from(observedFigures).forEach(function (figure) {
-                if (!keepFigures.has(figure)) stopObserving(figure);
-            });
+            if (preview && !keepFigures.has(preview.figure)) closePreview();
         }
 
         function themeValue(name, fallback) {
@@ -123,6 +127,11 @@
                     ),
                     flowchart: {
                         htmlLabels: false,
+                    },
+                    sequence: {
+                        actorMargin: 32,
+                        width: 180,
+                        actorFontSize: 14,
                     },
                     themeVariables: {
                         darkMode: document.body.classList.contains(
@@ -216,6 +225,42 @@
                 : pre;
         }
 
+        function openPreview(figure, image) {
+            closePreview();
+            var dialog = document.createElement('dialog');
+            dialog.className = 'conversation-mermaid-preview';
+            dialog.setAttribute('aria-label', image.alt || 'Mermaid diagram preview');
+            var close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'conversation-mermaid-preview-close';
+            close.setAttribute('aria-label', 'Close Mermaid diagram preview');
+            close.textContent = 'Close';
+            var previewImage = document.createElement('img');
+            previewImage.src = image.src;
+            previewImage.alt = image.alt;
+            previewImage.className = 'conversation-mermaid-preview-image';
+            close.addEventListener('click', function () {
+                closePreview(figure);
+            });
+            dialog.addEventListener('cancel', function (event) {
+                event.preventDefault();
+                closePreview(figure);
+            });
+            dialog.addEventListener('click', function (event) {
+                if (event.target === dialog) closePreview(figure);
+            });
+            dialog.appendChild(close);
+            dialog.appendChild(previewImage);
+            document.body.appendChild(dialog);
+            preview = { figure: figure, dialog: dialog };
+            if (typeof dialog.showModal === 'function') {
+                dialog.showModal();
+            } else {
+                dialog.setAttribute('open', '');
+            }
+            close.focus();
+        }
+
         function normalizeSvg(svg) {
             var clean = window.DOMPurify.sanitize(svg, {
                 USE_PROFILES: {
@@ -278,34 +323,16 @@
                     }
                     var figure = document.createElement('figure');
                     figure.className = 'conversation-mermaid';
-                    var scrollLabel = 'Scrollable ' + alt(sanitized)
-                        + '. Use arrow keys to view the entire diagram.';
-                    var updateScrollableState = function () {
-                        var scrollable = figure.scrollWidth > figure.clientWidth;
-                        if (scrollable) {
-                            figure.setAttribute('tabindex', '0');
-                            figure.setAttribute('role', 'group');
-                            figure.setAttribute('aria-label', scrollLabel);
-                            return;
-                        }
-                        figure.removeAttribute('tabindex');
-                        figure.removeAttribute('role');
-                        figure.removeAttribute('aria-label');
-                    };
+                    figure.setAttribute('tabindex', '0');
+                    figure.setAttribute('role', 'button');
+                    figure.setAttribute(
+                        'aria-label',
+                        'Open full-screen ' + alt(sanitized)
+                    );
                     figure.addEventListener('keydown', function (event) {
-                        if (figure.scrollWidth <= figure.clientWidth) return;
-                        if (event.key === 'ArrowLeft') {
-                            figure.scrollLeft -= 40;
-                        } else if (event.key === 'ArrowRight') {
-                            figure.scrollLeft += 40;
-                        } else if (event.key === 'Home') {
-                            figure.scrollLeft = 0;
-                        } else if (event.key === 'End') {
-                            figure.scrollLeft = figure.scrollWidth;
-                        } else {
-                            return;
-                        }
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
                         event.preventDefault();
+                        openPreview(figure, image);
                     });
                     sources.set(figure, source);
                     var image = document.createElement('img');
@@ -318,6 +345,9 @@
                     image.alt = alt(sanitized);
                     image.decoding = 'async';
                     figure.appendChild(image);
+                    figure.addEventListener('click', function () {
+                        openPreview(figure, image);
+                    });
                     var decoded = typeof image.decode === 'function'
                         ? image.decode().catch(function () {})
                         : Promise.resolve();
@@ -334,16 +364,6 @@
                         if (readingAnchor
                             && readingAnchor.element === replacement) {
                             readingAnchor.element = figure;
-                        }
-                        updateScrollableState();
-                        if (typeof ResizeObserver === 'function') {
-                            var resizeObserver = new ResizeObserver(function () {
-                                if (!figure.isConnected) return;
-                                updateScrollableState();
-                            });
-                            resizeObserver.observe(figure);
-                            scrollObservers.set(figure, resizeObserver);
-                            observedFigures.add(figure);
                         }
                         options.restoreAnchor(
                             readingAnchor,

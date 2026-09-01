@@ -2362,6 +2362,9 @@
         if (!key) {
             return;
         }
+        // The preview lives under document.body rather than the stashed
+        // transcript, so it must not cover the next session's frame.
+        mermaidRenderer.closePreview();
         var anchor = captureReadingAnchor();
         var scrollTop = scroll.scrollTop;
         var followingEnd = reconcileController.atEnd();
@@ -2430,6 +2433,10 @@
         if (!previewFrame) {
             return;
         }
+        // A Mermaid preview is attached to document.body, not the cached
+        // frame. Closing it prevents a cancelled preview from covering the
+        // restored authoritative conversation.
+        mermaidRenderer.closePreview();
         var outgoingKey = frameSessionKey(commentTarget);
         var outgoing = outgoingKey ? frameCache.get(outgoingKey) : undefined;
         if (outgoing) {

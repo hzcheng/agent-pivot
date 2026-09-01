@@ -4,8 +4,32 @@
     function create(options) {
         var objectUrls = [];
         var sources = new WeakMap();
+        var preview = null;
         var initialized = false;
         var loadPromise = null;
+
+        function figuresIn(root) {
+            if (!root) return [];
+            var figures = [];
+            if (root.nodeType === 1
+                && root.classList.contains('conversation-mermaid')) {
+                figures.push(root);
+            }
+            if (!root.querySelectorAll) return figures;
+            return figures.concat(Array.prototype.slice.call(
+                root.querySelectorAll('.conversation-mermaid')
+            ));
+        }
+
+        function closePreview(figure) {
+            if (!preview || (figure && preview.figure !== figure)) return;
+            var dialog = preview.dialog;
+            preview = null;
+            if (dialog.open && typeof dialog.close === 'function') {
+                dialog.close();
+            }
+            dialog.remove();
+        }
 
         function release(root) {
             var urls = root
@@ -29,6 +53,11 @@
             objectUrls = objectUrls.filter(function (url) {
                 return !released.has(url);
             });
+            if (root) {
+                figuresIn(root).forEach(closePreview);
+            } else {
+                closePreview();
+            }
         }
 
         // Global release that spares the given subtrees: stashed
@@ -60,6 +89,9 @@
                 }
             });
             objectUrls = kept;
+            // Cached figures retain their Blob URLs, but a body-level preview
+            // must not remain over the next session after its frame is stashed.
+            closePreview();
         }
 
         function themeValue(name, fallback) {
@@ -76,6 +108,10 @@
                 return false;
             }
             try {
+                var foreground = themeValue(
+                    '--vscode-editor-foreground',
+                    '#d4d4d4'
+                );
                 window.mermaid.initialize({
                     startOnLoad: false,
                     securityLevel: 'strict',
@@ -89,6 +125,10 @@
                     ),
                     flowchart: {
                         htmlLabels: false,
+                    },
+                    sequence: {
+                        actorMargin: 24,
+                        width: 240,
                     },
                     themeVariables: {
                         darkMode: document.body.classList.contains(
@@ -108,14 +148,8 @@
                             '--vscode-editor-foreground',
                             '#d4d4d4'
                         ),
-                        primaryBorderColor: themeValue(
-                            '--vscode-panel-border',
-                            '#454545'
-                        ),
-                        lineColor: themeValue(
-                            '--vscode-descriptionForeground',
-                            '#a0a0a0'
-                        ),
+                        primaryBorderColor: foreground,
+                        lineColor: foreground,
                         secondaryColor: themeValue(
                             '--vscode-input-background',
                             '#252526'
@@ -124,6 +158,14 @@
                             '--vscode-editor-background',
                             '#1e1e1e'
                         ),
+                        textColor: foreground,
+                        actorTextColor: foreground,
+                        actorLineColor: foreground,
+                        signalColor: foreground,
+                        signalTextColor: foreground,
+                        labelTextColor: foreground,
+                        noteTextColor: foreground,
+                        sequenceNumberColor: foreground,
                     },
                 });
                 initialized = true;
@@ -171,6 +213,51 @@
             return 'Mermaid diagram: ' + summary.slice(0, 120);
         }
 
+        function replacementNode(pre) {
+            return pre.parentElement
+                && pre.parentElement.classList.contains(
+                    'conversation-code-block'
+                )
+                ? pre.parentElement
+                : pre;
+        }
+
+        function openPreview(figure, image) {
+            closePreview();
+            var dialog = document.createElement('dialog');
+            dialog.className = 'conversation-mermaid-preview';
+            dialog.setAttribute('aria-label', image.alt || 'Mermaid diagram preview');
+            var close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'conversation-mermaid-preview-close';
+            close.setAttribute('aria-label', 'Close Mermaid diagram preview');
+            close.textContent = 'Close';
+            var previewImage = document.createElement('img');
+            previewImage.src = image.src;
+            previewImage.alt = image.alt;
+            previewImage.className = 'conversation-mermaid-preview-image';
+            close.addEventListener('click', function () {
+                closePreview(figure);
+            });
+            dialog.addEventListener('cancel', function (event) {
+                event.preventDefault();
+                closePreview(figure);
+            });
+            dialog.addEventListener('click', function (event) {
+                if (event.target === dialog) closePreview(figure);
+            });
+            dialog.appendChild(close);
+            dialog.appendChild(previewImage);
+            document.body.appendChild(dialog);
+            preview = { figure: figure, dialog: dialog };
+            if (typeof dialog.showModal === 'function') {
+                dialog.showModal();
+            } else {
+                dialog.setAttribute('open', '');
+            }
+            close.focus();
+        }
+
         function normalizeSvg(svg) {
             var clean = window.DOMPurify.sanitize(svg, {
                 USE_PROFILES: {
@@ -190,6 +277,19 @@
                 || documentValue.querySelector('parsererror')) {
                 throw new Error('Mermaid returned invalid SVG.');
             }
+            // Preserve the participant-label anchor as a presentation
+            // attribute so it cannot depend on Mermaid's embedded CSS.
+            Array.prototype.forEach.call(
+                root.querySelectorAll('text.actor'),
+                function (label) {
+                    label.setAttribute('text-anchor', 'middle');
+                    label.style.setProperty(
+                        'text-anchor',
+                        'middle',
+                        'important'
+                    );
+                }
+            );
             var viewBox = (root.getAttribute('viewBox') || '')
                 .trim()
                 .split(/[\s,]+/)
@@ -233,6 +333,17 @@
                     }
                     var figure = document.createElement('figure');
                     figure.className = 'conversation-mermaid';
+                    figure.setAttribute('tabindex', '0');
+                    figure.setAttribute('role', 'button');
+                    figure.setAttribute(
+                        'aria-label',
+                        'Open full-screen ' + alt(sanitized)
+                    );
+                    figure.addEventListener('keydown', function (event) {
+                        if (event.key !== 'Enter' && event.key !== ' ') return;
+                        event.preventDefault();
+                        openPreview(figure, image);
+                    });
                     sources.set(figure, source);
                     var image = document.createElement('img');
                     image.className = 'conversation-mermaid-image';
@@ -244,6 +355,9 @@
                     image.alt = alt(sanitized);
                     image.decoding = 'async';
                     figure.appendChild(image);
+                    figure.addEventListener('click', function () {
+                        openPreview(figure, image);
+                    });
                     var decoded = typeof image.decode === 'function'
                         ? image.decode().catch(function () {})
                         : Promise.resolve();
@@ -253,11 +367,12 @@
                             return;
                         }
                         objectUrls.push(objectUrl);
-                        var readingAnchor = options.captureAnchor(pre);
+                        var replacement = replacementNode(pre);
+                        var readingAnchor = options.captureAnchor(replacement);
                         var previousScrollTop = options.scroll.scrollTop;
-                        pre.replaceWith(figure);
+                        replacement.replaceWith(figure);
                         if (readingAnchor
-                            && readingAnchor.element === pre) {
+                            && readingAnchor.element === replacement) {
                             readingAnchor.element = figure;
                         }
                         options.restoreAnchor(
@@ -356,7 +471,7 @@
                     var figures = figuresBySource.get(source);
                     var figure = figures && figures.shift();
                     if (figure && code.parentElement) {
-                        code.parentElement.replaceWith(figure);
+                        replacementNode(code.parentElement).replaceWith(figure);
                         return;
                     }
                     var blocks = pendingBySource.get(source);
@@ -369,6 +484,7 @@
         }
 
         return Object.freeze({
+            closePreview: closePreview,
             preserve: preserve,
             release: release,
             releaseExcept: releaseExcept,

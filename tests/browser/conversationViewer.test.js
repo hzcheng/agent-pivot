@@ -203,7 +203,9 @@ test.after(async () => {
 });
 
 async function openViewerPage(t, options = {}) {
-    const page = await browser.newPage({ viewport: { width: 700, height: 500 } });
+    const page = await browser.newPage({
+        viewport: options.viewport || { width: 700, height: 500 },
+    });
     t.after(() => page.close());
     await page.setContent(`<!doctype html>
         <html>
@@ -318,7 +320,9 @@ async function openViewerPage(t, options = {}) {
         await page.evaluate(() => {
             window.__mermaidRenders = [];
             window.mermaid = {
-                initialize() {},
+                initialize(configuration) {
+                    window.__mermaidInitializeOptions = configuration;
+                },
                 render(id, source) {
                     return new Promise(resolve => {
                         window.__mermaidRenders.push({ id, source, resolve });
@@ -1407,13 +1411,16 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session before its Host page returns', async t => {
-    const page = await openViewerPage(t);
+    const page = await openViewerPage(t, { includeMermaid: true });
     const sessionPage = (generation, sessionId, marker, signature) => ({
         ...hostileConversationPage,
         requestId: generation * 10,
         subscriptionGeneration: generation,
         html: `<article data-message-id="${marker}-0" `
-            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+            + `data-interaction-id="${marker}-input"><section class="conversation-markdown">`
+            + `<p>${marker}</p><pre><code class="language-mermaid">sequenceDiagram\n`
+            + 'participant Alpha\nparticipant Beta\nAlpha-&gt;&gt;Beta: cached preview</code></pre>'
+            + '</section></article>',
         htmlSignature: signature,
         outline: [{
             interactionId: `${marker}-input`,
@@ -1448,6 +1455,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
 
     await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-alpha'));
     await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-beta'));
+    await page.locator('[data-message-id="beta-0"] .conversation-mermaid').waitFor();
     await page.evaluate(() => {
         window.__betaNode = document.querySelector('[data-message-id="beta-0"]');
         var previewControl = document.createElement('button');
@@ -1463,6 +1471,12 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
     // switch. The following loading notice must reattach beta immediately,
     // before any Host page for generation five is delivered.
     await sendPage(page, sessionPage(4, 'session-alpha', 'alpha', 'sig-alpha'));
+    const alphaDiagram = page.locator(
+        '[data-message-id="alpha-0"] .conversation-mermaid'
+    );
+    await alphaDiagram.waitFor();
+    await alphaDiagram.click();
+    await page.locator('.conversation-mermaid-preview[open]').waitFor();
     await page.evaluate(() => {
         document.querySelector('[data-conversation-telemetry]').hidden = false;
         [
@@ -1477,6 +1491,15 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         });
     });
     await sendPage(page, loadingNotice(5, 'session-beta', true));
+    assert.equal(await page.locator('.conversation-mermaid-preview').count(), 0,
+        'a cached preflight closes the outgoing session preview');
+    const betaDiagram = page.locator(
+        '[data-message-id="beta-0"] .conversation-mermaid'
+    );
+    await betaDiagram.waitFor();
+    await betaDiagram.focus();
+    await page.keyboard.press('Enter');
+    await page.locator('.conversation-mermaid-preview[open]').waitFor();
     await page.evaluate(() =>
         document.querySelector('[data-preview-control]').click()
     );
@@ -1601,6 +1624,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         subscriptionGeneration: 5,
         target: { projectId: 'project-1', provider: 'codex', sessionId: 'session-beta' },
     });
+    assert.equal(await page.locator('.conversation-mermaid-preview').count(), 0,
+        'cancelling a cached preflight closes its body-level diagram preview');
     assert.deepEqual(await page.evaluate(() => ({
         content: document.querySelector('[data-conversation-messages]')
             .textContent.trim(),
@@ -1895,20 +1920,40 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 mermaid releaseExcept keeps fig
             image => image.src
         );
         const articleB = document.querySelector('[data-message-id="mm-b"]');
+        const keptFigure = articleB.querySelector('.conversation-mermaid');
+        const keptImage = keptFigure.querySelector('.conversation-mermaid-image');
+        keptFigure.click();
+        const previewOpenBeforeStash = !!document.querySelector(
+            '.conversation-mermaid-preview'
+        );
         // Detach B the way a stashed conversation frame would, then run a
         // global release that spares the stash.
         const stash = document.createElement('div');
         stash.appendChild(articleB);
         window.__mermaidController.releaseExcept([articleB]);
         const revokedByExcept = window.__revokedUrls.slice();
+        const previewOpenAfterStash = !!document.querySelector(
+            '.conversation-mermaid-preview'
+        );
         window.__mermaidController.release(articleB);
         return {
             images,
             revokedByExcept,
             revokedTotal: window.__revokedUrls.slice(),
+            previewOpenBeforeStash,
+            previewOpenAfterStash,
+            keptImageSource: keptImage.src,
         };
     });
 
+    assert.equal(outcome.previewOpenBeforeStash, true);
+    assert.equal(
+        outcome.previewOpenAfterStash,
+        false,
+        'caching a frame closes its preview before another session is shown'
+    );
+    assert.equal(outcome.keptImageSource, outcome.images[1],
+        'closing the preview does not release the cached diagram');
     assert.deepEqual(outcome.revokedByExcept, [outcome.images[0]],
         'only the figure outside the excepted stash is revoked');
     assert.deepEqual(outcome.revokedTotal, [
@@ -6697,6 +6742,9 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '        if (!key) {\n' +
                 '            return;\n' +
                 '        }\n' +
+                '        // The preview lives under document.body rather than the stashed\n' +
+                '        // transcript, so it must not cover the next session\'s frame.\n' +
+                '        mermaidRenderer.closePreview();\n' +
                 '        var anchor = captureReadingAnchor();\n' +
                 '        var scrollTop = scroll.scrollTop;\n' +
                 '        var followingEnd = reconcileController.atEnd();\n' +
@@ -13227,6 +13275,226 @@ test('CONVERSATION-VIEWER-RICH-MARKDOWN-002 lazy-loads Mermaid in the nonce-only
         1
     );
     assert.match(await diagram.getAttribute('src'), /^blob:/);
+    assert.equal(
+        await page.locator('.conversation-code-block').count(),
+        0,
+        'a rendered Mermaid diagram does not retain code-block chrome'
+    );
+    assert.equal(await page.locator('.conversation-code-lang').count(), 0);
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 fits wide Mermaid diagrams and opens a full-screen preview', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await page.addStyleTag({ content: viewerCss });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="wide-mermaid"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">sequenceDiagram
+                    participant Client
+                    participant LongRunningConfigurationService
+                    Client-&gt;&gt;LongRunningConfigurationService: configure a wide diagram</code></pre>
+            </section>
+        </article>`,
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: `<svg xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 1600 640">
+                <rect width="1600" height="640" fill="#ffffff"></rect>
+                <text x="1520" y="320">LongRunningConfigurationService</text>
+            </svg>`,
+        });
+    });
+    const figure = page.locator('.conversation-mermaid');
+    await figure.waitFor();
+    const dimensions = await figure.evaluate(element => {
+        const image = element.querySelector('.conversation-mermaid-image');
+        return {
+            clientWidth: element.clientWidth,
+            scrollWidth: element.scrollWidth,
+            imageWidth: image.clientWidth,
+        };
+    });
+
+    assert.equal(
+        dimensions.scrollWidth,
+        dimensions.clientWidth,
+        'wide diagrams fit their available width without a horizontal scrollbar'
+    );
+    assert.ok(dimensions.imageWidth <= dimensions.clientWidth);
+    assert.equal(await figure.getAttribute('tabindex'), '0');
+    assert.equal(await figure.getAttribute('role'), 'button');
+    await figure.focus();
+    await page.keyboard.press('Enter');
+    const preview = page.locator('.conversation-mermaid-preview[open]');
+    await preview.waitFor();
+    assert.equal(await preview.locator('img').getAttribute('src'),
+        await figure.locator('img').getAttribute('src'));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.querySelector(
+        '.conversation-mermaid-preview'
+    ));
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints reachable at default and narrow widths', async t => {
+    for (const width of [700, 320]) {
+        const page = await openViewerPage(t, {
+            includeMermaid: true,
+            viewport: { width, height: 500 },
+        });
+        await page.addStyleTag({ content: viewerCss });
+        await sendPage(page, {
+            ...hostileConversationPage,
+            html: `<article data-message-id="actual-wide-mermaid-${width}"
+                data-interaction-id="input-4">
+                <section class="conversation-markdown">
+                    <pre><code class="language-mermaid">sequenceDiagram
+                        participant Manager
+                        participant RedDBFullSourceConnector
+                        participant DataNodeDTS
+                        participant ETLSinkExecutor
+                        participant RedDBFullDeserializer
+                        participant RedDBProxy
+                        participant RedDBToHiveTransfc
+                        Manager-&gt;&gt;RedDBFullSourceConnector: start reader
+                        RedDBFullSourceConnector-&gt;&gt;DataNodeDTS: scan partitions
+                        DataNodeDTS--&gt;&gt;RedDBFullSourceConnector: stream batch
+                        RedDBFullSourceConnector-&gt;&gt;ETLSinkExecutor: deserialize payload
+                        ETLSinkExecutor-&gt;&gt;RedDBFullDeserializer: transform record
+                        RedDBFullDeserializer-&gt;&gt;RedDBProxy: describe table
+                        RedDBProxy--&gt;&gt;RedDBFullDeserializer: source schema
+                        ETLSinkExecutor-&gt;&gt;RedDBToHiveTransfc: write Hive record</code></pre>
+                </section>
+            </article>`,
+        });
+        const figure = page.locator('.conversation-mermaid');
+        const image = figure.locator('.conversation-mermaid-image');
+        await image.waitFor();
+        await page.waitForFunction(() => {
+            const diagram = document.querySelector('.conversation-mermaid-image');
+            return diagram && diagram.complete && diagram.naturalWidth > 0;
+        });
+        const outcome = await figure.evaluate(async element => {
+            const imageElement = element.querySelector(
+                '.conversation-mermaid-image'
+            );
+            const svg = await fetch(imageElement.src).then(response => response.text());
+            const parsed = new DOMParser().parseFromString(
+                svg,
+                'image/svg+xml'
+            );
+            const sourceSvg = parsed.documentElement;
+            const renderedSvg = document.importNode(sourceSvg, true);
+            renderedSvg.style.position = 'fixed';
+            renderedSvg.style.visibility = 'hidden';
+            renderedSvg.style.pointerEvents = 'none';
+            document.body.appendChild(renderedSvg);
+            const endpoint = Array.prototype.find.call(
+                renderedSvg.querySelectorAll('text'),
+                text => text.textContent.includes('RedDBToHiveTransfc')
+            );
+            const endpointBounds = endpoint && endpoint.getBBox();
+            const viewBox = renderedSvg.viewBox.baseVal;
+            const bounds = node => {
+                const value = node.getBBox();
+                return {
+                    x: value.x,
+                    y: value.y,
+                    width: value.width,
+                    height: value.height,
+                };
+            };
+            const actorBoxes = Array.prototype.slice.call(
+                renderedSvg.querySelectorAll('rect.actor')
+            ).map(bounds);
+            const actorLabels = Array.prototype.slice.call(
+                renderedSvg.querySelectorAll('text.actor')
+            ).map(text => ({
+                text: text.textContent,
+                bounds: bounds(text),
+                centerX: Number(text.getAttribute('x')),
+                textAnchor: text.getAttribute('text-anchor'),
+                computedTextAnchor: window.getComputedStyle(text).textAnchor,
+            }));
+            renderedSvg.remove();
+            const figureRect = element.getBoundingClientRect();
+            const imageRect = imageElement.getBoundingClientRect();
+            return {
+                containsEndpoint: svg.includes('RedDBToHiveTransfc'),
+                endpointInsideViewBox: !!endpointBounds
+                    && endpointBounds.x >= viewBox.x
+                    && endpointBounds.y >= viewBox.y
+                    && endpointBounds.x + endpointBounds.width
+                        <= viewBox.x + viewBox.width
+                    && endpointBounds.y + endpointBounds.height
+                        <= viewBox.y + viewBox.height,
+                fitsAvailableWidth: element.scrollWidth === element.clientWidth,
+                rightEdgeVisible: Math.abs(imageRect.right - figureRect.right) <= 1,
+                participantLabelsInsideBoxes: actorLabels.length === actorBoxes.length
+                    && actorLabels.length > 0
+                    && actorLabels.every(label => actorBoxes.some(box => {
+                        const boxCenter = box.x + box.width / 2;
+                        const labelCenter = label.bounds.x + label.bounds.width / 2;
+                        return Math.abs(label.centerX - boxCenter) < 0.5
+                            && Math.abs(labelCenter - boxCenter) < 0.5
+                            && label.bounds.x >= box.x + 8
+                            && label.bounds.x + label.bounds.width <= box.x + box.width - 8;
+                    })),
+                participantLabelsCentered: actorLabels.length > 0
+                    && actorLabels.every(label => label.textAnchor === 'middle'
+                        && label.computedTextAnchor === 'middle'),
+            };
+        });
+
+        assert.equal(outcome.containsEndpoint, true);
+        assert.equal(outcome.endpointInsideViewBox, true);
+        assert.equal(outcome.fitsAvailableWidth, true);
+        assert.equal(
+            outcome.participantLabelsInsideBoxes,
+            true,
+            `every participant label stays inside its box at ${width}px`
+        );
+        assert.equal(
+            outcome.participantLabelsCentered,
+            true,
+            `every participant label is centered inside its box at ${width}px`
+        );
+        assert.equal(
+            outcome.rightEdgeVisible,
+            true,
+            `the right sequence endpoint is reachable at ${width}px`
+        );
+    }
+});
+
+test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 uses the editor foreground for Mermaid sequence labels and connectors', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    await sendPage(page, {
+        ...hostileConversationPage,
+        html: `<article data-message-id="sequence-theme"
+            data-interaction-id="input-4">
+            <section class="conversation-markdown">
+                <pre><code class="language-mermaid">sequenceDiagram
+                    Client-&gt;&gt;Server: request</code></pre>
+            </section>
+        </article>`,
+    });
+    await page.waitForFunction(() => window.__mermaidInitializeOptions);
+    const configuration = await page.evaluate(() =>
+        window.__mermaidInitializeOptions
+    );
+    const theme = configuration.themeVariables;
+
+    assert.equal(theme.actorTextColor, '#d4d4d4');
+    assert.equal(theme.actorLineColor, '#d4d4d4');
+    assert.equal(theme.signalColor, '#d4d4d4');
+    assert.equal(theme.signalTextColor, '#d4d4d4');
+    assert.equal(theme.labelTextColor, '#d4d4d4');
+    assert.equal(configuration.sequence.width, 240);
+    assert.equal(configuration.sequence.actorMargin, 24);
 });
 
 test('CONVERSATION-READING-FOCUS-001 reserves Mermaid dimensions before Blob image decoding can shift layout', async t => {
@@ -13464,15 +13732,25 @@ test('CONVERSATION-READING-FOCUS-001 keeps an intra-message paragraph stable whi
 
 test('CONVERSATION-READING-FOCUS-001 preserves an unchanged rendered Mermaid diagram across live refreshes', async t => {
     const page = await openViewerPage(t, { includeMermaid: true });
-    const diagramMessage = `<article data-message-id="diagram"
+    const diagramMessage = text => `<article data-message-id="diagram"
         data-interaction-id="input-4">
         <section class="conversation-markdown">
-            <pre><code class="language-mermaid">flowchart TB
-                A[Large diagram] --&gt; B[Stable node]
-                B --&gt; C[Reading anchor]</code></pre>
+            <section class="conversation-code-block">
+                <section class="conversation-code-header">
+                    <span class="conversation-code-lang">mermaid</span>
+                    <span class="conversation-code-actions">
+                        <button class="conversation-code-copy" title="Copy code"></button>
+                    </span>
+                </section>
+                <pre><code class="language-mermaid">flowchart TB
+                    A[Large diagram] --&gt; B[Stable node]
+                    B --&gt; C[Reading anchor]</code></pre>
+            </section>
+            <p>${text}</p>
         </section>
     </article>`;
-    const baseHtml = diagramMessage + messageHtml('after-diagram', 12);
+    const baseHtml = diagramMessage('Initial response')
+        + messageHtml('after-diagram', 12);
     await sendPage(page, {
         ...hostileConversationPage,
         html: baseHtml,
@@ -13507,7 +13785,9 @@ test('CONVERSATION-READING-FOCUS-001 preserves an unchanged rendered Mermaid dia
         ...hostileConversationPage,
         requestId: 2,
         updateKind: 'refresh',
-        html: baseHtml + messageHtml('after-diagram-new', 1),
+        html: diagramMessage('Updated response')
+            + messageHtml('after-diagram', 12)
+            + messageHtml('after-diagram-new', 1),
         selectedInput: 12,
         totalInputs: 13,
     });
@@ -13521,6 +13801,11 @@ test('CONVERSATION-READING-FOCUS-001 preserves an unchanged rendered Mermaid dia
     assert.equal(
         await page.locator('.conversation-mermaid-image').getAttribute('src'),
         originalSource
+    );
+    assert.equal(
+        await page.locator('.conversation-code-block').count(),
+        0,
+        'a preserved Mermaid diagram does not restore code-block chrome'
     );
     assert.equal(
         await page.evaluate(() =>

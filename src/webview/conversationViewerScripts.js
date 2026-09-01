@@ -2433,6 +2433,10 @@
         if (!previewFrame) {
             return;
         }
+        // A Mermaid preview is attached to document.body, not the cached
+        // frame. Closing it prevents a cancelled preview from covering the
+        // restored authoritative conversation.
+        mermaidRenderer.closePreview();
         var outgoingKey = frameSessionKey(commentTarget);
         var outgoing = outgoingKey ? frameCache.get(outgoingKey) : undefined;
         if (outgoing) {

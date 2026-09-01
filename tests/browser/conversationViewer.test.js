@@ -1418,8 +1418,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         subscriptionGeneration: generation,
         html: `<article data-message-id="${marker}-0" `
             + `data-interaction-id="${marker}-input"><section class="conversation-markdown">`
-            + `<p>${marker}</p>${marker === 'alpha' ? '<pre><code class="language-mermaid">sequenceDiagram\n'
-                + 'participant Alpha\nparticipant Beta\nAlpha-&gt;&gt;Beta: cached preview</code></pre>' : ''}`
+            + `<p>${marker}</p><pre><code class="language-mermaid">sequenceDiagram\n`
+            + 'participant Alpha\nparticipant Beta\nAlpha-&gt;&gt;Beta: cached preview</code></pre>'
             + '</section></article>',
         htmlSignature: signature,
         outline: [{
@@ -1455,6 +1455,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
 
     await sendPage(page, sessionPage(2, 'session-alpha', 'alpha', 'sig-alpha'));
     await sendPage(page, sessionPage(3, 'session-beta', 'beta', 'sig-beta'));
+    await page.locator('[data-message-id="beta-0"] .conversation-mermaid').waitFor();
     await page.evaluate(() => {
         window.__betaNode = document.querySelector('[data-message-id="beta-0"]');
         var previewControl = document.createElement('button');
@@ -1492,6 +1493,13 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
     await sendPage(page, loadingNotice(5, 'session-beta', true));
     assert.equal(await page.locator('.conversation-mermaid-preview').count(), 0,
         'a cached preflight closes the outgoing session preview');
+    const betaDiagram = page.locator(
+        '[data-message-id="beta-0"] .conversation-mermaid'
+    );
+    await betaDiagram.waitFor();
+    await betaDiagram.focus();
+    await page.keyboard.press('Enter');
+    await page.locator('.conversation-mermaid-preview[open]').waitFor();
     await page.evaluate(() =>
         document.querySelector('[data-preview-control]').click()
     );
@@ -1616,6 +1624,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         subscriptionGeneration: 5,
         target: { projectId: 'project-1', provider: 'codex', sessionId: 'session-beta' },
     });
+    assert.equal(await page.locator('.conversation-mermaid-preview').count(), 0,
+        'cancelling a cached preflight closes its body-level diagram preview');
     assert.deepEqual(await page.evaluate(() => ({
         content: document.querySelector('[data-conversation-messages]')
             .textContent.trim(),
@@ -13407,6 +13417,7 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints
                 bounds: bounds(text),
                 centerX: Number(text.getAttribute('x')),
                 textAnchor: text.getAttribute('text-anchor'),
+                computedTextAnchor: window.getComputedStyle(text).textAnchor,
             }));
             renderedSvg.remove();
             const figureRect = element.getBoundingClientRect();
@@ -13424,12 +13435,17 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints
                 rightEdgeVisible: Math.abs(imageRect.right - figureRect.right) <= 1,
                 participantLabelsInsideBoxes: actorLabels.length === actorBoxes.length
                     && actorLabels.length > 0
-                    && actorLabels.every(label => actorBoxes.some(box =>
-                        Math.abs(label.centerX - (box.x + box.width / 2)) < 0.1
-                        && label.bounds.width <= box.width - 16
-                    )),
+                    && actorLabels.every(label => actorBoxes.some(box => {
+                        const boxCenter = box.x + box.width / 2;
+                        const labelCenter = label.bounds.x + label.bounds.width / 2;
+                        return Math.abs(label.centerX - boxCenter) < 0.5
+                            && Math.abs(labelCenter - boxCenter) < 0.5
+                            && label.bounds.x >= box.x + 8
+                            && label.bounds.x + label.bounds.width <= box.x + box.width - 8;
+                    })),
                 participantLabelsCentered: actorLabels.length > 0
-                    && actorLabels.every(label => label.textAnchor === 'middle'),
+                    && actorLabels.every(label => label.textAnchor === 'middle'
+                        && label.computedTextAnchor === 'middle'),
             };
         });
 

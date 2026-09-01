@@ -1411,13 +1411,16 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 shows a lightweight loading sta
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session before its Host page returns', async t => {
-    const page = await openViewerPage(t);
+    const page = await openViewerPage(t, { includeMermaid: true });
     const sessionPage = (generation, sessionId, marker, signature) => ({
         ...hostileConversationPage,
         requestId: generation * 10,
         subscriptionGeneration: generation,
         html: `<article data-message-id="${marker}-0" `
-            + `data-interaction-id="${marker}-input"><p>${marker}</p></article>`,
+            + `data-interaction-id="${marker}-input"><section class="conversation-markdown">`
+            + `<p>${marker}</p>${marker === 'alpha' ? '<pre><code class="language-mermaid">sequenceDiagram\n'
+                + 'participant Alpha\nparticipant Beta\nAlpha-&gt;&gt;Beta: cached preview</code></pre>' : ''}`
+            + '</section></article>',
         htmlSignature: signature,
         outline: [{
             interactionId: `${marker}-input`,
@@ -1467,6 +1470,12 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
     // switch. The following loading notice must reattach beta immediately,
     // before any Host page for generation five is delivered.
     await sendPage(page, sessionPage(4, 'session-alpha', 'alpha', 'sig-alpha'));
+    const alphaDiagram = page.locator(
+        '[data-message-id="alpha-0"] .conversation-mermaid'
+    );
+    await alphaDiagram.waitFor();
+    await alphaDiagram.click();
+    await page.locator('.conversation-mermaid-preview[open]').waitFor();
     await page.evaluate(() => {
         document.querySelector('[data-conversation-telemetry]').hidden = false;
         [
@@ -1481,6 +1490,8 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 previews a cached session befor
         });
     });
     await sendPage(page, loadingNotice(5, 'session-beta', true));
+    assert.equal(await page.locator('.conversation-mermaid-preview').count(), 0,
+        'a cached preflight closes the outgoing session preview');
     await page.evaluate(() =>
         document.querySelector('[data-preview-control]').click()
     );
@@ -1899,20 +1910,40 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 mermaid releaseExcept keeps fig
             image => image.src
         );
         const articleB = document.querySelector('[data-message-id="mm-b"]');
+        const keptFigure = articleB.querySelector('.conversation-mermaid');
+        const keptImage = keptFigure.querySelector('.conversation-mermaid-image');
+        keptFigure.click();
+        const previewOpenBeforeStash = !!document.querySelector(
+            '.conversation-mermaid-preview'
+        );
         // Detach B the way a stashed conversation frame would, then run a
         // global release that spares the stash.
         const stash = document.createElement('div');
         stash.appendChild(articleB);
         window.__mermaidController.releaseExcept([articleB]);
         const revokedByExcept = window.__revokedUrls.slice();
+        const previewOpenAfterStash = !!document.querySelector(
+            '.conversation-mermaid-preview'
+        );
         window.__mermaidController.release(articleB);
         return {
             images,
             revokedByExcept,
             revokedTotal: window.__revokedUrls.slice(),
+            previewOpenBeforeStash,
+            previewOpenAfterStash,
+            keptImageSource: keptImage.src,
         };
     });
 
+    assert.equal(outcome.previewOpenBeforeStash, true);
+    assert.equal(
+        outcome.previewOpenAfterStash,
+        false,
+        'caching a frame closes its preview before another session is shown'
+    );
+    assert.equal(outcome.keptImageSource, outcome.images[1],
+        'closing the preview does not release the cached diagram');
     assert.deepEqual(outcome.revokedByExcept, [outcome.images[0]],
         'only the figure outside the excepted stash is revoked');
     assert.deepEqual(outcome.revokedTotal, [
@@ -6701,6 +6732,9 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
                 '        if (!key) {\n' +
                 '            return;\n' +
                 '        }\n' +
+                '        // The preview lives under document.body rather than the stashed\n' +
+                '        // transcript, so it must not cover the next session\'s frame.\n' +
+                '        mermaidRenderer.closePreview();\n' +
                 '        var anchor = captureReadingAnchor();\n' +
                 '        var scrollTop = scroll.scrollTop;\n' +
                 '        var followingEnd = reconcileController.atEnd();\n' +
@@ -13309,18 +13343,20 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints
                 <section class="conversation-markdown">
                     <pre><code class="language-mermaid">sequenceDiagram
                         participant Manager
-                        participant RedDBJobValidator
-                        participant TopologyClient
-                        participant MetaServer
-                        participant RedDBSourceSplit
-                        participant ChildJobConfig
-                        Manager-&gt;&gt;RedDBJobValidator: validate configuration
-                        RedDBJobValidator-&gt;&gt;TopologyClient: query partitions
-                        TopologyClient-&gt;&gt;MetaServer: fetch topology
-                        MetaServer--&gt;&gt;TopologyClient: topology result
-                        TopologyClient--&gt;&gt;RedDBJobValidator: partitions
-                        RedDBJobValidator-&gt;&gt;RedDBSourceSplit: create task group
-                        RedDBSourceSplit--&gt;&gt;ChildJobConfig: worker configuration</code></pre>
+                        participant RedDBFullSourceConnector
+                        participant DataNodeDTS
+                        participant ETLSinkExecutor
+                        participant RedDBFullDeserializer
+                        participant RedDBProxy
+                        participant RedDBToHiveTransfc
+                        Manager-&gt;&gt;RedDBFullSourceConnector: start reader
+                        RedDBFullSourceConnector-&gt;&gt;DataNodeDTS: scan partitions
+                        DataNodeDTS--&gt;&gt;RedDBFullSourceConnector: stream batch
+                        RedDBFullSourceConnector-&gt;&gt;ETLSinkExecutor: deserialize payload
+                        ETLSinkExecutor-&gt;&gt;RedDBFullDeserializer: transform record
+                        RedDBFullDeserializer-&gt;&gt;RedDBProxy: describe table
+                        RedDBProxy--&gt;&gt;RedDBFullDeserializer: source schema
+                        ETLSinkExecutor-&gt;&gt;RedDBToHiveTransfc: write Hive record</code></pre>
                 </section>
             </article>`,
         });
@@ -13348,15 +13384,34 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints
             document.body.appendChild(renderedSvg);
             const endpoint = Array.prototype.find.call(
                 renderedSvg.querySelectorAll('text'),
-                text => text.textContent.includes('ChildJobConfig')
+                text => text.textContent.includes('RedDBToHiveTransfc')
             );
             const endpointBounds = endpoint && endpoint.getBBox();
             const viewBox = renderedSvg.viewBox.baseVal;
+            const bounds = node => {
+                const value = node.getBBox();
+                return {
+                    x: value.x,
+                    y: value.y,
+                    width: value.width,
+                    height: value.height,
+                };
+            };
+            const actorBoxes = Array.prototype.slice.call(
+                renderedSvg.querySelectorAll('rect.actor')
+            ).map(bounds);
+            const actorLabels = Array.prototype.slice.call(
+                renderedSvg.querySelectorAll('text.actor')
+            ).map(text => ({
+                text: text.textContent,
+                bounds: bounds(text),
+                centerX: Number(text.getAttribute('x')),
+            }));
             renderedSvg.remove();
             const figureRect = element.getBoundingClientRect();
             const imageRect = imageElement.getBoundingClientRect();
             return {
-                containsEndpoint: svg.includes('ChildJobConfig'),
+                containsEndpoint: svg.includes('RedDBToHiveTransfc'),
                 endpointInsideViewBox: !!endpointBounds
                     && endpointBounds.x >= viewBox.x
                     && endpointBounds.y >= viewBox.y
@@ -13366,12 +13421,23 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 keeps actual sequence endpoints
                         <= viewBox.y + viewBox.height,
                 fitsAvailableWidth: element.scrollWidth === element.clientWidth,
                 rightEdgeVisible: Math.abs(imageRect.right - figureRect.right) <= 1,
+                participantLabelsInsideBoxes: actorLabels.length === actorBoxes.length
+                    && actorLabels.length > 0
+                    && actorLabels.every(label => actorBoxes.some(box =>
+                        Math.abs(label.centerX - (box.x + box.width / 2)) < 0.1
+                        && label.bounds.width <= box.width - 16
+                    )),
             };
         });
 
         assert.equal(outcome.containsEndpoint, true);
         assert.equal(outcome.endpointInsideViewBox, true);
         assert.equal(outcome.fitsAvailableWidth, true);
+        assert.equal(
+            outcome.participantLabelsInsideBoxes,
+            true,
+            `every participant label stays inside its box at ${width}px`
+        );
         assert.equal(
             outcome.rightEdgeVisible,
             true,
@@ -13403,8 +13469,8 @@ test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 uses the editor foreground for 
     assert.equal(theme.signalColor, '#d4d4d4');
     assert.equal(theme.signalTextColor, '#d4d4d4');
     assert.equal(theme.labelTextColor, '#d4d4d4');
-    assert.equal(configuration.sequence.width, 180);
-    assert.equal(configuration.sequence.actorMargin, 32);
+    assert.equal(configuration.sequence.width, 240);
+    assert.equal(configuration.sequence.actorMargin, 24);
 });
 
 test('CONVERSATION-READING-FOCUS-001 reserves Mermaid dimensions before Blob image decoding can shift layout', async t => {

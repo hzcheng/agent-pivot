@@ -2362,6 +2362,9 @@
         if (!key) {
             return;
         }
+        // The preview lives under document.body rather than the stashed
+        // transcript, so it must not cover the next session's frame.
+        mermaidRenderer.closePreview();
         var anchor = captureReadingAnchor();
         var scrollTop = scroll.scrollTop;
         var followingEnd = reconcileController.atEnd();

@@ -65,12 +65,8 @@
         // everything else is revoked.
         function releaseExcept(exceptNodes) {
             var keep = new Set();
-            var keepFigures = new Set();
             Array.prototype.forEach.call(exceptNodes || [], function (node) {
                 if (!node || node.nodeType !== 1) return;
-                figuresIn(node).forEach(function (figure) {
-                    keepFigures.add(figure);
-                });
                 Array.prototype.forEach.call(
                     node.querySelectorAll(
                         '.conversation-mermaid-image[src^="blob:"]'
@@ -93,7 +89,9 @@
                 }
             });
             objectUrls = kept;
-            if (preview && !keepFigures.has(preview.figure)) closePreview();
+            // Cached figures retain their Blob URLs, but a body-level preview
+            // must not remain over the next session after its frame is stashed.
+            closePreview();
         }
 
         function themeValue(name, fallback) {
@@ -129,9 +127,8 @@
                         htmlLabels: false,
                     },
                     sequence: {
-                        actorMargin: 32,
-                        width: 180,
-                        actorFontSize: 14,
+                        actorMargin: 24,
+                        width: 240,
                     },
                     themeVariables: {
                         darkMode: document.body.classList.contains(
@@ -474,6 +471,7 @@
         }
 
         return Object.freeze({
+            closePreview: closePreview,
             preserve: preserve,
             release: release,
             releaseExcept: releaseExcept,

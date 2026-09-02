@@ -390,7 +390,7 @@ test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 failure shows inline error and retry
     assert.equal(afterRetry.retryHidden, true);
 });
 
-test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 consecutive clicks supersede and timeout fails the row', async t => {
+test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 consecutive clicks coalesce without swallowing A-B-A', async t => {
     const page = await browser.newPage({ viewport: { width: 360, height: 600 } });
     t.after(() => page.close());
     page.setDefaultTimeout(BROWSER_CONDITION_TIMEOUT_MS);
@@ -414,12 +414,18 @@ test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 consecutive clicks supersede and tim
         eval(source);
     }, navigationScript);
 
-    await page.evaluate(id => {
-        window.__agentPivotOpenWindowNavigation.request(id);
-        window.__agentPivotOpenWindowNavigation.request(id);
-    }, cardId);
-    assert.equal((await page.evaluate(() => window.__postedMessages)).length, 2);
-    assert.equal(await page.evaluate(() => window.__timeoutCallbacks.length), 2);
+    const otherCardId = '__openWorkspaceNavigation-' + 'c'.repeat(24);
+    await page.evaluate(({ cardId, otherCardId }) => {
+        window.__agentPivotOpenWindowNavigation.request(cardId);
+        window.__agentPivotOpenWindowNavigation.request(cardId);
+        window.__agentPivotOpenWindowNavigation.request(otherCardId);
+        window.__agentPivotOpenWindowNavigation.request(cardId);
+    }, { cardId, otherCardId });
+    const requests = await page.evaluate(() => window.__postedMessages);
+    assert.deepEqual(requests.map(request => request.cardId), [
+        cardId, otherCardId, cardId,
+    ], 'only a consecutive same-row click is coalesced; A-B-A preserves the final A intent');
+    assert.equal(await page.evaluate(() => window.__timeoutCallbacks.length), 3);
 
     // settlement for the superseded request is ignored
     await page.evaluate(id => {
@@ -429,9 +435,9 @@ test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 consecutive clicks supersede and tim
     }, cardId);
     assert.equal(await page.evaluate(id => window.__agentPivotOpenWindowNavigation.isPending(id), cardId), true);
 
-    // fire the live timeout: the row settles into the error state
+    // fire the live timeout for the final A: the row settles into the error state
     await page.evaluate(() => {
-        window.__timeoutCallbacks[1]();
+        window.__timeoutCallbacks[2]();
     });
     const state = await page.evaluate(id => ({
         state: document.querySelector(`[data-open-window-row][data-id="${id}"]`).getAttribute('data-navigation-state'),
@@ -443,6 +449,12 @@ test('OPEN-WINDOW-NAVIGATION-SETTLEMENT-001 consecutive clicks supersede and tim
     assert.equal(state.outcome, 'failed');
     assert.equal(state.retryHidden, false);
     assert.equal(state.pending, false);
+
+    await page.evaluate(id => window.__agentPivotOpenWindowNavigation.retry(id), cardId);
+    const retried = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.equal(retried.cardId, cardId);
+    assert.equal(retried.requestId, 4,
+        'a timeout clears pending so Retry always sends a fresh request');
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 state transitions do not shift row geometry', async t => {
@@ -727,6 +739,12 @@ test('OPEN-WINDOW-SWITCHER-UI-001 production OPEN tab routes row clicks and keep
         cardId: navigationCard.id,
     });
     assert.equal(await navigationRow.getAttribute('data-navigation-state'), 'pending');
+
+    await navigationRow.locator('[data-action="focus-open-window"]').click();
+    posted = await page.evaluate(() => window.__postedMessages);
+    requests = posted.filter(message => message.type === 'open-window-navigation-request');
+    assert.equal(requests.length, 1,
+        'a consecutive click on the same pending row must reuse the first request');
 
     // Clicking the current row is inert: no navigation request is posted.
     // (force: the button is aria-disabled, which is exactly the inertness

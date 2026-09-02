@@ -6,7 +6,9 @@
 // - every request carries a fresh requestId and goes pending;
 // - settlements are matched by cardId + requestId, stale/duplicate receipts
 //   are ignored;
-// - consecutive requests on the same row supersede earlier pending ones;
+// - consecutive requests on the same row share the existing pending request;
+// - after an intervening cross-row intent, returning to the original row may
+//   supersede its older pending request;
 // - requests time out into the error state;
 // - pending/error row state is replayed after authoritative DOM replacements.
 var agentPivotOpenWindowNavigation = (function () {
@@ -17,6 +19,7 @@ var agentPivotOpenWindowNavigation = (function () {
     var VALID_OUTCOMES = ['focused', 'stale-target', 'untitled-workspace', 'failed', 'malformed-request'];
 
     var nextRequestId = 0;
+    var lastRequestedCardId = null;
     // cardId -> { requestId, timeoutHandle }
     var pendingByCardId = new Map();
     // cardId -> { outcome, requestId } (drives the row error state until the
@@ -87,9 +90,13 @@ var agentPivotOpenWindowNavigation = (function () {
             return;
         }
         var existing = pendingByCardId.get(cardId);
+        if (existing && lastRequestedCardId === cardId) {
+            return;
+        }
+        lastRequestedCardId = cardId;
         if (existing) {
-            // Consecutive clicks supersede: the old request's settlement is
-            // ignored when it arrives (requestId no longer matches).
+            // A-B-A preserves the final A intent: the intervening B makes
+            // this A distinct, so it supersedes the older pending A.
             clearPending(cardId, existing);
         }
         nextRequestId = nextRequestId >= Number.MAX_SAFE_INTEGER ? 1 : nextRequestId + 1;

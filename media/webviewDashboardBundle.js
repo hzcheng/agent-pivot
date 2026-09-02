@@ -1541,7 +1541,8 @@ function initProjectGroupCollapse() {
 // - settlements are matched by cardId + requestId, stale/duplicate receipts
 //   are ignored;
 // - consecutive requests on the same row share the existing pending request;
-// - a later cross-row intent may supersede an older pending request;
+// - after an intervening cross-row intent, returning to the original row may
+//   supersede its older pending request;
 // - requests time out into the error state;
 // - pending/error row state is replayed after authoritative DOM replacements.
 var agentPivotOpenWindowNavigation = (function () {

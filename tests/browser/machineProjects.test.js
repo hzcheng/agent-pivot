@@ -21,19 +21,20 @@ const collapseScript = fs.readFileSync(
 );
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
 
-function project(id, name, tags, favorite = false) {
+function project(id, name, tags, favorite = false, navigationState = 'open') {
     return {
         id: `${id}-v2`, legacyProjectId: id, environmentId: 'host', machineId: 'machine',
         machineName: 'devbox', environmentName: 'Host', name, description: null,
         path: `/work/${id}`, tags, favorite, color: null,
         searchText: `${name} ${tags.join(' ')} devbox host`.toLowerCase(), needsSetup: false,
-        navigationState: 'open',
+        navigationState,
     };
 }
 
-function markup(includeFavorite = true) {
-    const api = project('api', 'API', ['active', 'api'], true);
-    const worker = project('worker', 'Worker', ['active', 'worker']);
+function markup(includeFavorite = true, connectionState = 'configured') {
+    const navigationState = connectionState === 'configured' ? 'open' : 'needsConnection';
+    const api = project('api', 'API', ['active', 'api'], true, navigationState);
+    const worker = project('worker', 'Worker', ['active', 'worker'], false, navigationState);
     return renderMachineProjectsPanel({
         kind: 'ready', profileAvailability: 'ready', projectCount: 2,
         tags: ['active', 'api', 'worker'], favorites: includeFavorite ? [api] : [],
@@ -46,8 +47,9 @@ function markup(includeFavorite = true) {
             overLimitTagCount: 0, overLimitProjectCount: 0,
         },
         machines: [{
-            id: 'machine', displayName: 'devbox', connectionState: 'configured',
-            connectionLabel: 'SSH · devbox', hostAction: 'open',
+            id: 'machine', displayName: 'devbox', connectionState,
+            connectionLabel: connectionState === 'configured' ? 'SSH · devbox' : '',
+            hostAction: connectionState === 'configured' ? 'open' : 'setup',
             environments: [{
                 id: 'host', machineId: 'machine', kind: 'host', displayName: 'Host',
                 needsSetup: false, projects: [api, worker],
@@ -66,12 +68,12 @@ test.after(async () => {
     await browser.close();
 });
 
-async function openPage(t, width = 320) {
+async function openPage(t, width = 320, panelMarkup = markup()) {
     const page = await browser.newPage({ viewport: { width, height: 480 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><style>${styles}</style>
         <button type="button" data-action="toggle-all-groups">Collapse All Groups</button>
-        <main id="panel">${markup()}</main>`);
+        <main id="panel">${panelMarkup}</main>`);
     await page.evaluate(() => {
         window.messages = [];
         window.vscode = { postMessage: message => window.messages.push(message) };
@@ -406,4 +408,46 @@ test('MACHINE-PROJECTS-NARROW-001 avoids horizontal scrolling at 260px', async t
         status: 'handedOff', message: 'Finish connecting in the new window.',
     } })), action);
     assert.equal(await page.textContent('[data-machine-connection-status]'), 'Finish connecting in the new window.');
+});
+
+test('MACHINE-PROJECTS-HOST-NAVIGATION-001 activates Machine Setup from a Project Setup state', async t => {
+    const page = await openPage(t, 320, markup(true, 'notConfigured'));
+
+    await page.click('[data-machine-environment-row] [data-machine-project-id="api-v2"] .machine-project-state');
+    const action = await page.evaluate(() => window.messages.at(-1));
+    assert.deepEqual({
+        type: action.type,
+        action: action.action,
+        machineId: action.machineId,
+    }, {
+        type: 'machine-project-action', action: 'setup', machineId: 'machine',
+    });
+});
+
+test('MACHINE-PROJECTS-KEYBOARD-001 lets pointer users activate, toggle, and dismiss row menus', async t => {
+    const page = await openPage(t);
+    const trigger = '[data-machine-row] > .machine-row-line > [data-action="machine-row-menu"]';
+    const menu = '[data-machine-row-menu]';
+
+    await page.click(trigger);
+    await page.click(`${menu} [role="menuitem"]`);
+    assert.equal(await page.locator(menu).isHidden(), true,
+        'a pointer menu action closes the menu');
+    const action = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(action.action, 'openHost');
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'machine-project-action-settlement', version: 1,
+        requestId: message.requestId, machineId: message.machineId,
+        status: 'handedOff', message: 'Finish connecting in the new window.',
+    } })), action);
+
+    await page.click(trigger);
+    await page.click(trigger);
+    assert.equal(await page.locator(menu).isHidden(), true,
+        'clicking the same overflow trigger toggles the menu closed');
+
+    await page.click(trigger);
+    await page.click('[data-action="toggle-all-groups"]');
+    assert.equal(await page.locator(menu).isHidden(), true,
+        'clicking outside the Projects panel dismisses the menu');
 });

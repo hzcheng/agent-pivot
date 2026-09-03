@@ -117,7 +117,7 @@ test('MACHINE-PROJECTS-ARIA-001 keeps each unavailable Project identifiable and 
     assert.match(html, /aria-label="Open Worker on devbox, Host\. Unavailable: Set up this Machine before opening the Project"/);
     assert.equal((html.match(/aria-disabled="true"/g) || []).length, 3,
         'Favorite mirror plus two directory rows expose disabled semantics');
-    assert.match(html, /class="machine-project-state"[^>]*>Setup<\/span>/);
+    assert.match(html, /class="machine-project-state" data-action="setup-machine"[^>]*>Setup<\/button>/);
 });
 
 test('MACHINE-PROJECTS-ARIA-001 keeps Project identity in every unavailable state', () => {

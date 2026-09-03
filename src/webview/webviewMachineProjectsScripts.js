@@ -322,6 +322,29 @@ function createMachineProjectsUi() {
         menu.querySelector('[role="menuitem"]:not(:disabled)')?.focus();
     }
 
+    function activateMenuItem(menuItem) {
+        var action = menuItem.getAttribute('data-forward-action');
+        var returnControl = menuReturnControl;
+        var row = returnControl && returnControl.closest(
+            '[data-machine-project-row], [data-machine-environment-row], [data-machine-row]'
+        );
+        var source = row && Array.from(row.querySelectorAll(
+            ':scope > .machine-row-line > [data-action]'
+        )).find(function (candidate) {
+            return candidate.getAttribute('data-action') === action;
+        });
+        closeMenu(false);
+        if (source && action) activateAction(action, source);
+        returnControl?.focus();
+    }
+
+    function onDocumentClick(event) {
+        var menu = panel && panel.querySelector('[data-machine-row-menu]');
+        if (!menu || menu.hidden || menu.contains(event.target)
+            || event.target.closest('[data-action="machine-row-menu"]')) return;
+        closeMenu(false);
+    }
+
     function announce(message) {
         var announcer = panel && panel.querySelector('[data-machine-projects-announcer]');
         if (!announcer) return;
@@ -330,6 +353,11 @@ function createMachineProjectsUi() {
     }
 
     function onClick(event) {
+        var menuItem = event.target.closest('[data-machine-row-menu] [data-forward-action]');
+        if (menuItem) {
+            activateMenuItem(menuItem);
+            return;
+        }
         var disclosure = event.target.closest('[data-machine-disclosure]');
         if (disclosure) {
             var machine = disclosure.closest('[data-machine-row]');
@@ -379,7 +407,17 @@ function createMachineProjectsUi() {
             panel.querySelectorAll('[data-machine-tag-checkbox]').forEach(input => { input.checked = false; });
             writeArray(storageKeys.tags, selectedTags);
             applyFilters();
-        } else if (action === 'machine-row-menu') openMenu(actionTarget);
+        } else if (action === 'machine-row-menu') {
+            var menu = panel.querySelector('[data-machine-row-menu]');
+            var row = actionTarget.closest(
+                '[data-machine-project-row], [data-machine-environment-row], [data-machine-row]'
+            );
+            var menuRow = menuReturnControl && menuReturnControl.closest(
+                '[data-machine-project-row], [data-machine-environment-row], [data-machine-row]'
+            );
+            if (menu && !menu.hidden && row === menuRow) closeMenu(true);
+            else openMenu(actionTarget);
+        }
         else activateAction(action, actionTarget);
     }
 
@@ -426,17 +464,7 @@ function createMachineProjectsUi() {
             items[next]?.focus();
         } else if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            var action = menuItem.getAttribute('data-forward-action');
-            var returnControl = menuReturnControl;
-            var row = returnControl && returnControl.closest(
-                '[data-machine-project-row], [data-machine-environment-row], [data-machine-row]'
-            );
-            var source = row && Array.from(row.querySelectorAll(
-                ':scope > .machine-row-line > [data-action]'
-            )).find(candidate => candidate.getAttribute('data-action') === action);
-            closeMenu(false);
-            if (source && action) activateAction(action, source);
-            returnControl?.focus();
+            activateMenuItem(menuItem);
         }
     }
 
@@ -659,6 +687,7 @@ function createMachineProjectsUi() {
     }
 
     window.addEventListener('message', onHostMessage);
+    document.addEventListener('click', onDocumentClick);
     return {
         mount: mount,
         isMounted: () => Boolean(panel),

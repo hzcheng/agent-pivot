@@ -956,8 +956,20 @@ body .project {
     border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-panel-border));
     border-radius: 999px;
     color: var(--vscode-descriptionForeground);
+    background: transparent;
     font-size: 10px;
     line-height: 1.2;
+}
+
+button.machine-project-state {
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+        border-color: var(--vscode-focusBorder);
+        color: var(--vscode-foreground);
+        outline: none;
+    }
 }
 
 .machine-row-primary {

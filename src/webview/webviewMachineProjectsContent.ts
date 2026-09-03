@@ -207,6 +207,9 @@ function renderProject(project: MachineProjectRowViewModel, favorite: boolean): 
     const accessibleName = openable
         ? identityName
         : `${identityName}. Unavailable: ${unavailableReason}`;
+    const stateControl = project.navigationState === 'needsConnection'
+        ? `<button type="button" class="machine-project-state" data-action="setup-machine" tabindex="-1" aria-label="Set up connection for ${escapeAttribute(project.machineName)} in this VS Code">${unavailableState}</button>`
+        : `<span class="machine-project-state" title="${escapeAttribute(unavailableReason)}">${unavailableState}</span>`;
     const tags = project.tags.map(tag => tag.toLocaleLowerCase());
     return `<li class="machine-project-row${favorite ? ' machine-favorite-row' : ''}" data-machine-project-row data-machine-project-id="${escapeAttribute(project.id)}" data-legacy-project-id="${escapeAttribute(project.legacyProjectId)}" data-machine-id="${escapeAttribute(project.machineId)}" data-machine-name="${escapeAttribute(project.machineName)}" data-environment-id="${escapeAttribute(project.environmentId)}" data-machine-project-tags="${escapeAttribute(JSON.stringify(tags))}" data-machine-search="${escapeAttribute(project.searchText)}">
         <div class="machine-row-line">
@@ -215,7 +218,7 @@ function renderProject(project: MachineProjectRowViewModel, favorite: boolean): 
                 <span class="machine-row-name">${escapeAttribute(project.name)}</span>
             </button>
             ${!openable
-                ? `<span class="machine-project-state" title="${escapeAttribute(unavailableReason)}">${unavailableState}</span>`
+                ? stateControl
                 : favorite ? `<span class="machine-project-context" title="${escapeAttribute(`${project.machineName} › ${project.environmentName}`)}">${escapeAttribute(`${project.machineName} › ${project.environmentName}`)}</span>` : renderProjectTags(project.tags)}
             <button type="button" class="machine-pointer-action" data-action="toggle-machine-favorite" tabindex="-1" aria-label="${project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}">${project.favorite ? Icons.starFilled : Icons.star}</button>
             <button type="button" class="machine-pointer-action" data-action="machine-row-menu" tabindex="-1" aria-label="More actions for ${escapeAttribute(project.name)}">${Icons.moreActions}</button>

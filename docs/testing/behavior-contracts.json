@@ -6873,7 +6873,8 @@
     "status": "automated",
     "owners": [
       "tests/contract/projects/machineProjectsController.test.js",
-      "tests/integration/dashboard/productionAttentionBridge.test.js"
+      "tests/integration/dashboard/productionAttentionBridge.test.js",
+      "tests/browser/machineProjects.test.js"
     ],
     "evidence": [
       "src/projects/machineProjectsController.ts",

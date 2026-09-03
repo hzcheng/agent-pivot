@@ -157,6 +157,21 @@ function makeSyncPersistenceHarness({
     return { conflicts, diagnostics, failures, service, values, writes };
 }
 
+test('PROJECT-CATALOG-V2-KEY-ISOLATION-001 the V1 parser rejects a V2 document without mutating it', () => {
+    const { parseProjectCatalogSyncDocument } = loadProjectCatalogSyncModel();
+    const v2Document = {
+        schemaVersion: 2,
+        revision: 'v2-shadow-revision',
+        machines: {},
+        environments: {},
+        projects: {},
+    };
+    const before = clone(v2Document);
+
+    assert.equal(parseProjectCatalogSyncDocument(v2Document), null);
+    assert.deepEqual(v2Document, before);
+});
+
 test('PROJECT-CATALOG-SYNC-CONFLICT-001 preserves a project when a stale client submits an older full snapshot', async () => {
     const initialGroups = [{
         id: 'group-main',

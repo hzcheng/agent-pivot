@@ -142,6 +142,27 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
                 }],
             },
         );
+        const hostHandoffOutcome = await registered.get('_agentPivotProjects.bridge.navigate')({
+            protocolVersion: 1,
+            projectPath: 'ssh-remote+devbox',
+            remoteType: 1,
+            openInNewWindow: true,
+        });
+        assert.deepEqual(hostHandoffOutcome, {
+            protocolVersion: 1,
+            opened: true,
+        }, 'the bridge reports command handoff, not a connected remote state');
+        assert.deepEqual(
+            executed.filter(entry => entry.command === 'vscode.newWindow').at(-1),
+            {
+                command: 'vscode.newWindow',
+                args: [{
+                    remoteAuthority: 'ssh-remote+devbox',
+                    reuseWindow: false,
+                }],
+            },
+            'an empty SSH Host opens through vscode.newWindow without inventing a folder URI',
+        );
         await assert.rejects(
             registered.get('_agentPivotProjects.bridge.navigate')({
                 protocolVersion: 1,

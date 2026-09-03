@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1520" height="980" viewBox="0 0 1520 980" role="img" aria-labelledby="title desc">
+  <title id="title">Remote Machines and Projects low-fidelity wireframes</title>
+  <desc id="desc">Four low-fidelity VS Code sidebar states: normal machine hierarchy, tag filtering, connection and Dev Container states, and migration or downgrade reports.</desc>
+  <defs>
+    <style>
+      .bg{fill:#1e1e1e}.panel{fill:#252526;stroke:#505050;stroke-width:1}.bar{fill:#2d2d30}.field{fill:#313131;stroke:#666;stroke-width:1}.row{fill:#252526}.hover{fill:#37373d}.popover{fill:#2d2d30;stroke:#777;stroke-width:1}.btn{fill:#333337;stroke:#777;stroke-width:1}.primary{fill:#0e639c;stroke:#1177bb;stroke-width:1}.warning{fill:#3b3322;stroke:#8d7434;stroke-width:1}.mutedBox{fill:#292929;stroke:#555;stroke-width:1}.t{fill:#e8e8e8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px}.sm{fill:#c7c7c7;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:11px}.xs{fill:#a8a8a8;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:10px}.head{fill:#f2f2f2;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;font-weight:600}.label{fill:#bbbbbb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:11px;font-weight:600;letter-spacing:.7px}.accent{fill:#75beff}.warn{fill:#cca700}.ok{fill:#89d185}.line{stroke:#505050;stroke-width:1}.dash{stroke:#777;stroke-dasharray:4 4;fill:none}.num{fill:#d7ba7d;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.note{fill:#d0d0d0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:12px}.call{fill:#181818;stroke:#777;stroke-width:1}.arrow{stroke:#b0b0b0;stroke-width:1.5;fill:none;marker-end:url(#arrow)}
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#b0b0b0"/></marker>
+  </defs>
+  <rect class="bg" width="1520" height="980"/>
+  <text class="head" x="40" y="34">REMOTE MACHINES × PROJECTS · MILESTONE 1</text>
+  <text class="xs" x="40" y="52">LOW-FIDELITY · STRUCTURE AND BEHAVIOR, NOT FINAL VISUALS</text>
+
+  <!-- Panel 1 -->
+  <g transform="translate(40 78)">
+    <rect class="panel" width="340" height="842" rx="3"/>
+    <rect class="bar" width="340" height="38" rx="3"/>
+    <text class="label" x="14" y="24">PROJECTS</text><text class="sm" x="312" y="24">⋯</text>
+    <rect class="field" x="10" y="48" width="320" height="30" rx="2"/>
+    <text class="sm" x="22" y="67">⌕  Search projects and machines…</text>
+    <rect class="btn" x="10" y="88" width="68" height="26" rx="2"/><text class="sm" x="25" y="105">Tags</text>
+    <rect class="btn" x="250" y="88" width="80" height="26" rx="2"/><text class="sm" x="267" y="105">＋ Add⌄</text>
+    <line class="line" x1="0" y1="124" x2="340" y2="124"/>
+    <text class="label" x="14" y="150">⌄  FAVORITES</text>
+    <rect class="hover" x="0" y="160" width="340" height="66"/>
+    <text class="t" x="28" y="178">★  agent-pivot</text><text class="xs" x="48" y="192">devbox-a › Host</text>
+    <text class="t" x="28" y="207">★  api</text><text class="xs" x="48" y="221">devbox-a › Dev Container · api</text>
+    <line class="line" x1="10" y1="230" x2="330" y2="230"/>
+
+    <rect class="hover" x="0" y="230" width="340" height="30"/>
+    <text class="t" x="14" y="250">⌄  ▣  <tspan font-weight="600">devbox-a</tspan></text>
+    <rect class="btn" x="274" y="234" width="30" height="22" rx="2"/><text class="sm" x="283" y="249">↗</text><text class="sm" x="317" y="249">⋯</text>
+    <text class="sm" x="34" y="278">⌄  ▤  Host</text><text class="sm" x="318" y="278">⋯</text>
+    <text class="t" x="65" y="306">agent-pivot</text><text class="xs" x="286" y="305">⋮⋮  ⋯</text>
+    <text class="sm" x="34" y="334">⌄  ◫  Dev Container · api</text><text class="sm accent" x="296" y="334">↗</text><text class="sm" x="320" y="334">⋯</text>
+    <text class="t" x="65" y="362">api</text><text class="xs" x="286" y="361">⋮⋮  ⋯</text>
+
+    <rect class="hover" x="0" y="378" width="340" height="34"/>
+    <text class="t" x="14" y="399">›  ▣  <tspan font-weight="600">gpu-02</tspan></text>
+    <text class="xs warn" x="153" y="398">Not configured</text><text class="sm" x="296" y="399">⚙  ⋯</text>
+
+    <rect class="call" x="22" y="458" width="296" height="82" rx="3"/>
+    <text class="note" x="36" y="481">One row, two separate actions</text>
+    <text class="sm" x="36" y="504">Left disclosure: collapse / expand only</text>
+    <text class="sm" x="36" y="523">Right slot: open Host in a new window</text>
+    <path class="arrow" d="M110 458 C90 430,70 340,70 248"/>
+    <path class="arrow" d="M282 458 C305 420,300 330,290 250"/>
+    <text class="label" x="14" y="812">W1 · EVERYDAY BROWSE &amp; OPEN</text>
+  </g>
+
+  <!-- Panel 2 -->
+  <g transform="translate(410 78)">
+    <rect class="panel" width="320" height="842" rx="3"/>
+    <rect class="bar" width="320" height="38" rx="3"/>
+    <text class="label" x="14" y="24">PROJECTS · FILTERED</text>
+    <rect class="field" x="10" y="48" width="300" height="30" rx="2"/><text class="sm" x="22" y="67">⌕  Search…</text>
+    <rect class="btn" x="10" y="88" width="82" height="26" rx="2"/><text class="sm" x="23" y="105">Tags (2)</text>
+    <rect class="mutedBox" x="100" y="90" width="44" height="22" rx="10"/><text class="xs" x="113" y="104">api</text>
+    <rect class="mutedBox" x="149" y="90" width="52" height="22" rx="10"/><text class="xs" x="158" y="104">active</text>
+    <rect class="popover" x="10" y="122" width="300" height="198" rx="3"/>
+    <text class="head" x="24" y="147">Tags</text><text class="xs" x="24" y="166">MATCHES ALL</text>
+    <rect class="hover" x="18" y="176" width="284" height="30"/><text class="t" x="28" y="196">☑  api</text>
+    <text class="t" x="28" y="228">☑  active</text>
+    <text class="t" x="28" y="260">☐  docs</text>
+    <line class="line" x1="18" y1="274" x2="302" y2="274"/>
+    <rect class="primary" x="250" y="282" width="52" height="26" rx="2"/><text class="sm" x="264" y="299">Done</text>
+    <text class="sm" x="14" y="348">1 project on 1 machine</text><text class="xs accent" x="242" y="348">Clear filters</text>
+    <text class="label" x="14" y="377">⌄  FAVORITES</text>
+    <text class="t" x="28" y="400">★  agent-pivot</text><text class="xs" x="48" y="415">devbox-a › Host</text>
+    <rect class="hover" x="0" y="426" width="320" height="30"/><text class="t" x="14" y="446">⌄  ▣  <tspan font-weight="600">devbox-a</tspan></text><text class="sm" x="290" y="446">↗</text>
+    <text class="sm" x="34" y="474">⌄  ▤  Host</text>
+    <text class="t" x="65" y="502">agent-pivot</text><text class="xs" x="221" y="501">#api #active</text>
+    <rect class="hover" x="0" y="518" width="320" height="34"/><text class="t" x="14" y="539">›  ▣  <tspan font-weight="600">gpu-02</tspan></text><text class="xs" x="203" y="538">0 matches</text><text class="sm" x="290" y="539">↗</text>
+    <rect class="call" x="20" y="590" width="280" height="94" rx="3"/>
+    <text class="note" x="34" y="613">Tag-only filtering keeps Machines</text>
+    <text class="sm" x="34" y="636">Zero-match rows can still expand.</text>
+    <text class="sm" x="34" y="655">Environment open remains available.</text>
+    <path class="arrow" d="M240 590 C260 570,264 552,268 540"/>
+    <text class="label" x="14" y="812">W2 · TAG AND FILTER</text>
+  </g>
+
+  <!-- Panel 3 -->
+  <g transform="translate(760 78)">
+    <rect class="panel" width="340" height="842" rx="3"/>
+    <rect class="bar" width="340" height="38" rx="3"/><text class="label" x="14" y="24">CONNECTION STATES</text>
+    <text class="label" x="16" y="72">NOT CONFIGURED IN THIS VS CODE</text>
+    <rect class="mutedBox" x="12" y="86" width="316" height="170" rx="3"/>
+    <text class="t" x="28" y="113">⌄  ▣  <tspan font-weight="600">gpu-02</tspan></text><text class="sm" x="300" y="113">⋯</text>
+    <text class="sm" x="28" y="138">Machine and projects are synced.</text><text class="sm" x="28" y="157">No connection has been set up here.</text>
+    <rect class="primary" x="28" y="174" width="72" height="30" rx="2"/><text class="sm" x="44" y="193">Set up</text><text class="sm" x="294" y="193">⋯</text>
+    <text class="sm" x="42" y="223">⌄  Host</text><text class="sm" x="66" y="244">training-platform</text>
+    <text class="label" x="16" y="290">DEV CONTAINER · STATE VARIANTS</text>
+    <rect class="hover" x="12" y="306" width="316" height="34"/><text class="t" x="24" y="328">⌄  ◫  api container</text><text class="sm accent" x="278" y="327">Open ↗</text>
+    <rect class="hover" x="12" y="344" width="316" height="34"/><text class="t" x="24" y="366">⌄  ◫  api</text><text class="xs" x="178" y="365">Starting…</text><text class="xs" x="292" y="365">Open</text>
+    <rect class="hover" x="12" y="382" width="316" height="34"/><text class="t" x="24" y="404">⌄  ◫  api</text><text class="xs" x="143" y="403">Finish connecting…</text><text class="xs accent" x="280" y="403">Another</text>
+    <rect class="warning" x="12" y="420" width="316" height="42"/><text class="t" x="24" y="446">⌄  ◫  api</text><text class="xs warn" x="196" y="445">Needs Setup</text><text class="xs accent" x="286" y="445">Set up</text>
+    <rect class="call" x="20" y="500" width="300" height="126" rx="3"/>
+    <text class="note" x="34" y="523">Observable facts only</text>
+    <text class="sm" x="34" y="548">Starting = command is pending</text>
+    <text class="sm" x="34" y="569">Finish = VS Code accepted handoff</text>
+    <text class="sm" x="34" y="590">N windows = registry confirmed</text>
+    <text class="sm" x="34" y="611">Never infer “Connected”</text>
+    <text class="label" x="14" y="812">W3 · SETUP &amp; HANDOFF</text>
+  </g>
+
+  <!-- Panel 4 -->
+  <g transform="translate(1130 78)">
+    <rect class="panel" width="350" height="842" rx="3"/>
+    <rect class="bar" width="350" height="38" rx="3"/><text class="label" x="14" y="18">RECOVERY REPORT ROUTES</text><text class="xs" x="14" y="32">TWO SEPARATE FULL-WIDTH PANELS</text>
+    <rect class="popover" x="12" y="54" width="326" height="350" rx="4"/>
+    <text class="head" x="28" y="83">Migration Preview</text>
+    <text class="sm" x="28" y="106">V1 remains active until you confirm.</text>
+    <line class="line" x1="28" y1="120" x2="322" y2="120"/>
+    <text class="num" x="28" y="148">12</text><text class="sm" x="52" y="148">Projects</text><text class="num" x="180" y="148">3</text><text class="sm" x="197" y="148">Machines</text>
+    <text class="num" x="28" y="174">2</text><text class="sm" x="45" y="174">Dev Containers</text><text class="num" x="180" y="174">4</text><text class="sm" x="197" y="174">Group tags</text>
+    <rect class="warning" x="24" y="194" width="302" height="92" rx="3"/>
+    <text class="sm ok" x="38" y="218">✓  9 ready</text><text class="sm warn" x="38" y="242">!  3 kept for review</text><text class="sm warn" x="38" y="266">2 cannot open · 1 keeps 10 tags</text>
+    <text class="sm accent" x="28" y="316">Review items</text>
+    <rect class="btn" x="112" y="348" width="72" height="30" rx="2"/><text class="sm" x="129" y="367">Cancel</text>
+    <rect class="primary" x="174" y="348" width="148" height="30" rx="2"/><text class="sm" x="188" y="367">Migrate &amp; review 3</text>
+
+    <rect class="popover" x="12" y="430" width="326" height="306" rx="4"/>
+    <text class="head" x="28" y="459">Prepare for Downgrade</text>
+    <text class="sm" x="28" y="484">A V2 recovery copy will be kept.</text><text class="sm" x="28" y="503">Recovery belongs to this VS Code.</text>
+    <line class="line" x1="28" y1="518" x2="322" y2="518"/>
+    <text class="sm ok" x="28" y="545">✓  10 projects available in V1</text>
+    <text class="sm warn" x="28" y="570">!   3 projects unavailable in V1</text>
+    <text class="sm" x="28" y="595">Kept in V2 recovery · Review required</text>
+    <text class="xs" x="28" y="618">SCOPE</text><text class="sm" x="78" y="618">Shared safe V1 view</text>
+    <text class="xs" x="28" y="640">TARGET</text><text class="sm" x="82" y="640">Last supported V1 release</text>
+    <rect class="btn" x="98" y="678" width="72" height="30" rx="2"/><text class="sm" x="115" y="697">Cancel</text>
+    <rect class="primary" x="180" y="678" width="142" height="30" rx="2"/><text class="sm" x="193" y="697">Prepare downgrade</text>
+    <text class="label" x="14" y="812">W4 · MIGRATION &amp; DOWNGRADE</text>
+  </g>
+</svg>

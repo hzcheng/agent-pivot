@@ -20,6 +20,7 @@ const inputPaths = [
     'src/webview/webviewProjectAiSessionControlsScripts.js',
     'src/webview/webviewProjectScripts.js',
     'src/webview/webviewProjectEditScripts.js',
+    'src/webview/webviewMachineProjectsScripts.js',
     'src/webview/webviewSkillPanelScripts.js',
     'src/webview/webviewProjectsPanelScripts.js',
     'src/webview/webviewDashboardValidationScripts.js',

@@ -53,6 +53,15 @@ import {
     PROJECT_CLIENT_UPDATE_PROFILE_COMMAND,
     validateProjectClientHandshakeRequest,
 } from '../../../src/projects/projectClientProtocol';
+import {
+    ENVIRONMENT_HOST_OPEN_COMMAND,
+    ENVIRONMENT_HOST_OPEN_PROTOCOL_VERSION,
+    ENVIRONMENT_NAVIGATION_HANDSHAKE_COMMAND,
+    ENVIRONMENT_PROJECT_OPEN_COMMAND,
+    validateEnvironmentHostOpenRequest,
+    validateEnvironmentNavigationHandshakeRequest,
+    validateEnvironmentProjectOpenRequest,
+} from '../../../src/projects/environmentHostNavigationProtocol';
 
 const BRIDGE_CHALLENGE = '_agentPivotAttentionSpike.bridge.challenge';
 const WORKSPACE_CHALLENGE = '_agentPivotAttentionSpike.workspace.challenge';
@@ -392,6 +401,86 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             };
         },
     );
+    const environmentHostOpenDisposable = vscode.commands.registerCommand(
+        ENVIRONMENT_HOST_OPEN_COMMAND,
+        async (raw: unknown) => {
+            const request = validateEnvironmentHostOpenRequest(raw);
+            const snapshot = await projectClientStore.getSnapshot();
+            const profile = snapshot.profiles.find(entry => entry.machineId === request.machineId);
+            if (!profile) {
+                throw new Error('this Machine is not configured in this VS Code');
+            }
+            if (profile.kind === 'ssh'
+                && vscode.extensions.getExtension('ms-vscode-remote.remote-ssh') === undefined) {
+                return {
+                    protocolVersion: ENVIRONMENT_HOST_OPEN_PROTOCOL_VERSION,
+                    requestId: request.requestId,
+                    handedOff: false,
+                    reason: 'remoteSshMissing',
+                };
+            }
+            const options: { reuseWindow: false; remoteAuthority?: string } = {
+                reuseWindow: false,
+            };
+            if (profile.resolverAuthority) {
+                options.remoteAuthority = profile.resolverAuthority;
+            }
+            await vscode.commands.executeCommand('vscode.newWindow', options);
+            return {
+                protocolVersion: ENVIRONMENT_HOST_OPEN_PROTOCOL_VERSION,
+                requestId: request.requestId,
+                handedOff: true,
+            };
+        },
+    );
+    const environmentProjectOpenDisposable = vscode.commands.registerCommand(
+        ENVIRONMENT_PROJECT_OPEN_COMMAND,
+        async (raw: unknown) => {
+            const request = validateEnvironmentProjectOpenRequest(raw);
+            const snapshot = await projectClientStore.getSnapshot();
+            const profile = snapshot.profiles.find(entry => entry.machineId === request.machineId);
+            if (!profile) {
+                throw new Error('this Machine is not configured in this VS Code');
+            }
+            if (profile.kind === 'ssh'
+                && vscode.extensions.getExtension('ms-vscode-remote.remote-ssh') === undefined) {
+                return {
+                    protocolVersion: ENVIRONMENT_HOST_OPEN_PROTOCOL_VERSION,
+                    requestId: request.requestId,
+                    handedOff: false,
+                    reason: 'remoteSshMissing',
+                };
+            }
+            const projectPath = request.projectPath.startsWith('/')
+                ? request.projectPath : `/${request.projectPath}`;
+            const uri = profile.kind === 'local'
+                ? vscode.Uri.file(request.projectPath)
+                : vscode.Uri.parse(
+                    `vscode-remote://${encodeURIComponent(profile.resolverAuthority || '')}${projectPath}`,
+                );
+            await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
+            return {
+                protocolVersion: ENVIRONMENT_HOST_OPEN_PROTOCOL_VERSION,
+                requestId: request.requestId,
+                handedOff: true,
+            };
+        },
+    );
+    const environmentNavigationHandshakeDisposable = vscode.commands.registerCommand(
+        ENVIRONMENT_NAVIGATION_HANDSHAKE_COMMAND,
+        (raw: unknown) => {
+            validateEnvironmentNavigationHandshakeRequest(raw);
+            return {
+                protocolVersion: ENVIRONMENT_HOST_OPEN_PROTOCOL_VERSION,
+                bridgeExtensionVersion,
+                capabilities: {
+                    hostNavigation: true,
+                    projectNavigation: true,
+                    authoritativeProfiles: true,
+                },
+            };
+        },
+    );
     const projectClientHandshakeDisposable = vscode.commands.registerCommand(
         PROJECT_CLIENT_HANDSHAKE_COMMAND,
         async (raw: unknown) => {
@@ -469,6 +558,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openWorkspaceRequestAttentionFocusDisposable,
         openWorkspaceNavigateDisposable,
         savedProjectNavigateDisposable,
+        environmentHostOpenDisposable,
+        environmentProjectOpenDisposable,
+        environmentNavigationHandshakeDisposable,
         projectClientHandshakeDisposable,
         projectClientUpdateProfileDisposable,
         statusDisposable,

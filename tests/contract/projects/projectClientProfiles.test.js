@@ -38,6 +38,10 @@ function loadProtocol() {
     return require('../../../out/projects/projectClientProtocol');
 }
 
+function loadNavigationProtocol() {
+    return require('../../../out/projects/environmentHostNavigationProtocol');
+}
+
 function loadStore() {
     return require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/projectClientStore').ProjectClientStore;
 }
@@ -489,6 +493,62 @@ test('PROJECT-CLIENT-PROFILE-CLIENT-001 correlates mutations and keeps only vali
     assert.equal(updated.profiles.find(profile => profile.machineId === MACHINE_ID).target, 'devbox');
     assert.equal((await client.getProfile(MACHINE_ID)).target, 'devbox');
     assert.equal(JSON.stringify(client).includes('projectClient.connectionProfiles.v1'), false);
+});
+
+test('MACHINE-PROJECTS-HOST-NAVIGATION-001 requires runtime navigation capabilities and sends only stable identities', async () => {
+    const protocol = loadProtocol();
+    const navigation = loadNavigationProtocol();
+    const snapshot = protocol.createProjectClientSnapshot('d'.repeat(32), []);
+    const calls = [];
+    const executeCommand = async (command, argument) => {
+        calls.push([command, argument]);
+        if (command === navigation.ENVIRONMENT_NAVIGATION_HANDSHAKE_COMMAND) {
+            return {
+                protocolVersion: 1,
+                bridgeExtensionVersion: '1.2.0',
+                capabilities: {
+                    hostNavigation: true,
+                    projectNavigation: true,
+                    authoritativeProfiles: true,
+                },
+            };
+        }
+        if (command === protocol.PROJECT_CLIENT_HANDSHAKE_COMMAND) {
+            return {
+                accepted: true,
+                protocolVersion: 2,
+                bridgeExtensionVersion: '1.2.0',
+                capabilities: protocol.PROJECT_CLIENT_CAPABILITIES,
+                snapshot,
+            };
+        }
+        return { protocolVersion: 1, requestId: argument.requestId, handedOff: true };
+    };
+    const ConnectionProfileClient = loadFreshWithFakeVscode(
+        '../../../out/projects/connectionProfileClient',
+        { commands: { executeCommand } },
+        __dirname,
+    ).default;
+    const client = new ConnectionProfileClient({
+        mainExtensionVersion: '1.4.0', executeCommand, createRequestId: () => '5'.repeat(32),
+    });
+
+    assert.deepEqual(await client.refreshForMachineProjects(), snapshot);
+    await client.openHost(MACHINE_ID);
+    await client.openProject(MACHINE_ID, '/work/api');
+    assert.deepEqual(calls.at(-2), [navigation.ENVIRONMENT_HOST_OPEN_COMMAND, {
+        protocolVersion: 1, requestId: '5'.repeat(32), machineId: MACHINE_ID,
+    }]);
+    assert.deepEqual(calls.at(-1), [navigation.ENVIRONMENT_PROJECT_OPEN_COMMAND, {
+        protocolVersion: 1, requestId: '5'.repeat(32), machineId: MACHINE_ID,
+        projectPath: '/work/api',
+    }]);
+    assert.equal(JSON.stringify(calls.slice(-2)).includes('resolverAuthority'), false);
+
+    const oldBridgeClient = new ConnectionProfileClient({
+        executeCommand: async () => undefined,
+    });
+    await assert.rejects(oldBridgeClient.refreshForMachineProjects(), /must be an object/);
 });
 
 test('PROJECT-CLIENT-PROFILE-CLIENT-001 serializes refresh and update so a late snapshot cannot win', async () => {

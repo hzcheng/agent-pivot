@@ -10,6 +10,7 @@ const DASHBOARD_CONFIGURATION_SECTIONS = [
     'customCss',
     'recentColors',
     'storeProjectsInSettings',
+    'remoteMachineProjects.enabled',
     'aiSessionTerminalMode',
     'aiSessionTmuxLayout',
     'aiSessionTmuxPath',

@@ -313,6 +313,7 @@ function createDashboardHarness({
         },
         window: {
             scrollY: 0,
+            __agentPivotReadyDocumentGeneration: 7,
             scrollTo: (_x, y) => { context.window.scrollY = y; },
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
             sessionStorage: {
@@ -1817,6 +1818,7 @@ test('WEBVIEW-LAZY-PANEL-RECOVERY-001 retries one missing response and unlocks l
             type: requestType,
             version: 1,
             requestId: 1,
+            documentGeneration: 7,
         }]);
         assert.equal(getState(), 'loading');
 
@@ -1825,6 +1827,7 @@ test('WEBVIEW-LAZY-PANEL-RECOVERY-001 retries one missing response and unlocks l
             type: requestType,
             version: 1,
             requestId: 2,
+            documentGeneration: 7,
         });
         assert.equal(getState(), 'loading');
 
@@ -1838,11 +1841,13 @@ test('WEBVIEW-LAZY-PANEL-RECOVERY-001 retries one missing response and unlocks l
             type: requestType,
             version: 1,
             requestId: 3,
+            documentGeneration: 7,
         });
         assert.equal(applyMessage({
             type: `${tab}-panel-content`,
             version: 1,
             requestId: 3,
+            documentGeneration: 7,
             html: `<p>${tab}</p>`,
         }), true);
         assert.equal(getState(), 'mounted');
@@ -1853,7 +1858,8 @@ test('WEBVIEW-LAZY-PANEL-RECOVERY-001 retries one missing response and unlocks l
 test('PROJECT-INCREMENTAL-REFRESH-001 replaces only Projects and rejects stale updates', () => {
     const harness = createDashboardHarness({ initialTab: 'projects' });
     assert.equal(harness.controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>initial</p>',
+        type: 'projects-panel-content', version: 1, requestId: 1,
+        documentGeneration: 7, html: '<p>initial</p>',
     }), true);
     harness.openPanel.innerHTML = '<p>open-state</p>';
     harness.projectsPanel.scrollTop = 73;
@@ -1891,7 +1897,8 @@ test('PROJECT-INCREMENTAL-REFRESH-001 replaces only Projects and rejects stale u
 test('PROJECT-INCREMENTAL-REFRESH-001 preserves matching drag DOM and replaces a mismatched order', () => {
     const harness = createDashboardHarness({ initialTab: 'projects' });
     assert.equal(harness.controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>dragged</p>',
+        type: 'projects-panel-content', version: 1, requestId: 1,
+        documentGeneration: 7, html: '<p>dragged</p>',
     }), true);
     const projects = ['project-b', 'project-a'].map(id => ({
         getAttribute: name => name === 'data-id' ? id : null,
@@ -1955,7 +1962,8 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 captures semantic Projects state and ign
 test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 PROJECT-INCREMENTAL-REFRESH-001 ignores stale window messages without requesting a full refresh', () => {
     const harness = createDashboardHarness({ initialTab: 'projects' });
     harness.controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>initial</p>',
+        type: 'projects-panel-content', version: 1, requestId: 1,
+        documentGeneration: 7, html: '<p>initial</p>',
     });
     const update = {
         type: 'projects-panel-updated',
@@ -1982,10 +1990,12 @@ test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent 
     assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'ai');
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'ArrowRight'), 'ai');
     assert.equal(harness.context.validateProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 1, html: '',
+        type: 'projects-panel-content', version: 1, requestId: 1,
+        documentGeneration: 7, html: '',
     }), true);
     assert.equal(harness.context.validateProjectsPanelMessage({
-        type: 'projects-panel-content', version: 2, requestId: 1, html: '',
+        type: 'projects-panel-content', version: 2, requestId: 1,
+        documentGeneration: 7, html: '',
     }), false);
     harness.openPanel.scrollTop = 41;
     harness.controller.activateTab('projects');
@@ -1996,13 +2006,16 @@ test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent 
     assert.equal(harness.openPanel.scrollTop, 41);
 
     assert.equal(harness.controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 2, html: '<p>future</p>',
+        type: 'projects-panel-content', version: 1, requestId: 2,
+        documentGeneration: 7, html: '<p>future</p>',
     }), false);
     assert.equal(harness.controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>current</p>',
+        type: 'projects-panel-content', version: 1, requestId: 1,
+        documentGeneration: 7, html: '<p>current</p>',
     }), true);
     assert.equal(harness.controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 1, html: '<p>stale</p>',
+        type: 'projects-panel-content', version: 1, requestId: 1,
+        documentGeneration: 7, html: '<p>stale</p>',
     }), false);
     assert.equal(harness.projectsPanel.innerHTML, '<p>current</p>');
     harness.controller.activateTab('projects');

@@ -27,6 +27,8 @@ function validateProjectsPanelMessage(message) {
         && message.version === 1
         && Number.isSafeInteger(message.requestId)
         && message.requestId > 0
+        && Number.isSafeInteger(message.documentGeneration)
+        && message.documentGeneration > 0
         && typeof message.html === 'string'
         && (message.searchCatalog === undefined
             || normalizeDashboardSearchCatalog(message.searchCatalog) === message.searchCatalog);

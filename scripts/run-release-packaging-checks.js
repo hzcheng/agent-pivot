@@ -111,6 +111,7 @@ const EXPECTED_MAIN_ENTRIES = Object.freeze([
     'extension/media/webviewProjectAiSessionControlsScripts.js',
     'extension/media/webviewProjectScripts.js',
     'extension/media/webviewProjectEditScripts.js',
+    'extension/media/webviewMachineProjectsScripts.js',
     'extension/media/webviewPromptProtocolScripts.js',
     'extension/media/webviewPromptScripts.js',
     'extension/media/webviewScrollStateScripts.js',
@@ -460,7 +461,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
     );
     assert.strictEqual(
         path.basename(bridgeArtifact),
-        'agent-pivot-attention-ui-bridge-1.1.0.vsix',
+        'agent-pivot-attention-ui-bridge-1.2.0.vsix',
         'UI Bridge release artifact name must remain exact',
     );
     const mainEntries = readZipArchive(mainArtifact);
@@ -674,6 +675,7 @@ function runRealVsixArchiveChecks(mainPackage, bridgePackage) {
         ['extension/media/webviewProjectAiSessionControlsScripts.js', 'media/webviewProjectAiSessionControlsScripts.js'],
         ['extension/media/webviewProjectScripts.js', 'media/webviewProjectScripts.js'],
         ['extension/media/webviewProjectEditScripts.js', 'media/webviewProjectEditScripts.js'],
+        ['extension/media/webviewMachineProjectsScripts.js', 'media/webviewMachineProjectsScripts.js'],
         ['extension/media/webviewSkillPanelScripts.js', 'media/webviewSkillPanelScripts.js'],
         ['extension/media/webviewProjectsPanelScripts.js', 'media/webviewProjectsPanelScripts.js'],
         ['extension/media/webviewDashboardValidationScripts.js', 'media/webviewDashboardValidationScripts.js'],
@@ -1032,6 +1034,7 @@ function run() {
     assertIncludes(mainIgnore, '!media/webviewProjectAiSessionControlsScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectEditScripts.js', 'main VSIX ignore rules');
+    assertIncludes(mainIgnore, '!media/webviewMachineProjectsScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewSkillPanelScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewProjectsPanelScripts.js', 'main VSIX ignore rules');
     assertIncludes(mainIgnore, '!media/webviewDashboardValidationScripts.js', 'main VSIX ignore rules');
@@ -1072,6 +1075,7 @@ function run() {
         'media/webviewProjectAiSessionControlsScripts.js',
         'media/webviewProjectScripts.js',
         'media/webviewProjectEditScripts.js',
+        'media/webviewMachineProjectsScripts.js',
         'media/webviewSkillPanelScripts.js',
         'media/webviewProjectsPanelScripts.js',
         'media/webviewDashboardValidationScripts.js',

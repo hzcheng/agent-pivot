@@ -26,6 +26,7 @@
         "src/webview/webviewProjectAiSessionControlsScripts.js",
         "src/webview/webviewProjectScripts.js",
         "src/webview/webviewProjectEditScripts.js",
+        "src/webview/webviewMachineProjectsScripts.js",
         "src/webview/webviewSkillPanelScripts.js",
         "src/webview/webviewProjectsPanelScripts.js",
         "src/webview/webviewDashboardValidationScripts.js",
@@ -106,6 +107,10 @@
     },
     {
       "symbol": "window.__agentPivotDashboard",
+      "producer": "host"
+    },
+    {
+      "symbol": "window.__agentPivotMachineProjects",
       "producer": "host"
     },
     {
@@ -240,6 +245,10 @@
     },
     {
       "symbol": "window.clearTimeout",
+      "producer": "builtin"
+    },
+    {
+      "symbol": "window.crypto",
       "producer": "builtin"
     },
     {

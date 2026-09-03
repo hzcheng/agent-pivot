@@ -20,6 +20,8 @@ import type { ProjectMutationController } from './projectMutationController';
 import type { ProjectOpenController } from './projectOpenController';
 import type { ProjectOrderController } from './projectOrderController';
 import type { ProjectRemovalController } from './projectRemovalController';
+import type { MachineProjectsController } from './machineProjectsController';
+import type { ProjectManualEditController } from './projectManualEditController';
 
 export interface ProjectSurfaceRefreshOptions {
     getProjectsPanelController: () => ProjectsPanelController | undefined;
@@ -79,6 +81,10 @@ export interface ProjectMessageHandlersOptions {
     projectRemovalController: ProjectRemovalController;
     groupCommandController: GroupCommandController;
     groupCollapseController: GroupCollapseController;
+    machineProjectsController: MachineProjectsController;
+    projectManualEditController: ProjectManualEditController;
+    cancelMachineProjectsPreview: () => Promise<void>;
+    showRemoteSshExtension: () => Thenable<unknown>;
     /** Late-bound: the navigation controller is constructed after the router. */
     getWorkspaceNavigationController: () => WorkspaceNavigationController;
     /** Late-bound: the navigation request controller is constructed after the router. */
@@ -114,6 +120,8 @@ export function createProjectMessageHandlers(
     const projectRemovalController = options.projectRemovalController;
     const groupCommandController = options.groupCommandController;
     const groupCollapseController = options.groupCollapseController;
+    const machineProjectsController = options.machineProjectsController;
+    const projectManualEditController = options.projectManualEditController;
     const getWorkspaceNavigationController = options.getWorkspaceNavigationController;
     const getOpenWindowNavigationRequestController = options.getOpenWindowNavigationRequestController;
     const getOpenWorkspacePinController = options.getOpenWorkspacePinController;
@@ -124,6 +132,27 @@ export function createProjectMessageHandlers(
     const showWarningMessage = options.showWarningMessage;
 
     return {
+        'machine-project-action': async e => {
+            await postMessage(await machineProjectsController.handle(
+                e,
+                progress => postMessage(progress as unknown as Record<string, unknown>),
+            ) as unknown as Record<string, unknown>);
+        },
+        'repair-machine-projects-preview': async e => {
+            if (Object.keys(e).length === 1) {
+                await projectManualEditController.editProjectsManually();
+            }
+        },
+        'cancel-machine-projects-preview': async e => {
+            if (Object.keys(e).length === 1) {
+                await options.cancelMachineProjectsPreview();
+            }
+        },
+        'open-remote-ssh-extension': async e => {
+            if (Object.keys(e).length === 1) {
+                await options.showRemoteSshExtension();
+            }
+        },
         'selected-project': async e => {
             let projectId = e.projectId as string;
             let projectOpenType = e.projectOpenType as ProjectOpenType;

@@ -42,11 +42,36 @@ function getProjectsFocusTarget(panel) {
     }
     var project = activeElement.closest ? activeElement.closest('.project[data-id]') : null;
     var action = activeElement.closest ? activeElement.closest('[data-action]') : null;
-    return project ? {
+    if (project) return {
+        kind: 'legacy-project',
         groupId: project.closest('.group[data-group-id]')
             ? project.closest('.group[data-group-id]').getAttribute('data-group-id') || ''
             : '',
         projectId: project.getAttribute('data-id'),
+        action: action ? action.getAttribute('data-action') : null,
+    };
+    var machineProject = activeElement.closest
+        ? activeElement.closest('[data-machine-project-row]') : null;
+    if (machineProject) return {
+        kind: 'machine-project',
+        machineId: machineProject.getAttribute('data-machine-id') || '',
+        environmentId: machineProject.getAttribute('data-environment-id') || '',
+        projectId: machineProject.getAttribute('data-machine-project-id') || '',
+        favoriteMirror: Boolean(machineProject.closest('[data-machine-favorites]')),
+        action: action ? action.getAttribute('data-action') : null,
+    };
+    var environment = activeElement.closest
+        ? activeElement.closest('[data-machine-environment-row]') : null;
+    if (environment) return {
+        kind: 'machine-environment',
+        machineId: environment.closest('[data-machine-row]')?.getAttribute('data-machine-id') || '',
+        environmentId: environment.getAttribute('data-environment-id') || '',
+        action: action ? action.getAttribute('data-action') : null,
+    };
+    var machine = activeElement.closest ? activeElement.closest('[data-machine-row]') : null;
+    return machine ? {
+        kind: 'machine',
+        machineId: machine.getAttribute('data-machine-id') || '',
         action: action ? action.getAttribute('data-action') : null,
     } : null;
 }
@@ -83,6 +108,9 @@ function captureProjectsPanelState(panel) {
         }),
     };
     if (!state.focus) {
+        return state;
+    }
+    if (state.focus.kind !== 'legacy-project') {
         return state;
     }
     var focusGroup = findProjectsPanelGroup(panel, state.focus.groupId);
@@ -136,6 +164,10 @@ function restoreProjectsFocus(panel, target) {
     if (!target || !panel) {
         return;
     }
+    if (target.kind && target.kind !== 'legacy-project') {
+        restoreMachineProjectsFocus(panel, target);
+        return;
+    }
     var group = findProjectsPanelGroup(panel, target.groupId || '');
     var project = group && Array.from(group.querySelectorAll('.project[data-id]'))
         .find(candidate => candidate.getAttribute('data-id') === target.projectId);
@@ -151,6 +183,38 @@ function restoreProjectsFocus(panel, target) {
         if (!focusTarget.getAttribute('tabindex')) {
             focusTarget.setAttribute('tabindex', '-1');
         }
+        focusTarget.focus({ preventScroll: true });
+    }
+}
+
+function restoreMachineProjectsFocus(panel, target) {
+    var machine = Array.from(panel.querySelectorAll('[data-machine-row]'))
+        .find(candidate => candidate.getAttribute('data-machine-id') === target.machineId);
+    if (!machine) return;
+    var owner = machine;
+    if (target.kind === 'machine-environment' || target.kind === 'machine-project') {
+        owner = Array.from(machine.querySelectorAll('[data-machine-environment-row]'))
+            .find(candidate => candidate.getAttribute('data-environment-id') === target.environmentId)
+            || machine;
+    }
+    if (target.kind === 'machine-project') {
+        var candidates = Array.from(panel.querySelectorAll('[data-machine-project-row]'))
+            .filter(candidate => candidate.getAttribute('data-machine-project-id') === target.projectId);
+        owner = candidates.find(candidate =>
+            Boolean(candidate.closest('[data-machine-favorites]')) === target.favoriteMirror)
+            || candidates[0]
+            || owner;
+    }
+    var focusTarget = target.action
+        ? Array.from(owner.querySelectorAll(':scope > .machine-row-line > [data-action]'))
+            .find(candidate => candidate.getAttribute('data-action') === target.action)
+        : null;
+    focusTarget = focusTarget
+        || owner.querySelector(':scope > .machine-row-line > .machine-project-primary')
+        || owner.querySelector(':scope > .machine-row-line > .machine-environment-primary')
+        || owner.querySelector(':scope > .machine-row-line > .machine-row-primary')
+        || machine.querySelector(':scope > .machine-row-line > .machine-row-primary');
+    if (focusTarget && typeof focusTarget.focus === 'function') {
         focusTarget.focus({ preventScroll: true });
     }
 }

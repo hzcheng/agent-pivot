@@ -699,12 +699,17 @@ async function main() {
                 type: 'request-projects-panel',
                 version: 1,
                 requestId: 991,
+                documentGeneration: vscode.registeredProvider.getDocumentGeneration(),
             });
-            for (let attempt = 0; attempt < 10; attempt += 1) {
-                await new Promise(resolve => setImmediate(resolve));
-            }
             projectMutationBlockedDuringMigration = projectMutationInvocations === 0
                 && !startupSequenceSettled;
+            await waitFor(
+                () => lifecycle.postedWebviewMessages.some(
+                    message => message?.type === 'projects-panel-content'
+                        && message.requestId === 991
+                ),
+                'read-only project hydration during migration'
+            );
             readOnlyHydrationPassedDuringMigration = lifecycle.postedWebviewMessages.some(
                 message => message?.type === 'projects-panel-content'
                     && message.requestId === 991

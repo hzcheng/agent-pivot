@@ -20,11 +20,16 @@ function makeMemento(initial = {}) {
     };
 }
 
-test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
+test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 MACHINE-PROJECTS-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
     const root = makeTempDirectory(t, 'production-attention-bridge-');
     const registered = new Map();
     const executed = [];
+    let remoteSshAvailable = true;
     const vscode = {
+        extensions: {
+            getExtension: id => id === 'ms-vscode-remote.remote-ssh' && remoteSshAvailable
+                ? {} : undefined,
+        },
         Uri: {
             parse: value => ({ value }),
             file: value => ({ value: `file://${value}` }),
@@ -84,10 +89,26 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             '_agentPivotAttention.bridge.acknowledge',
             '_agentPivotOpenWorkspaces.bridge.navigate',
             '_agentPivotProjects.bridge.navigate',
+            '_agentPivotProjects.bridge.openHost',
+            '_agentPivotProjects.bridge.openProject',
+            '_agentPivotProjects.bridge.navigationHandshake',
             '_agentPivotProjects.client.handshake',
             '_agentPivotProjects.client.updateProfile',
         ];
         for (const command of requiredCommands) assert.equal(typeof registered.get(command), 'function');
+
+        assert.deepEqual(await registered.get('_agentPivotProjects.bridge.navigationHandshake')({
+            protocolVersion: 1,
+            mainExtensionVersion: '1.4.0',
+        }), {
+            protocolVersion: 1,
+            bridgeExtensionVersion: bridgePackage.version,
+            capabilities: {
+                hostNavigation: true,
+                projectNavigation: true,
+                authoritativeProfiles: true,
+            },
+        });
 
         const projectClientHandshake = registered.get('_agentPivotProjects.client.handshake');
         const projectClientInitial = await projectClientHandshake({
@@ -205,6 +226,64 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
                 }],
             },
             'an empty SSH Host opens through vscode.newWindow without inventing a folder URI',
+        );
+        const machineHostOutcome = await registered.get('_agentPivotProjects.bridge.openHost')({
+            protocolVersion: 1,
+            requestId: 'f'.repeat(32),
+            machineId: projectMachineId,
+        });
+        assert.deepEqual(machineHostOutcome, {
+            protocolVersion: 1,
+            requestId: 'f'.repeat(32),
+            handedOff: true,
+        });
+        assert.deepEqual(
+            executed.filter(entry => entry.command === 'vscode.newWindow').at(-1),
+            {
+                command: 'vscode.newWindow',
+                args: [{
+                    remoteAuthority: 'ssh-remote+integration-devbox',
+                    reuseWindow: false,
+                }],
+            },
+        );
+        remoteSshAvailable = false;
+        assert.deepEqual(await registered.get('_agentPivotProjects.bridge.openHost')({
+            protocolVersion: 1,
+            requestId: 'b'.repeat(32),
+            machineId: projectMachineId,
+        }), {
+            protocolVersion: 1,
+            requestId: 'b'.repeat(32),
+            handedOff: false,
+            reason: 'remoteSshMissing',
+        }, 'dependency state is determined by the local UI host');
+        remoteSshAvailable = true;
+        const machineProjectOutcome = await registered.get('_agentPivotProjects.bridge.openProject')({
+            protocolVersion: 1,
+            requestId: 'd'.repeat(32),
+            machineId: projectMachineId,
+            projectPath: '/work/api',
+        });
+        assert.equal(machineProjectOutcome.handedOff, true);
+        assert.deepEqual(
+            executed.filter(entry => entry.command === 'vscode.openFolder').at(-1),
+            {
+                command: 'vscode.openFolder',
+                args: [{
+                    value: 'vscode-remote://ssh-remote%2Bintegration-devbox/work/api',
+                }, { forceNewWindow: true }],
+            },
+            'Project navigation resolves the latest UI-host profile instead of a synced alias',
+        );
+        await assert.rejects(
+            registered.get('_agentPivotProjects.bridge.openHost')({
+                protocolVersion: 1,
+                requestId: 'a'.repeat(32),
+                machineId: projectMachineId,
+                unexpected: true,
+            }),
+            /unexpected fields/,
         );
         await assert.rejects(
             registered.get('_agentPivotProjects.bridge.navigate')({

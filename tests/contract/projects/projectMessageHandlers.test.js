@@ -68,6 +68,19 @@ function createFixture(overrides = {}) {
             addGroup: record('addGroup'),
         },
         groupCollapseController: { collapseGroup: record('collapseGroup') },
+        machineProjectsController: {
+            handle: async message => ({
+                type: 'machine-project-action-settlement',
+                version: 1,
+                requestId: message.requestId,
+                machineId: message.machineId,
+                status: 'saved',
+                message: 'saved',
+            }),
+        },
+        projectManualEditController: { editProjectsManually: record('repairMachinePreview') },
+        cancelMachineProjectsPreview: record('cancelMachinePreview'),
+        showRemoteSshExtension: record('showRemoteSshExtension'),
         getWorkspaceNavigationController: () => ({ open: record('openWorkspaceNavigation') }),
         getOpenWorkspacePinController: () => ({ handle: record('handleOpenWorkspacePin') }),
         getAttentionAggregate: () => overrides.attentionAggregate || null,
@@ -98,6 +111,10 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every production project/grou
     const { handlers } = createFixture();
 
     assert.deepEqual(Object.keys(handlers), [
+        'machine-project-action',
+        'repair-machine-projects-preview',
+        'cancel-machine-projects-preview',
+        'open-remote-ssh-extension',
         'selected-project',
         'set-open-workspace-pin',
         'open-window-navigation-request',
@@ -216,6 +233,23 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates project mutations to their 
         ['addProject', 'group-a'],
         ['editProject', 'project-a'],
         ['editProjectColor', 'project-b'],
+    ]);
+});
+
+test('MACHINE-PROJECTS-MIGRATION-PREVIEW-001 routes exact repair and cancel actions', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['repair-machine-projects-preview']({ type: 'repair-machine-projects-preview' });
+    await handlers['cancel-machine-projects-preview']({ type: 'cancel-machine-projects-preview' });
+    await handlers['open-remote-ssh-extension']({ type: 'open-remote-ssh-extension' });
+    await handlers['repair-machine-projects-preview']({
+        type: 'repair-machine-projects-preview', unexpected: true,
+    });
+
+    assert.deepEqual(calls, [
+        ['repairMachinePreview'],
+        ['cancelMachinePreview'],
+        ['showRemoteSshExtension'],
     ]);
 });
 

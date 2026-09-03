@@ -55,6 +55,7 @@ function createDashboardProjectsPanel(injected) {
             type: 'request-projects-panel',
             version: 1,
             requestId: projectsRequestId,
+            documentGeneration: window.__agentPivotReadyDocumentGeneration,
         });
         scheduleProjectsRequestTimeout(projectsRequestId);
     }
@@ -63,6 +64,7 @@ function createDashboardProjectsPanel(injected) {
         if (!validateProjectsPanelMessage(message)
             || projectsState !== 'loading'
             || message.requestId !== projectsRequestId
+            || message.documentGeneration !== window.__agentPivotReadyDocumentGeneration
             || message.requestId <= acceptedProjectsRequestId
             || !panels.projects) {
             return false;

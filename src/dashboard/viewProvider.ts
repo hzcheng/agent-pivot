@@ -87,6 +87,10 @@ export class AgentPivotViewProvider implements vscode.WebviewViewProvider {
             : { kind: 'idle' };
     }
 
+    getDocumentGeneration(): number {
+        return this.readyDocumentGeneration;
+    }
+
     beginBootstrap(generation: number): boolean {
         if (this.configuration.mode !== 'boot'
             || this.completingBootstrapGeneration !== undefined

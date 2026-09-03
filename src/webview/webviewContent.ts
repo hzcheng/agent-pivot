@@ -260,12 +260,18 @@ export function getStewardContent(
                 }
                 let filtering;
                 let tagFiltering;
+                window.__agentPivotMachineProjects = typeof createMachineProjectsUi === 'function'
+                    ? createMachineProjectsUi()
+                    : null;
                 const dashboard = initDashboard({
                     initialSearchQuery: storedFilter,
                     clearSearch: () => filtering && filtering.clear(),
                     postMessage: message => window.vscode.postMessage(message),
                     onProjectsMounted: panel => {
                         fitDashboardProjectHeaders(panel);
+                        if (window.__agentPivotMachineProjects) {
+                            window.__agentPivotMachineProjects.mount(panel);
+                        }
                         disposeDnD(panel);
                         initDnD(panel);
                         if (typeof window.__agentPivotSyncCollapseButton === 'function') {
@@ -276,6 +282,12 @@ export function getStewardContent(
                     onActiveTabChanged: () => {
                         if (typeof window.__agentPivotSyncCollapseButton === 'function') {
                             window.__agentPivotSyncCollapseButton();
+                        }
+                        if (filtering && window.__agentPivotMachineProjects
+                            && window.__agentPivotMachineProjects.isMounted()
+                            && window.__agentPivotDashboard
+                            && window.__agentPivotDashboard.getActiveTab() === 'projects') {
+                            filtering.apply();
                         }
                     },
                 });

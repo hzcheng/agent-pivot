@@ -6863,6 +6863,83 @@
     ]
   },
   {
+    "id": "MACHINE-PROJECTS-HOST-NAVIGATION-001",
+    "domain": "project",
+    "title": "A Machine connection profile is scoped to the UI client and Host opening hands a correlated Local, SSH, or WSL request to a new VS Code window",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/machineProjectsController.test.js",
+      "tests/integration/dashboard/productionAttentionBridge.test.js"
+    ],
+    "evidence": [
+      "src/projects/machineProjectsController.ts",
+      "src/projects/environmentHostNavigationProtocol.ts",
+      "extensions/attention-ui-bridge/src/extension.ts"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-PROJECTION-001",
+    "domain": "project",
+    "title": "The feature-flagged Projects view projects V1 into Machine, Host, and Dev Container rows while V1 remains authoritative",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/machineProjectsViewModel.test.js",
+      "tests/unit/webview/machineProjectsRendering.test.js"
+    ],
+    "evidence": [
+      "src/projects/machineProjectsViewModel.ts",
+      "src/webview/webviewMachineProjectsContent.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-FILTER-001",
+    "domain": "webview",
+    "title": "Project tags use AND matching and Favorites mirrors never inflate unique Project or Machine result counts",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsScripts.js",
+      "src/webview/webviewMachineProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-KEYBOARD-001",
+    "domain": "webview",
+    "title": "Machine rows expose one primary Tab stop, disclosure-only activation, and equivalent row actions through Shift+F10",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js",
+      "tests/unit/webview/machineProjectsRendering.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsScripts.js",
+      "src/webview/webviewMachineProjectsContent.ts",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-MIGRATION-PREVIEW-001",
+    "domain": "project",
+    "title": "The read-only Migration Preview reports source and target counts plus ready, review, repair, and blocking categories before any V2 activation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/machineProjectsViewModel.test.js",
+      "tests/unit/webview/machineProjectsRendering.test.js"
+    ],
+    "evidence": [
+      "src/projects/machineProjectsViewModel.ts",
+      "src/webview/webviewMachineProjectsContent.ts"
+    ]
+  },
+  {
     "id": "WORKTREE-SNAPSHOT-001",
     "domain": "session",
     "title": "Worktree snapshots refresh automatically with single-flight generation safety and flow coherently through session hydration and presentation",

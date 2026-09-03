@@ -334,6 +334,35 @@ test('MACHINE-PROJECTS-HOST-001 exposes Rebind and Project open as explicit Mach
     });
 });
 
+test('MACHINE-PROJECTS-ROW-OPEN-001 opens an available Project from the whole row without stealing action clicks', async t => {
+    const page = await openPage(t);
+    const projectRow = '[data-machine-environment-row] [data-machine-project-id="api-v2"]';
+
+    await page.click(`${projectRow} .machine-project-tag`);
+    const rowAction = await page.evaluate(() => window.messages.at(-1));
+    assert.deepEqual({
+        type: rowAction.type,
+        action: rowAction.action,
+        machineId: rowAction.machineId,
+        projectId: rowAction.projectId,
+        environmentId: rowAction.environmentId,
+    }, {
+        type: 'machine-project-action', action: 'openProject', machineId: 'machine',
+        projectId: 'api', environmentId: 'host',
+    });
+
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'machine-project-action-settlement', version: 1,
+        requestId: message.requestId, machineId: message.machineId,
+        status: 'handedOff', message: 'Opening the Project in a new window.',
+    } })), rowAction);
+    await page.evaluate(() => { window.messages = []; });
+    await page.click(`${projectRow} [data-action="toggle-machine-favorite"]`);
+    assert.deepEqual(await page.evaluate(() => window.messages), [{
+        type: 'favorite-project', projectId: 'api',
+    }]);
+});
+
 test('MACHINE-PROJECTS-FOCUS-001 restores a Favorite Project to its directory row after refresh', async t => {
     const page = await openPage(t);
     await page.focus('[data-machine-favorites] [data-machine-project-id="api-v2"] .machine-project-primary');

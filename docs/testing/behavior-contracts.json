@@ -6943,6 +6943,20 @@
     ]
   },
   {
+    "id": "MACHINE-PROJECTS-ROW-OPEN-001",
+    "domain": "webview",
+    "title": "An available Project opens from its entire visual row while Favorite and overflow actions remain isolated",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsScripts.js",
+      "src/webview/webviewMachineProjectsContent.ts"
+    ]
+  },
+  {
     "id": "WORKTREE-SNAPSHOT-001",
     "domain": "session",
     "title": "Worktree snapshots refresh automatically with single-flight generation safety and flow coherently through session hydration and presentation",

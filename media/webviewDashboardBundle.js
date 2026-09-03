@@ -9487,7 +9487,14 @@ function createMachineProjectsUi() {
             return;
         }
         var actionTarget = event.target.closest('[data-action]');
-        if (!actionTarget) return;
+        if (!actionTarget) {
+            var projectRow = event.target.closest('[data-machine-project-row]');
+            var projectPrimary = projectRow && projectRow.querySelector('.machine-project-primary');
+            if (projectPrimary) {
+                activateAction(projectPrimary.getAttribute('data-action'), projectPrimary);
+            }
+            return;
+        }
         var action = actionTarget.getAttribute('data-action');
         if (action === 'toggle-machine-tags') toggleTags();
         else if (action === 'add-project') {

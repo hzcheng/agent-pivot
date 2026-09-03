@@ -156,34 +156,3 @@ test('PROJECT-INCREMENTAL-REFRESH-001 ignores stale and invalidated delivery fai
 
     assert.deepEqual(refreshes, []);
 });
-
-test('PROJECT-INCREMENTAL-REFRESH-001 publishes only the newest asynchronous projection', async () => {
-    const renders = [];
-    const posted = [];
-    const controller = new ProjectsPanelController({
-        getGroups: () => [],
-        getSearchCatalog: makeCatalog,
-        renderHtml: () => {
-            const deferred = createDeferred();
-            renders.push(deferred);
-            return deferred.promise;
-        },
-        postMessage: message => {
-            posted.push(message);
-            return Promise.resolve(true);
-        },
-        refresh: () => undefined,
-        isVisible: () => true,
-        logError: () => undefined,
-    });
-
-    controller.postUpdated();
-    controller.postUpdated();
-    renders[1].resolve('<main>new</main>');
-    renders[0].resolve('<main>stale</main>');
-    await flushAsync();
-
-    assert.deepEqual(posted.map(message => [message.sequence, message.html]), [
-        [2, '<main>new</main>'],
-    ]);
-});

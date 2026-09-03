@@ -9,10 +9,7 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
-import {
-    buildMachineProjectsBlockingViewModel,
-    buildMachineProjectsViewModel,
-} from './projects/machineProjectsViewModel';
+import { buildMachineProjectsViewModel } from './projects/machineProjectsViewModel';
 import { renderMachineProjectsPanel } from './webview/webviewMachineProjectsContent';
 import {
     getEffectiveRunningCardAnimation,
@@ -720,8 +717,6 @@ async function initializeDashboard(
         projectManualEditController,
         addProjectsFromFolderController,
         remoteProjectResolver,
-        connectionProfileClient,
-        machineProjectsController,
         currentProjectDetailsResolver,
     } = createProjectControllers({
         context,
@@ -2358,20 +2353,6 @@ async function initializeDashboard(
         projectRemovalController,
         groupCommandController,
         groupCollapseController,
-        machineProjectsController,
-        projectManualEditController,
-        cancelMachineProjectsPreview: async () => {
-            await vscode.workspace.getConfiguration('agentPivot').update(
-                'remoteMachineProjects.enabled',
-                false,
-                vscode.ConfigurationTarget.Global,
-            );
-            refreshStewardViews('cancel-machine-projects-preview');
-        },
-        showRemoteSshExtension: () => vscode.commands.executeCommand(
-            'workbench.extensions.search',
-            '@id:ms-vscode-remote.remote-ssh',
-        ),
         getWorkspaceNavigationController: () => workspaceNavigationController,
         getOpenWindowNavigationRequestController: () => openWindowNavigationRequestController,
         getOpenWorkspacePinController: () => openWorkspacePinController,
@@ -2387,7 +2368,6 @@ async function initializeDashboard(
         getStewardInfos: () => stewardInfos,
         projectService,
         renderProjectsPanel: (groups, infos) => renderProjectsPanel(groups, infos),
-        getDocumentGeneration: () => provider.getDocumentGeneration(),
         getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
             projectService.getGroups(),
             getOpenWorkspaceCards(),
@@ -3442,30 +3422,14 @@ async function initializeDashboard(
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
         get skills() { return skillPanel.getRecords() },
     };
-    const renderProjectsPanel = async (
+    const renderProjectsPanel = (
         groups: import('./models').Group[],
         infos: StewardInfos,
-    ): Promise<string> => {
+    ): string => {
         if (infos.config.get<boolean>('remoteMachineProjects.enabled', false) !== true) {
             return getProjectsPanelContent(groups, infos);
         }
-        let profileAvailability: 'ready' | 'unavailable' = 'ready';
-        let profiles: import('./projects/projectClientProtocol').ProjectConnectionProfile[] = [];
-        try {
-            profiles = (await connectionProfileClient.refreshForMachineProjects()).profiles;
-        } catch (error) {
-            profileAvailability = 'unavailable';
-            logError('Project connection profiles are unavailable.', error);
-        }
-        try {
-            return renderMachineProjectsPanel(buildMachineProjectsViewModel(groups, {
-                profileAvailability,
-                profiles,
-            }));
-        } catch (error) {
-            logError('Failed to build the Remote Machines project preview.', error);
-            return renderMachineProjectsPanel(buildMachineProjectsBlockingViewModel(groups));
-        }
+        return renderMachineProjectsPanel(buildMachineProjectsViewModel(groups));
     };
     projectsPanelController = new ProjectsPanelController({
         getGroups: () => projectService.getGroups(),

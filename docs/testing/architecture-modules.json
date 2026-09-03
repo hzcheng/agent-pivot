@@ -711,7 +711,6 @@
           "src/services/fileService.ts",
           "src/services/projectWindowColorService.ts",
           "src/services/projectCatalogSyncService.ts",
-          "src/services/projectCatalogV2Service.ts",
           "src/services/sourceControl.ts",
           "src/services/gitChangesDiff.ts",
           "src/services/ntc.ts"
@@ -720,7 +719,6 @@
       },
       "publicEntrypoints": [
         "src/projects/addProjectsFromFolderController.ts",
-        "src/projects/connectionProfileClient.ts",
         "src/projects/currentProjectDetails.ts",
         "src/projects/favoriteProjectController.ts",
         "src/projects/favoriteProjectOrder.ts",
@@ -731,11 +729,8 @@
         "src/projects/openProjectService.ts",
         "src/projects/projectManualEditController.ts",
         "src/projects/projectMessageHandlers.ts",
-        "src/projects/machineProjectsController.ts",
         "src/projects/machineProjectsViewModel.ts",
         "src/projects/projectMutationController.ts",
-        "src/projects/projectClientProtocol.ts",
-        "src/projects/environmentHostNavigationProtocol.ts",
         "src/projects/projectNavigationProtocol.ts",
         "src/projects/projectOpenController.ts",
         "src/projects/projectOrderController.ts",
@@ -748,7 +743,6 @@
         "src/services/fileService.ts",
         "src/services/gitChangesDiff.ts",
         "src/services/projectService.ts",
-        "src/services/projectCatalogV2Service.ts",
         "src/services/projectWindowColorService.ts",
         "src/services/sourceControl.ts"
       ],
@@ -765,14 +759,8 @@
           "include": [
             "src/projects/projectPathUtils.ts",
             "src/projects/favoriteProjectOrder.ts",
-            "src/projects/projectClientProtocol.ts",
-            "src/projects/environmentHostNavigationProtocol.ts",
-            "src/projects/environmentLaunchPlanner.ts",
             "src/projects/projectNavigationProtocol.ts",
             "src/projects/projectCatalogSync.ts",
-            "src/projects/catalogV2/types.ts",
-            "src/projects/catalogV2/merge.ts",
-            "src/projects/catalogV2/identity.ts",
             "src/projects/projectTags.ts"
           ]
         },
@@ -780,10 +768,6 @@
           "role": "infrastructure",
           "include": [
             "src/services/**",
-            "src/projects/catalogV2/envelope.ts",
-            "src/projects/catalogV2/commitProtocol.ts",
-            "src/projects/catalogV2/migration.ts",
-            "src/projects/connectionProfileClient.ts",
             "src/projects/gitRepositoryDetector.ts"
           ]
         },
@@ -938,7 +922,6 @@
             "extensions/attention-ui-bridge/src/localStore.ts",
             "extensions/attention-ui-bridge/src/bridgeStorageRoot.ts",
             "extensions/attention-ui-bridge/src/productionAttentionStore.ts",
-            "extensions/attention-ui-bridge/src/projectClientStore.ts",
             "extensions/attention-ui-bridge/src/openWorkspace*Store.ts"
           ]
         },

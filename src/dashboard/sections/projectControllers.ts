@@ -1,7 +1,6 @@
 'use strict';
 
 import * as vscode from 'vscode';
-import * as path from 'path';
 
 import { AddProjectsFromFolderController } from '../../projects/addProjectsFromFolderController';
 import { CurrentProjectDetailsResolver } from '../../projects/currentProjectDetails';
@@ -15,9 +14,6 @@ import { ProjectOrderController } from '../../projects/projectOrderController';
 import { ProjectPromptController } from '../../projects/projectPromptController';
 import { ProjectRemovalController } from '../../projects/projectRemovalController';
 import RemoteProjectResolver from '../../projects/remoteProjectResolver';
-import ConnectionProfileClient from '../../projects/connectionProfileClient';
-import { MachineProjectsController } from '../../projects/machineProjectsController';
-import { resolveMachineProjectTarget } from '../../projects/machineProjectsViewModel';
 import { createProjectSurfaceRefresh } from '../../projects/projectMessageHandlers';
 import { parsePathAsUri } from '../../projects/openProjectService';
 import { getWorkspacePath as resolveWorkspacePath } from '../../projects/workspaceHelpers';
@@ -178,86 +174,6 @@ export function createProjectControllers(deps: ProjectControllersDeps) {
         userCanceledToken: USER_CANCELED,
     });
     const remoteProjectResolver = new RemoteProjectResolver(logError);
-    const connectionProfileClient = new ConnectionProfileClient();
-    const machineProjectsController = new MachineProjectsController({
-        getProfile: machineId => connectionProfileClient.getProfile(machineId),
-        updateProfile: (machineId, profile) =>
-            connectionProfileClient.updateProfile(machineId, profile),
-        showConnectionKindPicker: async current => {
-            const items: Array<vscode.QuickPickItem & { kind: 'local' | 'ssh' | 'wsl' }> = [
-                {
-                    label: 'SSH',
-                    description: 'Save an SSH target in this VS Code only',
-                    kind: 'ssh' as const,
-                },
-                {
-                    label: 'Local',
-                    description: 'Open a new local VS Code window',
-                    kind: 'local' as const,
-                },
-                {
-                    label: 'WSL',
-                    description: 'Save a WSL distribution in this VS Code only',
-                    kind: 'wsl' as const,
-                },
-            ];
-            const selected = await vscode.window.showQuickPick(items, {
-                placeHolder: 'Connection type — saved in this VS Code only',
-            });
-            return selected?.kind || null;
-        },
-        showConnectionTargetInput: async options => {
-            const value = await vscode.window.showInputBox({
-                prompt: `${options.kind === 'ssh' ? 'SSH target' : 'WSL distribution'} for ${options.machineName}. Saved in this VS Code only; other installations are unchanged.`,
-                value: options.currentValue,
-                ignoreFocusOut: true,
-                validateInput: input => input.trim() && !/[\u0000-\u0020\u007f-\u009f\/#?%\\]/.test(input)
-                    ? null : 'Enter one target without spaces, slashes, or control characters.',
-            });
-            return value === undefined ? null : value;
-        },
-        showSaveChoice: async options => {
-            const items: Array<vscode.QuickPickItem & { choice: 'save' | 'saveAndOpen' | 'cancel' }> = [
-                {
-                    label: '$(link-external) Save & Open',
-                    description: 'Save locally, then open Host in a new window',
-                    choice: 'saveAndOpen' as const,
-                },
-                {
-                    label: '$(save) Save',
-                    description: options.rebinding
-                        ? 'Update the local connection without opening it'
-                        : 'Save the local connection without opening it',
-                    choice: 'save' as const,
-                },
-                {
-                    label: 'Cancel',
-                    description: 'Keep the current connection unchanged',
-                    choice: 'cancel' as const,
-                },
-            ];
-            const selected = await vscode.window.showQuickPick(items, {
-                placeHolder: `${options.previousTarget} → ${options.nextTarget} · saved in this VS Code only`,
-            });
-            return !selected || selected.choice === 'cancel' ? null : selected.choice;
-        },
-        showWarningMessage: message => vscode.window.showWarningMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        executeHostOpen: machineId => connectionProfileClient.openHost(machineId),
-        executeProjectOpen: (machineId, projectPath) =>
-            connectionProfileClient.openProject(machineId, projectPath),
-        resolveProjectTarget: target => {
-            const resolved = resolveMachineProjectTarget(projectService.getGroups(), target);
-            if (!resolved || path.isAbsolute(resolved.projectPath)
-                || path.win32.isAbsolute(resolved.projectPath)) {
-                return resolved;
-            }
-            const rootPath = vscode.workspace.workspaceFile?.path
-                || vscode.workspace.workspaceFolders?.[0]?.uri.path;
-            return rootPath ? { projectPath: path.join(rootPath, resolved.projectPath) } : null;
-        },
-        refreshProjects: () => deps.getProjectsPanelController()?.postUpdated(),
-    });
     const currentProjectDetailsResolver = new CurrentProjectDetailsResolver({
         getWorkspaceFile: () => vscode.workspace.workspaceFile,
         getWorkspaceFolders: () => vscode.workspace.workspaceFolders,
@@ -278,8 +194,6 @@ export function createProjectControllers(deps: ProjectControllersDeps) {
         projectManualEditController,
         addProjectsFromFolderController,
         remoteProjectResolver,
-        connectionProfileClient,
-        machineProjectsController,
         currentProjectDetailsResolver,
     };
 }

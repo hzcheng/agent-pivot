@@ -11,7 +11,7 @@ import {
 export interface ProjectsPanelControllerOptions {
     getGroups: () => Group[];
     getSearchCatalog: () => DashboardWorkspaceSearchCatalog;
-    renderHtml: (groups: Group[]) => string | Promise<string>;
+    renderHtml: (groups: Group[]) => string;
     postMessage: (message: unknown) => Thenable<boolean>;
     refresh: (reason: string) => void;
     isVisible: () => boolean;
@@ -34,43 +34,32 @@ export class ProjectsPanelController {
             (all, group) => all.concat(group.projects || []),
             []
         );
-        const sequence = ++this.sequence;
+        const message = buildProjectsPanelUpdatedMessage({
+            sequence: ++this.sequence,
+            mode,
+            html: this.options.renderHtml(groups),
+            searchCatalog: this.options.getSearchCatalog(),
+            groupOrders: groups.map(group => ({
+                groupId: group.id,
+                projectIds: (group.projects || []).map(project => project.id),
+            })),
+            favoriteProjectIds: getFavoriteProjectsInOrder(projects)
+                .map(project => project.id),
+        });
         const deliveryGeneration = this.deliveryGeneration;
-        const publish = (html: string): void => {
-            if (!this.isCurrentDelivery(sequence, deliveryGeneration)) { return; }
-            const message = buildProjectsPanelUpdatedMessage({
-                sequence,
-                mode,
-                html,
-                searchCatalog: this.options.getSearchCatalog(),
-                groupOrders: groups.map(group => ({
-                    groupId: group.id,
-                    projectIds: (group.projects || []).map(project => project.id),
-                })),
-                favoriteProjectIds: getFavoriteProjectsInOrder(projects)
-                    .map(project => project.id),
-            });
-            this.options.postMessage(message).then(delivered => {
-                if (!delivered
-                    && this.isCurrentDelivery(message.sequence, deliveryGeneration)
-                    && this.options.isVisible()) {
-                    this.options.refresh('projects-panel-update-not-delivered');
-                }
-            }, error => {
-                this.handleDeliveryError(sequence, deliveryGeneration, error);
-            });
-        };
-        try {
-            const rendered = this.options.renderHtml(groups);
-            if (typeof rendered === 'string') {
-                publish(rendered);
-            } else {
-                void rendered.then(publish, error =>
-                    this.handleDeliveryError(sequence, deliveryGeneration, error));
+        this.options.postMessage(message).then(delivered => {
+            if (!delivered
+                && this.isCurrentDelivery(message.sequence, deliveryGeneration)
+                && this.options.isVisible()) {
+                this.options.refresh('projects-panel-update-not-delivered');
             }
-        } catch (error) {
-            this.handleDeliveryError(sequence, deliveryGeneration, error);
-        }
+        }, error => {
+            this.options.logError('Failed to post Projects panel update message.', error);
+            if (this.isCurrentDelivery(message.sequence, deliveryGeneration)
+                && this.options.isVisible()) {
+                this.options.refresh('projects-panel-update-post-error');
+            }
+        });
     }
 
     invalidatePendingUpdates(): void {
@@ -80,17 +69,5 @@ export class ProjectsPanelController {
     private isCurrentDelivery(sequence: number, deliveryGeneration: number): boolean {
         return sequence === this.sequence
             && deliveryGeneration === this.deliveryGeneration;
-    }
-
-    private handleDeliveryError(
-        sequence: number,
-        deliveryGeneration: number,
-        error: unknown,
-    ): void {
-        this.options.logError('Failed to post Projects panel update message.', error);
-        if (this.isCurrentDelivery(sequence, deliveryGeneration)
-            && this.options.isVisible()) {
-            this.options.refresh('projects-panel-update-post-error');
-        }
     }
 }

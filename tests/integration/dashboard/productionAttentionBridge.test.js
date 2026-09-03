@@ -7,29 +7,11 @@ const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
 
-function makeMemento(initial = {}) {
-    const values = JSON.parse(JSON.stringify(initial));
-    return {
-        get(key) {
-            return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : undefined;
-        },
-        async update(key, value) {
-            if (value === undefined) delete values[key];
-            else values[key] = JSON.parse(JSON.stringify(value));
-        },
-    };
-}
-
-test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 MACHINE-PROJECTS-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
+test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
     const root = makeTempDirectory(t, 'production-attention-bridge-');
     const registered = new Map();
     const executed = [];
-    let remoteSshAvailable = true;
     const vscode = {
-        extensions: {
-            getExtension: id => id === 'ms-vscode-remote.remote-ssh' && remoteSshAvailable
-                ? {} : undefined,
-        },
         Uri: {
             parse: value => ({ value }),
             file: value => ({ value: `file://${value}` }),
@@ -75,7 +57,6 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
         extensionPath: bridgeRoot,
         globalStoragePath: root,
         globalStorageUri: { scheme: 'file' },
-        globalState: makeMemento(),
         subscriptions: [],
     };
     let client;
@@ -89,53 +70,8 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             '_agentPivotAttention.bridge.acknowledge',
             '_agentPivotOpenWorkspaces.bridge.navigate',
             '_agentPivotProjects.bridge.navigate',
-            '_agentPivotProjects.bridge.openHost',
-            '_agentPivotProjects.bridge.openProject',
-            '_agentPivotProjects.bridge.navigationHandshake',
-            '_agentPivotProjects.client.handshake',
-            '_agentPivotProjects.client.updateProfile',
         ];
         for (const command of requiredCommands) assert.equal(typeof registered.get(command), 'function');
-
-        assert.deepEqual(await registered.get('_agentPivotProjects.bridge.navigationHandshake')({
-            protocolVersion: 1,
-            mainExtensionVersion: '1.4.0',
-        }), {
-            protocolVersion: 1,
-            bridgeExtensionVersion: bridgePackage.version,
-            capabilities: {
-                hostNavigation: true,
-                projectNavigation: true,
-                authoritativeProfiles: true,
-            },
-        });
-
-        const projectClientHandshake = registered.get('_agentPivotProjects.client.handshake');
-        const projectClientInitial = await projectClientHandshake({
-            protocolVersion: 2,
-            mainExtensionVersion: '1.4.0',
-        });
-        assert.match(projectClientInitial.snapshot.clientId, /^[a-f0-9]{32}$/);
-        assert.deepEqual(projectClientInitial.snapshot.profiles, []);
-        const projectMachineId = '11111111-1111-4111-8111-111111111111';
-        const projectClientUpdated = await registered.get('_agentPivotProjects.client.updateProfile')({
-            protocolVersion: 2,
-            requestId: 'e'.repeat(32),
-            machineId: projectMachineId,
-            profile: {
-                kind: 'ssh',
-                target: 'integration-devbox',
-                resolverAuthority: 'ssh-remote+integration-devbox',
-            },
-        });
-        assert.equal(projectClientUpdated.saved, true);
-        assert.equal(
-            (await projectClientHandshake({
-                protocolVersion: 2,
-                mainExtensionVersion: '1.4.0',
-            })).snapshot.profiles[0].target,
-            'integration-devbox',
-        );
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');
         await openWorkspacePublish({
@@ -205,85 +141,6 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
                     forceNewWindow: true,
                 }],
             },
-        );
-        const hostHandoffOutcome = await registered.get('_agentPivotProjects.bridge.navigate')({
-            protocolVersion: 1,
-            projectPath: 'ssh-remote+devbox',
-            remoteType: 1,
-            openInNewWindow: true,
-        });
-        assert.deepEqual(hostHandoffOutcome, {
-            protocolVersion: 1,
-            opened: true,
-        }, 'the bridge reports command handoff, not a connected remote state');
-        assert.deepEqual(
-            executed.filter(entry => entry.command === 'vscode.newWindow').at(-1),
-            {
-                command: 'vscode.newWindow',
-                args: [{
-                    remoteAuthority: 'ssh-remote+devbox',
-                    reuseWindow: false,
-                }],
-            },
-            'an empty SSH Host opens through vscode.newWindow without inventing a folder URI',
-        );
-        const machineHostOutcome = await registered.get('_agentPivotProjects.bridge.openHost')({
-            protocolVersion: 1,
-            requestId: 'f'.repeat(32),
-            machineId: projectMachineId,
-        });
-        assert.deepEqual(machineHostOutcome, {
-            protocolVersion: 1,
-            requestId: 'f'.repeat(32),
-            handedOff: true,
-        });
-        assert.deepEqual(
-            executed.filter(entry => entry.command === 'vscode.newWindow').at(-1),
-            {
-                command: 'vscode.newWindow',
-                args: [{
-                    remoteAuthority: 'ssh-remote+integration-devbox',
-                    reuseWindow: false,
-                }],
-            },
-        );
-        remoteSshAvailable = false;
-        assert.deepEqual(await registered.get('_agentPivotProjects.bridge.openHost')({
-            protocolVersion: 1,
-            requestId: 'b'.repeat(32),
-            machineId: projectMachineId,
-        }), {
-            protocolVersion: 1,
-            requestId: 'b'.repeat(32),
-            handedOff: false,
-            reason: 'remoteSshMissing',
-        }, 'dependency state is determined by the local UI host');
-        remoteSshAvailable = true;
-        const machineProjectOutcome = await registered.get('_agentPivotProjects.bridge.openProject')({
-            protocolVersion: 1,
-            requestId: 'd'.repeat(32),
-            machineId: projectMachineId,
-            projectPath: '/work/api',
-        });
-        assert.equal(machineProjectOutcome.handedOff, true);
-        assert.deepEqual(
-            executed.filter(entry => entry.command === 'vscode.openFolder').at(-1),
-            {
-                command: 'vscode.openFolder',
-                args: [{
-                    value: 'vscode-remote://ssh-remote%2Bintegration-devbox/work/api',
-                }, { forceNewWindow: true }],
-            },
-            'Project navigation resolves the latest UI-host profile instead of a synced alias',
-        );
-        await assert.rejects(
-            registered.get('_agentPivotProjects.bridge.openHost')({
-                protocolVersion: 1,
-                requestId: 'a'.repeat(32),
-                machineId: projectMachineId,
-                unexpected: true,
-            }),
-            /unexpected fields/,
         );
         await assert.rejects(
             registered.get('_agentPivotProjects.bridge.navigate')({
@@ -460,7 +317,6 @@ test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes t
         extensionPath: bridgeRoot,
         globalStoragePath: root,
         globalStorageUri: { scheme: 'file' },
-        globalState: makeMemento(),
         subscriptions: [],
     };
     const instanceId = 'c'.repeat(32);

@@ -2058,7 +2058,6 @@ function runControllerChecks(source) {
             setItem: (key, value) => storage.set(key, value),
         },
         window: {
-            __agentPivotReadyDocumentGeneration: 1,
             scrollY: 11,
             scrollTo: (_x, y) => { context.window.scrollY = y; },
             addEventListener: (type, listener) => { windowListeners[type] = listener; },
@@ -2074,10 +2073,10 @@ function runControllerChecks(source) {
     assert.strictEqual(context.getAdjacentDashboardTab('ai', 'ArrowLeft'), 'projects');
     assert.strictEqual(context.getAdjacentDashboardTab('projects', 'ArrowLeft'), 'open');
     assert.strictEqual(context.validateProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 2, documentGeneration: 1, html: '<div></div>',
+        type: 'projects-panel-content', version: 1, requestId: 2, html: '<div></div>',
     }), true);
     assert.strictEqual(context.validateProjectsPanelMessage({
-        type: 'projects-panel-content', version: 2, requestId: 2, documentGeneration: 1, html: '<div></div>',
+        type: 'projects-panel-content', version: 2, requestId: 2, html: '<div></div>',
     }), false);
     assert.strictEqual(context.globToDashboardRegex('dash*').test('dashboard'), true);
     assert.strictEqual(context.globToDashboardRegex('data?').test('data1'), true);
@@ -2146,20 +2145,20 @@ function runControllerChecks(source) {
     openPanel.scrollTop = 37;
     controller.activateTab('projects');
     assert.deepStrictEqual(JSON.parse(JSON.stringify(messages)), [
-        { type: 'request-projects-panel', version: 1, requestId: 1, documentGeneration: 1 },
+        { type: 'request-projects-panel', version: 1, requestId: 1 },
     ]);
     assert.strictEqual(controller.getProjectsState(), 'loading');
     assert.strictEqual(controller.getScrollPosition('open'), 37);
     controller.ensureProjectsPanel();
     assert.strictEqual(messages.length, 1, 'PROJECTS must be requested only once while loading');
     assert.strictEqual(controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 0, documentGeneration: 1, html: '<div>stale</div>',
+        type: 'projects-panel-content', version: 1, requestId: 0, html: '<div>stale</div>',
     }), false);
     assert.strictEqual(projectsPanel.innerHTML, '');
     controller.activateTab('open');
     const openScrollBeforeResponse = openPanel.scrollTop;
     assert.strictEqual(controller.applyProjectsPanelMessage({
-        type: 'projects-panel-content', version: 1, requestId: 1, documentGeneration: 1, html: '<div>projects</div>',
+        type: 'projects-panel-content', version: 1, requestId: 1, html: '<div>projects</div>',
     }), true);
     assert.strictEqual(openPanel.scrollTop, openScrollBeforeResponse, 'background PROJECTS mount must not move OPEN scroll');
     assert.strictEqual(projectsPanel.innerHTML, '<div>projects</div>');

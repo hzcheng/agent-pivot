@@ -1,23 +1,17 @@
 'use strict';
 
-import type { Group } from '../models';
-import { deterministicProjectCatalogV2Id } from './catalogV2/identity';
-import { materializeProjectCatalogV2 } from './catalogV2/merge';
-import {
-    migrateProjectCatalogV1ToV2,
-    ProjectCatalogV2MigrationReport,
-} from './catalogV2/migration';
-import type {
-    ProjectCatalogV2Environment,
-    ProjectCatalogV2Project,
-} from './catalogV2/types';
-import type { ProjectConnectionProfile } from './projectClientProtocol';
+import { createHash } from 'crypto';
+import * as path from 'path';
 
-export type ProjectProfileAvailability = 'ready' | 'unavailable';
+import type { Group, Project } from '../models';
+import { ProjectRemoteType, getRemoteType } from '../models';
+import { getFavoriteProjectsInOrder } from './favoriteProjectOrder';
+import { encodeRemoteAuthority, normalizeRemoteAuthority } from './projectPathUtils';
+
+export type MachineEnvironmentKind = 'host' | 'devContainer';
 
 export interface MachineProjectRowViewModel {
     id: string;
-    legacyProjectId: string;
     environmentId: string;
     machineId: string;
     machineName: string;
@@ -29,305 +23,384 @@ export interface MachineProjectRowViewModel {
     favorite: boolean;
     color: string | null;
     searchText: string;
-    needsSetup: boolean;
-    navigationState: 'open' | 'needsConnection' | 'unavailable' | 'previewOnly' | 'needsRepair' | 'needsAssignment';
 }
 
 export interface MachineEnvironmentViewModel {
     id: string;
     machineId: string;
-    kind: ProjectCatalogV2Environment['kind'];
+    kind: MachineEnvironmentKind;
     displayName: string;
-    needsSetup: boolean;
     projects: MachineProjectRowViewModel[];
 }
 
 export interface MachineRowViewModel {
     id: string;
     displayName: string;
-    connectionState: 'configured' | 'notConfigured' | 'setupUnavailable';
-    connectionLabel: string;
-    hostAction: 'open' | 'setup';
+    hostOpenable: boolean;
+    /** A current V1 Project identity used only to revalidate the derived Host target. */
+    hostProjectId: string | null;
     environments: MachineEnvironmentViewModel[];
 }
 
-export interface MachineProjectsReadyViewModel {
-    kind: 'ready';
-    profileAvailability: ProjectProfileAvailability;
+export interface MachineProjectsViewModel {
     projectCount: number;
     tags: string[];
     favorites: MachineProjectRowViewModel[];
     machines: MachineRowViewModel[];
-    report: ProjectCatalogV2MigrationReport;
-    migrationPreview: MachineProjectsMigrationPreview;
 }
 
-export interface MachineProjectsMigrationPreview {
-    legacyGroupCount: number;
-    legacyProjectCount: number;
-    machineCount: number;
-    environmentCount: number;
-    devContainerCount: number;
-    groupTagCount: number;
-    readyProjectCount: number;
-    reviewProjectCount: number;
-    cannotOpenProjectCount: number;
-    blockingCount: number;
-    overLimitTagCount: number;
-    overLimitProjectCount: number;
+export interface MachineHostTarget {
+    name: string;
+    path: string;
+    remoteType: ProjectRemoteType;
 }
 
-export interface MachineProjectsErrorViewModel {
-    kind: 'error';
-    message: string;
-    migrationPreview: MachineProjectsMigrationPreview;
+interface ProjectTopology {
+    machineKey: string;
+    machineName: string;
+    environmentKey: string;
+    environmentName: string;
+    environmentKind: MachineEnvironmentKind;
+    hostAuthority: string | null;
+    hostRemoteType: ProjectRemoteType;
 }
 
-export type MachineProjectsViewModel =
-    | MachineProjectsReadyViewModel
-    | MachineProjectsErrorViewModel;
-
-export function buildMachineProjectsBlockingViewModel(
-    groups: Group[],
-): MachineProjectsErrorViewModel {
-    const safeGroups = Array.isArray(groups) ? groups : [];
-    const legacyProjectCount = safeGroups.reduce((count, group) =>
-        count + (group && Array.isArray(group.projects) ? group.projects.length : 0), 0);
-    return {
-        kind: 'error',
-        message: 'The current V1 catalog cannot be projected safely.',
-        migrationPreview: {
-            legacyGroupCount: safeGroups.length,
-            legacyProjectCount,
-            machineCount: 0,
-            environmentCount: 0,
-            devContainerCount: 0,
-            groupTagCount: 0,
-            readyProjectCount: 0,
-            reviewProjectCount: 0,
-            cannotOpenProjectCount: 0,
-            blockingCount: 1,
-            overLimitTagCount: 0,
-            overLimitProjectCount: 0,
-        },
-    };
+interface MachineBuilder extends MachineRowViewModel {
+    key: string;
+    hostAuthority: string | null;
+    hostRemoteType: ProjectRemoteType;
+    environmentByKey: Map<string, MachineEnvironmentViewModel>;
 }
 
-export interface BuildMachineProjectsViewModelOptions {
-    profileAvailability: ProjectProfileAvailability;
-    profiles: readonly ProjectConnectionProfile[];
-}
+const REMOTE_URI_PREFIX = 'vscode-remote://';
 
-export function buildMachineProjectsViewModel(
-    groups: Group[],
-    options: BuildMachineProjectsViewModelOptions,
-): MachineProjectsReadyViewModel {
-    const migration = migrateProjectCatalogV1ToV2(groups || []);
-    const catalog = materializeProjectCatalogV2(migration.document);
-    const profiles = new Map((options.profiles || []).map(profile => [profile.machineId, profile]));
-    const legacyProjectIds = new Map<string, string>();
-    for (const group of groups || []) {
-        for (const project of group.projects || []) {
-            legacyProjectIds.set(
-                deterministicProjectCatalogV2Id(`project:${project.id}`),
-                project.id,
-            );
-        }
-    }
-    const environments = new Map(catalog.environments.map(environment => [environment.id, environment]));
-    const machines = new Map(catalog.machines.map(machine => [machine.id, machine]));
-    const needsSetupEnvironmentIds = new Set(migration.report.needsSetupEnvironmentIds);
-    const needsAssignmentProjectIds = new Set(migration.report.needsAssignmentProjectIds);
-    const projectRows = new Map<string, MachineProjectRowViewModel>();
-    for (const project of catalog.projects) {
-        const environment = environments.get(project.environmentId);
-        const machine = environment && machines.get(environment.machineId);
-        const legacyProjectId = legacyProjectIds.get(project.id);
-        if (!environment || !machine || !legacyProjectId) { continue; }
-        projectRows.set(project.id, toProjectRow(
-            project,
-            legacyProjectId,
-            environment,
-            machine.displayName,
-            needsSetupEnvironmentIds.has(environment.id),
-            needsAssignmentProjectIds.has(project.id),
-            options.profileAvailability,
-            profiles.has(machine.id),
-        ));
-    }
-    const rowsByEnvironment = new Map<string, MachineProjectRowViewModel[]>();
-    for (const project of catalog.projects) {
-        const row = projectRows.get(project.id);
-        if (!row) { continue; }
-        const rows = rowsByEnvironment.get(project.environmentId) || [];
-        rows.push(row);
-        rowsByEnvironment.set(project.environmentId, rows);
-    }
-    const machineRows: MachineRowViewModel[] = catalog.machines.map(machine => {
-        const profile = profiles.get(machine.id) || null;
-        const connectionState = options.profileAvailability !== 'ready'
-            ? 'setupUnavailable' as const
-            : profile ? 'configured' as const : 'notConfigured' as const;
-        return {
-            id: machine.id,
-            displayName: machine.displayName,
-            connectionState,
-            connectionLabel: profile ? formatConnectionLabel(profile) : '',
-            hostAction: profile && options.profileAvailability === 'ready' ? 'open' : 'setup',
-            environments: catalog.environments
-                .filter(environment => environment.machineId === machine.id)
-                .map(environment => ({
-                    id: environment.id,
-                    machineId: machine.id,
-                    kind: environment.kind,
-                    displayName: environment.displayName,
-                    needsSetup: needsSetupEnvironmentIds.has(environment.id),
-                    projects: rowsByEnvironment.get(environment.id) || [],
-                })),
-        };
-    });
-    const favorites = catalog.projects
-        .filter(project => project.favorite && projectRows.has(project.id))
-        .sort(compareFavoriteProjects)
-        .map(project => projectRows.get(project.id)!);
+/**
+ * Build a presentation-only Machine hierarchy from the existing, synced V1
+ * Project records. No second catalog, migration, or client-local connection
+ * profile participates in this projection. The Project path is copied exactly
+ * so Project activation can continue through the existing opener.
+ */
+export function buildMachineProjectsViewModel(groups: readonly Group[]): MachineProjectsViewModel {
+    const machines = new Map<string, MachineBuilder>();
+    const rowByProject = new Map<Project, MachineProjectRowViewModel>();
+    const allProjects: Project[] = [];
     const tagsByKey = new Map<string, string>();
-    for (const project of catalog.projects) {
-        for (const tag of project.tags) {
-            const key = tag.toLocaleLowerCase();
-            if (!tagsByKey.has(key)) { tagsByKey.set(key, tag); }
-        }
-    }
-    const cannotOpenProjectIds = new Set(needsAssignmentProjectIds);
-    for (const project of catalog.projects) {
-        if (needsSetupEnvironmentIds.has(project.environmentId)) {
-            cannotOpenProjectIds.add(project.id);
-        }
-    }
-    const overLimitTags = new Set<string>();
-    const overLimitProjectIds = new Set<string>();
-    for (const project of catalog.projects) {
-        if (project.tags.length > 8) { overLimitProjectIds.add(project.id); }
-        for (const tag of project.tags) {
-            if (tag.length > 32) {
-                overLimitTags.add(tag.toLocaleLowerCase());
-                overLimitProjectIds.add(project.id);
+
+    for (const group of groups || []) {
+        for (const project of group?.projects || []) {
+            const topology = deriveProjectTopology(project.path);
+            let machine = machines.get(topology.machineKey);
+            if (!machine) {
+                const machineId = stableViewId('machine', topology.machineKey);
+                const hostEnvironment: MachineEnvironmentViewModel = {
+                    id: stableViewId('environment', `${topology.machineKey}:host`),
+                    machineId,
+                    kind: 'host',
+                    displayName: 'Host',
+                    projects: [],
+                };
+                machine = {
+                    key: topology.machineKey,
+                    id: machineId,
+                    displayName: topology.machineName,
+                    hostOpenable: topology.hostAuthority !== null,
+                    hostProjectId: null,
+                    hostAuthority: topology.hostAuthority,
+                    hostRemoteType: topology.hostRemoteType,
+                    environments: [hostEnvironment],
+                    environmentByKey: new Map([['host', hostEnvironment]]),
+                };
+                machines.set(topology.machineKey, machine);
             }
+
+            if (!machine.hostAuthority && topology.hostAuthority) {
+                machine.hostAuthority = topology.hostAuthority;
+                machine.hostRemoteType = topology.hostRemoteType;
+                machine.hostOpenable = true;
+            }
+            if (topology.hostAuthority && (!machine.hostProjectId
+                || topology.environmentKind === 'host')) {
+                machine.hostProjectId = project.id;
+            }
+
+            const environmentKey = topology.environmentKind === 'host'
+                ? 'host'
+                : topology.environmentKey;
+            let environment = machine.environmentByKey.get(environmentKey);
+            if (!environment) {
+                environment = {
+                    id: stableViewId(
+                        'environment',
+                        `${topology.machineKey}:${environmentKey}`,
+                    ),
+                    machineId: machine.id,
+                    kind: topology.environmentKind,
+                    displayName: topology.environmentName,
+                    projects: [],
+                };
+                machine.environmentByKey.set(environmentKey, environment);
+                machine.environments.push(environment);
+            }
+
+            const tags = normalizeViewTags([
+                ...(Array.isArray(project.tags) ? project.tags : []),
+                group?.groupName,
+            ]);
+            for (const tag of tags) {
+                const key = tag.toLocaleLowerCase();
+                if (!tagsByKey.has(key)) { tagsByKey.set(key, tag); }
+            }
+            const row: MachineProjectRowViewModel = {
+                id: project.id,
+                environmentId: environment.id,
+                machineId: machine.id,
+                machineName: machine.displayName,
+                environmentName: environment.displayName,
+                name: project.name || 'Unnamed Project',
+                description: project.description || null,
+                path: project.path || '',
+                tags,
+                favorite: project.favorite === true,
+                color: project.color || null,
+                searchText: [
+                    project.name || '',
+                    project.description || '',
+                    project.path || '',
+                    tags.join(' '),
+                    machine.displayName,
+                    environment.displayName,
+                ].join(' ').toLocaleLowerCase(),
+            };
+            environment.projects.push(row);
+            rowByProject.set(project, row);
+            allProjects.push(project);
         }
     }
-    const reviewProjectIds = new Set(
-        Array.from(overLimitProjectIds).filter(id => !cannotOpenProjectIds.has(id)),
-    );
+
+    const machineRows = Array.from(machines.values()).map(machine => ({
+        id: machine.id,
+        displayName: machine.displayName,
+        hostOpenable: machine.hostOpenable,
+        hostProjectId: machine.hostProjectId,
+        environments: machine.environments,
+    }));
     return {
-        kind: 'ready',
-        profileAvailability: options.profileAvailability,
-        projectCount: projectRows.size,
+        projectCount: allProjects.length,
         tags: Array.from(tagsByKey.values()).sort((left, right) =>
             left.localeCompare(right, undefined, { sensitivity: 'base' })),
-        favorites,
+        favorites: getFavoriteProjectsInOrder(allProjects)
+            .map(project => rowByProject.get(project))
+            .filter((row): row is MachineProjectRowViewModel => Boolean(row)),
         machines: machineRows,
-        report: migration.report,
-        migrationPreview: {
-            legacyGroupCount: (groups || []).length,
-            legacyProjectCount: migration.report.projectCount,
-            machineCount: migration.report.machineCount,
-            environmentCount: migration.report.environmentCount,
-            devContainerCount: catalog.environments
-                .filter(environment => environment.kind === 'devContainer').length,
-            groupTagCount: migration.report.uniqueGroupTagCount,
-            readyProjectCount: Math.max(
-                0,
-                migration.report.projectCount
-                    - cannotOpenProjectIds.size
-                    - reviewProjectIds.size,
-            ),
-            reviewProjectCount: reviewProjectIds.size,
-            cannotOpenProjectCount: cannotOpenProjectIds.size,
-            blockingCount: 0,
-            overLimitTagCount: overLimitTags.size,
-            overLimitProjectCount: overLimitProjectIds.size,
-        },
     };
 }
 
-export function resolveMachineProjectTarget(
-    groups: Group[],
-    target: {
-        legacyProjectId: string;
-        machineId: string;
-        environmentId: string;
-    },
-): { projectPath: string } | null {
-    const migration = migrateProjectCatalogV1ToV2(groups || []);
-    const catalog = materializeProjectCatalogV2(migration.document);
-    const projectId = deterministicProjectCatalogV2Id(`project:${target.legacyProjectId}`);
-    const project = catalog.projects.find(candidate => candidate.id === projectId);
-    const environment = project && catalog.environments.find(candidate =>
-        candidate.id === project.environmentId);
-    if (!project || !environment
-        || environment.id !== target.environmentId
-        || environment.machineId !== target.machineId
-        || environment.kind !== 'host'
-        || migration.report.needsAssignmentProjectIds.includes(project.id)
-        || migration.report.needsSetupEnvironmentIds.includes(environment.id)) {
+/** Re-resolve the Host target from authoritative V1 Projects at click time. */
+export function resolveMachineHostTarget(
+    groups: readonly Group[],
+    target: { machineId: string; projectId: string },
+): MachineHostTarget | null {
+    if (!target || typeof target.machineId !== 'string'
+        || typeof target.projectId !== 'string') {
         return null;
     }
-    return { projectPath: project.path };
+    for (const group of groups || []) {
+        const project = (group?.projects || []).find(candidate =>
+            candidate.id === target.projectId);
+        if (!project) { continue; }
+        const topology = deriveProjectTopology(project.path);
+        if (stableViewId('machine', topology.machineKey) !== target.machineId
+            || !topology.hostAuthority) {
+            return null;
+        }
+        return {
+            name: topology.machineName,
+            path: `${REMOTE_URI_PREFIX}${encodeRemoteAuthority(topology.hostAuthority)}/`,
+            remoteType: topology.hostRemoteType,
+        };
+    }
+    return null;
 }
 
-function toProjectRow(
-    project: ProjectCatalogV2Project,
-    legacyProjectId: string,
-    environment: ProjectCatalogV2Environment,
+function deriveProjectTopology(projectPath: string): ProjectTopology {
+    const remote = splitRemoteProjectUri(projectPath);
+    if (!remote) {
+        const wslDistribution = parseLegacyWslDistribution(projectPath);
+        if (wslDistribution) {
+            const authority = `wsl+${wslDistribution}`;
+            return hostTopology(
+                `remote:${authority}`,
+                `${wslDistribution} (WSL)`,
+                authority,
+                ProjectRemoteType.WSL,
+            );
+        }
+        return localTopology();
+    }
+
+    const authority = remote.authority;
+    if (authority.startsWith('dev-container+')) {
+        const nested = authority.slice('dev-container+'.length);
+        const separator = nested.lastIndexOf('@ssh-remote+');
+        if (separator > 0) {
+            const sshAuthority = nested.slice(separator + 1);
+            const target = sshAuthority.slice('ssh-remote+'.length) || 'SSH Host';
+            return containerTopology(
+                `remote:${sshAuthority}`,
+                target,
+                authority,
+                nested.slice(0, separator),
+                sshAuthority,
+                ProjectRemoteType.SSH,
+            );
+        }
+        return containerTopology(
+            'local',
+            'Local',
+            authority,
+            nested,
+            null,
+            ProjectRemoteType.None,
+        );
+    }
+    if (authority.startsWith('attached-container+')) {
+        return containerTopology(
+            'local',
+            'Local',
+            authority,
+            authority.slice('attached-container+'.length),
+            null,
+            ProjectRemoteType.None,
+            'Attached Container',
+        );
+    }
+    if (authority.startsWith('ssh-remote+')) {
+        return hostTopology(
+            `remote:${authority}`,
+            authority.slice('ssh-remote+'.length) || 'SSH Host',
+            authority,
+            ProjectRemoteType.SSH,
+        );
+    }
+    if (authority.startsWith('wsl+')) {
+        const distribution = authority.slice('wsl+'.length) || 'WSL';
+        return hostTopology(
+            `remote:${authority}`,
+            `${distribution} (WSL)`,
+            authority,
+            ProjectRemoteType.WSL,
+        );
+    }
+    return hostTopology(
+        `remote:${authority}`,
+        remoteDisplayName(authority),
+        authority,
+        getRemoteType({ path: projectPath } as Project),
+    );
+}
+
+function localTopology(): ProjectTopology {
+    return hostTopology('local', 'Local', null, ProjectRemoteType.None);
+}
+
+function hostTopology(
+    machineKey: string,
     machineName: string,
-    needsSetup: boolean,
-    needsAssignment: boolean,
-    profileAvailability: ProjectProfileAvailability,
-    hasProfile: boolean,
-): MachineProjectRowViewModel {
-    const navigationState = needsAssignment ? 'needsAssignment' as const
-        : environment.kind !== 'host' ? 'previewOnly' as const
-            : needsSetup ? 'needsRepair' as const
-            : profileAvailability !== 'ready' ? 'unavailable' as const
-                : hasProfile ? 'open' as const : 'needsConnection' as const;
+    hostAuthority: string | null,
+    hostRemoteType: ProjectRemoteType,
+): ProjectTopology {
     return {
-        id: project.id,
-        legacyProjectId,
-        environmentId: environment.id,
-        machineId: environment.machineId,
+        machineKey,
         machineName,
-        environmentName: environment.displayName,
-        name: project.name,
-        description: project.description,
-        path: project.path,
-        tags: [...project.tags],
-        favorite: project.favorite,
-        color: project.color,
-        searchText: [
-            project.name,
-            project.description || '',
-            project.path,
-            project.tags.join(' '),
-            machineName,
-            environment.displayName,
-        ].join(' ').toLocaleLowerCase(),
-        needsSetup,
-        navigationState,
+        environmentKey: 'host',
+        environmentName: 'Host',
+        environmentKind: 'host',
+        hostAuthority,
+        hostRemoteType,
     };
 }
 
-function formatConnectionLabel(profile: ProjectConnectionProfile): string {
-    if (profile.kind === 'local') { return 'Local · this VS Code'; }
-    const label = profile.kind === 'ssh' ? 'SSH'
-        : profile.kind === 'wsl' ? 'WSL'
-            : 'Remote';
-    return `${label} · ${profile.target || profile.resolverAuthority || 'configured'}`;
+function containerTopology(
+    machineKey: string,
+    machineName: string,
+    authority: string,
+    rawAnchor: string,
+    hostAuthority: string | null,
+    hostRemoteType: ProjectRemoteType,
+    fallbackName = 'Dev Container',
+): ProjectTopology {
+    return {
+        machineKey,
+        machineName,
+        environmentKey: `container:${authority}`,
+        environmentName: devContainerDisplayName(rawAnchor, fallbackName),
+        environmentKind: 'devContainer',
+        hostAuthority,
+        hostRemoteType,
+    };
 }
 
-function compareFavoriteProjects(
-    left: ProjectCatalogV2Project,
-    right: ProjectCatalogV2Project,
-): number {
-    const leftPosition = left.favoritePosition || `~:${left.position}`;
-    const rightPosition = right.favoritePosition || `~:${right.position}`;
-    return leftPosition.localeCompare(rightPosition) || left.id.localeCompare(right.id);
+function splitRemoteProjectUri(projectPath: string): { authority: string } | null {
+    if (typeof projectPath !== 'string' || !projectPath.startsWith(REMOTE_URI_PREFIX)) {
+        return null;
+    }
+    const rest = projectPath.slice(REMOTE_URI_PREFIX.length);
+    const slash = rest.indexOf('/');
+    const encodedAuthority = slash < 0 ? rest : rest.slice(0, slash);
+    if (!encodedAuthority) { return null; }
+    return { authority: normalizeRemoteAuthority(encodedAuthority) };
+}
+
+function parseLegacyWslDistribution(projectPath: string): string | null {
+    if (typeof projectPath !== 'string') { return null; }
+    const match = projectPath.match(/^\\\\(?:wsl\$|wsl\.localhost)\\([^\\/]+)/i);
+    return match?.[1] || null;
+}
+
+function devContainerDisplayName(rawAnchor: string, fallbackName: string): string {
+    const anchor = decodeHexJson(rawAnchor);
+    if (!anchor) { return fallbackName; }
+    const explicitName = typeof anchor.name === 'string' ? anchor.name.trim() : '';
+    if (explicitName) { return `${explicitName} (Dev Container)`; }
+    const hostPath = typeof anchor.hostPath === 'string' ? anchor.hostPath : '';
+    const workspaceName = path.posix.basename(hostPath.replace(/\\/g, '/'));
+    return workspaceName ? `${workspaceName} (Dev Container)` : fallbackName;
+}
+
+function decodeHexJson(raw: string): Record<string, unknown> | null {
+    if (!raw || raw.length % 2 !== 0 || !/^[a-f0-9]+$/i.test(raw)) { return null; }
+    try {
+        const decoded = Buffer.from(raw, 'hex').toString('utf8');
+        const value = JSON.parse(decoded) as unknown;
+        return value && typeof value === 'object' && !Array.isArray(value)
+            ? value as Record<string, unknown>
+            : null;
+    } catch (_error) {
+        return null;
+    }
+}
+
+function remoteDisplayName(authority: string): string {
+    const separator = authority.indexOf('+');
+    return separator >= 0 && authority.slice(separator + 1)
+        ? authority.slice(separator + 1)
+        : authority;
+}
+
+function normalizeViewTags(values: unknown[]): string[] {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    for (const value of values) {
+        if (typeof value !== 'string') { continue; }
+        const tag = value.trim().replace(/^#+/, '').trim();
+        const key = tag.toLocaleLowerCase();
+        if (!tag || seen.has(key)) { continue; }
+        seen.add(key);
+        result.push(tag);
+    }
+    return result;
+}
+
+function stableViewId(kind: string, value: string): string {
+    return `${kind}-${createHash('sha256').update(value).digest('hex').slice(0, 16)}`;
 }

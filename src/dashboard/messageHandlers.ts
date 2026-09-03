@@ -20,8 +20,7 @@ export interface DashboardMessageHandlersOptions {
     /** Late-bound: stewardInfos is assembled after the message router. */
     getStewardInfos: () => StewardInfos;
     projectService: ProjectService;
-    renderProjectsPanel?: (groups: Group[], infos: StewardInfos) => Promise<string>;
-    getDocumentGeneration: () => number;
+    renderProjectsPanel?: (groups: Group[], infos: StewardInfos) => string;
     /** Late-bound authoritative catalog returned with the lazy Projects panel. */
     getSearchCatalog?: () => DashboardWorkspaceSearchCatalog;
     promptDashboardController: PromptDashboardController;
@@ -103,24 +102,17 @@ export function createDashboardMessageHandlers(
 
     return {
         'request-projects-panel': async e => {
-            if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1
-                || !Number.isSafeInteger(e.documentGeneration)
-                || e.documentGeneration < 1
-                || e.documentGeneration !== options.getDocumentGeneration()) {
+            if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
                 return;
             }
             const groups = projectService.getGroups();
             const html = options.renderProjectsPanel
-                ? await options.renderProjectsPanel(groups, getStewardInfos())
+                ? options.renderProjectsPanel(groups, getStewardInfos())
                 : getProjectsPanelContent(groups, getStewardInfos());
-            if (e.documentGeneration !== options.getDocumentGeneration()) {
-                return;
-            }
             await postMessage({
                 type: 'projects-panel-content',
                 version: 1,
                 requestId: e.requestId,
-                documentGeneration: e.documentGeneration,
                 html,
                 ...(getSearchCatalog ? { searchCatalog: getSearchCatalog() } : {}),
             });

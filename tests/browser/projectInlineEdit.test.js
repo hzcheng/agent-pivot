@@ -71,7 +71,6 @@ async function openInlineEditPage(t) {
         <body><main id="dashboard-tab-projects">${projectsMarkup()}</main></body></html>`);
     await page.evaluate(() => {
         window.__postedMessages = [];
-        window.__agentPivotReadyDocumentGeneration = 1;
         window.vscode = { postMessage: message => window.__postedMessages.push(message) };
         window.normalizeDashboardSearchCatalog = value => value;
     });
@@ -113,7 +112,7 @@ async function openInlineEditPage(t) {
         });
         window.__testProjectsPanel.ensureProjectsPanel();
         if (!window.__testProjectsPanel.applyProjectsPanelMessage({
-            type: 'projects-panel-content', version: 1, requestId: 1, documentGeneration: 1, html: markup,
+            type: 'projects-panel-content', version: 1, requestId: 1, html: markup,
         })) {
             throw new Error('The inline-edit test setup could not mount its Projects panel.');
         }

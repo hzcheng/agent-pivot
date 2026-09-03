@@ -293,7 +293,7 @@
                     "type": "boolean",
                     "default": false,
                     "scope": "application",
-                    "markdownDescription": "Preview the experimental Machine → Environment → Project view. V1 remains authoritative in this milestone, so disabling this setting immediately restores the existing Projects page."
+                    "markdownDescription": "Show saved Projects as a Machine → Environment → Project hierarchy derived from their existing paths. Disabling this setting immediately restores the original Projects page; no data migration is performed."
                 },
                 "agentPivot.maxVisibleAiSessions": {
                     "type": "number",

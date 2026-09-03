@@ -35,7 +35,6 @@ function createFixture(overrides = {}) {
     };
     const handlers = createDashboardMessageHandlers({
         postMessage: async message => { posted.push(message); return true; },
-        getDocumentGeneration: () => overrides.documentGeneration || 3,
         getStewardInfos: () => ({ config: { get: (_key, fallback) => fallback } }),
         projectService: { getGroups: () => [{ id: 'group-a', name: 'Work', projects: [] }] },
         getSearchCatalog: () => ({
@@ -132,19 +131,16 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every extracted handler key',
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 validates panel request envelopes and posts content', async () => {
     const { handlers, posted } = createFixture();
 
-    await handlers['request-projects-panel']({ version: 1, requestId: 7, documentGeneration: 3 });
+    await handlers['request-projects-panel']({ version: 1, requestId: 7 });
     assert.equal(posted.length, 1);
     assert.equal(posted[0].type, 'projects-panel-content');
     assert.equal(posted[0].requestId, 7);
-    assert.equal(posted[0].documentGeneration, 3);
     assert.ok(posted[0].html.length > 0, 'the panel html renders from current groups');
     assert.equal(posted[0].searchCatalog.version, 3,
         'the lazy panel response refreshes the authoritative search catalog too');
 
-    await handlers['request-projects-panel']({ version: 2, requestId: 8, documentGeneration: 3 });
-    await handlers['request-projects-panel']({ version: 1, requestId: 0, documentGeneration: 3 });
-    await handlers['request-projects-panel']({ version: 1, requestId: 8, documentGeneration: 2 });
-    await handlers['request-projects-panel']({ version: 1, requestId: 8 });
+    await handlers['request-projects-panel']({ version: 2, requestId: 8 });
+    await handlers['request-projects-panel']({ version: 1, requestId: 0 });
     assert.equal(posted.length, 1, 'invalid panel envelopes stay ignored');
 
     await handlers['request-ai-panel']({
@@ -161,44 +157,6 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 validates panel request envelopes and
 
     await handlers['request-ai-panel']({ type: 'request-ai-panel', version: 1, requestId: 'req-9', target: 'other' });
     assert.equal(posted.length, 2, 'unknown targets stay ignored');
-});
-
-test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 drops a lazy panel rendered for a replaced document', async () => {
-    let generation = 3;
-    let releaseRender;
-    const renderFlight = new Promise(resolve => { releaseRender = resolve; });
-    const { handlers, posted } = createFixture({
-        get documentGeneration() { return generation; },
-    });
-    // Recreate with a renderer whose completion can cross a full document replacement.
-    const delayed = createDashboardMessageHandlers({
-        postMessage: async message => { posted.push(message); return true; },
-        getDocumentGeneration: () => generation,
-        getStewardInfos: () => ({ config: { get: (_key, fallback) => fallback } }),
-        projectService: { getGroups: () => [] },
-        renderProjectsPanel: async () => {
-            await renderFlight;
-            return '<p>old document</p>';
-        },
-        getSearchCatalog: () => ({ version: 3, sessions: [], worktrees: [], openWorkspaces: [], savedProjects: [], todos: [] }),
-        promptDashboardController: { getPanelContent() {}, handle() {} },
-        getPromptTerminalCommandController: () => ({ handleInsertRequest() {} }),
-        aiSessionCommandController: {}, aiSessionTerminalCommandController: {},
-        focusAiSessionAndFollowConversation: async () => {},
-        aiSessionArchiveController: {}, acknowledgeAiSessionAttentionEventIds: async () => {},
-        logOpenWorkspaceDiagnostic() {}, refreshStewardViews() {},
-        onOpenWorkspacesRendererReady() {}, requestActiveAiSessionTerminalHighlight() {},
-        showAgentPivotSettings: async () => {}, showBridgeExtension: async () => {},
-        showSponsorOptions: async () => {},
-    });
-    const pending = delayed['request-projects-panel']({
-        version: 1, requestId: 1, documentGeneration: 3,
-    });
-    generation = 4;
-    releaseRender();
-    await pending;
-    assert.deepEqual(posted, []);
-    assert.ok(handlers, 'the ordinary fixture remains valid');
 });
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 posts prompt results only when produced', async () => {

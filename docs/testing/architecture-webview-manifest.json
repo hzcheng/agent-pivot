@@ -175,6 +175,7 @@
       "producer": "src/webview/webviewProjectCollapseScripts.js",
       "consumers": [
         "src/webview/webviewAiSessionViewStateScripts.js",
+        "src/webview/webviewMachineProjectsScripts.js",
         "src/webview/webviewProjectAiSessionControlsScripts.js",
         "src/webview/webviewWorkspaceUpdateScripts.js"
       ]
@@ -245,10 +246,6 @@
     },
     {
       "symbol": "window.clearTimeout",
-      "producer": "builtin"
-    },
-    {
-      "symbol": "window.crypto",
       "producer": "builtin"
     },
     {

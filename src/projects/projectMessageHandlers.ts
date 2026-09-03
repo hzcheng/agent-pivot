@@ -3,12 +3,12 @@
 import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
 import { withAttentionProject } from '../aiSessions/attentionProject';
 import { normalizeProjectTags } from './projectTags';
-import { Project } from '../models';
+import { Project, ProjectOpenType } from '../models';
 import type { GroupCollapseController } from '../dashboard/groupCollapseController';
 import type { DashboardMessageHandler } from '../dashboard/messageRouter';
 import type { ProjectsPanelController } from '../dashboard/projectsPanelController';
 import type { ProjectsPanelUpdateMode } from '../dashboard/webviewUpdateMessages';
-import type { GroupOrder, ProjectOpenType } from '../models';
+import type { GroupOrder } from '../models';
 import type { OpenWorkspaceDashboardController } from '../openWorkspaces/dashboardController';
 import type { WorkspaceNavigationController } from '../openWorkspaces/navigationController';
 import type { OpenWindowNavigationRequestController } from '../openWorkspaces/openWindowNavigationRequestController';
@@ -20,8 +20,7 @@ import type { ProjectMutationController } from './projectMutationController';
 import type { ProjectOpenController } from './projectOpenController';
 import type { ProjectOrderController } from './projectOrderController';
 import type { ProjectRemovalController } from './projectRemovalController';
-import type { MachineProjectsController } from './machineProjectsController';
-import type { ProjectManualEditController } from './projectManualEditController';
+import { resolveMachineHostTarget } from './machineProjectsViewModel';
 
 export interface ProjectSurfaceRefreshOptions {
     getProjectsPanelController: () => ProjectsPanelController | undefined;
@@ -81,10 +80,6 @@ export interface ProjectMessageHandlersOptions {
     projectRemovalController: ProjectRemovalController;
     groupCommandController: GroupCommandController;
     groupCollapseController: GroupCollapseController;
-    machineProjectsController: MachineProjectsController;
-    projectManualEditController: ProjectManualEditController;
-    cancelMachineProjectsPreview: () => Promise<void>;
-    showRemoteSshExtension: () => Thenable<unknown>;
     /** Late-bound: the navigation controller is constructed after the router. */
     getWorkspaceNavigationController: () => WorkspaceNavigationController;
     /** Late-bound: the navigation request controller is constructed after the router. */
@@ -120,8 +115,6 @@ export function createProjectMessageHandlers(
     const projectRemovalController = options.projectRemovalController;
     const groupCommandController = options.groupCommandController;
     const groupCollapseController = options.groupCollapseController;
-    const machineProjectsController = options.machineProjectsController;
-    const projectManualEditController = options.projectManualEditController;
     const getWorkspaceNavigationController = options.getWorkspaceNavigationController;
     const getOpenWindowNavigationRequestController = options.getOpenWindowNavigationRequestController;
     const getOpenWorkspacePinController = options.getOpenWorkspacePinController;
@@ -132,26 +125,23 @@ export function createProjectMessageHandlers(
     const showWarningMessage = options.showWarningMessage;
 
     return {
-        'machine-project-action': async e => {
-            await postMessage(await machineProjectsController.handle(
-                e,
-                progress => postMessage(progress as unknown as Record<string, unknown>),
-            ) as unknown as Record<string, unknown>);
-        },
-        'repair-machine-projects-preview': async e => {
-            if (Object.keys(e).length === 1) {
-                await projectManualEditController.editProjectsManually();
+        'open-machine-host': async e => {
+            if (Object.keys(e).length !== 3
+                || typeof e.machineId !== 'string'
+                || typeof e.projectId !== 'string') {
+                return;
             }
-        },
-        'cancel-machine-projects-preview': async e => {
-            if (Object.keys(e).length === 1) {
-                await options.cancelMachineProjectsPreview();
+            const target = resolveMachineHostTarget(projectService.getGroups(), {
+                machineId: e.machineId,
+                projectId: e.projectId,
+            });
+            if (!target) {
+                showWarningMessage('The Machine connection could not be derived from its Projects.');
+                return;
             }
-        },
-        'open-remote-ssh-extension': async e => {
-            if (Object.keys(e).length === 1) {
-                await options.showRemoteSshExtension();
-            }
+            const host = new Project(target.name, target.path);
+            host.remoteType = target.remoteType;
+            await projectOpenController.openProject(host, ProjectOpenType.NewWindow);
         },
         'selected-project': async e => {
             let projectId = e.projectId as string;

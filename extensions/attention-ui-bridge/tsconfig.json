@@ -18,8 +18,6 @@
         "../../src/openWorkspaces/pinProtocol.ts",
         "../../src/openWorkspaces/protocol.ts",
         "../../src/openWorkspaces/runningFocusProtocol.ts",
-        "../../src/projects/environmentHostNavigationProtocol.ts",
-        "../../src/projects/projectClientProtocol.ts",
         "../../src/workspaces/types.ts",
         "../../shared/attention-bridge/**/*.ts"
     ]

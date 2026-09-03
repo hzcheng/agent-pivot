@@ -4,9 +4,8 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
-    buildMachineProjectsBlockingViewModel,
     buildMachineProjectsViewModel,
-    resolveMachineProjectTarget,
+    resolveMachineHostTarget,
 } = require('../../../out/projects/machineProjectsViewModel');
 
 function groups() {
@@ -34,100 +33,77 @@ function groups() {
     }];
 }
 
-test('MACHINE-PROJECTS-PROJECTION-001 MACHINE-PROJECTS-MIGRATION-PREVIEW-001 builds one Machine with distinct Host and Dev Container environments', () => {
-    const preview = buildMachineProjectsViewModel(groups(), {
-        profileAvailability: 'ready',
-        profiles: [],
-    });
+test('MACHINE-PROJECTS-PROJECTION-001 derives Machine, Host, and Dev Container rows directly from saved Project URIs', () => {
+    const model = buildMachineProjectsViewModel(groups());
 
-    assert.equal(preview.kind, 'ready');
-    assert.equal(preview.machines.length, 1);
-    assert.deepEqual(preview.machines[0].environments.map(environment => environment.kind), [
+    assert.equal(model.projectCount, 2);
+    assert.equal(model.machines.length, 1);
+    assert.equal(model.machines[0].displayName, 'devbox');
+    assert.deepEqual(model.machines[0].environments.map(environment => environment.kind), [
         'host', 'devContainer',
     ]);
     assert.deepEqual(
-        preview.machines[0].environments.flatMap(environment =>
-            environment.projects.map(project => project.legacyProjectId)),
+        model.machines[0].environments.flatMap(environment =>
+            environment.projects.map(project => project.id)),
         ['api', 'worker'],
     );
-    assert.equal(preview.machines[0].connectionState, 'notConfigured');
-    assert.deepEqual(preview.tags, ['active', 'api', 'Backend', 'worker']);
-    assert.deepEqual(preview.migrationPreview, {
-        legacyGroupCount: 1,
-        legacyProjectCount: 2,
-        machineCount: 1,
-        environmentCount: 2,
-        devContainerCount: 1,
-        groupTagCount: 1,
-        readyProjectCount: 2,
-        reviewProjectCount: 0,
-        cannotOpenProjectCount: 0,
-        blockingCount: 0,
-        overLimitTagCount: 0,
-        overLimitProjectCount: 0,
-    });
+    assert.equal(
+        model.machines[0].environments[1].projects[0].path,
+        groups()[0].projects[1].path,
+        'the view never rewrites the URI used by the existing Project opener',
+    );
+    assert.deepEqual(model.tags, ['active', 'api', 'Backend', 'worker']);
+    assert.equal(model.favorites[0].id, 'api');
 });
 
-test('MACHINE-PROJECTS-PROJECTION-001 mirrors Favorites without duplicating Project identity or counts', () => {
-    const initial = buildMachineProjectsViewModel(groups(), {
-        profileAvailability: 'ready',
-        profiles: [],
-    });
-    const machineId = initial.machines[0].id;
-    const preview = buildMachineProjectsViewModel(groups(), {
-        profileAvailability: 'ready',
-        profiles: [{
-            machineId,
-            kind: 'ssh',
-            target: 'devbox-local-alias',
-            resolverAuthority: 'ssh-remote+devbox-local-alias',
-            updatedAtMs: 1,
+test('MACHINE-PROJECTS-PROJECTION-001 treats WSL as its own Machine and local containers as an Environment of Local', () => {
+    const localContainer = Buffer.from(JSON.stringify({
+        hostPath: '/work/local-api',
+        localDocker: true,
+        configFile: { path: '/work/local-api/.devcontainer/devcontainer.json' },
+    }), 'utf8').toString('hex');
+    const model = buildMachineProjectsViewModel([{
+        id: 'mixed', groupName: 'Mixed', projects: [{
+            id: 'wsl', name: 'WSL', path: 'vscode-remote://wsl%2BUbuntu/home/dev/app', tags: [],
+        }, {
+            id: 'local-container', name: 'Container',
+            path: `vscode-remote://dev-container%2B${localContainer}/workspaces/app`, tags: [],
+        }, {
+            id: 'local', name: 'Local', path: '/home/dev/local', tags: [],
         }],
-    });
+    }]);
 
-    assert.equal(preview.projectCount, 2);
-    assert.equal(preview.favorites.length, 1);
-    assert.equal(preview.favorites[0].legacyProjectId, 'api');
-    assert.equal(preview.favorites[0].machineId, machineId);
-    assert.equal(preview.machines[0].connectionState, 'configured');
-    assert.equal(preview.machines[0].connectionLabel, 'SSH · devbox-local-alias');
-    const hostProject = preview.machines[0].environments[0].projects[0];
-    const containerProject = preview.machines[0].environments[1].projects[0];
-    assert.equal(hostProject.navigationState, 'open');
-    assert.equal(containerProject.navigationState, 'previewOnly');
-    assert.deepEqual(resolveMachineProjectTarget(groups(), {
-        legacyProjectId: hostProject.legacyProjectId,
-        machineId: hostProject.machineId,
-        environmentId: hostProject.environmentId,
-    }), { projectPath: '/work/api' });
-    assert.equal(resolveMachineProjectTarget(groups(), {
-        legacyProjectId: hostProject.legacyProjectId,
-        machineId: hostProject.machineId,
-        environmentId: containerProject.environmentId,
-    }), null, 'a stale or forged placement cannot open the Project');
+    assert.deepEqual(model.machines.map(machine => machine.displayName), ['Ubuntu (WSL)', 'Local']);
+    assert.deepEqual(model.machines[1].environments.map(environment => environment.kind), [
+        'host', 'devContainer',
+    ]);
 });
 
-test('MACHINE-PROJECTS-PROJECTION-001 fails closed when profile authority is unavailable', () => {
-    const preview = buildMachineProjectsViewModel(groups(), {
-        profileAvailability: 'unavailable',
-        profiles: [],
-    });
+test('MACHINE-PROJECTS-HOST-NAVIGATION-001 derives a Host root from the same saved URI without a connection profile', () => {
+    const model = buildMachineProjectsViewModel(groups());
+    const machine = model.machines[0];
 
-    assert.equal(preview.kind, 'ready');
-    assert.equal(preview.machines[0].connectionState, 'setupUnavailable');
-    assert.equal(preview.machines[0].hostAction, 'setup');
-    assert.equal(preview.machines[0].environments[0].projects[0].navigationState, 'unavailable');
+    assert.equal(machine.hostOpenable, true);
+    assert.equal(machine.hostProjectId, 'api');
+    assert.deepEqual(resolveMachineHostTarget(groups(), {
+        machineId: machine.id,
+        projectId: machine.hostProjectId,
+    }), {
+        name: 'devbox',
+        path: 'vscode-remote://ssh-remote%2Bdevbox/',
+        remoteType: 1,
+    });
 });
 
-test('MACHINE-PROJECTS-MIGRATION-PREVIEW-001 reports a real blocking preview without activating V2', () => {
-    const invalid = groups();
-    invalid[0].projects.push({ ...invalid[0].projects[0] });
-    assert.throws(() => buildMachineProjectsViewModel(invalid, {
-        profileAvailability: 'ready', profiles: [],
-    }), /duplicate legacy project id/);
+test('MACHINE-PROJECTS-HOST-NAVIGATION-001 can derive an SSH Host from a container-only Machine', () => {
+    const source = groups();
+    source[0].projects.shift();
+    const model = buildMachineProjectsViewModel(source);
+    const machine = model.machines[0];
 
-    const blocked = buildMachineProjectsBlockingViewModel(invalid);
-    assert.equal(blocked.kind, 'error');
-    assert.equal(blocked.migrationPreview.blockingCount, 1);
-    assert.equal(blocked.migrationPreview.legacyProjectCount, 3);
+    assert.equal(machine.hostProjectId, 'worker');
+    assert.equal(resolveMachineHostTarget(source, {
+        machineId: machine.id,
+        projectId: machine.hostProjectId,
+    }).path, 'vscode-remote://ssh-remote%2Bdevbox/');
 });

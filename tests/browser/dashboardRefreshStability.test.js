@@ -246,7 +246,6 @@ async function openDashboardPage(t, options = {}) {
             },
         });
         window.__messages = [];
-        window.__agentPivotReadyDocumentGeneration = 1;
         window.__projectsMountGeneration = 0;
         window.vscode = { postMessage: message => window.__messages.push(message) };
     }, options.sessionStorageAvailable !== false);
@@ -289,7 +288,7 @@ test('WEBVIEW-DASHBOARD-SEARCH-001 refreshes search results from the lazy Projec
     const page = await openDashboardPage(t);
     await page.evaluate(() => window.__dashboard.activateTab('projects'));
     await post(page, {
-        type: 'projects-panel-content', version: 1, requestId: 1, documentGeneration: 1,
+        type: 'projects-panel-content', version: 1, requestId: 1,
         html: projectsMarkup(['reddev-container']),
         searchCatalog: catalogWithSavedProject('reddev-container'),
     });
@@ -346,7 +345,7 @@ test('TAG-FILTER-BAR-001 binds lazy tag chips again after an authoritative Proje
         otherStorageHasData: false,
     });
     await post(page, {
-        type: 'projects-panel-content', version: 1, requestId: 1, documentGeneration: 1, html: taggedMarkup,
+        type: 'projects-panel-content', version: 1, requestId: 1, html: taggedMarkup,
     });
 
     await page.locator('[data-tag-filter="frontend"]').click();
@@ -371,7 +370,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 preserves a project anchor, focus, and w
     const page = await openDashboardPage(t);
     await page.evaluate(() => window.__dashboard.activateTab('projects'));
     await post(page, {
-        type: 'projects-panel-content', version: 1, requestId: 1, documentGeneration: 1, html: projectsMarkup(['project-a', 'project-b', 'project-c', 'project-d', 'project-e', 'project-f']),
+        type: 'projects-panel-content', version: 1, requestId: 1, html: projectsMarkup(['project-a', 'project-b', 'project-c', 'project-d', 'project-e', 'project-f']),
     });
     const anchor = page.locator('.project[data-id="project-e"]');
     await waitForPageCondition(page, () => {
@@ -413,7 +412,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 restores the real Projects scrollport af
     const projectIds = ['project-a', 'project-b', 'project-c'];
     await page.evaluate(() => window.__dashboard.activateTab('projects'));
     await post(page, {
-        type: 'projects-panel-content', version: 1, requestId: 1, documentGeneration: 1, html: longProjectsMarkup(projectIds),
+        type: 'projects-panel-content', version: 1, requestId: 1, html: longProjectsMarkup(projectIds),
     });
     await waitForPageCondition(page, () => {
         const panel = document.querySelector('#dashboard-tab-projects');
@@ -442,7 +441,7 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 clamps the saved raw position when the s
     const page = await openDashboardPage(t);
     await page.evaluate(() => window.__dashboard.activateTab('projects'));
     await post(page, {
-        type: 'projects-panel-content', version: 1, requestId: 1, documentGeneration: 1,
+        type: 'projects-panel-content', version: 1, requestId: 1,
         html: projectsMarkup(['project-a', 'project-b', 'project-c', 'project-d', 'project-e', 'project-f']),
     });
     await waitForPageCondition(page, () => {

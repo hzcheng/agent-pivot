@@ -7,6 +7,7 @@ const {
     createProjectMessageHandlers,
     createProjectSurfaceRefresh,
 } = require('../../../out/projects/projectMessageHandlers');
+const { buildMachineProjectsViewModel } = require('../../../out/projects/machineProjectsViewModel');
 const { getAttentionProjectKey } = require('../../../out/aiSessions/attentionProject');
 
 function createFixture(overrides = {}) {
@@ -42,6 +43,13 @@ function createFixture(overrides = {}) {
                     : project;
                 Object.assign(p, updated);
             },
+            getGroups: () => overrides.groups || [{
+                id: 'remote', groupName: 'Remote', projects: [{
+                    id: 'remote-api', name: 'Remote API',
+                    path: 'vscode-remote://ssh-remote%2Bdevbox/work/api',
+                    tags: [],
+                }],
+            }],
         },
         projectOpenController: {
             openProject: overrides.failOpen
@@ -68,19 +76,6 @@ function createFixture(overrides = {}) {
             addGroup: record('addGroup'),
         },
         groupCollapseController: { collapseGroup: record('collapseGroup') },
-        machineProjectsController: {
-            handle: async message => ({
-                type: 'machine-project-action-settlement',
-                version: 1,
-                requestId: message.requestId,
-                machineId: message.machineId,
-                status: 'saved',
-                message: 'saved',
-            }),
-        },
-        projectManualEditController: { editProjectsManually: record('repairMachinePreview') },
-        cancelMachineProjectsPreview: record('cancelMachinePreview'),
-        showRemoteSshExtension: record('showRemoteSshExtension'),
         getWorkspaceNavigationController: () => ({ open: record('openWorkspaceNavigation') }),
         getOpenWorkspacePinController: () => ({ handle: record('handleOpenWorkspacePin') }),
         getAttentionAggregate: () => overrides.attentionAggregate || null,
@@ -111,10 +106,7 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every production project/grou
     const { handlers } = createFixture();
 
     assert.deepEqual(Object.keys(handlers), [
-        'machine-project-action',
-        'repair-machine-projects-preview',
-        'cancel-machine-projects-preview',
-        'open-remote-ssh-extension',
+        'open-machine-host',
         'selected-project',
         'set-open-workspace-pin',
         'open-window-navigation-request',
@@ -236,21 +228,28 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates project mutations to their 
     ]);
 });
 
-test('MACHINE-PROJECTS-MIGRATION-PREVIEW-001 routes exact repair and cancel actions', async () => {
-    const { handlers, calls } = createFixture();
+test('MACHINE-PROJECTS-HOST-NAVIGATION-001 opens the URI-derived Host through the existing Project opener', async () => {
+    const groups = [{
+        id: 'remote', groupName: 'Remote', projects: [{
+            id: 'remote-api', name: 'Remote API',
+            path: 'vscode-remote://ssh-remote%2Bdevbox/work/api', tags: [],
+        }],
+    }];
+    const machine = buildMachineProjectsViewModel(groups).machines[0];
+    const { handlers, calls } = createFixture({ groups });
 
-    await handlers['repair-machine-projects-preview']({ type: 'repair-machine-projects-preview' });
-    await handlers['cancel-machine-projects-preview']({ type: 'cancel-machine-projects-preview' });
-    await handlers['open-remote-ssh-extension']({ type: 'open-remote-ssh-extension' });
-    await handlers['repair-machine-projects-preview']({
-        type: 'repair-machine-projects-preview', unexpected: true,
+    await handlers['open-machine-host']({
+        type: 'open-machine-host',
+        machineId: machine.id,
+        projectId: machine.hostProjectId,
     });
 
-    assert.deepEqual(calls, [
-        ['repairMachinePreview'],
-        ['cancelMachinePreview'],
-        ['showRemoteSshExtension'],
-    ]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], 'openProject');
+    assert.equal(calls[0][1].name, 'devbox');
+    assert.equal(calls[0][1].path, 'vscode-remote://ssh-remote%2Bdevbox/');
+    assert.equal(calls[0][1].remoteType, 1);
+    assert.equal(calls[0][2], 1);
 });
 
 test('PROJECT-PROJECT-ORDER-CONTROLLER-001 passes group orders through unchanged', async () => {

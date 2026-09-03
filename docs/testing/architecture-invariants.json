@@ -338,6 +338,55 @@
         "writerFacade": true
       },
       "tracking": "ARCH-CHANGE-001"
+    },
+    {
+      "id": "ARCH-PROJECT-CLIENT-PROFILE-OWNERSHIP-001",
+      "module": "MOD-ATTENTION-BRIDGE-EXT",
+      "productCapabilities": [
+        "MAIN-PROJECT-CATALOG-CONSISTENCY"
+      ],
+      "priority": "P0",
+      "kind": "persistence",
+      "statement": "Client identity and Machine connection targets are written only by the UI-host ProjectClientStore; workspace hosts cross the versioned protocol and never persist or sync a target.",
+      "authority": {
+        "path": "extensions/attention-ui-bridge/src/projectClientStore.ts",
+        "symbol": "ProjectClientStore"
+      },
+      "writers": [
+        "extensions/attention-ui-bridge/src/extension.ts"
+      ],
+      "linearizationPoint": "The single connectionProfiles memento document update succeeds.",
+      "enforcement": [
+        "single-writer",
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/contract/projects/projectClientProfiles.test.js",
+        "tests/integration/dashboard/productionAttentionBridge.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "src/projects/projectClientProtocol.ts",
+        "src/projects/connectionProfileClient.ts",
+        "extensions/attention-ui-bridge/src/projectClientStore.ts"
+      ],
+      "participatingModules": [
+        "MOD-PROJECT-CATALOG"
+      ],
+      "stateFamily": {
+        "storePath": "extensions/attention-ui-bridge/src/projectClientStore.ts",
+        "writeMethods": [
+          "getSnapshot",
+          "updateProfile"
+        ],
+        "persistenceKeys": [
+          "projectClient.identity.v1",
+          "projectClient.connectionProfiles.v1"
+        ],
+        "writerFacade": true
+      }
     }
   ]
 }

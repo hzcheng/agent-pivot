@@ -7,6 +7,19 @@ const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
 
+function makeMemento(initial = {}) {
+    const values = JSON.parse(JSON.stringify(initial));
+    return {
+        get(key) {
+            return Object.prototype.hasOwnProperty.call(values, key) ? values[key] : undefined;
+        },
+        async update(key, value) {
+            if (value === undefined) delete values[key];
+            else values[key] = JSON.parse(JSON.stringify(value));
+        },
+    };
+}
+
 test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
     const root = makeTempDirectory(t, 'production-attention-bridge-');
     const registered = new Map();
@@ -57,6 +70,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
         extensionPath: bridgeRoot,
         globalStoragePath: root,
         globalStorageUri: { scheme: 'file' },
+        globalState: makeMemento(),
         subscriptions: [],
     };
     let client;
@@ -70,8 +84,33 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             '_agentPivotAttention.bridge.acknowledge',
             '_agentPivotOpenWorkspaces.bridge.navigate',
             '_agentPivotProjects.bridge.navigate',
+            '_agentPivotProjects.client.handshake',
+            '_agentPivotProjects.client.updateProfile',
         ];
         for (const command of requiredCommands) assert.equal(typeof registered.get(command), 'function');
+
+        const projectClientHandshake = registered.get('_agentPivotProjects.client.handshake');
+        const projectClientInitial = await projectClientHandshake({
+            protocolVersion: 1,
+            mainExtensionVersion: '1.4.0',
+        });
+        assert.match(projectClientInitial.snapshot.clientId, /^[a-f0-9]{32}$/);
+        assert.deepEqual(projectClientInitial.snapshot.profiles, []);
+        const projectMachineId = '11111111-1111-4111-8111-111111111111';
+        const projectClientUpdated = await registered.get('_agentPivotProjects.client.updateProfile')({
+            protocolVersion: 1,
+            requestId: 'e'.repeat(32),
+            machineId: projectMachineId,
+            profile: { kind: 'ssh', target: 'integration-devbox' },
+        });
+        assert.equal(projectClientUpdated.saved, true);
+        assert.equal(
+            (await projectClientHandshake({
+                protocolVersion: 1,
+                mainExtensionVersion: '1.4.0',
+            })).snapshot.profiles[0].target,
+            'integration-devbox',
+        );
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');
         await openWorkspacePublish({
@@ -338,6 +377,7 @@ test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes t
         extensionPath: bridgeRoot,
         globalStoragePath: root,
         globalStorageUri: { scheme: 'file' },
+        globalState: makeMemento(),
         subscriptions: [],
     };
     const instanceId = 'c'.repeat(32);

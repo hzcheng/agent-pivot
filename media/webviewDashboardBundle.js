@@ -1416,6 +1416,18 @@ function initProjectGroupCollapse() {
         return [...document.querySelectorAll(selector)];
     }
 
+    function getActiveMachineProjects() {
+        var machineProjects = window.__agentPivotMachineProjects;
+        return getActiveDashboardTab() === 'projects'
+            && machineProjects
+            && typeof machineProjects.isMounted === 'function'
+            && machineProjects.isMounted()
+            && typeof machineProjects.getDisclosureCollapsedStates === 'function'
+            && typeof machineProjects.setAllDisclosuresCollapsed === 'function'
+            ? machineProjects
+            : null;
+    }
+
     function getActiveAiSessionWorktreeTarget() {
         if (getActiveDashboardTab() !== 'open' || !document.querySelector) {
             return null;
@@ -1495,6 +1507,14 @@ function initProjectGroupCollapse() {
             ));
             return;
         }
+        var machineProjects = getActiveMachineProjects();
+        if (machineProjects) {
+            updateToggleAllGroupsButton(getCollapseButtonState(
+                'projects',
+                machineProjects.getDisclosureCollapsedStates()
+            ));
+            return;
+        }
         var groups = getActiveCollapsibleGroups();
         updateToggleAllGroupsButton(getCollapseButtonState(
             activeTab,
@@ -1509,6 +1529,15 @@ function initProjectGroupCollapse() {
             if (typeof window.__agentPivotToggleAllAiSessionWorktrees === 'function') {
                 window.__agentPivotToggleAllAiSessionWorktrees(worktreeTarget.projectDiv);
             }
+            syncCollapseButton();
+            return;
+        }
+        var machineProjects = getActiveMachineProjects();
+        if (machineProjects) {
+            var collapsedStates = machineProjects.getDisclosureCollapsedStates();
+            machineProjects.setAllDisclosuresCollapsed(
+                collapsedStates.some(function (collapsed) { return !collapsed; })
+            );
             syncCollapseButton();
             return;
         }
@@ -9271,6 +9300,27 @@ function createMachineProjectsUi() {
         }
     }
 
+    function getDisclosureCollapsedStates() {
+        if (!panel) return [];
+        return Array.from(panel.querySelectorAll('[data-machine-disclosure]'))
+            .map(function (control) {
+                return control.getAttribute('aria-expanded') !== 'true';
+            });
+    }
+
+    function setAllDisclosuresCollapsed(collapsed) {
+        if (!panel) return;
+        panel.querySelectorAll('[data-machine-disclosure]').forEach(function (control) {
+            var machine = control.closest('[data-machine-row]');
+            if (machine && control.getAttribute('data-machine-disclosure') === 'machine'
+                && machine.hasAttribute('data-filter-collapsed')) {
+                machine.setAttribute('data-filter-base-expanded', String(!collapsed));
+                machine.toggleAttribute('data-filter-manual-expanded', !collapsed);
+            }
+            setExpanded(control, !collapsed, true);
+        });
+    }
+
     function closeTags(returnFocus) {
         var popover = panel && panel.querySelector('[data-machine-tag-popover]');
         var trigger = panel && panel.querySelector('[data-action="toggle-machine-tags"]');
@@ -9430,6 +9480,9 @@ function createMachineProjectsUi() {
             setExpanded(disclosure, expanded, !filtered);
             if (filtered) {
                 machine.toggleAttribute('data-filter-manual-expanded', expanded);
+            }
+            if (typeof window.__agentPivotSyncCollapseButton === 'function') {
+                window.__agentPivotSyncCollapseButton();
             }
             return;
         }
@@ -9744,6 +9797,8 @@ function createMachineProjectsUi() {
     return {
         mount: mount,
         isMounted: () => Boolean(panel),
+        getDisclosureCollapsedStates: getDisclosureCollapsedStates,
+        setAllDisclosuresCollapsed: setAllDisclosuresCollapsed,
         applyTextFilter: function (value) {
             textQuery = String(value || '').trim().toLocaleLowerCase();
             applyFilters();

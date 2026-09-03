@@ -15,6 +15,10 @@ const projectsPanelScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewProjectsPanelScripts.js'),
     'utf8',
 );
+const collapseScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectCollapseScripts.js'),
+    'utf8',
+);
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
 
 function project(id, name, tags, favorite = false) {
@@ -65,19 +69,62 @@ test.after(async () => {
 async function openPage(t, width = 320) {
     const page = await browser.newPage({ viewport: { width, height: 480 } });
     t.after(() => page.close());
-    await page.setContent(`<!doctype html><style>${styles}</style><main id="panel">${markup()}</main>`);
+    await page.setContent(`<!doctype html><style>${styles}</style>
+        <button type="button" data-action="toggle-all-groups">Collapse All Groups</button>
+        <main id="panel">${markup()}</main>`);
     await page.evaluate(() => {
         window.messages = [];
         window.vscode = { postMessage: message => window.messages.push(message) };
     });
     await page.addScriptTag({ content: script });
+    await page.addScriptTag({ content: collapseScript });
     await page.addScriptTag({ content: projectsPanelScript });
     await page.evaluate(() => {
         window.machineUi = createMachineProjectsUi();
+        window.__agentPivotMachineProjects = window.machineUi;
+        window.__agentPivotDashboard = { getActiveTab: () => 'projects' };
         window.machineUi.mount(document.getElementById('panel'));
+        window.groupCollapse = initProjectGroupCollapse();
+        window.groupCollapse.syncCollapseButton();
+        document.querySelector('[data-action="toggle-all-groups"]').addEventListener(
+            'click', () => window.groupCollapse.toggleAllGroups(),
+        );
     });
     return page;
 }
+
+test('WEBVIEW-COLLAPSE-BUTTON-STATE-001 collapses and expands the Machine hierarchy from the Projects toolbar', async t => {
+    const page = await openPage(t);
+    const toggle = page.locator('[data-action="toggle-all-groups"]');
+
+    assert.equal(await toggle.isEnabled(), true);
+    assert.equal(await toggle.getAttribute('aria-label'), 'Collapse All Groups');
+    await toggle.click();
+
+    assert.deepEqual(await page.locator('[data-machine-disclosure]').evaluateAll(controls =>
+        controls.map(control => control.getAttribute('aria-expanded'))), ['false', 'false', 'false']);
+    assert.equal(await page.locator('[data-machine-row]').isVisible(), true,
+        'Collapse All keeps the Machine row visible');
+    assert.equal(await page.locator('#machine-favorites-list').getAttribute('hidden'), '');
+    assert.equal(await page.locator('#machine-children-machine').getAttribute('hidden'), '');
+    assert.equal(await page.locator('#environment-children-host').getAttribute('hidden'), '');
+    assert.equal(await toggle.getAttribute('aria-label'), 'Expand All Groups');
+    await toggle.click();
+    assert.deepEqual(await page.locator('[data-machine-disclosure]').evaluateAll(controls =>
+        controls.map(control => control.getAttribute('aria-expanded'))), ['true', 'true', 'true']);
+    assert.equal(await page.locator('#machine-favorites-list').getAttribute('hidden'), null);
+    assert.equal(await page.locator('#machine-children-machine').getAttribute('hidden'), null);
+    assert.equal(await page.locator('#environment-children-host').getAttribute('hidden'), null);
+    assert.equal(await toggle.getAttribute('aria-label'), 'Collapse All Groups');
+    await page.click('[data-machine-disclosure="environment"]');
+    await page.click('[data-machine-disclosure="favorites"]');
+    assert.equal(await toggle.getAttribute('aria-label'), 'Collapse All Groups');
+    await page.click('[data-machine-disclosure="machine"]');
+    assert.equal(await toggle.getAttribute('aria-label'), 'Expand All Groups',
+        'individual disclosure changes keep the toolbar action synchronized');
+    await page.click('[data-machine-disclosure="machine"]');
+    assert.equal(await toggle.getAttribute('aria-label'), 'Collapse All Groups');
+});
 
 test('MACHINE-PROJECTS-FILTER-001 applies AND tags without double-counting Favorites', async t => {
     const page = await openPage(t);

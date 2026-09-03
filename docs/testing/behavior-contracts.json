@@ -5680,10 +5680,13 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/webviewState.test.js"
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/browser/machineProjects.test.js"
     ],
     "evidence": [
-      "src/webview/webviewProjectScripts.js"
+      "src/webview/webviewProjectScripts.js",
+      "src/webview/webviewProjectCollapseScripts.js",
+      "src/webview/webviewMachineProjectsScripts.js"
     ]
   },
   {

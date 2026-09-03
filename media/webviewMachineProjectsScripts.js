@@ -158,6 +158,27 @@ function createMachineProjectsUi() {
         }
     }
 
+    function getDisclosureCollapsedStates() {
+        if (!panel) return [];
+        return Array.from(panel.querySelectorAll('[data-machine-disclosure]'))
+            .map(function (control) {
+                return control.getAttribute('aria-expanded') !== 'true';
+            });
+    }
+
+    function setAllDisclosuresCollapsed(collapsed) {
+        if (!panel) return;
+        panel.querySelectorAll('[data-machine-disclosure]').forEach(function (control) {
+            var machine = control.closest('[data-machine-row]');
+            if (machine && control.getAttribute('data-machine-disclosure') === 'machine'
+                && machine.hasAttribute('data-filter-collapsed')) {
+                machine.setAttribute('data-filter-base-expanded', String(!collapsed));
+                machine.toggleAttribute('data-filter-manual-expanded', !collapsed);
+            }
+            setExpanded(control, !collapsed, true);
+        });
+    }
+
     function closeTags(returnFocus) {
         var popover = panel && panel.querySelector('[data-machine-tag-popover]');
         var trigger = panel && panel.querySelector('[data-action="toggle-machine-tags"]');
@@ -317,6 +338,9 @@ function createMachineProjectsUi() {
             setExpanded(disclosure, expanded, !filtered);
             if (filtered) {
                 machine.toggleAttribute('data-filter-manual-expanded', expanded);
+            }
+            if (typeof window.__agentPivotSyncCollapseButton === 'function') {
+                window.__agentPivotSyncCollapseButton();
             }
             return;
         }
@@ -631,6 +655,8 @@ function createMachineProjectsUi() {
     return {
         mount: mount,
         isMounted: () => Boolean(panel),
+        getDisclosureCollapsedStates: getDisclosureCollapsedStates,
+        setAllDisclosuresCollapsed: setAllDisclosuresCollapsed,
         applyTextFilter: function (value) {
             textQuery = String(value || '').trim().toLocaleLowerCase();
             applyFilters();

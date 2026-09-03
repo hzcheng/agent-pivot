@@ -711,6 +711,7 @@
           "src/services/fileService.ts",
           "src/services/projectWindowColorService.ts",
           "src/services/projectCatalogSyncService.ts",
+          "src/services/projectCatalogV2Service.ts",
           "src/services/sourceControl.ts",
           "src/services/gitChangesDiff.ts",
           "src/services/ntc.ts"
@@ -743,6 +744,7 @@
         "src/services/fileService.ts",
         "src/services/gitChangesDiff.ts",
         "src/services/projectService.ts",
+        "src/services/projectCatalogV2Service.ts",
         "src/services/projectWindowColorService.ts",
         "src/services/sourceControl.ts"
       ],
@@ -762,6 +764,8 @@
             "src/projects/projectClientProtocol.ts",
             "src/projects/projectNavigationProtocol.ts",
             "src/projects/projectCatalogSync.ts",
+            "src/projects/catalogV2/types.ts",
+            "src/projects/catalogV2/merge.ts",
             "src/projects/projectTags.ts"
           ]
         },
@@ -769,6 +773,8 @@
           "role": "infrastructure",
           "include": [
             "src/services/**",
+            "src/projects/catalogV2/envelope.ts",
+            "src/projects/catalogV2/commitProtocol.ts",
             "src/projects/connectionProfileClient.ts",
             "src/projects/gitRepositoryDetector.ts"
           ]

@@ -9,7 +9,7 @@ function uuidBytes(uuid: string): Buffer {
 }
 
 export function deterministicProjectCatalogV2Id(name: string): string {
-    if (typeof name !== 'string' || !name) throw new Error('project catalog identity name is required');
+    if (typeof name !== 'string' || !name) { throw new Error('project catalog identity name is required'); }
     const hash = crypto.createHash('sha1')
         .update(uuidBytes(PROJECT_CATALOG_NAMESPACE))
         .update(Buffer.from(name, 'utf8'))

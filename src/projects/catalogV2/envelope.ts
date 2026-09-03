@@ -10,8 +10,8 @@ import {
 } from './types';
 
 function stableValue(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(stableValue);
-    if (!value || typeof value !== 'object') return value;
+    if (Array.isArray(value)) { return value.map(stableValue); }
+    if (!value || typeof value !== 'object') { return value; }
     const result: Record<string, unknown> = {};
     for (const key of Object.keys(value as Record<string, unknown>).sort()) {
         result[key] = stableValue((value as Record<string, unknown>)[key]);
@@ -21,7 +21,7 @@ function stableValue(value: unknown): unknown {
 
 export function projectCatalogV2Checksum(document: ProjectCatalogV2Document): string {
     const parsed = parseProjectCatalogV2Document(document);
-    if (!parsed) throw new Error('project catalog V2 document is invalid');
+    if (!parsed) { throw new Error('project catalog V2 document is invalid'); }
     return crypto.createHash('sha256').update(JSON.stringify(stableValue(parsed))).digest('hex');
 }
 
@@ -29,21 +29,21 @@ export function createProjectCatalogV2RevisionSlot(
     document: ProjectCatalogV2Document,
 ): ProjectCatalogV2RevisionSlot {
     const parsed = parseProjectCatalogV2Document(document);
-    if (!parsed) throw new Error('project catalog V2 document is invalid');
+    if (!parsed) { throw new Error('project catalog V2 document is invalid'); }
     const checksum = projectCatalogV2Checksum(parsed);
     return { revision: checksum, checksum, document: parsed };
 }
 
 function parseSlot(raw: unknown): ProjectCatalogV2RevisionSlot | null {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { return null; }
     const slot = raw as Record<string, unknown>;
     if (Object.keys(slot).sort().join('\n') !== ['checksum', 'document', 'revision'].join('\n')
         || typeof slot.revision !== 'string'
-        || typeof slot.checksum !== 'string') return null;
+        || typeof slot.checksum !== 'string') { return null; }
     const document = parseProjectCatalogV2Document(slot.document);
-    if (!document) return null;
+    if (!document) { return null; }
     const checksum = projectCatalogV2Checksum(document);
-    if (slot.checksum !== checksum || slot.revision !== checksum) return null;
+    if (slot.checksum !== checksum || slot.revision !== checksum) { return null; }
     return { revision: checksum, checksum, document };
 }
 
@@ -52,12 +52,12 @@ export function createEmptyProjectCatalogV2Envelope(): ProjectCatalogV2Envelope 
 }
 
 export function parseProjectCatalogV2Envelope(raw: unknown): ProjectCatalogV2Envelope | null {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { return null; }
     const envelope = raw as Record<string, unknown>;
     if (Object.keys(envelope).sort().join('\n')
         !== ['active', 'activeRevision', 'candidate', 'previous', 'schemaVersion'].join('\n')
         || envelope.schemaVersion !== 2
-        || (envelope.activeRevision !== null && typeof envelope.activeRevision !== 'string')) return null;
+        || (envelope.activeRevision !== null && typeof envelope.activeRevision !== 'string')) { return null; }
     const active = envelope.active === null ? null : parseSlot(envelope.active);
     const previous = envelope.previous === null ? null : parseSlot(envelope.previous);
     const candidate = envelope.candidate === null ? null : parseSlot(envelope.candidate);
@@ -91,16 +91,53 @@ export function readProjectCatalogV2Envelope(raw: unknown): ProjectCatalogV2Enve
         return { envelope: parsed, document: parsed.previous.document, source: 'previous', recoveryRequired: true };
     }
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        const previous = parseSlot((raw as Record<string, unknown>).previous);
+        const value = raw as Record<string, unknown>;
+        const hasEnvelopeShape = Object.keys(value).sort().join('\n')
+            === ['active', 'activeRevision', 'candidate', 'previous', 'schemaVersion'].join('\n')
+            && value.schemaVersion === 2
+            && (value.activeRevision === null || typeof value.activeRevision === 'string');
+        if (!hasEnvelopeShape) {
+            return {
+                envelope: createEmptyProjectCatalogV2Envelope(),
+                document: null,
+                source: 'empty',
+                recoveryRequired: true,
+            };
+        }
+        const active = value.active === null ? null : parseSlot(value.active);
+        const previous = value.previous === null ? null : parseSlot(value.previous);
+        const candidate = value.candidate === null ? null : parseSlot(value.candidate);
+        const auxiliaryCorrupt = (value.previous !== null && !previous)
+            || (value.candidate !== null && !candidate);
+        if (active && value.activeRevision === active.revision) {
+            const recovered: ProjectCatalogV2Envelope = {
+                schemaVersion: 2,
+                activeRevision: active.revision,
+                active,
+                previous,
+                candidate,
+            };
+            return {
+                envelope: recovered,
+                document: active.document,
+                source: 'active',
+                recoveryRequired: auxiliaryCorrupt || candidate !== null,
+            };
+        }
         if (previous) {
             const recovered: ProjectCatalogV2Envelope = {
                 schemaVersion: 2,
                 activeRevision: previous.revision,
                 active: previous,
                 previous: null,
-                candidate: null,
+                candidate,
             };
             return { envelope: recovered, document: previous.document, source: 'previous', recoveryRequired: true };
+        }
+        if (candidate) {
+            const recovered = createEmptyProjectCatalogV2Envelope();
+            recovered.candidate = candidate;
+            return { envelope: recovered, document: null, source: 'empty', recoveryRequired: true };
         }
     }
     return {
@@ -117,7 +154,7 @@ export function stageProjectCatalogV2Candidate(
     document: ProjectCatalogV2Document,
 ): ProjectCatalogV2Envelope {
     const parsed = parseProjectCatalogV2Envelope(envelope);
-    if (!parsed) throw new Error('project catalog V2 envelope is invalid');
+    if (!parsed) { throw new Error('project catalog V2 envelope is invalid'); }
     return { ...parsed, candidate: createProjectCatalogV2RevisionSlot(document) };
 }
 
@@ -125,7 +162,7 @@ export function activateProjectCatalogV2Candidate(
     envelope: ProjectCatalogV2Envelope,
 ): ProjectCatalogV2Envelope {
     const parsed = parseProjectCatalogV2Envelope(envelope);
-    if (!parsed?.candidate) throw new Error('project catalog V2 candidate is missing');
+    if (!parsed?.candidate) { throw new Error('project catalog V2 candidate is missing'); }
     return {
         schemaVersion: 2,
         activeRevision: parsed.candidate.revision,

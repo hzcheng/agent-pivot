@@ -4,7 +4,22 @@ export const PROJECT_CATALOG_V2_SCHEMA_VERSION = 2;
 export const PROJECT_CATALOG_V2_CANONICALIZATION_VERSION = 1;
 
 export type ProjectCatalogV2EntityKind = 'machines' | 'environments' | 'projects';
-export type ProjectCatalogV2FieldValue = string | number | boolean | null | string[];
+export interface ProjectCatalogV2LaunchAnchor {
+    hostPath: string;
+    configPath: string;
+    sourceProjectId: string | null;
+}
+
+export interface ProjectCatalogV2LegacyPlacement {
+    groupId: string | null;
+    groupName: string | null;
+    groupOrder: number | null;
+    projectOrder: number | null;
+    favoriteOrder: number | null;
+}
+
+export type ProjectCatalogV2FieldValue = string | number | boolean | null | string[]
+    | ProjectCatalogV2LaunchAnchor | ProjectCatalogV2LegacyPlacement;
 
 export interface ProjectCatalogV2Dot {
     actorId: string;
@@ -23,6 +38,7 @@ export interface ProjectCatalogV2FieldCandidate {
 
 export interface ProjectCatalogV2FieldRegister {
     candidates: ProjectCatalogV2FieldCandidate[];
+    baselines: ProjectCatalogV2FieldCandidate[];
 }
 
 export interface ProjectCatalogV2EntityRecord {
@@ -41,18 +57,19 @@ export interface ProjectCatalogV2Document {
 
 export interface ProjectCatalogV2Machine {
     id: string;
-    name: string;
+    displayName: string;
     color: string | null;
-    order: number;
+    position: string;
+    source: 'manual' | 'derived' | 'migration';
 }
 
 export interface ProjectCatalogV2Environment {
     id: string;
     machineId: string;
     kind: 'host' | 'devContainer' | 'legacyRemote';
-    name: string;
-    order: number;
-    launchAnchor: string | null;
+    displayName: string;
+    position: string;
+    launchAnchor: ProjectCatalogV2LaunchAnchor | null;
 }
 
 export interface ProjectCatalogV2Project {
@@ -60,19 +77,21 @@ export interface ProjectCatalogV2Project {
     environmentId: string;
     name: string;
     description: string | null;
-    normalizedPath: string;
+    path: string;
+    position: string;
     tags: string[];
     favorite: boolean;
-    favoriteOrder: number | null;
+    favoritePosition: string | null;
     color: string | null;
-    order: number;
+    remoteType: string | null;
+    legacyPlacement: ProjectCatalogV2LegacyPlacement | null;
 }
 
 export interface ProjectCatalogV2Conflict {
     entityKind: ProjectCatalogV2EntityKind;
     entityId: string;
     field: string | null;
-    kind: 'field' | 'placement' | 'delete-update' | 'missing-parent';
+    kind: 'field' | 'placement' | 'delete-update' | 'missing-parent' | 'missing-host' | 'duplicate-host';
 }
 
 export interface ProjectCatalogV2Materialized {

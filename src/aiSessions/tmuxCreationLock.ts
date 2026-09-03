@@ -32,12 +32,17 @@ interface LockOwner extends LockIdentity {
 
 interface LockClaimRecord {
     version: 1;
+    ownerPid?: number;
     containerDev: number;
     containerIno: number;
     containerBirthtimeMs: number;
     heldDev: number;
     heldIno: number;
     heldBirthtimeMs: number;
+}
+
+export interface FilesystemMutationLockLease {
+    assertOwned(): Promise<void>;
 }
 
 export async function withTmuxCreationLock<T>(
@@ -52,7 +57,7 @@ export async function withFilesystemMutationLock<T>(
     root: string,
     lockDirectoryName: string,
     key: string,
-    operation: () => Promise<T>
+    operation: (lease: FilesystemMutationLockLease) => Promise<T>
 ): Promise<T> {
     if (!/^[a-z0-9][a-z0-9-]*$/.test(lockDirectoryName)) {
         throw new Error('Filesystem mutation lock directory name is invalid.');
@@ -96,14 +101,22 @@ export async function withFilesystemMutationLock<T>(
         }
     }
 
-    if (!await hasLockIdentity(lockPath, heldPath, owner)) {
-        await removeOwnerClaim(lockPath, heldPath, owner);
+    const acquiredOwner = owner;
+    if (!await hasLockOwnership(lockPath, heldPath, acquiredOwner)) {
+        await removeOwnerClaim(lockPath, heldPath, acquiredOwner);
         throw new Error(`Filesystem mutation lock identity changed before entry ${digest}.`);
     }
 
-    const heartbeat = startOwnerHeartbeat(lockPath, heldPath, owner);
+    const heartbeat = startOwnerHeartbeat(lockPath, heldPath, acquiredOwner);
+    const lease: FilesystemMutationLockLease = {
+        assertOwned: async () => {
+            if (!await hasLockOwnership(lockPath, heldPath, acquiredOwner)) {
+                throw new Error(`Filesystem mutation lock ownership changed before commit ${digest}.`);
+            }
+        },
+    };
     try {
-        return await operation();
+        return await operation(lease);
     } finally {
         let cleanupFailure: unknown;
         try {
@@ -112,7 +125,7 @@ export async function withFilesystemMutationLock<T>(
             cleanupFailure = error;
         }
         try {
-            await removeOwnerClaim(lockPath, heldPath, owner);
+            await removeOwnerClaim(lockPath, heldPath, acquiredOwner);
         } catch (error) {
             cleanupFailure = cleanupFailure || error;
         }
@@ -298,7 +311,8 @@ async function recoverStaleHeld(
             continue;
         }
         if (!claimMatchesIdentity(claim.record, identity)
-            || Date.now() - claim.stat.mtimeMs <= STALE_AFTER_MS) {
+            || Date.now() - claim.stat.mtimeMs <= STALE_AFTER_MS
+            || isOwnerProcessAlive(claim.record.ownerPid)) {
             return;
         }
         staleClaims.push(claimPath);
@@ -318,6 +332,7 @@ async function readClaim(claimPath: string): Promise<{ record: LockClaimRecord; 
         }
         const value = JSON.parse(await fs.readFile(claimPath, 'utf8')) as Record<string, unknown>;
         if (value.version !== CLAIM_VERSION
+            || (value.ownerPid !== undefined && !isPositiveInteger(value.ownerPid))
             || !isFiniteNonNegative(value.containerDev) || !isFiniteNonNegative(value.containerIno)
             || !isFiniteNonNegative(value.containerBirthtimeMs) || !isFiniteNonNegative(value.heldDev)
             || !isFiniteNonNegative(value.heldIno) || !isFiniteNonNegative(value.heldBirthtimeMs)) {
@@ -326,6 +341,7 @@ async function readClaim(claimPath: string): Promise<{ record: LockClaimRecord; 
         return {
             record: {
                 version: CLAIM_VERSION,
+                ...(value.ownerPid === undefined ? {} : { ownerPid: value.ownerPid }),
                 containerDev: value.containerDev,
                 containerIno: value.containerIno,
                 containerBirthtimeMs: value.containerBirthtimeMs,
@@ -433,9 +449,22 @@ async function hasLockIdentity(lockPath: string, heldPath: string, identity: Loc
         && await hasDirectoryIdentity(heldPath, identity.held);
 }
 
+async function hasLockOwnership(
+    lockPath: string,
+    heldPath: string,
+    owner: LockOwner
+): Promise<boolean> {
+    if (path.dirname(owner.claimPath) !== heldPath || !await hasLockIdentity(lockPath, heldPath, owner)) {
+        return false;
+    }
+    const claim = await readClaim(owner.claimPath);
+    return !!claim && claimMatchesIdentity(claim.record, owner);
+}
+
 function createClaimRecord(identity: LockIdentity): LockClaimRecord {
     return {
         version: CLAIM_VERSION,
+        ownerPid: process.pid,
         containerDev: identity.container.dev,
         containerIno: identity.container.ino,
         containerBirthtimeMs: identity.container.birthtimeMs,
@@ -443,6 +472,18 @@ function createClaimRecord(identity: LockIdentity): LockClaimRecord {
         heldIno: identity.held.ino,
         heldBirthtimeMs: identity.held.birthtimeMs,
     };
+}
+
+function isOwnerProcessAlive(ownerPid: number | undefined): boolean {
+    if (ownerPid === undefined) {
+        return false;
+    }
+    try {
+        process.kill(ownerPid, 0);
+        return true;
+    } catch (error) {
+        return !isNodeError(error, 'ESRCH');
+    }
 }
 
 function claimMatchesIdentity(record: LockClaimRecord, identity: LockIdentity): boolean {
@@ -467,6 +508,10 @@ function isClaimName(name: string): boolean {
 
 function isFiniteNonNegative(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
 function delay(milliseconds: number): Promise<void> {

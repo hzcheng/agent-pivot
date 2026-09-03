@@ -91,22 +91,26 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
 
         const projectClientHandshake = registered.get('_agentPivotProjects.client.handshake');
         const projectClientInitial = await projectClientHandshake({
-            protocolVersion: 1,
+            protocolVersion: 2,
             mainExtensionVersion: '1.4.0',
         });
         assert.match(projectClientInitial.snapshot.clientId, /^[a-f0-9]{32}$/);
         assert.deepEqual(projectClientInitial.snapshot.profiles, []);
         const projectMachineId = '11111111-1111-4111-8111-111111111111';
         const projectClientUpdated = await registered.get('_agentPivotProjects.client.updateProfile')({
-            protocolVersion: 1,
+            protocolVersion: 2,
             requestId: 'e'.repeat(32),
             machineId: projectMachineId,
-            profile: { kind: 'ssh', target: 'integration-devbox' },
+            profile: {
+                kind: 'ssh',
+                target: 'integration-devbox',
+                resolverAuthority: 'ssh-remote+integration-devbox',
+            },
         });
         assert.equal(projectClientUpdated.saved, true);
         assert.equal(
             (await projectClientHandshake({
-                protocolVersion: 1,
+                protocolVersion: 2,
                 mainExtensionVersion: '1.4.0',
             })).snapshot.profiles[0].target,
             'integration-devbox',

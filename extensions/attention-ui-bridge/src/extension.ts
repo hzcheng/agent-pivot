@@ -103,7 +103,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const instanceId = crypto.randomBytes(16).toString('hex');
     const store = new LocalStore(bridgeRoot, instanceId, bridgeProcessId);
     const productionStore = new ProductionAttentionStore(path.join(bridgeRoot, 'production-attention', 'v1'), bridgeProcessId);
-    const projectClientStore = new ProjectClientStore(context.globalState);
+    const projectClientStore = new ProjectClientStore(context.globalState, { rootDirectory: bridgeRoot });
     let watcherEnabled = false;
     let fsWatcher: fs.FSWatcher | null = null;
     let lastAggregate = '';

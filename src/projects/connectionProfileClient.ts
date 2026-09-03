@@ -22,7 +22,7 @@ export interface ConnectionProfileClientDependencies {
 }
 
 export default class ConnectionProfileClient {
-    private snapshot: ProjectClientSnapshot | null = null;
+    private operationQueue: Promise<void> = Promise.resolve();
     private readonly mainExtensionVersion: string;
     private readonly executeCommand: (command: string, argument: unknown) => PromiseLike<unknown>;
     private readonly createRequestId: () => string;
@@ -35,40 +35,58 @@ export default class ConnectionProfileClient {
             || (() => crypto.randomBytes(16).toString('hex'));
     }
 
-    public async refresh(): Promise<ProjectClientSnapshot> {
+    public refresh(): Promise<ProjectClientSnapshot> {
+        return this.enqueue(() => this.readSnapshot());
+    }
+
+    /** Always reads the UI-host authority; connection decisions must not use stale cached state. */
+    public getProfile(machineId: string): Promise<ProjectConnectionProfile | null> {
+        validateProjectMachineId(machineId);
+        return this.enqueue(async () => {
+            const snapshot = await this.readSnapshot();
+            return snapshot.profiles.find(profile => profile.machineId === machineId) || null;
+        });
+    }
+
+    public updateProfile(
+        machineId: string,
+        profile: {
+            kind: ProjectConnectionKind;
+            target: string | null;
+            resolverAuthority: string | null;
+        } | null,
+    ): Promise<ProjectClientSnapshot> {
+        validateProjectMachineId(machineId);
+        return this.enqueue(async () => {
+            const requestId = this.createRequestId();
+            const outcome = validateProjectConnectionProfileUpdateOutcome(
+                await this.executeCommand(PROJECT_CLIENT_UPDATE_PROFILE_COMMAND, {
+                    protocolVersion: PROJECT_CLIENT_PROTOCOL_VERSION,
+                    requestId,
+                    machineId,
+                    profile,
+                }),
+            );
+            if (outcome.requestId !== requestId || outcome.machineId !== machineId) {
+                throw new Error('project client profile update outcome correlation mismatch');
+            }
+            return outcome.snapshot;
+        });
+    }
+
+    private async readSnapshot(): Promise<ProjectClientSnapshot> {
         const response = validateProjectClientHandshakeResponse(
             await this.executeCommand(PROJECT_CLIENT_HANDSHAKE_COMMAND, {
                 protocolVersion: PROJECT_CLIENT_PROTOCOL_VERSION,
                 mainExtensionVersion: this.mainExtensionVersion,
             }),
         );
-        this.snapshot = response.snapshot;
-        return this.snapshot;
+        return response.snapshot;
     }
 
-    public getCachedProfile(machineId: string): ProjectConnectionProfile | null {
-        validateProjectMachineId(machineId);
-        return this.snapshot?.profiles.find(profile => profile.machineId === machineId) || null;
-    }
-
-    public async updateProfile(
-        machineId: string,
-        profile: { kind: ProjectConnectionKind; target: string | null } | null,
-    ): Promise<ProjectClientSnapshot> {
-        validateProjectMachineId(machineId);
-        const requestId = this.createRequestId();
-        const outcome = validateProjectConnectionProfileUpdateOutcome(
-            await this.executeCommand(PROJECT_CLIENT_UPDATE_PROFILE_COMMAND, {
-                protocolVersion: PROJECT_CLIENT_PROTOCOL_VERSION,
-                requestId,
-                machineId,
-                profile,
-            }),
-        );
-        if (outcome.requestId !== requestId || outcome.machineId !== machineId) {
-            throw new Error('project client profile update outcome correlation mismatch');
-        }
-        this.snapshot = outcome.snapshot;
-        return this.snapshot;
+    private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+        const result = this.operationQueue.then(operation);
+        this.operationQueue = result.then(() => undefined, () => undefined);
+        return result;
     }
 }

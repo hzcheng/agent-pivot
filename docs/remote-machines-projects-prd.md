@@ -153,13 +153,13 @@ PROJECTS
 ### 7.2 Favorites
 
 - `FAVORITES` 延续当前虚拟分组语义，是收藏 Project 的镜像，不改变其真实 Machine/Environment 归属。
-- 收藏项目仍按 `favoriteOrder` 独立排序。
+- 收藏项目按 V2 `favoritePosition` 独立排序；降级时才投影回 V1 `favoriteOrder`。
 - Favorites 项目行必须展示 `Machine / Environment` 上下文，避免同名项目混淆。
 - 在 Favorites 中取消收藏只移除镜像，不删除 Project。
 - 搜索和 tag 过滤同时作用于 Favorites 镜像与原位置，过滤语义保持一致。
 - Favorites 是主目录树之外的独立 section/landmark；读屏名称使用“Favorite shortcut to {Project}, on {Machine}, {Environment}”。
 - Favorites 与原位置引用同一 Project 实体；编辑、状态和取消收藏立即同步，结果计数按唯一 Project 计算。
-- Favorites 内拖动只改变 `favoriteOrder`；没有收藏或过滤后无匹配时不渲染空 section。
+- Favorites 内拖动只改变 `favoritePosition`；没有收藏或过滤后无匹配时不渲染空 section。
 
 ### 7.3 排序
 
@@ -364,8 +364,13 @@ interface FieldCandidate<T> {
     version: CausalVersion;
 }
 
+interface FieldRegister<T> {
+    candidates: Array<FieldCandidate<T>>;
+    baselines: Array<FieldCandidate<T>>; // causal history set used to derive a common resolved display value
+}
+
 interface EntityRecord<T> {
-    fields: { [K in keyof T]: Array<FieldCandidate<T[K]>> };
+    fields: { [K in keyof T]: FieldRegister<T[K]> };
     tombstones: CausalVersion[];
 }
 
@@ -416,7 +421,7 @@ interface CatalogConflict {
     entityId: string;
     field: string;
     candidates: Array<FieldCandidate<unknown>>;
-    kind: 'same-field' | 'placement' | 'delete-vs-update';
+    kind: 'same-field' | 'placement' | 'delete-vs-update' | 'missing-parent' | 'missing-host' | 'duplicate-host';
 }
 
 interface ProjectCatalogDocumentV2 {
@@ -465,6 +470,7 @@ V2 并发合同：
 - 每次 mutation 的 `context` 复制写入前已观察到的完整 document vector，再产生 `{catalogActorId, nextCounter}` dot。`A → B` 的顺序写由 B 支配 A；`A || B` 的离线写保留为并发候选。
 - 不同实体及同一实体不同字段的非并发候选按 causal context 合并；删除写 causal tombstone，不立即抹除记录。
 - `CatalogConflict` 从 multi-value field candidates 与 tombstones **确定性派生**，不作为可陈旧的独立同步真相。同一字段并发值进入 conflict；Project `environmentId` 冲突必须保留两个候选归属，不使用 last-write-wins。
+- 即使并发 candidates 的值相同也保留每个 causal dot；是否显示冲突只按 distinct value 派生。`baselines` 以集合并集收敛，展示值只从所有 live candidates 的共同 causal ancestor 中确定性选择，保证 merge 交换且结合。
 - Delete vs Update、Environment 跨 Machine 移动及 Project Move 冲突必须进入 Review；解决前保留最后一个无冲突可见版本和全部候选。
 - Resolve mutation 的 context 必须合并并支配全部候选 causal context，再写新 dot；旧副本重新同步时不能让已解决 conflict 复活。
 - Machine、Environment、Project 和 Favorites 同层顺序使用稳定 position key；并发 reorder 以 position、version、entity ID 稳定收敛，不删除实体，不产生需要阻断打开的冲突。V1 `favoriteOrder` 迁移为 `favoritePosition` 并在 `legacyPlacement` 保留原值供降级。
@@ -517,7 +523,7 @@ Backend revision 合同：
 - V2 已产生新修改时，回滚前显示会受影响的记录，并先保存完整 V2 recovery copy；回滚不得静默丢弃迁移后的编辑。
 - 回滚只恢复 Agent Pivot 目录，不修改真实文件、SSH config、Dev Container 配置或容器。
 - Synced backend 的 activation pointer 是跨 Client 权威：回滚产生新 revision 并同步 pointer，其他 V2 Client 合并未同步修改后切换；冲突进入 Review。Workspace-host-local backend 的回滚只影响该 Extension Host。
-- 大型 snapshot、journal payload 和 recovery copy 存在 UI bridge 的 `globalStorageUri` 文件中，`globalState` 只保存带 checksum/version 的小型索引与 Profile。校验失败时不激活目标 revision。
+- UI bridge 在 `globalStorageUri` 中用跨进程锁和原子 rename 保存单一版本化 Client state（client ID + Profile）；大型 snapshot、journal payload 和 recovery copy 也使用文件。`globalState` 只作为旧数据导入源和带 checksum/version 的小型 recovery 索引，不能作为多窗口并发写权威。校验失败时不激活目标 revision。
 - 迁移前 V1 snapshot 至少保留两个稳定版本；最近 recovery copy 按原因和 revision 列表展示，达到容量上限时先要求用户导出或确认清理，不静默删除唯一可恢复副本。
 - Machine 删除后的 Profile 先 tombstone；只要 migration/rollback/Move Undo 仍引用该 Machine 就不得物理清理。
 

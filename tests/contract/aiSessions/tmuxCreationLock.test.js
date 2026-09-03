@@ -7,7 +7,10 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { withTmuxCreationLock } = require('../../../out/aiSessions/tmuxCreationLock');
+const {
+    withFilesystemMutationLock,
+    withTmuxCreationLock,
+} = require('../../../out/aiSessions/tmuxCreationLock');
 
 function createStaleZeroByteClaim(t, key) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-lock-recovery-'));
@@ -95,4 +98,49 @@ test('RUNTIME-FILESYSTEM-MUTATION-LOCK-001 propagates an unexpected stale-claim 
     }
 
     assert.equal(entered, false);
+});
+
+test('RUNTIME-FILESYSTEM-MUTATION-LOCK-001 never reaps a stale lease owned by a live process', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-live-lock-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const lockDirectoryName = 'project-client-locks';
+    const key = 'state-v1';
+    const digest = crypto.createHash('sha256').update(key, 'utf8').digest('hex');
+    const lockPath = path.join(root, lockDirectoryName, `${digest}.lock`);
+    const heldPath = path.join(lockPath, 'held');
+    const claimPath = path.join(heldPath, `${'b'.repeat(64)}.claim`);
+    fs.mkdirSync(heldPath, { recursive: true });
+    const container = fs.lstatSync(lockPath);
+    const held = fs.lstatSync(heldPath);
+    fs.writeFileSync(claimPath, JSON.stringify({
+        version: 1,
+        ownerPid: process.pid,
+        containerDev: container.dev,
+        containerIno: container.ino,
+        containerBirthtimeMs: container.birthtimeMs,
+        heldDev: held.dev,
+        heldIno: held.ino,
+        heldBirthtimeMs: held.birthtimeMs,
+    }));
+    const staleTime = new Date(Date.now() - 31_000);
+    fs.utimesSync(claimPath, staleTime, staleTime);
+
+    const originalNow = Date.now;
+    let nowCalls = 0;
+    Date.now = () => originalNow() + (nowCalls++ === 0 ? 0 : 60_000);
+    let entered = false;
+    try {
+        await assert.rejects(
+            withFilesystemMutationLock(root, lockDirectoryName, key, async () => {
+                entered = true;
+            }),
+            /Timed out waiting for filesystem mutation lock/,
+        );
+    } finally {
+        Date.now = originalNow;
+    }
+
+    assert.equal(entered, false);
+    assert.equal(fs.existsSync(claimPath), true);
+    assert.equal(fs.existsSync(heldPath), true);
 });

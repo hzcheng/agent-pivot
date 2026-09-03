@@ -2,7 +2,7 @@
 
 import * as crypto from 'crypto';
 
-export const PROJECT_CLIENT_PROTOCOL_VERSION = 1;
+export const PROJECT_CLIENT_PROTOCOL_VERSION = 2;
 export const PROJECT_CLIENT_HANDSHAKE_COMMAND = '_agentPivotProjects.client.handshake';
 export const PROJECT_CLIENT_UPDATE_PROFILE_COMMAND = '_agentPivotProjects.client.updateProfile';
 export const PROJECT_CLIENT_CAPABILITIES = {
@@ -19,44 +19,49 @@ const MAX_EXTENSION_VERSION_LENGTH = 64;
 const MAX_CONNECTION_TARGET_LENGTH = 512;
 export const MAX_PROJECT_CONNECTION_PROFILES = 500;
 
-export type ProjectConnectionKind = 'local' | 'ssh';
+export type ProjectConnectionKind = 'local' | 'ssh' | 'wsl' | 'legacyRemote';
 
 export interface ProjectConnectionProfile {
     machineId: string;
     kind: ProjectConnectionKind;
     target: string | null;
+    resolverAuthority: string | null;
     updatedAtMs: number;
 }
 
 export interface ProjectClientSnapshot {
-    protocolVersion: 1;
+    protocolVersion: 2;
     clientId: string;
     revision: string;
     profiles: ProjectConnectionProfile[];
 }
 
 export interface ProjectClientHandshakeRequest {
-    protocolVersion: 1;
+    protocolVersion: 2;
     mainExtensionVersion: string;
 }
 
 export interface ProjectClientHandshakeResponse {
     accepted: true;
-    protocolVersion: 1;
+    protocolVersion: 2;
     bridgeExtensionVersion: string;
     capabilities: typeof PROJECT_CLIENT_CAPABILITIES;
     snapshot: ProjectClientSnapshot;
 }
 
 export interface ProjectConnectionProfileUpdateRequest {
-    protocolVersion: 1;
+    protocolVersion: 2;
     requestId: string;
     machineId: string;
-    profile: { kind: ProjectConnectionKind; target: string | null } | null;
+    profile: {
+        kind: ProjectConnectionKind;
+        target: string | null;
+        resolverAuthority: string | null;
+    } | null;
 }
 
 export interface ProjectConnectionProfileUpdateOutcome {
-    protocolVersion: 1;
+    protocolVersion: 2;
     requestId: string;
     machineId: string;
     saved: boolean;
@@ -83,7 +88,7 @@ function requireExactKeys(
     }
 }
 
-function requireProtocolVersion(value: unknown): 1 {
+function requireProtocolVersion(value: unknown): 2 {
     if (value !== PROJECT_CLIENT_PROTOCOL_VERSION) {
         throw new Error('project client protocol version is incompatible');
     }
@@ -129,7 +134,7 @@ function requireExtensionVersion(value: unknown, label: string): string {
 }
 
 function requireConnectionKind(value: unknown): ProjectConnectionKind {
-    if (value !== 'local' && value !== 'ssh') {
+    if (value !== 'local' && value !== 'ssh' && value !== 'wsl' && value !== 'legacyRemote') {
         throw new Error('project client connection kind is invalid');
     }
     return value;
@@ -146,7 +151,25 @@ function requireConnectionTarget(value: unknown, kind: ProjectConnectionKind): s
         || value.length === 0
         || value.length > MAX_CONNECTION_TARGET_LENGTH
         || CONTROL_OR_WHITESPACE_PATTERN.test(value)) {
-        throw new Error('SSH project client connection target is invalid');
+        throw new Error('project client connection target is invalid');
+    }
+    return value;
+}
+
+function requireResolverAuthority(value: unknown, kind: ProjectConnectionKind): string | null {
+    if (kind === 'local') {
+        if (value !== null) { throw new Error('local project client resolver authority must be null'); }
+        return null;
+    }
+    if (typeof value !== 'string' || value.length === 0 || value.length > MAX_CONNECTION_TARGET_LENGTH
+        || CONTROL_OR_WHITESPACE_PATTERN.test(value) || /[\/#?%\\]/.test(value)) {
+        throw new Error('project client resolver authority is invalid');
+    }
+    const expectedPrefix = kind === 'ssh' ? 'ssh-remote+'
+        : kind === 'wsl' ? 'wsl+'
+            : '';
+    if (expectedPrefix && (!value.startsWith(expectedPrefix) || value.length === expectedPrefix.length)) {
+        throw new Error('project client resolver authority does not match its connection kind');
     }
     return value;
 }
@@ -159,7 +182,7 @@ export function validateProjectConnectionProfile(raw: unknown): ProjectConnectio
     const profile = requireObject(raw, 'project client connection profile');
     requireExactKeys(
         profile,
-        ['machineId', 'kind', 'target', 'updatedAtMs'],
+        ['machineId', 'kind', 'target', 'resolverAuthority', 'updatedAtMs'],
         'project client connection profile',
     );
     const kind = requireConnectionKind(profile.kind);
@@ -167,6 +190,7 @@ export function validateProjectConnectionProfile(raw: unknown): ProjectConnectio
         machineId: validateProjectMachineId(profile.machineId),
         kind,
         target: requireConnectionTarget(profile.target, kind),
+        resolverAuthority: requireResolverAuthority(profile.resolverAuthority, kind),
         updatedAtMs: requireTimestamp(profile.updatedAtMs),
     };
 }
@@ -183,9 +207,16 @@ export function createProjectClientSnapshot(
     if (new Set(profiles.map(profile => profile.machineId)).size !== profiles.length) {
         throw new Error('project client snapshot contains duplicate machineIds');
     }
+    if (profiles.filter(profile => profile.kind === 'local').length > 1) {
+        throw new Error('project client snapshot contains multiple default local Machines');
+    }
     const normalizedClientId = requireClientId(clientId);
     const revision = crypto.createHash('sha256')
-        .update(JSON.stringify(profiles))
+        .update(JSON.stringify({
+            protocolVersion: PROJECT_CLIENT_PROTOCOL_VERSION,
+            clientId: normalizedClientId,
+            profiles,
+        }))
         .digest('hex');
     return {
         protocolVersion: PROJECT_CLIENT_PROTOCOL_VERSION,
@@ -273,11 +304,12 @@ export function validateProjectConnectionProfileUpdateRequest(
     let profile: ProjectConnectionProfileUpdateRequest['profile'] = null;
     if (request.profile !== null) {
         const rawProfile = requireObject(request.profile, 'project client profile update');
-        requireExactKeys(rawProfile, ['kind', 'target'], 'project client profile update');
+        requireExactKeys(rawProfile, ['kind', 'target', 'resolverAuthority'], 'project client profile update');
         const kind = requireConnectionKind(rawProfile.kind);
         profile = {
             kind,
             target: requireConnectionTarget(rawProfile.target, kind),
+            resolverAuthority: requireResolverAuthority(rawProfile.resolverAuthority, kind),
         };
     }
     return {

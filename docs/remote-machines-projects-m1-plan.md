@@ -294,7 +294,7 @@ V1 变化逐项 Apply V1 change / Ignore V1 change / Create recovery copy。
 | Catalog backends | `src/projects/catalogV2/syncedStore.ts`, `workspaceLocalStore.ts` | 相同 self-contained revision envelope 的两个可替换 backend；不保存 Profile |
 | Compatibility | `src/projects/catalogV2/migration.ts`, `downgrade.ts`, `commitProtocol.ts` | V1↔V2 转换、报告、journal 与 activation pointer；不渲染 UI |
 | Catalog façade | `src/services/projectCatalogV2Service.ts` | 所有 V2 mutation 的单入口与可恢复提交编排 |
-| UI-local state | `extensions/attention-ui-bridge/src/projectClientStore.ts` | globalState 索引/client ID/Profile/view state；globalStorageUri 保存 journal、recovery 和 downgrade payload |
+| UI-local state | `extensions/attention-ui-bridge/src/projectClientStore.ts` | globalStorageUri 中的跨进程锁 + 原子 Client state 文件保存 client ID/Profile；globalState 仅作旧数据导入/recovery 索引；另存 journal、recovery 和 downgrade payload |
 | UI bridge protocol | `shared/attention-bridge/projectClientProtocol.ts` | 版本/capability handshake、请求响应 schema、严格校验 |
 | Profile client | `src/projects/connectionProfileClient.ts` | 通过 bridge 协议取值；workspace extension 不直接持久化 target |
 | Launch planning | `src/projects/environmentLaunchPlanner.ts` | V2 归属 + Profile + anchor → 可执行动作/修复原因 |
@@ -326,7 +326,7 @@ V1 变化逐项 Apply V1 change / Ignore V1 change / Create recovery copy。
 | V2 catalog | 同一 backend 下的独立 V2 key | shadow/read-only | activation pointer 指向后 authoritative |
 | V2 backend envelope | selected catalog backend 的单一 V2 key | candidate/active/previous slots，V1 active | pointer 与 checksummed document 同 envelope，validated V2 active |
 | Synced writer replica | workspace-writer local state | shadow reconcile | 保存已验证 envelope/未确认 mutation，与 Settings Sync causal merge；不是 Client Profile |
-| Client ID / Connection Profiles | UI bridge globalState（不注册 sync） | active for flag path | active |
+| Client ID / Connection Profiles | UI bridge globalStorageUri 版本化 Client state（跨窗口锁、原子 rename、不注册 sync） | active for flag path | active |
 | Disclosure/filter view state | UI bridge globalState + ephemeral webview state | flag path only | active |
 | Prepare journal / recovery copies | UI bridge globalStorageUri + checksummed globalState index | shadow report | migration/backend-switch/downgrade/conflict |
 | V1 downgrade projection | UI bridge local authoritative copy | absent | 仅 Prepare 后生成 |

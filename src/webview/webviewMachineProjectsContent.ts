@@ -20,14 +20,11 @@ export function renderMachineProjectsPanel(
     const addManagedMachine = managedRemoteRevisionId === undefined
         ? ''
         : `<button type="button" class="machine-toolbar-button" data-managed-operation="addMachine" aria-label="Add Managed Machine" title="Add Managed Machine">${Icons.add}<span class="managed-toolbar-label">Machine</span></button>`;
-    const reviewManagedMigration = managedRemoteRevisionId === undefined
-        ? ''
-        : `<button type="button" class="machine-toolbar-button" data-managed-operation="beginMigration" aria-label="Review Managed Remote migration" title="Review Managed Remote migration">${Icons.remote}<span class="managed-toolbar-label">Migrate</span></button>`;
     if (!model.machines.length) {
         return `<section class="machine-projects machine-projects-empty" data-machine-projects${managedAttributes} data-machine-project-count="0">
             <div class="machine-projects-toolbar">
                 <span class="machine-projects-summary">0 projects</span>
-                <div class="machine-projects-toolbar-actions">${reviewManagedMigration}${addManagedMachine}<button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button></div>
+                <div class="machine-projects-toolbar-actions">${addManagedMachine}<button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button></div>
             </div>
             <p>No projects have been added yet.</p>
         </section>`;
@@ -39,7 +36,6 @@ export function renderMachineProjectsPanel(
             </div>
             <div class="machine-projects-toolbar-actions">
                 ${renderTagControls(model.tags)}
-                ${reviewManagedMigration}
                 ${addManagedMachine}
                 <button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button>
             </div>

@@ -7259,7 +7259,7 @@
   {
     "id": "MANAGED-REMOTE-MIGRATION-003",
     "domain": "project",
-    "title": "Migration reviews unresolved aliases, preserves local-only records, freezes legacy authority, and commits a preview candidate before activation",
+    "title": "Startup automatically resolves compatible aliases, preserves local-only records, freezes legacy authority, and commits a preview candidate before activation",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7270,13 +7270,14 @@
     "evidence": [
       "src/projects/managedRemote/migrationPlan.ts",
       "src/projects/managedRemote/managementStore.ts",
+      "src/projects/managedRemote/composition.ts",
       "src/projects/managedRemote/vscodePrompts.ts"
     ]
   },
   {
     "id": "MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001",
     "domain": "project",
-    "title": "Migration resolves a legacy SSH alias through OpenSSH in the local UI host, rejects advanced behavior, and requires review without returning config or authentication data",
+    "title": "Migration resolves a legacy SSH alias through OpenSSH in the local UI host, automatically accepts plain endpoint data, and rejects advanced behavior without returning config or authentication data",
     "priority": "P0",
     "status": "automated",
     "owners": [

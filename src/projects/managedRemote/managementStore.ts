@@ -148,13 +148,13 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         if (current && (current.machines.length || current.environments.length
             || current.projects.length)) {
             throw new Error(
-                'Remove manually added preview entries before reviewing legacy migration.',
+                'Remove manually added preview entries before automatic legacy migration can run.',
             );
         }
         const currentPlan = buildManagedRemoteMigrationPlan(this.migrationSource.getGroups());
         if (currentPlan.planId !== plan.planId
             || currentPlan.sourceChecksum !== plan.sourceChecksum) {
-            throw new Error('Existing Projects changed during migration review. Start again.');
+            throw new Error('Existing Projects changed while automatic migration was preparing.');
         }
         const document = buildManagedCatalogFromMigrationPlan(plan, this.catalogActorId);
         await this.coordinator.prepareMigration({

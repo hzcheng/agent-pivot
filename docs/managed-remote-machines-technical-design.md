@@ -791,7 +791,8 @@ rollback window.
 
 - direct/domain user, DNS, IPv4/IPv6, ports 22/1/65535/two custom ports;
 - literal alias, static Include, wildcard defaults, custom config;
-- `Match exec` canary proves Preview does not execute it;
+- startup automatically creates one preview without a Migrate action, while a
+  `Match exec` canary proves inspection does not execute it;
 - IdentityFile/certificate/agent/host-checking/proxy directives never become Ready
   from endpoint parsing alone;
 - real Remote - SSH rehearsal for migrated risky aliases;
@@ -830,8 +831,8 @@ all owner acceptance.
    divergence guard, Dev Container codec spike, payload gate, no activation.
 3. **M2 — Materializer, disabled:** consent, Bridge capability, generated config,
    POSIX fault/security tests, and an explicit Windows fail-closed gate.
-4. **M3 — Management UI, disabled:** Machine/Project operations, conflict/migration
-   review, accessibility/browser tests.
+4. **M3 — Management UI, disabled:** Machine/Project operations, automatic
+   migration exception handling, conflict review, accessibility/browser tests.
 5. **M4 — Disposable rehearsal:** complete and prove the Windows DACL/reparse-point
    adapter, build from an exact commit, install both VSIXs, migrate
    port-22/non-22/password/Dev Container fixtures, and test rollback.

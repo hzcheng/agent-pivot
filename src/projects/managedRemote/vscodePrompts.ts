@@ -320,13 +320,6 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         return result.action === 'accept' ? result.value : undefined;
     }
 
-    confirmBeginMigration(): Promise<boolean> {
-        return this.ui.confirm(
-            'Review existing Projects and build a Managed Remote migration preview?',
-            'Review Migration',
-        );
-    }
-
     confirmRollbackMigration(): Promise<boolean> {
         return this.ui.confirm(
             'Roll back Managed Remote migration on all synced computers? Agent Pivot will return to the frozen legacy Project data. Existing SSH config blocks and locally generated aliases are not removed.',
@@ -371,19 +364,28 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
                     plan.records[index] = record;
                 }
             }
+            if (record.classification === 'needsInput'
+                && record.endpoint
+                && record.remotePath) {
+                plan.records[index] = resolveManagedMigrationWithConnection(
+                    record,
+                    record.proposedMachineName
+                        || record.originalProject.machineDisplayName
+                        || record.outerSshAuthority
+                        || record.originalProject.name,
+                    record.endpoint,
+                    record.remotePath,
+                );
+                cursor += 1;
+                continue;
+            }
             const canEnterDetails = record.classification === 'needsInput';
             const choice = await this.ui.pick({
                 title: `Migration Review — ${record.originalProject.name}`,
                 step: cursor + 1,
-                totalSteps: reviewIndexes.length + 1,
+                totalSteps: reviewIndexes.length,
                 canGoBack: cursor > 0,
                 items: [
-                    ...(canEnterDetails && record.endpoint ? [{
-                        label: 'Use detected details',
-                        description: `${record.endpoint.user}@${record.endpoint.host}:${record.endpoint.port}`,
-                        detail: 'Review result from this computer. Passwords, keys, and advanced SSH behavior are not copied.',
-                        value: 'detected' as const,
-                    }] : []),
                     ...(canEnterDetails ? [{
                         label: 'Enter connection details',
                         description: record.outerSshAuthority || record.originalProject.path,
@@ -408,43 +410,11 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
                 cursor += 1;
                 continue;
             }
-            if (choice.value === 'detected' && record.endpoint && record.remotePath) {
-                plan.records[index] = resolveManagedMigrationWithConnection(
-                    record,
-                    record.proposedMachineName
-                        || record.originalProject.machineDisplayName
-                        || record.outerSshAuthority
-                        || record.originalProject.name,
-                    record.endpoint,
-                    record.remotePath,
-                );
-                cursor += 1;
-                continue;
-            }
             const resolved = await this.migrationConnectionWizard(record);
             if (!resolved) { return undefined; }
             plan.records[index] = resolved;
             cursor += 1;
         }
-        const managedCount = plan.records.filter(record =>
-            record.classification === 'ready').length;
-        const localCount = plan.records.filter(record =>
-            record.classification === 'clientLocal').length;
-        const excludedCount = plan.records.filter(record =>
-            record.classification === 'excluded').length;
-        const review = await this.ui.pick({
-            title: 'Migration Review — Preview',
-            step: reviewIndexes.length + 1,
-            totalSteps: reviewIndexes.length + 1,
-            canGoBack: reviewIndexes.length > 0,
-            items: [{
-                label: 'Build Managed Remote Preview',
-                description: `${managedCount} managed · ${localCount} kept on this computer · ${excludedCount} removed`,
-                detail: 'Remote connection details sync to your VS Code installations. Existing SSH blocks are not changed or removed.',
-                value: true,
-            }],
-        });
-        if (review.action !== 'accept') { return undefined; }
         return plan;
     }
 

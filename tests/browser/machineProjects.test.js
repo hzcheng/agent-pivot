@@ -343,8 +343,9 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
         'Changes saved to your VS Code User settings.');
 });
 
-test('MANAGED-REMOTE-MANAGEMENT-003 starts a managed preview from the existing derived view', async t => {
+test('MANAGED-REMOTE-MANAGEMENT-003 keeps direct management without a migration button in the derived view', async t => {
     const page = await openPage(t, 360, markup(true, {}, null));
+    assert.equal(await page.getByRole('button', { name: /Migrate/u }).count(), 0);
     await page.getByRole('button', { name: 'Add Managed Machine' }).click();
 
     const request = await page.evaluate(() => window.messages.at(-1));

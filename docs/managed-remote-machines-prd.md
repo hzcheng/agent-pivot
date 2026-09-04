@@ -55,8 +55,9 @@ to connect is local and implicit.
    addressed through this computer's `wsl+<distro>` authority, and local-container
    Projects stay on the computer where they were saved. A remote WSL distro with
    its own SSH endpoint is instead a Managed Machine and synchronizes normally.
-6. **Migration is explicit and reversible.** The first release never removes an
-   existing SSH config entry. Legacy cleanup is outside this change.
+6. **Migration is automatic and reversible.** Existing compatible remote Projects
+   are converted once on startup. Only records that cannot be resolved safely ask
+   for input. The first release never removes an existing SSH config entry.
 
 ## 4. Goals
 
@@ -71,8 +72,8 @@ to connect is local and implicit.
 - Open a Machine in a new Remote - SSH window and a Project at its current path.
 - Save a remote WSL distro that exposes SSH as an independent Managed Machine.
 - Distinguish the fixed Host environment from every Dev Container environment.
-- Migrate compatible existing SSH and remote Dev Container Projects with a
-  reviewable report; block incompatible records until handled.
+- Automatically migrate compatible existing SSH and remote Dev Container Projects;
+  ask only when a connection cannot be resolved safely.
 - Retain a bounded rollback path until owner acceptance.
 
 ## 5. Non-goals
@@ -253,8 +254,8 @@ computers remove its generated alias on their next reconcile.
 An already-enabled computer automatically materializes newly synced catalog data.
 A new computer asks once for local file consent. There is no per-Machine step.
 
-Managed mode requires `agentPivot.storeProjectsInSettings=true`; Add/Edit/Migrate
-offers to enable it before changing data. User-setting storage makes the catalog
+Managed mode requires `agentPivot.storeProjectsInSettings=true`; Add/Edit and
+automatic migration enable it before changing data. User-setting storage makes the catalog
 eligible for VS Code Settings Sync. Sign-in, Settings Sync enablement, offline
 delivery, and ignored-settings policy remain VS Code responsibilities. Agent Pivot
 says `Saved to User settings`, not that another computer received data when that is
@@ -293,7 +294,7 @@ Machine property:
 - `Applying SSH config…`;
 - `SSH config needs attention` with Retry, Show Details, and Open Config;
 - `Remote - SSH required` with Install and Retry;
-- `Migration review required`.
+- `Migration needs connection details`.
 
 Match count is separate and filtering never hides an error. During Applying, one
 Open action queues behind the current reconcile; it does not start another write.
@@ -307,9 +308,12 @@ The tag chooser uses a labeled group that announces selected tags match all.
 
 ## 9. Migration
 
-Migration is owner-triggered and never runs silently on upgrade.
+Migration preparation runs automatically once when the managed lifecycle is
+`disabled`. There is no Migrate button and no final “build preview” confirmation.
+V1 remains authoritative until the user enables managed SSH on this computer, and
+the frozen V1 snapshot remains available for rollback.
 
-### 9.1 Preview and resolution
+### 9.1 Automatic preparation and exception resolution
 
 Every synchronized remote Project is classified:
 
@@ -324,12 +328,12 @@ Every synchronized remote Project is classified:
   stay on this computer unless a WSL record is explicitly converted using an
   independently reachable SSH endpoint.
 
-Each row shows original Project/alias, proposed Machine, and detected endpoint.
-Actions are `Use detected details`, `Enter connection details`, and `Keep as
-separate Machine`. Unsupported rows offer `Fix SSH config and Retry`, `Remove from
-Agent Pivot` (does not delete files), or `Cancel migration and keep current mode`.
-Draft decisions survive closing the review; safe suggestions support bulk accept.
-Activation requires zero unresolved records.
+Direct endpoints and compatible aliases detected by the UI-host OpenSSH inspector
+are accepted automatically. Client-local records are skipped automatically. Only
+unresolved records open a focused prompt for `Enter connection details` or `Remove
+from Agent Pivot` (does not delete files). Cancelling leaves V1 authoritative and
+retries preparation on a later startup. Activation requires zero unresolved
+records.
 
 An alias using `IdentityFile`, `IdentitiesOnly`, `CertificateFile`, `IdentityAgent`,
 `HostKeyAlias`, or `UserKnownHostsFile` is not Ready merely because host/user/port
@@ -350,15 +354,14 @@ their intended local authentication before it becomes Ready.
 | remote URI | split into Environment reference and remote path |
 | `lastOpenedAt` | retained only in client-local usage state |
 
-The preview shows before/after values and a lossless round-trip check for all
-non-connection metadata. Equal normalized `(host, user, port)` endpoints are
-suggested as one Machine, but the user may keep logical identities separate. Each
-remote Dev Container becomes a distinct versioned Environment under its outer SSH
-Machine.
+The automatically prepared candidate preserves all non-connection metadata. Equal
+normalized `(host, user, port)` endpoints become one Machine. Each remote Dev
+Container becomes a distinct versioned Environment under its outer SSH Machine.
 
 ### 9.3 Activation
 
-1. Save a checksummed, restorable V1 snapshot.
+1. Automatically resolve compatible remote records and save a checksummed,
+   restorable V1 snapshot.
 2. For each historically synced WSL Project, ask either `Keep on this computer` or
    `Use an SSH-reachable WSL Machine…`. The local choice writes and verifies a
    migration-tagged local copy before remote activation; other clients do not copy

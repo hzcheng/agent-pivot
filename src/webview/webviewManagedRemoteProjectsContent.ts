@@ -24,7 +24,7 @@ function renderClientBanner(model: ManagedRemoteProjectsViewModel): string {
     const action = model.clientState === 'preview'
             ? model.migrationPrepared
                 ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="enable">Enable on This Computer</button>'
-                : `<button type="button" class="managed-remote-banner-action" ${operationAttributes('beginMigration')}>Review Migration</button>`
+                : ''
             : model.clientState === 'enableRequired'
             ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="enable">Enable on This Computer</button>'
             : model.clientState === 'attention'

@@ -6,6 +6,9 @@ const test = require('node:test');
 const {
     ManagedRemoteManagementController,
 } = require('../../../out/projects/managedRemote/managementController');
+const {
+    prepareAutomaticManagedRemoteMigration,
+} = require('../../../out/projects/managedRemote/composition');
 
 const requestId = 'request-1234567890';
 const revisionId = `revision:${'a'.repeat(64)}`;
@@ -84,7 +87,6 @@ function fixture(overrides = {}) {
         async editProject() { return { name: 'API 2' }; },
         async confirmRemoveProject() { return true; },
         async resolveMachineConflict(_id, candidates) { return candidates[0]; },
-        async confirmBeginMigration() { return true; },
         async reviewMigration(plan) { calls.push(['reviewMigration', plan]); return plan; },
         async confirmRollbackMigration() { return true; },
         ...overrides.prompts,
@@ -206,14 +208,81 @@ test('MANAGED-REMOTE-MANAGEMENT-001 resolves a conflict from raw causal candidat
     assert.equal(calls[0][3].connection.host, 'other.example.com');
 });
 
-test('MANAGED-REMOTE-MIGRATION-003 reviews a frozen plan before committing preview authority', async () => {
-    const { controller, calls } = fixture();
-    await controller.handle(request('beginMigration'));
-    assert.deepEqual(calls.slice(0, 3).map(call => call[0]), [
-        'prepareMigration', 'reviewMigration', 'beginMigration',
+test('MANAGED-REMOTE-MIGRATION-003 automatically prepares existing remote Projects once', async () => {
+    const disabled = snapshot();
+    disabled.lifecycle = 'disabled';
+    disabled.revisionId = null;
+    const migrated = { ...disabled, lifecycle: 'preview', revisionId: nextRevisionId };
+    const plan = {
+        schemaVersion: 1,
+        planId: `migration:${'c'.repeat(64)}`,
+        sourceChecksum: 'c'.repeat(64),
+        records: [{ classification: 'ready' }],
+    };
+    const calls = [];
+    const result = await prepareAutomaticManagedRemoteMigration({
+        async getSnapshot() { calls.push('snapshot'); return disabled; },
+        prepareMigration() { calls.push('prepare'); return plan; },
+        async beginMigration(expected, resolved) {
+            calls.push(['begin', expected, resolved]);
+            return migrated;
+        },
+    }, {
+        async reviewMigration(value) { calls.push(['resolve', value]); return value; },
+    });
+
+    assert.equal(result, migrated);
+    assert.deepEqual(calls, [
+        'snapshot',
+        'prepare',
+        ['resolve', plan],
+        ['begin', null, plan],
     ]);
-    assert.equal(calls[2][1], revisionId);
-    assert.equal(calls[2][2].planId, `migration:${'c'.repeat(64)}`);
+});
+
+test('MANAGED-REMOTE-MIGRATION-003 skips local-only and already-settled catalogs', async () => {
+    const localOnly = snapshot();
+    localOnly.lifecycle = 'disabled';
+    localOnly.revisionId = null;
+    const localCalls = [];
+    const localResult = await prepareAutomaticManagedRemoteMigration({
+        async getSnapshot() { localCalls.push('snapshot'); return localOnly; },
+        prepareMigration() {
+            localCalls.push('prepare');
+            return { records: [{ classification: 'clientLocal' }] };
+        },
+    }, {
+        async reviewMigration() { localCalls.push('resolve'); throw new Error('unexpected'); },
+    });
+    assert.equal(localResult, localOnly);
+    assert.deepEqual(localCalls, ['snapshot', 'prepare']);
+
+    const active = snapshot();
+    active.lifecycle = 'active';
+    const activeCalls = [];
+    const activeResult = await prepareAutomaticManagedRemoteMigration({
+        async getSnapshot() { activeCalls.push('snapshot'); return active; },
+        prepareMigration() { activeCalls.push('prepare'); throw new Error('unexpected'); },
+    }, {
+        async reviewMigration() { throw new Error('unexpected'); },
+    });
+    assert.equal(activeResult, active);
+    assert.deepEqual(activeCalls, ['snapshot']);
+});
+
+test('MANAGED-REMOTE-MIGRATION-003 adopts a concurrent window migration result', async () => {
+    const disabled = { ...snapshot(), lifecycle: 'disabled', revisionId: null };
+    const concurrent = { ...snapshot(), lifecycle: 'preview' };
+    let reads = 0;
+    const result = await prepareAutomaticManagedRemoteMigration({
+        async getSnapshot() { reads += 1; return reads === 1 ? disabled : concurrent; },
+        prepareMigration() { return { records: [{ classification: 'ready' }] }; },
+        async beginMigration() { throw new Error('revision changed'); },
+    }, {
+        async reviewMigration(plan) { return plan; },
+    });
+    assert.equal(result, concurrent);
+    assert.equal(reads, 2);
 });
 
 test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 confirms before rolling active authority back', async () => {

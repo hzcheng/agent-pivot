@@ -115,7 +115,6 @@ test('MANAGED-REMOTE-MIGRATION-003 reviews unresolved aliases without moving cli
         { action: 'accept', value: '2207' },
         { action: 'accept', value: '/work/api' },
         { action: 'accept', value: true },
-        { action: 'accept', value: true },
     ]);
     const plan = {
         schemaVersion: 1,
@@ -140,14 +139,11 @@ test('MANAGED-REMOTE-MIGRATION-003 reviews unresolved aliases without moving cli
         host: 'build.example.com', user: 'dev', port: 2207,
     });
     assert.equal(result.records[1].classification, 'clientLocal');
-    assert.match(ui.picks.at(-1).items[0].description, /1 managed · 1 kept on this computer/u);
+    assert.match(ui.picks.at(-1).items[0].detail, /Saved to all synced computers/u);
 });
 
-test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 reviews detected alias details without copying authentication', async () => {
-    const ui = new ScriptedWizardUi([
-        { action: 'accept', value: 'detected' },
-        { action: 'accept', value: true },
-    ]);
+test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 automatically accepts detected plain endpoint details without copying authentication', async () => {
+    const ui = new ScriptedWizardUi([]);
     const inspected = [];
     const plan = {
         schemaVersion: 1,
@@ -171,8 +167,7 @@ test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 reviews detected alias details
 
     assert.deepEqual(inspected, ['build']);
     assert.equal(ui.inputs.length, 0);
-    assert.equal(ui.picks[0].items[0].label, 'Use detected details');
-    assert.match(ui.picks[0].items[0].detail, /Passwords, keys, and advanced SSH behavior are not copied/u);
+    assert.equal(ui.picks.length, 0);
     assert.equal(result.records[0].classification, 'ready');
     assert.deepEqual(result.records[0].endpoint, {
         host: 'build.example.com', user: 'dev', port: 2207,

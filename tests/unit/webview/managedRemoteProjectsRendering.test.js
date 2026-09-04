@@ -41,7 +41,7 @@ function model() {
 test('MANAGED-REMOTE-MANAGEMENT-003 renders complete management actions and no Move Project action', () => {
     const html = renderManagedRemoteProjectsPanel(model());
     assert.match(html, /data-managed-operation="addMachine"/);
-    assert.match(html, /data-managed-operation="beginMigration"/);
+    assert.doesNotMatch(html, /beginMigration|>Migrate</u);
     assert.match(html, /data-managed-operation="addProject"/);
     assert.match(html, /data-managed-operation="editMachine"/);
     assert.match(html, /data-managed-operation="removeMachine"/);
@@ -64,7 +64,7 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 replaces Review with local enable after m
     value.migrationPrepared = true;
     const html = renderManagedRemoteProjectsPanel(value);
     assert.match(html, /data-managed-client-action="enable"/u);
-    assert.doesNotMatch(html, /data-managed-operation="beginMigration"/u);
+    assert.doesNotMatch(html, /beginMigration|>Migrate</u);
 });
 
 test('MANAGED-REMOTE-CLIENT-DISABLE-001 exposes a computer-local disable action only when ready', () => {

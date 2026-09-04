@@ -47,6 +47,13 @@ test('MANAGED-REMOTE-MANAGEMENT-001 accepts strict identity-only management inte
         operation: 'rollbackMigration',
         expectedRevisionId: `revision:${'a'.repeat(64)}`,
     }));
+    assert.equal(parseManagedRemoteManagementRequest({
+        type: 'managed-remote-action',
+        version: 1,
+        requestId,
+        operation: 'beginMigration',
+        expectedRevisionId: null,
+    }), null, 'migration is automatic and has no Webview command');
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-001 rejects payload injection and target-shape drift', () => {

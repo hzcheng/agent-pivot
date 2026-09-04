@@ -2,6 +2,7 @@ function createMachineProjectsUi() {
     var panel = null;
     var selectedTags = new Set();
     var textQuery = '';
+    var activeProjectMenuTrigger = null;
     var storageKeys = {
         tags: 'machineProjects.selectedTags.v1',
         collapsed: 'machineProjects.collapsed.v1',
@@ -89,13 +90,16 @@ function createMachineProjectsUi() {
         if (clear) clear.hidden = selectedTags.size === 0;
         var trigger = panel.querySelector('[data-action="toggle-machine-tags"]');
         if (trigger) {
-            trigger.textContent = selectedTags.size ? 'Tags (' + selectedTags.size + ')' : 'Tags';
-        }
-        var selection = panel.querySelector('[data-machine-tag-selection]');
-        if (selection) {
-            var shown = Array.from(selectedTags).slice(0, 2);
-            selection.textContent = shown.join('  ')
-                + (selectedTags.size > 2 ? '  +' + (selectedTags.size - 2) : '');
+            var filterLabel = selectedTags.size
+                ? 'Filter projects by tag, ' + selectedTags.size + ' selected'
+                : 'Filter projects by tag';
+            trigger.setAttribute('aria-label', filterLabel);
+            trigger.setAttribute('title', filterLabel);
+            var count = trigger.querySelector('[data-machine-filter-count]');
+            if (count) {
+                count.textContent = String(selectedTags.size);
+                count.hidden = selectedTags.size === 0;
+            }
         }
     }
 
@@ -210,12 +214,51 @@ function createMachineProjectsUi() {
         var trigger = panel.querySelector('[data-action="toggle-machine-tags"]');
         if (!popover || !trigger) return;
         var opening = popover.hidden;
+        if (opening) closeProjectMenu(false);
         popover.hidden = !opening;
         trigger.setAttribute('aria-expanded', String(opening));
         if (opening) {
             var first = panel.querySelector('[data-machine-tag-checkbox]');
             if (first) first.focus();
         }
+    }
+
+    function closeProjectMenu(returnFocus) {
+        if (!activeProjectMenuTrigger) return;
+        var trigger = activeProjectMenuTrigger;
+        var shell = trigger.closest('.machine-project-menu-shell');
+        var menu = shell && shell.querySelector('[data-machine-project-menu]');
+        if (menu) menu.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+        activeProjectMenuTrigger = null;
+        if (returnFocus && trigger.isConnected && typeof trigger.focus === 'function') {
+            trigger.focus();
+        }
+    }
+
+    function toggleProjectMenu(trigger, focusFirst) {
+        var shell = trigger && trigger.closest('.machine-project-menu-shell');
+        var menu = shell && shell.querySelector('[data-machine-project-menu]');
+        if (!menu) return;
+        var opening = menu.hidden;
+        closeProjectMenu(false);
+        if (!opening) return;
+        closeTags(false);
+        menu.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+        activeProjectMenuTrigger = trigger;
+        if (focusFirst) {
+            var first = menu.querySelector('[role="menuitem"]');
+            if (first) first.focus();
+        }
+    }
+
+    function postProjectAction(control, type) {
+        var row = control.closest('[data-machine-project-row]');
+        var projectId = row && row.getAttribute('data-machine-project-id');
+        if (!projectId) return;
+        closeProjectMenu(false);
+        window.vscode.postMessage({ type: type, projectId: projectId });
     }
 
     function postProjectOpen(row, openType) {
@@ -233,6 +276,10 @@ function createMachineProjectsUi() {
             ? event.target.closest('[data-action], [data-machine-disclosure]')
             : null;
         if (!control) {
+            if (event.target && event.target.closest
+                && event.target.closest('.machine-project-actions')) {
+                return;
+            }
             var row = event.target && event.target.closest
                 ? event.target.closest('[data-machine-project-row]')
                 : null;
@@ -283,6 +330,17 @@ function createMachineProjectsUi() {
                     projectId: favoriteRow.getAttribute('data-machine-project-id'),
                 });
             }
+        } else if (action === 'toggle-machine-project-menu') {
+            toggleProjectMenu(control, false);
+        } else if (action === 'open-machine-project-current') {
+            postProjectOpen(control.closest('[data-machine-project-row]'), ProjectOpenType.CurrentWindow);
+            closeProjectMenu(false);
+        } else if (action === 'edit-machine-project') {
+            postProjectAction(control, 'edit-project');
+        } else if (action === 'color-machine-project') {
+            postProjectAction(control, 'color-project');
+        } else if (action === 'remove-machine-project') {
+            postProjectAction(control, 'remove-project');
         } else if (action === 'open-machine-project') {
             var projectRow = control.closest('[data-machine-project-row]');
             postProjectOpen(
@@ -322,12 +380,50 @@ function createMachineProjectsUi() {
     }
 
     function onKeyDown(event) {
+        if (event.key === 'Escape' && activeProjectMenuTrigger) {
+            event.preventDefault();
+            closeProjectMenu(true);
+            return;
+        }
+        var menu = event.target && event.target.closest
+            ? event.target.closest('[data-machine-project-menu]')
+            : null;
+        if (menu && (event.key === 'ArrowDown' || event.key === 'ArrowUp'
+            || event.key === 'Home' || event.key === 'End')) {
+            event.preventDefault();
+            var items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+            var current = items.indexOf(document.activeElement);
+            var next = event.key === 'Home' ? 0
+                : event.key === 'End' ? items.length - 1
+                    : event.key === 'ArrowDown'
+                        ? (current + 1) % items.length
+                        : (current - 1 + items.length) % items.length;
+            if (items[next]) items[next].focus();
+            return;
+        }
+        if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))
+            && event.target && event.target.closest) {
+            var row = event.target.closest('[data-machine-project-row]');
+            var trigger = row && row.querySelector('[data-action="toggle-machine-project-menu"]');
+            if (trigger) {
+                event.preventDefault();
+                toggleProjectMenu(trigger, true);
+                return;
+            }
+        }
         if (event.key === 'Escape') closeTags(true);
     }
 
     function onDocumentClick(event) {
         if (!panel || !event.target || !event.target.closest) return;
         if (!event.target.closest('.machine-tag-filter')) closeTags(false);
+        if (!event.target.closest('.machine-project-menu-shell')) closeProjectMenu(false);
+    }
+
+    function onDocumentFocusIn(event) {
+        if (!activeProjectMenuTrigger || !event.target) return;
+        var shell = activeProjectMenuTrigger.closest('.machine-project-menu-shell');
+        if (shell && !shell.contains(event.target)) closeProjectMenu(false);
     }
 
     function mount(nextPanel) {
@@ -346,6 +442,7 @@ function createMachineProjectsUi() {
     }
 
     document.addEventListener('click', onDocumentClick);
+    document.addEventListener('focusin', onDocumentFocusIn);
     return {
         mount: mount,
         isMounted: function () { return Boolean(panel); },

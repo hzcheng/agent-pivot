@@ -81,6 +81,7 @@ function createFixture(overrides = {}) {
         getAttentionAggregate: () => overrides.attentionAggregate || null,
         acknowledgeAiSessionAttentionEventIds: record('acknowledgeAttention'),
         refreshAfterMutation: mode => { calls.push(['refreshAfterMutation', mode]); },
+        openLocalWindow: record('openLocalWindow'),
         postMessage: message => { outgoing.push(message); return Promise.resolve(true); },
         showWarningMessage: message => { calls.push(['showWarningMessage', message]); },
     };
@@ -250,6 +251,24 @@ test('MACHINE-PROJECTS-HOST-NAVIGATION-001 opens the URI-derived Host through th
     assert.equal(calls[0][1].path, 'vscode-remote://ssh-remote%2Bdevbox/');
     assert.equal(calls[0][1].remoteType, 1);
     assert.equal(calls[0][2], 1);
+});
+
+test('MACHINE-PROJECTS-HOST-NAVIGATION-001 opens Local as a blank local window', async () => {
+    const groups = [{
+        id: 'local', groupName: 'Local', projects: [{
+            id: 'local-api', name: 'Local API', path: '/work/api', tags: [],
+        }],
+    }];
+    const machine = buildMachineProjectsViewModel(groups).machines[0];
+    const { handlers, calls } = createFixture({ groups });
+
+    await handlers['open-machine-host']({
+        type: 'open-machine-host',
+        machineId: machine.id,
+        projectId: machine.hostProjectId,
+    });
+
+    assert.deepEqual(calls, [['openLocalWindow']]);
 });
 
 test('PROJECT-PROJECT-ORDER-CONTROLLER-001 passes group orders through unchanged', async () => {

@@ -2359,6 +2359,7 @@ async function initializeDashboard(
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         acknowledgeAiSessionAttentionEventIds,
         refreshAfterMutation: projectSurface.refreshAfterMutation,
+        openLocalWindow: () => vscode.commands.executeCommand('workbench.action.newWindow'),
         postMessage: message => provider.postMessage(message),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });

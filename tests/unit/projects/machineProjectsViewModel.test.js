@@ -77,6 +77,19 @@ test('MACHINE-PROJECTS-PROJECTION-001 treats WSL as its own Machine and local co
     assert.deepEqual(model.machines[1].environments.map(environment => environment.kind), [
         'host', 'devContainer',
     ]);
+    assert.equal(model.machines[1].hostOpenable, true);
+    assert.equal(model.machines[1].hostProjectId, 'local');
+    assert.deepEqual(resolveMachineHostTarget([{
+        id: 'local', groupName: 'Local', projects: [{
+            id: 'local', name: 'Local', path: '/home/dev/local', tags: [],
+        }],
+    }], {
+        machineId: model.machines[1].id,
+        projectId: 'local',
+    }), {
+        kind: 'local',
+        name: 'Local',
+    });
 });
 
 test('MACHINE-PROJECTS-HOST-NAVIGATION-001 derives a Host root from the same saved URI without a connection profile', () => {
@@ -89,6 +102,7 @@ test('MACHINE-PROJECTS-HOST-NAVIGATION-001 derives a Host root from the same sav
         machineId: machine.id,
         projectId: machine.hostProjectId,
     }), {
+        kind: 'remote',
         name: 'devbox',
         path: 'vscode-remote://ssh-remote%2Bdevbox/',
         remoteType: 1,

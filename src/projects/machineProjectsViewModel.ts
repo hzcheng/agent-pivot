@@ -49,11 +49,19 @@ export interface MachineProjectsViewModel {
     machines: MachineRowViewModel[];
 }
 
-export interface MachineHostTarget {
+export interface LocalMachineTarget {
+    kind: 'local';
+    name: string;
+}
+
+export interface RemoteMachineHostTarget {
+    kind: 'remote';
     name: string;
     path: string;
     remoteType: ProjectRemoteType;
 }
+
+export type MachineHostTarget = LocalMachineTarget | RemoteMachineHostTarget;
 
 interface ProjectTopology {
     machineKey: string;
@@ -103,7 +111,7 @@ export function buildMachineProjectsViewModel(groups: readonly Group[]): Machine
                     key: topology.machineKey,
                     id: machineId,
                     displayName: topology.machineName,
-                    hostOpenable: topology.hostAuthority !== null,
+                    hostOpenable: true,
                     hostProjectId: null,
                     hostAuthority: topology.hostAuthority,
                     hostRemoteType: topology.hostRemoteType,
@@ -118,8 +126,7 @@ export function buildMachineProjectsViewModel(groups: readonly Group[]): Machine
                 machine.hostRemoteType = topology.hostRemoteType;
                 machine.hostOpenable = true;
             }
-            if (topology.hostAuthority && (!machine.hostProjectId
-                || topology.environmentKind === 'host')) {
+            if (!machine.hostProjectId || topology.environmentKind === 'host') {
                 machine.hostProjectId = project.id;
             }
 
@@ -209,11 +216,15 @@ export function resolveMachineHostTarget(
             candidate.id === target.projectId);
         if (!project) { continue; }
         const topology = deriveProjectTopology(project.path);
-        if (stableViewId('machine', topology.machineKey) !== target.machineId
-            || !topology.hostAuthority) {
+        if (stableViewId('machine', topology.machineKey) !== target.machineId) {
             return null;
         }
+        if (topology.machineKey === 'local') {
+            return { kind: 'local', name: 'Local' };
+        }
+        if (!topology.hostAuthority) { return null; }
         return {
+            kind: 'remote',
             name: topology.machineName,
             path: `${REMOTE_URI_PREFIX}${encodeRemoteAuthority(topology.hostAuthority)}/`,
             remoteType: topology.hostRemoteType,

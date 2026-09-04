@@ -90,6 +90,7 @@ export interface ProjectMessageHandlersOptions {
     /** Owned by the AI session attention slice; injected, not extracted here. */
     acknowledgeAiSessionAttentionEventIds: (eventIds: string[]) => Promise<void>;
     refreshAfterMutation: (mode?: ProjectsPanelUpdateMode) => void;
+    openLocalWindow: () => Thenable<unknown> | Promise<unknown>;
     postMessage: (message: Record<string, unknown>) => Thenable<boolean> | Promise<boolean> | boolean;
     showWarningMessage: (message: string) => unknown;
 }
@@ -137,6 +138,10 @@ export function createProjectMessageHandlers(
             });
             if (!target) {
                 showWarningMessage('The Machine connection could not be derived from its Projects.');
+                return;
+            }
+            if (target.kind === 'local') {
+                await options.openLocalWindow();
                 return;
             }
             const host = new Project(target.name, target.path);

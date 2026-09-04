@@ -24,9 +24,9 @@ Container。该数据会沿用现有项目设置和同步机制跨机器保存�
 
 1. Projects 页按 `Machine → Environment → Project` 展示。
 2. Host 和 Docker Dev Container 必须是不同 Environment。
-3. 点击 Machine 行只展开或收起；右侧按钮在新窗口打开其 Host。
+3. 点击 Machine 行只展开或收起；右侧按钮在新窗口打开该 Machine；Local 打开空白本地窗口。
 4. 点击 Project 行沿用当前 Project 打开行为。
-5. Project 支持 tag 展示，并按多个 tag 的 AND 关系过滤。
+5. Project 支持按多个 tag 的 AND 关系过滤，tag 不重复占用 Project 行空间。
 6. Favorites 是 Project 的镜像入口，不重复计数。
 7. 当前 Group 名在新视图中作为兼容 tag 展示。
 8. 功能开关关闭后立即恢复原 Projects 页面。
@@ -97,7 +97,8 @@ Project 数据重新推导并校验 Machine，再从 Project URI 提取外层 Ho
 - WSL Machine 打开 `vscode-remote://wsl+distro/`；
 - 其他可解析 remote Machine 打开其 authority 根；
 - 只有远程 Dev Container Project 时，使用其外层 SSH authority 打开 Host；
-- Local 或没有可安全推导 Host 的 Machine 不显示该按钮。
+- Local Machine 使用同一按钮打开空白本地窗口；
+- 没有可重新验证的 Project 身份时不显示该按钮。
 
 最终仍调用既有 `ProjectOpenController` 与 saved-project navigation。不得新增 UI
 Bridge command、握手或配置存储。
@@ -107,14 +108,16 @@ Bridge command、握手或配置存储。
 默认结构：
 
 ```text
+3 projects on 2 machines                         [tag] [add]
+
 FAVORITES
-  API                         devbox › Host
+  ● API                         devbox › Host  [★] […]
 
 devbox                                      [open Host]
   Host
-    API                       #Backend #api
+    ● API                                      [★] […]
   workspace (Dev Container)
-    Worker                    #Backend #worker
+    ● Worker                                   [☆] […]
 ```
 
 - Machine、Environment、Favorites 都可独立展开/收起；
@@ -123,7 +126,10 @@ devbox                                      [open Host]
 - tag 筛选使用复选框，选择多个 tag 时必须全部匹配；
 - 结果数按唯一 Project 和 Machine 计算，Favorite 镜像不重复计数；
 - 过滤为零时可临时收起 Machine，清除过滤后恢复过滤前状态；
-- Machine Host、Project 与 Favorite 按钮均可通过键盘访问；
+- 工具栏左侧显示结果数，右侧紧邻放置 tag 和 Add 图标按钮；
+- Project 行显示原有颜色标识，不内联显示 tag；
+- Project 的 `…` 菜单提供当前窗口打开、编辑 Project、编辑颜色与删除；
+- Machine、Project、Favorite 与更多操作均可通过键盘访问；
 - 不显示 Setup、Assign、Preview、Migration Report 或 UI Bridge 状态。
 
 ## 8. Tag 兼容规则
@@ -149,10 +155,13 @@ Group 名只做派生兼容映射，不在后台批量改写 Project，也不改
 - [ ] WSL 显示为独立 Machine。
 - [ ] Project 行点击可打开原 Project，包括 Dev Container Project。
 - [ ] 页面没有 Setup、Assign、Preview 或 Migration UI。
-- [ ] Machine 行点击只收起/展开，右侧按钮在新窗口打开 Host。
+- [ ] Machine 行点击只收起/展开，右侧按钮在新窗口打开对应 Machine。
+- [ ] Local Machine 的右侧按钮打开空白本地窗口。
 - [ ] 只有 Dev Container Project 的远程 Machine 也能打开外层 Host。
-- [ ] Local 或无法安全派生 Host 时不展示误导性的远程打开按钮。
 - [ ] tag 多选按 AND 过滤，Group 名可作为 tag 过滤。
+- [ ] Project 行不显示冗余 tag，保留颜色标识。
+- [ ] Project `…` 菜单可以编辑 Project、颜色以及删除 Project，点击外部即可关闭。
+- [ ] 结果数、tag 与 Add 在同一紧凑工具栏内对齐。
 - [ ] Favorites 不重复计数，收藏按钮不误触 Project 打开。
 - [ ] 顶部 Expand/Collapse All 对当前 Projects 层级有效。
 - [ ] 260px 宽度下无水平滚动，核心操作仍可访问。

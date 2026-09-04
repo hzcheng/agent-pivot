@@ -26,7 +26,7 @@ function project(id, name, tags, favorite = false) {
         id, environmentId: 'host', machineId: 'machine',
         machineName: 'devbox', environmentName: 'Host', name, description: null,
         path: `vscode-remote://ssh-remote%2Bdevbox/work/${id}`,
-        tags, favorite, color: null,
+        tags, favorite, color: id === 'api' ? '#c586c0' : null,
         searchText: `${name} ${tags.join(' ')} devbox host`.toLowerCase(),
     };
 }
@@ -107,6 +107,9 @@ test('MACHINE-PROJECTS-FILTER-001 applies AND tags without double-counting Favor
     await page.check('[data-machine-tag-checkbox][value="active"]');
     await page.check('[data-machine-tag-checkbox][value="api"]');
 
+    assert.equal(await page.locator('[data-machine-filter-count]').textContent(), '2');
+    assert.equal(await page.locator('[data-action="toggle-machine-tags"]').getAttribute('aria-label'),
+        'Filter projects by tag, 2 selected');
     assert.equal(await page.textContent('[data-machine-projects-summary]'), '1 project on 1 machine');
     assert.equal(await page.locator('[data-machine-project-id="api"]:not([hidden])').count(), 2);
     assert.equal(await page.locator('[data-machine-project-id="worker"]:not([hidden])').count(), 0);
@@ -122,7 +125,7 @@ test('MACHINE-PROJECTS-ROW-OPEN-001 opens Project rows through the existing sele
     const page = await openPage(t);
     const row = '[data-machine-environment-row] [data-machine-project-id="api"]';
 
-    await page.click(`${row} .machine-project-tag`);
+    await page.click(`${row} .machine-project-color`);
     assert.deepEqual(await page.evaluate(() => window.messages.at(-1)), {
         type: 'selected-project', projectId: 'api', projectOpenType: 0,
     });
@@ -132,6 +135,51 @@ test('MACHINE-PROJECTS-ROW-OPEN-001 opens Project rows through the existing sele
     assert.deepEqual(await page.evaluate(() => window.messages), [{
         type: 'favorite-project', projectId: 'api',
     }]);
+});
+
+test('MACHINE-PROJECTS-ACTIONS-001 exposes a dismissible Project actions menu', async t => {
+    const page = await openPage(t);
+    const row = '[data-machine-environment-row] [data-machine-project-id="api"]';
+
+    await page.click(`${row} [data-action="toggle-machine-project-menu"]`);
+    assert.equal(await page.locator(`${row} [data-machine-project-menu]`).isVisible(), true);
+    await page.click(`${row} [data-action="edit-machine-project"]`);
+    assert.deepEqual(await page.evaluate(() => window.messages.at(-1)), {
+        type: 'edit-project', projectId: 'api',
+    });
+    assert.equal(await page.locator(`${row} [data-machine-project-menu]`).isHidden(), true);
+
+    for (const [action, expected] of [
+        ['open-machine-project-current', {
+            type: 'selected-project', projectId: 'api', projectOpenType: 3,
+        }],
+        ['color-machine-project', { type: 'color-project', projectId: 'api' }],
+        ['remove-machine-project', { type: 'remove-project', projectId: 'api' }],
+    ]) {
+        await page.click(`${row} [data-action="toggle-machine-project-menu"]`);
+        await page.click(`${row} [data-action="${action}"]`);
+        assert.deepEqual(await page.evaluate(() => window.messages.at(-1)), expected);
+    }
+
+    await page.click(`${row} [data-action="toggle-machine-project-menu"]`);
+    await page.mouse.click(1, 200);
+    assert.equal(await page.locator(`${row} [data-machine-project-menu]`).isHidden(), true);
+});
+
+test('MACHINE-PROJECTS-TOOLBAR-001 keeps summary and icon actions in one compact row', async t => {
+    const page = await openPage(t);
+    const toolbar = page.locator('.machine-projects-toolbar');
+    const summary = page.locator('[data-machine-projects-summary]');
+    const tagButton = page.locator('[data-action="toggle-machine-tags"]');
+    const addButton = page.locator('[data-action="add-project"]');
+
+    assert.equal(await summary.evaluate(node =>
+        node.parentElement.classList.contains('machine-projects-toolbar')), true);
+    assert.equal(await tagButton.getAttribute('aria-label'), 'Filter projects by tag');
+    assert.equal(await addButton.getAttribute('aria-label'), 'Add Project');
+    const boxes = await Promise.all([toolbar, summary, tagButton, addButton].map(locator => locator.boundingBox()));
+    assert.equal(boxes[1].y, boxes[2].y);
+    assert.ok(boxes[3].x > boxes[2].x);
 });
 
 test('MACHINE-PROJECTS-HOST-NAVIGATION-001 opens a derived Host without setup or UI Bridge state', async t => {
@@ -145,16 +193,25 @@ test('MACHINE-PROJECTS-HOST-NAVIGATION-001 opens a derived Host without setup or
     assert.equal(await page.getByText(/Setup|Assign|Preview|UI Bridge/).count(), 0);
 });
 
-test('MACHINE-PROJECTS-KEYBOARD-001 exposes disclosure, Host, Project, and Favorite actions to Tab', async t => {
+test('MACHINE-PROJECTS-KEYBOARD-001 exposes disclosure, Machine, Project, Favorite, and menu actions to the keyboard', async t => {
     const page = await openPage(t);
     const tabStops = await page.locator('[data-machine-row] button').evaluateAll(buttons =>
         buttons.filter(button => button.tabIndex === 0).map(button => button.getAttribute('data-action')
             || button.getAttribute('data-machine-disclosure')));
     assert.deepEqual(tabStops, [
         'machine', 'open-machine-host', 'environment',
-        'open-machine-project', 'toggle-machine-favorite',
-        'open-machine-project', 'toggle-machine-favorite',
+        'open-machine-project', 'toggle-machine-favorite', 'toggle-machine-project-menu',
+        'open-machine-project', 'toggle-machine-favorite', 'toggle-machine-project-menu',
     ]);
+
+    const row = '[data-machine-environment-row] [data-machine-project-id="api"]';
+    await page.focus(`${row} [data-action="open-machine-project"]`);
+    await page.keyboard.press('Shift+F10');
+    assert.equal(await page.locator(`${row} [data-action="open-machine-project-current"]`)
+        .evaluate(node => document.activeElement === node), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator(`${row} [data-action="toggle-machine-project-menu"]`)
+        .evaluate(node => document.activeElement === node), true);
 });
 
 test('MACHINE-PROJECTS-FOCUS-001 restores a Favorite Project to its directory row after refresh', async t => {

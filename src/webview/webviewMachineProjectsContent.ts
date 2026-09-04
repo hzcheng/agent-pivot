@@ -2,6 +2,7 @@
 
 import * as Icons from '../webviewIcons';
 import { escapeAttribute } from '../webviewHtmlEscape';
+import { sanitizeCssColor } from './webviewCssSanitize';
 import type {
     MachineEnvironmentViewModel,
     MachineProjectRowViewModel,
@@ -13,18 +14,21 @@ export function renderMachineProjectsPanel(model: MachineProjectsViewModel): str
     if (!model.machines.length) {
         return `<section class="machine-projects machine-projects-empty" data-machine-projects data-machine-project-count="0">
             <div class="machine-projects-toolbar">
-                <button type="button" class="machine-projects-add" data-action="add-project">Add Project</button>
+                <span class="machine-projects-summary">0 projects</span>
+                <button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button>
             </div>
             <p>No projects have been added yet.</p>
         </section>`;
     }
     return `<section class="machine-projects" data-machine-projects data-machine-project-count="${model.projectCount}">
         <div class="machine-projects-toolbar">
-            ${renderTagControls(model.tags)}
-            <button type="button" class="machine-projects-add" data-action="add-project">Add</button>
-        </div>
-        <div class="machine-projects-summary" data-machine-projects-summary role="status" aria-live="polite">
-            ${formatResultCount(model.projectCount, model.machines.length)}
+            <div class="machine-projects-summary" data-machine-projects-summary role="status" aria-live="polite">
+                ${formatResultCount(model.projectCount, model.machines.length)}
+            </div>
+            <div class="machine-projects-toolbar-actions">
+                ${renderTagControls(model.tags)}
+                <button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button>
+            </div>
         </div>
         ${renderFavorites(model.favorites)}
         <section class="machine-projects-directory" aria-labelledby="machine-projects-directory-title">
@@ -40,8 +44,9 @@ export function renderMachineProjectsPanel(model: MachineProjectsViewModel): str
 function renderTagControls(tags: string[]): string {
     if (!tags.length) { return ''; }
     return `<div class="machine-tag-filter">
-        <button type="button" class="machine-tag-filter-trigger" data-action="toggle-machine-tags" aria-expanded="false" aria-controls="machine-tag-popover">
-            Tags
+        <button type="button" class="machine-toolbar-button machine-tag-filter-trigger" data-action="toggle-machine-tags" aria-expanded="false" aria-controls="machine-tag-popover" aria-label="Filter projects by tag" title="Filter projects by tag">
+            ${Icons.tag}
+            <span class="machine-filter-count" data-machine-filter-count hidden></span>
         </button>
         <div id="machine-tag-popover" class="machine-tag-popover" data-machine-tag-popover hidden>
             <div class="machine-tag-popover-heading">Matches all</div>
@@ -49,10 +54,11 @@ function renderTagControls(tags: string[]): string {
                 <input type="checkbox" value="${escapeAttribute(tag.toLocaleLowerCase())}" data-machine-tag-checkbox>
                 <span title="${escapeAttribute(tag)}">${escapeAttribute(tag)}</span>
             </label>`).join('\n')}
-            <button type="button" class="machine-tag-done" data-action="close-machine-tags">Done</button>
+            <div class="machine-tag-popover-actions">
+                <button type="button" class="machine-clear-filters" data-action="clear-machine-tags" hidden>Clear</button>
+                <button type="button" class="machine-tag-done" data-action="close-machine-tags">Done</button>
+            </div>
         </div>
-        <div class="machine-tag-selection" data-machine-tag-selection aria-hidden="true"></div>
-        <button type="button" class="machine-clear-filters" data-action="clear-machine-tags" hidden>Clear filters</button>
     </div>`;
 }
 
@@ -78,11 +84,11 @@ function renderMachine(machine: MachineRowViewModel): string {
         <div class="machine-row-line">
             <button type="button" class="machine-row-primary machine-disclosure" data-machine-disclosure="machine" aria-expanded="true" aria-controls="${childrenId}" aria-label="Collapse ${escapeAttribute(machine.displayName)}">
                 <span class="machine-chevron" aria-hidden="true">${Icons.collapse}</span>
-                <span class="machine-row-icon" aria-hidden="true">${Icons.remote}</span>
+                <span class="machine-row-icon machine-computer-icon" aria-hidden="true">${Icons.computer}</span>
                 <span class="machine-row-name" title="${escapeAttribute(machine.displayName)}">${escapeAttribute(machine.displayName)}</span>
             </button>
             ${machine.hostOpenable && machine.hostProjectId
-                ? `<button type="button" class="machine-pointer-action machine-primary-action" data-action="open-machine-host" data-host-project-id="${escapeAttribute(machine.hostProjectId)}" aria-label="Open Host on ${escapeAttribute(machine.displayName)} in a new window" title="Open Host in New Window">${Icons.openNewWindow}</button>`
+                ? `<button type="button" class="machine-pointer-action machine-primary-action" data-action="open-machine-host" data-host-project-id="${escapeAttribute(machine.hostProjectId)}" aria-label="Open ${escapeAttribute(machine.displayName)} in a new window" title="Open ${escapeAttribute(machine.displayName)} in a new window">${Icons.openNewWindow}</button>`
                 : ''}
         </div>
         <ul id="${childrenId}" class="machine-environment-list">
@@ -116,24 +122,31 @@ function renderProject(project: MachineProjectRowViewModel, favorite: boolean): 
         ? `Favorite shortcut to ${project.name}, on ${project.machineName}, ${project.environmentName}`
         : `Open ${project.name} on ${project.machineName}, ${project.environmentName}`;
     const tags = project.tags.map(tag => tag.toLocaleLowerCase());
+    const color = sanitizeCssColor(project.color);
     return `<li class="machine-project-row${favorite ? ' machine-favorite-row' : ''}" data-machine-project-row data-machine-project-id="${escapeAttribute(project.id)}" data-machine-id="${escapeAttribute(project.machineId)}" data-environment-id="${escapeAttribute(project.environmentId)}" data-machine-project-tags="${escapeAttribute(JSON.stringify(tags))}" data-machine-search="${escapeAttribute(project.searchText)}">
         <div class="machine-row-line">
             <button type="button" class="machine-project-primary" data-action="open-machine-project" aria-label="${escapeAttribute(identityName)}" title="${escapeAttribute(project.path)}">
-                ${favorite ? `<span class="machine-favorite-star" aria-hidden="true">${Icons.starFilled}</span>` : ''}
+                <span class="machine-project-color"${color ? ` style="background: ${escapeAttribute(color)}"` : ''} aria-hidden="true"></span>
                 <span class="machine-row-name">${escapeAttribute(project.name)}</span>
             </button>
             ${favorite
                 ? `<span class="machine-project-context" title="${escapeAttribute(`${project.machineName} › ${project.environmentName}`)}">${escapeAttribute(`${project.machineName} › ${project.environmentName}`)}</span>`
-                : renderProjectTags(project.tags)}
-            <button type="button" class="machine-pointer-action" data-action="toggle-machine-favorite" aria-label="${project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}">${project.favorite ? Icons.starFilled : Icons.star}</button>
+                : ''}
+            <div class="machine-project-actions">
+                <button type="button" class="machine-pointer-action machine-favorite-action${project.favorite ? ' is-active' : ''}" data-action="toggle-machine-favorite" aria-label="${project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}" title="${project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}">${project.favorite ? Icons.starFilled : Icons.star}</button>
+                <div class="machine-project-menu-shell">
+                    <button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-project-menu" aria-label="More actions for ${escapeAttribute(project.name)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button>
+                    <div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
+                        <button type="button" role="menuitem" tabindex="-1" data-action="open-machine-project-current">Open in Current Window</button>
+                        <div class="machine-project-menu-separator" role="separator"></div>
+                        <button type="button" role="menuitem" tabindex="-1" data-action="edit-machine-project">Edit Project…</button>
+                        <button type="button" role="menuitem" tabindex="-1" data-action="color-machine-project">Edit Color…</button>
+                        <button type="button" role="menuitem" tabindex="-1" class="danger" data-action="remove-machine-project">Remove Project…</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </li>`;
-}
-
-function renderProjectTags(tags: string[]): string {
-    if (!tags.length) { return ''; }
-    const shown = tags.slice(0, 2);
-    return `<span class="machine-project-tags" aria-label="Tags: ${escapeAttribute(tags.join(', '))}">${shown.map(tag => `<span class="machine-project-tag" title="${escapeAttribute(tag)}">#${escapeAttribute(tag)}</span>`).join('')}${tags.length > shown.length ? `<span class="machine-project-tag-more">+${tags.length - shown.length}</span>` : ''}</span>`;
 }
 
 function formatResultCount(projectCount: number, machineCount: number): string {

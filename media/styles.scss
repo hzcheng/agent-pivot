@@ -635,7 +635,7 @@ body .project {
 
     position: relative;
     min-width: 0;
-    padding: 8px 6px 18px;
+    padding: 4px 4px 18px;
     font-family: var(--vscode-font-family);
 
     ul {
@@ -654,16 +654,74 @@ body .project {
     top: 0;
     z-index: 40;
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
-    gap: 6px;
-    min-height: 30px;
-    padding: 2px 0 6px;
+    gap: 8px;
+    min-height: 32px;
+    padding: 2px 2px 5px;
+    border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-sideBar-background, var(--vscode-editor-background));
 }
 
-.machine-projects-add,
-.machine-tag-filter-trigger,
+.machine-projects-toolbar-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 2px;
+}
+
+.machine-toolbar-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 5px;
+    border: 0;
+    border-radius: 4px;
+    color: var(--vscode-icon-foreground, var(--vscode-foreground));
+    background: transparent;
+    cursor: pointer;
+
+    svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+    }
+
+    &:hover {
+        color: var(--vscode-textLink-activeForeground, var(--vscode-focusBorder));
+        background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+}
+
+.machine-projects-add {
+    color: var(--vscode-textLink-foreground, var(--vscode-icon-foreground));
+}
+
+.machine-filter-count {
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-width: 12px;
+    height: 12px;
+    padding: 0 3px;
+    border-radius: 999px;
+    color: var(--vscode-badge-foreground);
+    background: var(--vscode-badge-background);
+    font-size: 8px;
+    font-weight: 700;
+    line-height: 12px;
+    text-align: center;
+}
+
 .machine-tag-done,
 .machine-clear-filters {
     min-height: 24px;
@@ -684,36 +742,15 @@ body .project {
     }
 }
 
-.machine-projects-add {
-    color: var(--vscode-button-foreground);
-    background: var(--vscode-button-background);
-
-    &:hover {
-        background: var(--vscode-button-hoverBackground);
-    }
-}
-
 .machine-tag-filter {
     position: relative;
     display: flex;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     align-items: center;
-    gap: 6px;
     min-width: 0;
-}
-
-.machine-tag-selection {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--vscode-descriptionForeground);
-    font-size: 11px;
-    line-height: 24px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .machine-clear-filters {
-    margin-left: auto;
     border-color: transparent;
     color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
     background: transparent;
@@ -722,7 +759,7 @@ body .project {
 .machine-tag-popover {
     position: absolute;
     top: 29px;
-    left: 0;
+    right: 0;
     z-index: 120;
     display: flex;
     flex-direction: column;
@@ -746,7 +783,6 @@ body .project {
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
     font-weight: 600;
-    text-transform: uppercase;
 }
 
 .machine-tag-option {
@@ -770,21 +806,27 @@ body .project {
     }
 }
 
-.machine-tag-done {
-    align-self: flex-end;
+.machine-tag-popover-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
     margin-top: 6px;
 }
 
 .machine-projects-summary {
-    min-height: 20px;
-    padding: 1px 2px 5px;
+    min-width: 0;
+    overflow: hidden;
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
+    line-height: 26px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .machine-favorites {
-    margin: 3px 0 8px;
-    padding-bottom: 6px;
+    margin: 7px 0 9px;
+    padding-bottom: 7px;
     border-bottom: 1px solid var(--vscode-panel-border);
 }
 
@@ -794,6 +836,7 @@ body .project {
 }
 
 .machine-row-line {
+    position: relative;
     display: flex;
     align-items: center;
     width: 100%;
@@ -829,7 +872,7 @@ body .project {
 }
 
 .machine-row-primary {
-    font-weight: 650;
+    font-weight: 600;
 }
 
 .machine-chevron,
@@ -847,6 +890,11 @@ body .project {
         height: 12px;
         fill: currentColor;
     }
+}
+
+.machine-computer-icon svg {
+    fill: none;
+    stroke: currentColor;
 }
 
 [data-collapsed] > .machine-row-line .machine-chevron svg,
@@ -896,14 +944,23 @@ body .project {
         background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
     }
 
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+
 }
 
 .machine-environment-list {
-    padding-left: 14px !important;
+    margin-left: 10px !important;
+    padding-left: 10px !important;
+    border-left: 1px solid var(--vscode-panel-border);
 }
 
 .machine-project-list {
-    padding-left: 19px !important;
+    margin-left: 7px !important;
+    padding-left: 11px !important;
+    border-left: 1px solid var(--vscode-panel-border);
 }
 
 .machine-environment-row {
@@ -912,61 +969,129 @@ body .project {
 
 .machine-project-row {
     --machine-row-height: 24px;
+
+    position: relative;
 }
 
 .machine-project-primary {
-    padding-left: 22px;
+    gap: 8px;
+    padding-left: 5px;
 }
 
 .machine-favorite-row .machine-project-primary {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 0;
-    min-height: 38px;
-    padding-left: 3px;
+    min-height: 32px;
+    padding-left: 5px;
 }
 
-.machine-favorite-star {
-    position: absolute;
-    margin-left: -1px;
-    color: var(--vscode-charts-yellow, #f2c94c);
+.machine-project-color {
+    box-sizing: border-box;
+    flex: 0 0 8px;
+    width: 8px;
+    height: 8px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 50%;
+    background: transparent;
+}
 
-    svg {
-        width: 12px;
-        height: 12px;
-        fill: currentColor;
+.machine-project-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 1px;
+}
+
+.machine-project-menu-shell {
+    position: relative;
+    display: flex;
+}
+
+.machine-more-action,
+.machine-favorite-action:not(.is-active) {
+    opacity: 0;
+}
+
+.machine-favorite-action.is-active {
+    color: var(--vscode-charts-yellow, #f2c94c);
+    opacity: .9;
+}
+
+.machine-project-row:hover .machine-more-action,
+.machine-project-row:focus-within .machine-more-action,
+.machine-project-row:hover .machine-favorite-action,
+.machine-project-row:focus-within .machine-favorite-action {
+    opacity: .82;
+}
+
+.machine-project-menu {
+    position: absolute;
+    top: calc(100% + 2px);
+    right: 0;
+    z-index: 130;
+    display: flex;
+    flex-direction: column;
+    min-width: 184px;
+    padding: 4px;
+    border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, var(--vscode-panel-border)));
+    border-radius: 5px;
+    color: var(--vscode-menu-foreground, var(--vscode-foreground));
+    background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+    box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .35));
+
+    &[hidden] {
+        display: none;
     }
 
-    + .machine-row-name {
-        padding-left: 18px;
+    button {
+        min-height: 25px;
+        padding: 3px 8px;
+        border: 0;
+        border-radius: 3px;
+        color: inherit;
+        background: transparent;
+        font-size: 12px;
+        text-align: left;
+        cursor: pointer;
+
+        &:hover,
+        &:focus-visible {
+            outline: 0;
+            color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+            background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+        }
+
+        &.danger:hover,
+        &.danger:focus-visible {
+            color: var(--vscode-errorForeground);
+        }
+    }
+}
+
+.machine-project-menu-separator {
+    height: 1px;
+    margin: 3px 5px;
+    background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
+}
+
+.machine-row > .machine-row-line {
+    margin-top: 4px;
+}
+
+.machine-row + .machine-row {
+    margin-top: 7px;
+}
+
+.machine-environment-primary {
+    color: var(--vscode-descriptionForeground);
+
+    .machine-row-name {
+        font-size: 11px;
+        font-weight: 600;
     }
 }
 
 .machine-project-context {
     display: block;
     max-width: 48%;
-}
-
-.machine-project-tags {
-    display: flex;
-    flex: 0 1 auto;
-    gap: 3px;
-    max-width: 46%;
-    overflow: hidden;
-}
-
-.machine-project-tag,
-.machine-project-tag-more {
-    overflow: hidden;
-    color: var(--vscode-descriptionForeground);
-    font-size: 10px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.machine-project-tag-more {
-    flex: 0 0 auto;
 }
 
 .machine-projects-visually-hidden {
@@ -990,20 +1115,23 @@ body .project {
         max-width: 34%;
     }
 
-    .machine-project-tags {
-        max-width: 32%;
-    }
 }
 
 @media (max-width: 279px) {
-    .machine-project-context,
-    .machine-project-tags {
+    .machine-project-context {
         display: none;
     }
 
     .machine-pointer-action {
         flex-basis: 22px;
         width: 22px;
+    }
+}
+
+@media (hover: none) {
+    .machine-more-action,
+    .machine-favorite-action {
+        opacity: .82;
     }
 }
 
@@ -7017,8 +7145,13 @@ body.steward-sidebar .open-session-surface .ai-session-attention-indicator {
 @media (forced-colors: active) {
     .machine-row-line:hover,
     .machine-row-line:focus-within,
-    .machine-tag-popover {
+    .machine-tag-popover,
+    .machine-project-menu {
         border: 1px solid CanvasText;
+    }
+
+    .machine-project-color {
+        border-color: CanvasText;
     }
 
     body.steward-sidebar .project {

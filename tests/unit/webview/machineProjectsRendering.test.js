@@ -39,6 +39,14 @@ test('MACHINE-PROJECTS-ARIA-001 renders a plain derived hierarchy with directly 
     assert.match(html, /data-action="open-machine-project"/);
     assert.match(html, /aria-label="Open API &lt;unsafe&gt; on devbox, Host"/);
     assert.match(html, /data-action="open-machine-host"/);
+    assert.match(html, /data-action="toggle-machine-project-menu"/);
+    assert.match(html, /data-action="edit-machine-project"/);
+    assert.match(html, /data-action="color-machine-project"/);
+    assert.match(html, /data-action="remove-machine-project"/);
+    assert.match(html, /class="machine-project-color" style="background: #123456"/);
+    assert.match(html, /aria-label="Filter projects by tag"/);
+    assert.match(html, /aria-label="Add Project"/);
+    assert.doesNotMatch(html, /class="machine-project-tag"/);
     assert.doesNotMatch(html, /Setup|Assign|Preview|Migration|UI Bridge|Not configured/);
 });
 
@@ -53,11 +61,11 @@ test('MACHINE-PROJECTS-TAGS-001 renders AND tag filters and one Favorite mirror 
     assert.match(html, /API &lt;unsafe&gt;/);
 });
 
-test('MACHINE-PROJECTS-HOST-NAVIGATION-001 omits the Host action when no remote Host can be derived', () => {
+test('MACHINE-PROJECTS-HOST-NAVIGATION-001 renders the same Machine action for Local', () => {
     const model = viewModel();
-    model.machines[0].hostOpenable = false;
-    model.machines[0].hostProjectId = null;
+    model.machines[0].displayName = 'Local';
+    model.machines[0].hostOpenable = true;
 
     const html = renderMachineProjectsPanel(model);
-    assert.doesNotMatch(html, /data-action="open-machine-host"/);
+    assert.match(html, /aria-label="Open Local in a new window"/);
 });

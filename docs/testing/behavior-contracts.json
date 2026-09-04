@@ -6868,7 +6868,7 @@
   {
     "id": "MACHINE-PROJECTS-HOST-NAVIGATION-001",
     "domain": "project",
-    "title": "A Machine Host target is derived from its authoritative saved Project URI and opened in a new VS Code window through the existing Project navigation path",
+    "title": "A remote Machine Host is derived from its authoritative Project URI while Local opens a blank local VS Code window through the same Machine action",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -6912,9 +6912,37 @@
     ]
   },
   {
+    "id": "MACHINE-PROJECTS-ACTIONS-001",
+    "domain": "webview",
+    "title": "Every Project row exposes a dismissible actions menu for current-window opening, Project editing, color editing, and removal",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsScripts.js",
+      "src/webview/webviewMachineProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-TOOLBAR-001",
+    "domain": "webview",
+    "title": "The Project result summary and adjacent tag and Add icon buttons share one compact toolbar",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsContent.ts",
+      "media/styles.scss"
+    ]
+  },
+  {
     "id": "MACHINE-PROJECTS-KEYBOARD-001",
     "domain": "webview",
-    "title": "Machine disclosure, Host opening, Project opening, and Favorite actions are independently keyboard reachable",
+    "title": "Machine disclosure, Machine opening, Project opening, Favorite, and Project menu actions are independently keyboard reachable",
     "priority": "P1",
     "status": "automated",
     "owners": [

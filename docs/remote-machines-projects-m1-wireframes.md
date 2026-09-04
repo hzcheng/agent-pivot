@@ -7,17 +7,16 @@
 │ [ Search Projects ]     [collapse] [gear] │
 │ OPEN   PROJECTS   AI                       │
 ├────────────────────────────────────────────┤
-│ [Tags]                              [Add] │
-│ 3 projects on 2 machines                  │
+│ 3 projects on 2 machines        [tag][+] │
 │                                            │
 │ ▾ FAVORITES  1                            │
-│     ★ API                 devbox › Host    │
+│     ● API          devbox › Host  [★][…] │
 │                                            │
 │ ▾ devbox                         [open ↗] │
 │   ▾ Host                                  │
-│       API                  #Backend #api   │
+│       ● API                       [★][…] │
 │   ▾ workspace (Dev Container)             │
-│       Worker               #Backend #job  │
+│       ● Worker                    [☆][…] │
 │                                            │
 │ ▾ Ubuntu (WSL)                    [open ↗] │
 │   ▾ Host                                  │
@@ -29,20 +28,21 @@
 - 点击 Machine 右侧 `[open ↗]` 在新窗口打开 Host。
 - 点击 Project 行按保存的完整 URI 打开 Project。
 - 星标按钮只切换 Favorite。
+- `…` 菜单提供当前窗口打开、编辑、改色和删除，点击菜单外部即关闭。
+- `Local` 的右侧打开按钮创建空白本地窗口。
 
 ## Tag 过滤
 
 ```text
 ┌────────────────────────────────────────────┐
-│ [Tags (2)]  Backend  active         [Add] │
-│ 1 project on 1 machine                    │
+│ 1 project on 1 machine          [tag²][+] │
 │                                            │
 │ ▾ FAVORITES  1                            │
-│     ★ API                 devbox › Host    │
+│     ● API          devbox › Host  [★][…] │
 │                                            │
 │ ▾ devbox                         [open ↗] │
 │   ▾ Host                                  │
-│       API                  #Backend #api   │
+│       ● API                       [★][…] │
 └────────────────────────────────────────────┘
 ```
 
@@ -55,13 +55,12 @@
 │ [ Search ] [collapse][⚙] │
 │ OPEN  PROJECTS  AI       │
 ├──────────────────────────┤
-│ [Tags]             [Add] │
-│ 2 projects on 1 machine  │
+│ 2 projects / 1 machine [tag][+] │
 │ ▾ devbox          [↗]   │
 │   ▾ Host                 │
-│       API        #Backend│
+│       ● API        [★][…]│
 │   ▾ workspace (Container)│
-│       Worker      #worker│
+│       ● Worker     [☆][…]│
 └──────────────────────────┘
 ```
 
@@ -70,5 +69,4 @@
 ## 不应出现的状态
 
 本视图没有 Setup、Rebind、Assign、Repair、Preview、Migration Report、Update UI
-Bridge 或连接配置表单。无法安全派生 Host 的 Machine 只省略 Host 打开按钮；其 Project
-仍按现有打开链路工作。
+Bridge 或连接配置表单。Project 行不重复展示 tag；tag 只在顶部筛选器中出现。

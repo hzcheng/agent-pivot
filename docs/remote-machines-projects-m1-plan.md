@@ -53,6 +53,9 @@ UI Bridge 不属于新增依赖。它只继续承担仓库原有的 saved-projec
 - 接入顶部 Expand/Collapse All；
 - Project 整行点击发送 `selected-project`；
 - Machine 右侧按钮发送 `open-machine-host`；
+- Local Machine 通过同一消息打开空白本地窗口；
+- Project 恢复颜色点并提供可自动关闭的 `…` 操作菜单；
+- 结果数与 tag/Add 图标组成一个紧凑工具栏，Project 行不重复展示 tag；
 - 删除状态菜单、Setup 与异步 settlement。
 
 ### 4. 清理

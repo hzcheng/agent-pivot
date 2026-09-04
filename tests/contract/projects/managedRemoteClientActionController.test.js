@@ -149,7 +149,7 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 automatically reconciles an already enabl
     ]);
 });
 
-test('MANAGED-REMOTE-CLIENT-DISABLE-001 preserves an explicit local opt-out across reloads', async () => {
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 automatically re-enables a previously disabled local projection', async () => {
     const calls = [];
     const active = snapshot('active');
     const controller = new ManagedRemoteClientActionController({
@@ -158,7 +158,9 @@ test('MANAGED-REMOTE-CLIENT-DISABLE-001 preserves an explicit local opt-out acro
         bridge: {
             async execute(operation, expected) {
                 calls.push(['bridge', operation, expected]);
-                return { status: 'disabled', generation: 3 };
+                return operation === 'getStatus'
+                    ? { status: 'disabled', generation: 3 }
+                    : { status: 'enabled', generation: 4 };
             },
         },
         async confirmEnable() { throw new Error('must not confirm'); },
@@ -172,7 +174,9 @@ test('MANAGED-REMOTE-CLIENT-DISABLE-001 preserves an explicit local opt-out acro
 
     assert.deepEqual(calls, [
         ['bridge', 'getStatus', undefined],
-        ['refresh', 'active', 'enableRequired'],
+        ['refresh', 'active', 'applying'],
+        ['bridge', 'beginEnable', revisionId],
+        ['refresh', 'active', 'ready'],
     ]);
 });
 
@@ -190,46 +194,6 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 maps local consent status without mutatin
     });
     assert.equal(await controller.readState(active), 'ready');
     assert.equal(await controller.readState(snapshot()), 'preview');
-});
-
-test('MANAGED-REMOTE-CLIENT-DISABLE-001 previews owned files and disables only this computer', async () => {
-    const calls = [];
-    const active = snapshot('active');
-    const controller = new ManagedRemoteClientActionController({
-        async getSnapshot() { return active; },
-        async activateMigration() { throw new Error('must not activate'); },
-        bridge: {
-            async execute(operation, expected) {
-                calls.push(['bridge', operation, expected]);
-                return operation === 'preflightDisable' ? {
-                    activeConfigPath: '/home/dev/.ssh/config',
-                    generatedDirectory: '/home/dev/.agent-pivot/ssh',
-                    backupPath: '/home/dev/.ssh/config.agent-pivot-backup',
-                    editMode: 'automatic',
-                } : { status: 'disabled' };
-            },
-        },
-        async confirmEnable() { return false; },
-        async confirmDisable(summary) {
-            calls.push(['confirm', summary.activeConfigPath, summary.generatedDirectory]);
-            return true;
-        },
-        async refresh(value, state) { calls.push(['refresh', value.lifecycle, state]); },
-        async showInformationMessage(message) { calls.push(['info', message]); },
-        async showErrorMessage(message) { calls.push(['error', message]); },
-    });
-
-    await controller.disable(revisionId);
-
-    assert.deepEqual(calls.slice(0, 5), [
-        ['bridge', 'preflightDisable', undefined],
-        ['confirm', '/home/dev/.ssh/config', '/home/dev/.agent-pivot/ssh'],
-        ['refresh', 'active', 'applying'],
-        ['bridge', 'beginDisable', undefined],
-        ['refresh', 'active', 'enableRequired'],
-    ]);
-    assert.match(calls.find(call => call[0] === 'info')[1], /Synced Machines and Projects were not changed/u);
-    assert.equal(calls.some(call => call[0] === 'error'), false);
 });
 
 test('MANAGED-REMOTE-NAVIGATION-001 forwards only active revision and stable target identity', async () => {

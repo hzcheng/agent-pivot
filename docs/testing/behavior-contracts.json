@@ -7273,23 +7273,6 @@
     ]
   },
   {
-    "id": "MANAGED-REMOTE-CLIENT-DISABLE-001",
-    "domain": "project",
-    "title": "A user can preview and remove only Agent Pivot-owned SSH integration on one computer without changing the synchronized catalog",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/managedRemoteClientActionController.test.js",
-      "tests/unit/webview/managedRemoteProjectsRendering.test.js",
-      "tests/browser/machineProjects.test.js"
-    ],
-    "evidence": [
-      "src/projects/managedRemote/clientActionController.ts",
-      "src/webview/webviewManagedRemoteProjectsContent.ts",
-      "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts"
-    ]
-  },
-  {
     "id": "MANAGED-REMOTE-DEV-CONTAINER-001",
     "domain": "open-project",
     "title": "Known Remote-SSH Dev Container authorities round-trip through a stable managed alias while unknown or attached formats fail closed",

@@ -1063,11 +1063,6 @@ async function initializeDashboard(
             { modal: true },
             'Enable on This Computer',
         ).then(value => value === 'Enable on This Computer'),
-        confirmDisable: async summary => vscode.window.showWarningMessage(
-            `Disable Managed SSH connections on this computer? Agent Pivot will remove only its owned Include from ${summary.activeConfigPath} and its generated files under ${summary.generatedDirectory}. Synced Machines and Projects will not be changed.`,
-            { modal: true },
-            'Disable on This Computer',
-        ).then(value => value === 'Disable on This Computer'),
         refresh: async (snapshot, state) => {
             managedRemoteSnapshot = snapshot;
             managedRemoteClientState = state;
@@ -2765,7 +2760,7 @@ async function initializeDashboard(
                     || value.requestId.length < 16
                     || value.requestId.length > 256
                     || ![
-                        'enable', 'disable', 'recover', 'regenerate', 'sshTerminal', 'copySsh',
+                        'enable', 'recover', 'regenerate', 'sshTerminal', 'copySsh',
                         'openMachine', 'openProject', 'openEnvironment',
                     ]
                         .includes(action)
@@ -2778,10 +2773,6 @@ async function initializeDashboard(
                 }
                 if (action === 'enable') {
                     await managedRemoteClientActions.enable(
-                        value.expectedRevisionId as string | null,
-                    );
-                } else if (action === 'disable') {
-                    await managedRemoteClientActions.disable(
                         value.expectedRevisionId as string | null,
                     );
                 } else if (action === 'recover') {

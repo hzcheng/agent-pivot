@@ -140,12 +140,10 @@ operation, that save wins and Agent Pivot reports the exact config path requirin
 attention. Normal use requires no SSH config editing. Later synchronized Machine
 changes automatically rebuild the generated file.
 
-`Disable on This Computer…` previews removal of only the exact owned Include and
-generated directory; it never changes the catalog or another SSH block. Checksum or
-ownership mismatch fails closed with Open Config/Show Details. Cancel is
-byte-identical. An interrupted disable resumes or restores the prior enabled state;
-after success all managed Open actions explain that local connections are disabled
-and offer Enable. Removal uses the same automatic exchange with manual fallback.
+There is no normal Disable action in this personal always-on model. If the local
+projection is absent, startup recreates it automatically. Checksum or ownership
+mismatch still fails closed with Retry, Open Config, and Show Details so Agent Pivot
+never overwrites unrelated SSH bytes.
 
 ### 7.3 Open a Machine
 
@@ -238,8 +236,7 @@ computers remove its generated alias on their next reconcile.
 ### 7.10 Use another computer
 
 Every computer automatically materializes newly synced catalog data. There is no
-per-computer or per-Machine setup step. A computer explicitly disabled through
-`Disable on This Computer…` stays disabled until the user re-enables it.
+per-computer or per-Machine setup/disable step.
 
 Managed mode requires `agentPivot.storeProjectsInSettings=true`; Add/Edit and
 automatic migration enable it before changing data. User-setting storage makes the catalog
@@ -369,7 +366,7 @@ became a distinct Environment under its outer SSH Machine.
 - [ ] Add an empty Machine with required user and port `22` or a custom port; it is
   stored in User settings and appears on a second computer after Settings Sync.
 - [ ] Each new computer/config-path automatically materializes the managed SSH
-  projection; an explicit local Disable remains respected across reloads.
+  projection without a Setup, Enable, or Disable flow.
 - [ ] No credential or key path/content appears in synced storage, logs,
   diagnostics, or telemetry.
 - [ ] Password-authenticated opens delegate to Remote - SSH and prompt normally.
@@ -399,8 +396,6 @@ became a distinct Environment under its outer SSH Machine.
   identity in their accessible name.
 - [ ] Two offline-created equal Machine names enter rename conflict and remain
   visually and accessibly distinguishable at 260 px until resolved.
-- [ ] `Disable on This Computer` is previewed, idempotent, and cannot alter unrelated
-  SSH bytes; Cancel is byte-identical.
 - [ ] The 260 px layout works without horizontal scrolling.
 
 ## 14. Decisions already made

@@ -64,14 +64,13 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 keeps an unavailable catalog free of a lo
     assert.doesNotMatch(html, /beginMigration|>Migrate</u);
 });
 
-test('MANAGED-REMOTE-CLIENT-DISABLE-001 exposes a computer-local disable action only when ready', () => {
+test('ready managed catalog does not render a redundant status banner or disable action', () => {
     const ready = model();
     ready.lifecycle = 'active';
     ready.clientState = 'ready';
     const readyHtml = renderManagedRemoteProjectsPanel(ready);
-    assert.match(readyHtml, /data-managed-client-action="disable"/u);
-    assert.match(readyHtml, /Disable on This Computer…/u);
-    assert.doesNotMatch(renderManagedRemoteProjectsPanel(model()), /data-managed-client-action="disable"/u);
+    assert.doesNotMatch(readyHtml, /data-managed-client-banner/u);
+    assert.doesNotMatch(readyHtml, /data-managed-client-action="disable"|Disable on This Computer/u);
 });
 
 test('managed catalog has no migration or rollback controls', () => {

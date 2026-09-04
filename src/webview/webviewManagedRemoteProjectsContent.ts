@@ -21,15 +21,14 @@ function operationAttributes(operation: string, targetId?: string): string {
 }
 
 function renderClientBanner(model: ManagedRemoteProjectsViewModel): string {
+    if (model.clientState === 'ready') { return ''; }
     const action = model.clientState === 'enableRequired'
             ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="enable">Enable on This Computer</button>'
             : model.clientState === 'attention'
                 ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="recover">Retry</button>'
                 : model.clientState === 'remoteSshMissing'
                     ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="installRemoteSsh">Install Remote - SSH</button>'
-                    : model.clientState === 'ready'
-                        ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="disable">Disable on This Computer…</button>'
-                        : '';
+                    : '';
     return `<div class="managed-remote-banner managed-remote-banner-${escapeAttribute(model.clientState)}" data-managed-client-banner role="status">
         <span class="managed-remote-banner-icon" aria-hidden="true">${Icons.remote}</span>
         <span class="managed-remote-banner-message">${escapeAttribute(model.clientMessage)}</span>

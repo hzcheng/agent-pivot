@@ -317,23 +317,14 @@ silently truncating history or metadata.
 
 ## 6. Automatic local projection and config discovery
 
-UI Bridge stores a local `managedSshConsent.v1`, scoped to the canonical active SSH
-config path, with `disabled | enabling | enabled | disabling | recoveryRequired`
-state and a journal. Synchronization never sets it. Generation zero means the
-projection has never run on this computer and starts automatic enable; a later
-disabled generation is an explicit local opt-out and remains disabled across reloads.
+UI Bridge stores local projection state scoped to the canonical active SSH config
+path. Synchronization never sets it. Any disabled generation is automatically
+enabled from the active managed catalog; the product has no persistent local
+opt-out.
 
-`Disable on This Computer` previews and journal-removes only the exact owned marker/
-Include plus generated directory; it does not change the catalog or legacy blocks.
-It uses the same ownership, dependency-fingerprint, and atomic-write rules as enable.
-Mismatch enters recovery with Open Config/Show Details, while crashes resume or
-restore the prior enabled state. Successful disable causes every managed Open to
-return `clientNotEnabled` until a new preflight completes.
-
-Disable uses activation's inverse order: first remove and verify the Include with the
-same no-overwrite exchange (or ask the user to remove it through the manual fallback),
-then delete Agent Pivot-owned generated files. A crash after Include removal leaves
-inert files; it never leaves an Include pointing at a removed file.
+Legacy disable journal states remain decodable for crash recovery, but no runtime UI
+or message can initiate Disable. Startup converges them back to enabled after
+validating ownership and the dependency fingerprint.
 
 Resolve local Remote - SSH inputs from User settings:
 

@@ -13,6 +13,9 @@ export interface ManagedSshOwnedPaths {
     previous: string;
     state: string;
     lock: string;
+    activeConfigCandidate: string;
+    activeConfigExchange: string;
+    activeConfigPrevious: string;
 }
 
 export interface ManagedSshInstalledProjection {
@@ -57,6 +60,9 @@ export function managedSshOwnedPaths(activeConfigPath: string): ManagedSshOwnedP
         previous: path.join(root, 'previous.conf'),
         state: path.join(root, 'state.json'),
         lock: path.join(root, 'config.lock'),
+        activeConfigCandidate: path.join(root, 'active-config.candidate'),
+        activeConfigExchange: path.join(root, 'active-config.exchange'),
+        activeConfigPrevious: path.join(root, 'active-config.previous'),
     };
 }
 
@@ -268,11 +274,20 @@ export class ManagedSshOwnedFileStore {
             if (revisions.some(file => !REVISION_FILE.test(file))) {
                 throw new Error('Managed SSH revisions contain files not owned by Agent Pivot.');
             }
+            if (readRegularOwnedFile(this.paths.activeConfigCandidate)
+                || readRegularOwnedFile(this.paths.activeConfigExchange)) {
+                throw new Error('Managed SSH has an unfinished active-config exchange.');
+            }
             for (const file of revisions) {
                 readRegularOwnedFile(path.join(this.paths.revisions, file));
                 fs.unlinkSync(path.join(this.paths.revisions, file));
             }
-            for (const file of [this.paths.current, this.paths.previous, this.paths.state]) {
+            for (const file of [
+                this.paths.current,
+                this.paths.previous,
+                this.paths.state,
+                this.paths.activeConfigPrevious,
+            ]) {
                 try {
                     readRegularOwnedFile(file);
                     fs.unlinkSync(file);

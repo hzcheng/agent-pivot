@@ -25,7 +25,15 @@ class FakeValidator {
     }
 }
 
-function fixture(t) {
+class ManualEditor {
+    hasInterruptedExchange() { return false; }
+    recoverInterruptedExchange() { return null; }
+    replace() {
+        return { status: 'manualRequired', reason: 'automatic test fallback' };
+    }
+}
+
+function fixture(t, activeConfigEditor) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-ssh-consent-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const ssh = path.join(root, '.ssh');
@@ -39,6 +47,7 @@ function fixture(t) {
         '/usr/bin/ssh',
         consent,
         validator,
+        activeConfigEditor,
     );
     let id = 0;
     const catalog = ManagedRemoteCatalogService.create('consent', prefix => `${prefix}:${++id}`);
@@ -79,7 +88,7 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 rejects corrupt or exposed local consent re
     }
 });
 
-test('MANAGED-REMOTE-SSH-CONSENT-001 keeps preflight byte-identical and requires one manual Include', async t => {
+test('MANAGED-REMOTE-SSH-CONSENT-001 keeps preflight byte-identical and enables automatically', async t => {
     const { config, validator, coordinator, catalog } = fixture(t);
     const before = fs.readFileSync(config);
     const slot = createManagedRevisionSlot(catalog.getDocument());
@@ -88,12 +97,9 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 keeps preflight byte-identical and requires
     assert.equal(coordinator.getState().status, 'disabled');
 
     const started = await coordinator.beginEnable(slot);
-    assert.equal(started.status, 'awaitingManualInclude');
-    assert.deepEqual(fs.readFileSync(config), before);
-    assert.equal(coordinator.getState().status, 'enabling');
-    fs.writeFileSync(config, preflight.candidateConfigContent, { mode: 0o600 });
-    const enabled = await coordinator.confirmEnable(slot);
-    assert.equal(enabled.status, 'enabled');
+    assert.equal(started.status, 'enabled');
+    assert.equal(fs.readFileSync(config, 'utf8'), preflight.candidateConfigContent);
+    assert.equal(coordinator.getState().status, 'enabled');
     assert.equal(validator.probes.length >= 2, true);
     assert.equal(validator.validations.length, 2);
 });
@@ -101,10 +107,7 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 keeps preflight byte-identical and requires
 test('MANAGED-REMOTE-SSH-CONSENT-001 reconciles owned config only when connections change', async t => {
     const { config, coordinator, catalog, machine } = fixture(t);
     let slot = createManagedRevisionSlot(catalog.getDocument());
-    const preflight = await coordinator.preflightEnable(slot);
-    await coordinator.beginEnable(slot);
-    fs.writeFileSync(config, preflight.candidateConfigContent, { mode: 0o600 });
-    let state = await coordinator.confirmEnable(slot);
+    let state = (await coordinator.beginEnable(slot)).record;
     const currentPath = path.join(path.dirname(config), 'agent-pivot', 'current.conf');
     const firstBytes = fs.readFileSync(currentPath);
 
@@ -124,36 +127,33 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 reconciles owned config only when connectio
     assert.equal(state.activeRevisionId, slot.revisionId);
 });
 
-test('MANAGED-REMOTE-SSH-CONSENT-001 disables only after manual Include removal', async t => {
+test('MANAGED-REMOTE-SSH-CONSENT-001 disables automatically after a read-only preview', async t => {
     const { config, coordinator, catalog } = fixture(t);
     const slot = createManagedRevisionSlot(catalog.getDocument());
-    const enable = await coordinator.preflightEnable(slot);
     await coordinator.beginEnable(slot);
-    fs.writeFileSync(config, enable.candidateConfigContent, { mode: 0o600 });
-    await coordinator.confirmEnable(slot);
-
-    const disable = await coordinator.beginDisable();
-    assert.equal(coordinator.getState().status, 'disabling');
-    await assert.rejects(coordinator.confirmDisable(), /Remove the exact/);
-    fs.writeFileSync(config, disable.candidateConfigContent, { mode: 0o600 });
-    const disabled = await coordinator.confirmDisable();
+    const preview = coordinator.preflightDisable();
+    const disabled = await coordinator.beginDisable();
     assert.equal(disabled.status, 'disabled');
-    assert.equal(fs.existsSync(disable.generatedDirectory), false);
+    assert.equal(fs.existsSync(preview.generatedDirectory), false);
     assert.match(fs.readFileSync(config, 'utf8'), /Host legacy/);
 });
 
 test('MANAGED-REMOTE-SSH-CONSENT-001 cancel before consent is byte-identical', async t => {
-    const { config, coordinator, catalog } = fixture(t);
+    const { config, coordinator, catalog } = fixture(t, new ManualEditor());
     const before = fs.readFileSync(config);
     const slot = createManagedRevisionSlot(catalog.getDocument());
-    await coordinator.beginEnable(slot);
+    const started = await coordinator.beginEnable(slot);
+    assert.equal(started.status, 'awaitingManualInclude');
+    assert.equal(started.preflight.editMode, 'manualFallback');
+    assert.match(started.preflight.automaticFailureReason, /test fallback/);
     const disabled = await coordinator.cancelPendingTransition();
     assert.equal(disabled.status, 'disabled');
     assert.deepEqual(fs.readFileSync(config), before);
 });
 
 test('MANAGED-REMOTE-SSH-CONSENT-001 resumes enable and disable after a process restart', async t => {
-    const { root, config, validator, coordinator, catalog } = fixture(t);
+    const manual = new ManualEditor();
+    const { root, config, validator, coordinator, catalog } = fixture(t, manual);
     const slot = createManagedRevisionSlot(catalog.getDocument());
     const enable = await coordinator.beginEnable(slot);
     const restarted = new ManagedSshConsentCoordinator(
@@ -161,6 +161,7 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 resumes enable and disable after a process 
         '/usr/bin/ssh',
         new ManagedSshConsentFileStore(path.join(root, 'bridge')),
         validator,
+        manual,
     );
     const pending = await restarted.recover(slot);
     assert.equal(pending.status, 'awaitingManualInclude');
@@ -169,16 +170,18 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 resumes enable and disable after a process 
     assert.equal(recoveredEnable.status, 'enabled');
 
     const disable = await restarted.beginDisable();
-    fs.writeFileSync(config, disable.candidateConfigContent, { mode: 0o600 });
+    assert.equal(disable.status, 'awaitingManualIncludeRemoval');
+    fs.writeFileSync(config, disable.preflight.candidateConfigContent, { mode: 0o600 });
     const restartedAgain = new ManagedSshConsentCoordinator(
         config,
         '/usr/bin/ssh',
         new ManagedSshConsentFileStore(path.join(root, 'bridge')),
         validator,
+        manual,
     );
     const recoveredDisable = await restartedAgain.recover();
     assert.equal(recoveredDisable.status, 'disabled');
-    assert.equal(fs.existsSync(disable.generatedDirectory), false);
+    assert.equal(fs.existsSync(disable.preflight.generatedDirectory), false);
 });
 
 test('MANAGED-REMOTE-SSH-CONSENT-001 rejects an external config write during validation', async t => {
@@ -238,17 +241,15 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 explicitly retries recoverable races withou
         config, '/usr/bin/ssh', consent, new FakeValidator(),
     );
     const result = await retry.recover(slot);
-    assert.equal(result.status, 'awaitingManualInclude');
-    assert.match(result.preflight.candidateConfigContent, /kept external edit/);
-    assert.equal(retry.getState().status, 'enabling');
+    assert.equal(result.status, 'enabled');
+    assert.match(fs.readFileSync(config, 'utf8'), /kept external edit/);
+    assert.equal(retry.getState().status, 'enabled');
 });
 
 test('MANAGED-REMOTE-SSH-CONSENT-001 revalidates a changed SSH executable before returning enabled', async t => {
     const { root, config, validator, coordinator, catalog } = fixture(t);
     const slot = createManagedRevisionSlot(catalog.getDocument());
-    const enable = await coordinator.beginEnable(slot);
-    fs.writeFileSync(config, enable.preflight.candidateConfigContent, { mode: 0o600 });
-    await coordinator.confirmEnable(slot);
+    await coordinator.beginEnable(slot);
 
     const changed = new ManagedSshConsentCoordinator(
         config,
@@ -265,9 +266,7 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 revalidates a changed SSH executable before
 test('MANAGED-REMOTE-SSH-CONSENT-001 serializes reconcile and disable transitions', async t => {
     const { root, config, coordinator, catalog, machine } = fixture(t);
     let slot = createManagedRevisionSlot(catalog.getDocument());
-    const enable = await coordinator.beginEnable(slot);
-    fs.writeFileSync(config, enable.preflight.candidateConfigContent, { mode: 0o600 });
-    await coordinator.confirmEnable(slot);
+    await coordinator.beginEnable(slot);
 
     let releaseValidation;
     let reportEntered;
@@ -293,6 +292,6 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 serializes reconcile and disable transition
     releaseValidation();
     await reconciling;
     const disable = await disabling;
-    assert.equal(serial.getState().status, 'disabling');
-    assert.match(disable.includeBlock, /Agent Pivot managed SSH hosts/);
+    assert.equal(disable.status, 'disabled');
+    assert.equal(serial.getState().status, 'disabled');
 });

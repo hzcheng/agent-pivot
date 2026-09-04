@@ -424,6 +424,47 @@
       }
     },
     {
+      "id": "ARCH-MANAGED-SSH-ACTIVE-CONFIG-WRITER-001",
+      "module": "MOD-ATTENTION-BRIDGE-EXT",
+      "productCapabilities": [
+        "MAIN-PROJECT-CATALOG-CONSISTENCY"
+      ],
+      "priority": "P0",
+      "kind": "concurrency",
+      "statement": "The user-owned active SSH config is changed only by ManagedSshConsentCoordinator through a no-overwrite exchange that retains displaced bytes; manual fallback remains available when the exact snapshot cannot be exchanged.",
+      "authority": {
+        "path": "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+        "symbol": "ManagedSshConsentCoordinator"
+      },
+      "writers": [
+        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts"
+      ],
+      "linearizationPoint": "ManagedSshActiveConfigEditor links the prepared candidate into the now-empty active-config path without overwriting an external writer.",
+      "enforcement": [
+        "single-writer",
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/contract/projects/managedRemoteSshActiveConfigEditor.test.js",
+        "tests/contract/projects/managedRemoteSshConsent.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "extensions/attention-ui-bridge/src/managedSshActiveConfigEditor.ts",
+        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts"
+      ],
+      "stateFamily": {
+        "storePath": "extensions/attention-ui-bridge/src/managedSshActiveConfigEditor.ts",
+        "writeMethods": [
+          "replace",
+          "recoverInterruptedExchange"
+        ],
+        "writerFacade": true
+      }
+    },
+    {
       "id": "ARCH-MANAGED-SSH-PROJECTION-WRITER-001",
       "module": "MOD-ATTENTION-BRIDGE-EXT",
       "productCapabilities": [
@@ -437,7 +478,8 @@
         "symbol": "ManagedSshConsentCoordinator"
       },
       "writers": [
-        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts"
+        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+        "extensions/attention-ui-bridge/src/managedSshActiveConfigEditor.ts"
       ],
       "linearizationPoint": "ManagedSshOwnedFileStore atomically replaces current.conf only after a staged revision and its aggregate config pass OpenSSH validation.",
       "enforcement": [

@@ -24,6 +24,10 @@ import {
     ManagedSshOwnedFileStore,
 } from './managedSshOwnedFiles';
 import {
+    ManagedSshActiveConfigEditor,
+    ManagedSshActiveConfigEditingService,
+} from './managedSshActiveConfigEditor';
+import {
     ManagedSshProjectionValidationService,
     ManagedSshProjectionValidator,
 } from './managedSshValidator';
@@ -35,20 +39,24 @@ export interface ManagedSshEnablePreflight {
     generatedDirectory: string;
     backupPath: string;
     includeBlock: string;
+    currentConfigContent: string;
     candidateConfigContent: string;
     includeState: 'absent' | 'exact';
     dependencyFingerprint: ManagedSshDependencyFingerprint;
     projection: ManagedSshProjection;
-    editMode: 'manual';
+    editMode: 'automatic' | 'manualFallback';
+    automaticFailureReason?: string;
 }
 
 export interface ManagedSshDisablePreflight {
     activeConfigPath: string;
     generatedDirectory: string;
+    backupPath: string;
     includeBlock: string;
     currentConfigContent: string;
     candidateConfigContent: string;
-    editMode: 'manual';
+    editMode: 'automatic' | 'manualFallback';
+    automaticFailureReason?: string;
 }
 
 export type ManagedSshEnableResult =
@@ -60,6 +68,10 @@ export type ManagedSshRecoveryResult =
     | { status: 'awaitingManualIncludeRemoval'; preflight: ManagedSshDisablePreflight }
     | { status: 'disabled'; record: ManagedSshConsentRecordV1 }
     | { status: 'recoveryRequired'; record: ManagedSshConsentRecordV1 };
+
+export type ManagedSshDisableResult =
+    | { status: 'awaitingManualIncludeRemoval'; preflight: ManagedSshDisablePreflight }
+    | { status: 'disabled'; record: ManagedSshConsentRecordV1 };
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -76,6 +88,7 @@ export function assertManagedSshMaterializerPlatform(platform: NodeJS.Platform):
 export class ManagedSshConsentCoordinator {
     private readonly configFiles = new NodeManagedSshConfigFileSystem();
     private readonly owned: ManagedSshOwnedFileStore;
+    private readonly activeConfigEditor: ManagedSshActiveConfigEditingService;
     private pending: Promise<unknown> = Promise.resolve();
 
     constructor(
@@ -83,12 +96,22 @@ export class ManagedSshConsentCoordinator {
         private readonly executable: string,
         private readonly consent: ManagedSshConsentFileStore,
         private readonly validator: ManagedSshProjectionValidationService = new ManagedSshProjectionValidator(),
+        activeConfigEditor?: ManagedSshActiveConfigEditingService,
     ) {
         this.owned = new ManagedSshOwnedFileStore(activeConfigPath);
+        this.activeConfigEditor = activeConfigEditor
+            || new ManagedSshActiveConfigEditor(activeConfigPath, this.owned);
     }
 
     getState(): ManagedSshConsentRecordV1 {
         const record = this.readStoredState();
+        if (this.activeConfigEditor.hasInterruptedExchange()) {
+            return {
+                ...record,
+                status: 'recoveryRequired',
+                recoveryReason: 'An automatic SSH config update was interrupted.',
+            };
+        }
         if (record.status !== 'disabled' && record.executable !== this.executable) {
             return {
                 ...record,
@@ -141,13 +164,7 @@ export class ManagedSshConsentCoordinator {
                         dependencyDigest: preflight.dependencyFingerprint.digest,
                     },
                 });
-                if (preflight.includeState === 'exact') {
-                    return {
-                        status: 'enabled',
-                        record: await this.completeEnableNow(slot, transition),
-                    };
-                }
-                return { status: 'awaitingManualInclude', preflight };
+                return await this.tryAutomaticEnable(slot, transition, preflight);
             } catch (error) {
                 this.markRecovery(transition, error);
                 throw error;
@@ -228,6 +245,7 @@ export class ManagedSshConsentCoordinator {
 
     recover(slot?: ManagedRevisionSlot): Promise<ManagedSshRecoveryResult> {
         return this.enqueue(async () => {
+            this.activeConfigEditor.recoverInterruptedExchange();
             let current = this.readStoredState();
             if (current.status === 'enabled' && current.executable !== this.executable) {
                 const target = this.requireRecoverySlot(slot);
@@ -289,13 +307,7 @@ export class ManagedSshConsentCoordinator {
                                 dependencyDigest: preflight.dependencyFingerprint.digest,
                             },
                         });
-                        if (preflight.includeState === 'exact') {
-                            return {
-                                status: 'enabled',
-                                record: await this.completeEnableNow(target, current),
-                            };
-                        }
-                        return { status: 'awaitingManualInclude', preflight };
+                        return await this.tryAutomaticEnable(target, current, preflight);
                     } catch (error) {
                         this.markRecovery(current, error);
                         throw error;
@@ -315,10 +327,7 @@ export class ManagedSshConsentCoordinator {
                     return { status: 'disabled', record: this.confirmDisableNow() };
                 }
                 if (marker === 'exact') {
-                    return {
-                        status: 'awaitingManualIncludeRemoval',
-                        preflight: this.preflightDisableNow(),
-                    };
+                    return await this.tryAutomaticDisable();
                 }
                 const error = new Error('The Agent Pivot Include changed during disable recovery.');
                 this.markRecovery(current, error);
@@ -369,7 +378,7 @@ export class ManagedSshConsentCoordinator {
                     throw error;
                 }
             }
-            return { status: 'awaitingManualInclude', preflight };
+            return await this.tryAutomaticEnable(target, current, preflight);
         });
     }
 
@@ -382,21 +391,22 @@ export class ManagedSshConsentCoordinator {
         return {
             activeConfigPath: this.activeConfigPath,
             generatedDirectory: this.owned.getPaths().root,
+            backupPath: this.owned.getPaths().activeConfigPrevious,
             includeBlock: renderManagedSshIncludeBlock(generated),
             currentConfigContent: active.content,
             candidateConfigContent: removeManagedInclude(active.content, generated),
-            editMode: 'manual',
+            editMode: 'automatic',
         };
     }
 
-    beginDisable(): Promise<ManagedSshDisablePreflight> {
+    beginDisable(): Promise<ManagedSshDisableResult> {
         return this.enqueue(async () => {
             const current = this.readStoredState();
             if (current.status !== 'enabled') {
                 throw new Error('Managed SSH connections are not enabled on this computer.');
             }
             const preflight = this.preflightDisableNow();
-            this.consent.compareAndSet(current.generation, {
+            const transition = this.consent.compareAndSet(current.generation, {
                 ...current,
                 status: 'disabling',
                 journal: {
@@ -408,7 +418,12 @@ export class ManagedSshConsentCoordinator {
                     dependencyDigest: current.dependencyDigest,
                 },
             });
-            return preflight;
+            try {
+                return await this.tryAutomaticDisable(preflight);
+            } catch (error) {
+                this.markRecovery(transition, error);
+                throw error;
+            }
         });
     }
 
@@ -481,6 +496,76 @@ export class ManagedSshConsentCoordinator {
         return slot;
     }
 
+    private async manualEnablePreflight(
+        slot: ManagedRevisionSlot,
+        reason: string | undefined,
+    ): Promise<ManagedSshEnablePreflight> {
+        const refreshed = await this.preflightEnableNow(slot);
+        return {
+            ...refreshed,
+            editMode: 'manualFallback',
+            automaticFailureReason: reason || 'Automatic SSH config update was unavailable.',
+        };
+    }
+
+    private async tryAutomaticEnable(
+        slot: ManagedRevisionSlot,
+        record: ManagedSshConsentRecordV1,
+        preflight: ManagedSshEnablePreflight,
+    ): Promise<ManagedSshEnableResult> {
+        if (preflight.includeState === 'exact') {
+            return {
+                status: 'enabled',
+                record: await this.completeEnableNow(slot, record),
+            };
+        }
+        const edit = this.activeConfigEditor.replace(
+            preflight.currentConfigContent,
+            preflight.candidateConfigContent,
+        );
+        if (edit.status === 'updated') {
+            return {
+                status: 'enabled',
+                record: await this.completeEnableNow(slot, record),
+            };
+        }
+        return {
+            status: 'awaitingManualInclude',
+            preflight: await this.manualEnablePreflight(slot, edit.reason),
+        };
+    }
+
+    private async tryAutomaticDisable(
+        prepared?: ManagedSshDisablePreflight,
+    ): Promise<ManagedSshDisableResult> {
+        const preflight = prepared || this.preflightDisableNow();
+        const edit = this.activeConfigEditor.replace(
+            preflight.currentConfigContent,
+            preflight.candidateConfigContent,
+        );
+        if (edit.status === 'updated') {
+            return { status: 'disabled', record: this.confirmDisableNow() };
+        }
+        const active = this.configFiles.readSecureFile(this.activeConfigPath);
+        const marker = analyzeManagedInclude(active.content, this.owned.getPaths().current);
+        if (marker === 'absent') {
+            return { status: 'disabled', record: this.confirmDisableNow() };
+        }
+        if (marker !== 'exact') {
+            throw new Error('The Agent Pivot Include changed during automatic disable.');
+        }
+        const refreshed = this.preflightDisableNow();
+        return {
+            status: 'awaitingManualIncludeRemoval',
+            preflight: {
+                ...refreshed,
+                editMode: 'manualFallback',
+                automaticFailureReason: edit.reason
+                    || 'Automatic SSH config update was unavailable.',
+            },
+        };
+    }
+
     private async preflightEnableNow(slot: ManagedRevisionSlot): Promise<ManagedSshEnablePreflight> {
         assertManagedSshMaterializerPlatform(process.platform);
         const active = this.configFiles.readSecureFile(this.activeConfigPath);
@@ -503,15 +588,16 @@ export class ManagedSshConsentCoordinator {
             executable: this.executable,
             generatedConfigPath: paths.current,
             generatedDirectory: paths.root,
-            backupPath: paths.previous,
+            backupPath: paths.activeConfigPrevious,
             includeBlock,
+            currentConfigContent: active.content,
             candidateConfigContent: insertManagedInclude(
                 active.content, includeBlock, paths.current,
             ),
             includeState,
             dependencyFingerprint: scan.fingerprint,
             projection,
-            editMode: 'manual',
+            editMode: 'automatic',
         };
     }
 

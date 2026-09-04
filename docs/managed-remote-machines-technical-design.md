@@ -333,10 +333,10 @@ Mismatch enters recovery with Open Config/Show Details, while crashes resume or
 restore the prior enabled state. Successful disable causes every managed Open to
 return `clientNotEnabled` until a new preflight completes.
 
-Disable uses activation's inverse order: first remove and verify the Include (or ask
-the user to remove it through the manual fallback), then delete Agent Pivot-owned
-generated files. A crash after Include removal leaves inert files; it never leaves
-an Include pointing at a removed file.
+Disable uses activation's inverse order: first remove and verify the Include with the
+same no-overwrite exchange (or ask the user to remove it through the manual fallback),
+then delete Agent Pivot-owned generated files. A crash after Include removal leaves
+inert files; it never leaves an Include pointing at a removed file.
 
 Resolve local Remote - SSH inputs from User settings:
 
@@ -420,17 +420,28 @@ Reconcile performs:
 5. atomically install Agent Pivot-owned `current.conf`, fsync its parent, retain
    `previous.conf`, and verify revision/checksum; a crash here is harmless because
    first enable has not published the Include yet;
-6. on first enable only, return the exact marked Include through the local UI flow;
-   `Copy Include` + `Open Config` waits for the user to save it;
-7. re-read the active config and every dependency, reject a changed fingerprint,
+6. on first enable only, after explicit confirmation, snapshot the active config,
+   write and fsync a sibling candidate, rename the active file to an exchange path,
+   verify that the displaced inode and checksum still match the snapshot, then
+   hard-link the candidate into the now-empty active path; `EEXIST` means an external
+   editor won and Agent Pivot never overwrites its bytes;
+7. archive the exact displaced file as the local active-config backup; if automatic
+   publication cannot complete safely, return `Copy Include` + `Open Config` as the
+   manual fallback;
+8. re-read the active config and every dependency, reject a changed fingerprint,
    validate the actual aggregate read-only, and commit local state.
 
-First enable publishes and verifies `current.conf` before asking the user to add the
-Include; that manual edit plus read-only verification is its final activation
-commit. A crash before that commit leaves only an unreferenced generated file.
-Normal reconcile never rewrites the user-owned active config when its exact marker
-is intact. Existing-Include reconcile validates before swapping `current.conf`, so
-unvalidated bytes are never active. Cancel leaves the active config byte-identical.
+First enable publishes and verifies `current.conf` before updating the active config.
+After confirmation it adds the exact owned Include automatically; the
+manual edit is only a fallback when the no-overwrite exchange detects an external
+writer or a safe primitive is unavailable. A crash before that commit leaves either
+an unreferenced generated file or a recoverable exchange: missing active restores
+the displaced original, while active plus exchange preserves the active bytes and
+archives the displaced original before revalidation. Normal reconcile never
+rewrites the user-owned active config when its exact marker is intact.
+Existing-Include reconcile validates before swapping `current.conf`, so unvalidated
+bytes are never active. Cancel before confirmation leaves the active config
+byte-identical.
 
 POSIX owned-file writes require private directories/files, current-user ownership,
 one link, and no symlink; atomic replacement rechecks an existing target before
@@ -765,10 +776,11 @@ rollback window.
 ### 15.2 Filesystem and platform
 
 - temp-directory fault points at write/fsync/rename/CAS/state steps;
-- real external writer races around manual confirmation, multi-process lock, and
-  process kill;
+- real external writer races around automatic publication and manual fallback,
+  multi-process lock, and process kill;
 - first Enable process-kill before/after `current.conf` publication and before/after
-  manual Include confirmation; Disable process-kill before/after Include removal;
+  active-config displacement/publication; Disable process-kill before/after Include
+  removal;
 - unrelated-byte/EOL preservation;
 - POSIX mode/owner/link/symlink/ACL behavior;
 - real Windows `ssh.exe`, DACL, reparse point, custom/default config, CRLF, and paths

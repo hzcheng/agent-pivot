@@ -942,6 +942,7 @@
             "extensions/attention-ui-bridge/src/bridgeStorageRoot.ts",
             "extensions/attention-ui-bridge/src/productionAttentionStore.ts",
             "extensions/attention-ui-bridge/src/managedFileLock.ts",
+            "extensions/attention-ui-bridge/src/managedSshActiveConfigEditor.ts",
             "extensions/attention-ui-bridge/src/managedSshConfigPolicy.ts",
             "extensions/attention-ui-bridge/src/managedSshConsentStore.ts",
             "extensions/attention-ui-bridge/src/managedSshDiscovery.ts",

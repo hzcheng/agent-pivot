@@ -15,8 +15,9 @@ The bridge does not record conversation content, prompts, or responses.
 The bridge also contains the disabled Managed Remote SSH materializer. When the
 main extension enables that feature in a later milestone, the bridge will rebuild
 Agent Pivot-owned SSH fragments from synchronized non-secret Machine metadata. It
-never stores credentials and never writes the user-owned active SSH config; enable
-and disable require the user to add or remove one exact marked `Include` manually.
+never stores credentials. After explicit local consent it automatically adds or
+removes one exact marked `Include`, retaining displaced bytes and falling back to a
+manual edit when another editor wins the exchange.
 
 Agent Pivot began as a fork of Kruemelkatze/vscode-dashboard and retains the upstream MIT attribution.
 

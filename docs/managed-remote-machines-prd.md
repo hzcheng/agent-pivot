@@ -13,11 +13,11 @@ Projects and Dev Container environments reference the Machine by stable ID rathe
 than inferring identity from an SSH alias embedded in a URI.
 
 After one computer-level consent, Agent Pivot materializes this catalog into an
-isolated generated SSH config. The user adds one exact managed `Include` to the
-config used by Remote - SSH; Agent Pivot validates it but never rewrites the
-user-owned config. The generated file is a rebuildable local cache, not a second
-source of truth. Passwords, keys, passphrases, and tokens are never stored or
-synchronized; Remote - SSH continues to prompt when authentication is needed.
+isolated generated SSH config and automatically adds one exact managed `Include`
+to the config used by Remote - SSH. The generated file is a rebuildable local
+cache, not a second source of truth. Passwords, keys, passphrases, and tokens are
+never stored or synchronized; Remote - SSH continues to prompt when authentication
+is needed.
 
 The intended end state has one Agent Pivot connection model. Existing alias-based
 Projects are migrated once and then open through stable Agent Pivot aliases. The
@@ -141,9 +141,11 @@ catalog is visible but SSH files stay untouched. A client-level banner offers
 - that later synchronized Machine changes update the generated file automatically;
 - `Enable` and `Cancel`.
 
-Enable always uses a one-time `Copy Include` + `Open Config` step and validates
-after the user saves. Agent Pivot never writes or atomically replaces the
-user-owned active SSH config.
+After confirmation, Enable backs up the exact active config, inserts the Include
+automatically, and validates the result. It uses a no-overwrite exchange: if another
+editor saves during the operation, that save wins and Agent Pivot offers
+`Copy Include` + `Open Config` as the manual fallback. Normal use requires no SSH
+config editing.
 
 Consent is local to that installation and canonical active-config path, and applies
 to all Managed Machines. Changing the active config path requires a new preflight.
@@ -155,8 +157,7 @@ generated directory; it never changes the catalog or another SSH block. Checksum
 ownership mismatch fails closed with Open Config/Show Details. Cancel is
 byte-identical. An interrupted disable resumes or restores the prior enabled state;
 after success all managed Open actions explain that local connections are disabled
-and offer Enable. Removal uses the same one-time manual edit and read-only
-validation.
+and offer Enable. Removal uses the same automatic exchange with manual fallback.
 
 ### 7.3 Open a Machine
 
@@ -418,15 +419,15 @@ them after activation; they remain inert rollback material.
   and telemetry by default.
 - Generated files contain `DO NOT EDIT` and a connection checksum, but no
   credentials.
-- The one-time preflight exposes the exact Include and generated-file backup path;
-  no backup of the active config is needed because Agent Pivot never writes it.
+- The one-time preflight exposes the exact Include and active-config backup path.
 
 ## 13. Acceptance criteria
 
 - [ ] Add an empty Machine with required user and port `22` or a custom port; it is
   stored in User settings and appears on a second computer after Settings Sync.
-- [ ] Each computer/config-path pair asks once before enabling managed SSH; Cancel
-  leaves SSH files byte-identical and the catalog visible.
+- [ ] Each computer/config-path pair asks once before enabling managed SSH; the
+  normal path edits no file manually, while Cancel before confirmation leaves SSH
+  files byte-identical and the catalog visible.
 - [ ] No credential or key path/content appears in synced storage, logs,
   diagnostics, or telemetry.
 - [ ] Password-authenticated opens delegate to Remote - SSH and prompt normally.

@@ -7181,6 +7181,19 @@
     ]
   },
   {
+    "id": "MANAGED-REMOTE-SSH-ACTIVE-CONFIG-001",
+    "domain": "persistence",
+    "title": "Automatic active-config edits preserve exact unrelated bytes, retain a backup, and recover interrupted exchanges without overwriting a concurrent save",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshActiveConfigEditor.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshActiveConfigEditor.ts"
+    ]
+  },
+  {
     "id": "MANAGED-REMOTE-SSH-FILES-001",
     "domain": "persistence",
     "title": "Per-config locked owned-file transactions stage revisions before activation and never overwrite or recursively delete user files",
@@ -7196,7 +7209,7 @@
   {
     "id": "MANAGED-REMOTE-SSH-CONSENT-001",
     "domain": "persistence",
-    "title": "Enable and Disable use local generation-checked consent, byte-identical previews, manual Include commits, and resumable recovery",
+    "title": "Enable and Disable use local generation-checked consent, automatic no-overwrite Include commits with manual fallback, and resumable recovery",
     "priority": "P0",
     "status": "automated",
     "owners": [

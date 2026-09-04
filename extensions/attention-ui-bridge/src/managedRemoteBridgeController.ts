@@ -8,6 +8,8 @@ import {
     parseManagedRemoteBridgeRequest,
 } from '../../../src/projects/managedRemote/bridgeProtocol';
 import { ManagedRevisionSlot } from '../../../src/projects/managedRemote/types';
+import { materializeManagedRemoteCatalog } from '../../../src/projects/managedRemote/merge';
+import { managedSshAlias } from '../../../src/projects/managedRemote/sshConfigProjection';
 import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
 
 export interface ManagedRemoteBridgeCatalogReader {
@@ -16,6 +18,31 @@ export interface ManagedRemoteBridgeCatalogReader {
 
 export interface ManagedRemoteBridgeCoordinatorFactory {
     create(): Promise<ManagedSshConsentCoordinator>;
+}
+
+export interface ManagedRemoteBridgeLocalActions {
+    platform: NodeJS.Platform;
+    openTerminal(options: {
+        name: string;
+        shellPath: string;
+        shellArgs: string[];
+    }): Promise<void> | void;
+    writeClipboard(value: string): Promise<void> | Thenable<void>;
+}
+
+export function formatManagedSshCommand(
+    executable: string,
+    alias: string,
+    platform: NodeJS.Platform,
+): string {
+    if (platform === 'win32') {
+        const quote = (value: string) => `"${value
+            .replace(/(\\*)"/gu, '$1$1\\"')
+            .replace(/(\\+)$/gu, '$1$1')}"`;
+        return `${quote(executable)} ${quote(alias)}`;
+    }
+    const quote = (value: string) => `'${value.replace(/'/gu, `'"'"'`)}'`;
+    return `${quote(executable)} ${quote(alias)}`;
 }
 
 function response(
@@ -60,6 +87,7 @@ export class ManagedRemoteBridgeController {
         private readonly catalog: ManagedRemoteBridgeCatalogReader,
         private readonly coordinators: ManagedRemoteBridgeCoordinatorFactory,
         private readonly sessionToken: string,
+        private readonly localActions?: ManagedRemoteBridgeLocalActions,
     ) {
     }
 
@@ -113,6 +141,38 @@ export class ManagedRemoteBridgeController {
                 );
             }
             const slot = this.readExpectedSlot(request);
+            if (request.operation === 'openLocalSshTerminal'
+                || request.operation === 'copyLocalSshCommand') {
+                if (!this.localActions || !request.targetId) {
+                    throw new Error('Managed Remote local SSH actions are unavailable.');
+                }
+                const view = materializeManagedRemoteCatalog(slot.document);
+                const machine = view.machines.find(value => value.id === request.targetId);
+                if (!machine || view.conflicts.some(conflict =>
+                    conflict.entityType === 'machine' && conflict.entityId === request.targetId)) {
+                    throw new Error('Managed Machine is missing or has a connection conflict.');
+                }
+                await coordinator.reconcile(slot);
+                const alias = managedSshAlias(machine.id);
+                if (request.operation === 'openLocalSshTerminal') {
+                    await this.localActions.openTerminal({
+                        name: `SSH: ${machine.name}`,
+                        shellPath: coordinator.getExecutable(),
+                        shellArgs: [alias],
+                    });
+                } else {
+                    await this.localActions.writeClipboard(formatManagedSshCommand(
+                        coordinator.getExecutable(),
+                        alias,
+                        this.localActions.platform,
+                    ));
+                }
+                return response(request.requestId, 'ok', {
+                    machineId: machine.id,
+                    machineName: machine.name,
+                    alias,
+                });
+            }
             if (request.operation === 'preflightEnable') {
                 return response(
                     request.requestId,

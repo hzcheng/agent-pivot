@@ -44,6 +44,21 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
         ...cancel,
         operation: 'recover',
     }), { ...cancel, operation: 'recover' });
+
+    const terminal = {
+        ...request,
+        operation: 'openLocalSshTerminal',
+        targetId: 'machine:one',
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(terminal), terminal);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...terminal,
+        targetId: undefined,
+    }), null);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...request,
+        targetId: 'machine:one',
+    }), null);
 });
 
 test('MANAGED-REMOTE-BRIDGE-001 correlates the strict capability handshake', () => {

@@ -88,9 +88,9 @@ function renderMachine(machine: ManagedRemoteMachineViewModel): string {
                     <button type="button" role="menuitem" tabindex="-1" ${operationAttributes('addProject', machine.id)}>Add Project…</button>
                     <button type="button" role="menuitem" tabindex="-1" ${operationAttributes('editMachine', machine.id)}>Edit Machine…</button>
                     ${machine.conflict ? `<button type="button" role="menuitem" tabindex="-1" ${operationAttributes('resolveMachineConflict', machine.id)}>Review Connection Conflict…</button>` : ''}
-                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="regenerate" data-managed-target-id="${escapeAttribute(machine.id)}">Regenerate SSH Config</button>
-                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="sshTerminal" data-managed-target-id="${escapeAttribute(machine.id)}">Open SSH Terminal…</button>
-                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="copySsh" data-managed-target-id="${escapeAttribute(machine.id)}">Copy SSH Command</button>
+                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="regenerate" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Regenerate SSH Config</button>
+                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="sshTerminal" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Open SSH Terminal…</button>
+                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="copySsh" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Copy SSH Command</button>
                     <button type="button" role="menuitem" tabindex="-1" class="danger" ${operationAttributes('removeMachine', machine.id)}>Remove Machine…</button>
                 </div></div>
             </div>

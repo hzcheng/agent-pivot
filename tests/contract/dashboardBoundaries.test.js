@@ -376,6 +376,8 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.switchWorktreeOrSession',
     'agentPivot.toggleLastAiSession',
     'agentPivot.switchToOpenWindow',
+    'agentPivot.sshToMachine',
+    'agentPivot.copySshCommand',
 ];
 
 // Registered directly from initializeDashboard, outside the dashboard command facade.
@@ -408,6 +410,8 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
+        'sshToManagedMachine',
+        'copyManagedSshCommand',
     ];
     const facade = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {

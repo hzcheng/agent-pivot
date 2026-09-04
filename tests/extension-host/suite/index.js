@@ -29,7 +29,9 @@ const PUBLIC_COMMANDS = [
     'agentPivot.switchToAiSession',
     'agentPivot.switchWorktreeOrSession',
     'agentPivot.toggleLastAiSession',
-    'agentPivot.switchToOpenWindow'
+    'agentPivot.switchToOpenWindow',
+    'agentPivot.sshToMachine',
+    'agentPivot.copySshCommand'
 ];
 
 async function verifyExtensionHostLifecycle() {

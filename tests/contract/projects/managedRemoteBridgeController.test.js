@@ -7,6 +7,7 @@ const { createCausalVersion, createVersionedCandidates, joinVersionVectors, vect
 const { ManagedRemoteCatalogService } = require('../../../out/projects/managedRemote/catalogService');
 const { createEmptyManagedCatalogEnvelope, createManagedRevisionSlot } = require('../../../out/projects/managedRemote/envelope');
 const {
+    formatManagedSshCommand,
     ManagedRemoteBridgeController,
 } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedRemoteBridgeController');
 
@@ -124,4 +125,46 @@ test('MANAGED-REMOTE-BRIDGE-001 can recover local disable without catalog author
     assert.equal(result.status, 'ok');
     assert.equal(result.value.status, 'disabled');
     assert.equal(reads, 0);
+});
+
+test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies only the stable alias from the local UI host', async () => {
+    const { envelope, slot } = activeEnvelope();
+    const terminals = [];
+    const copied = [];
+    let reconciles = 0;
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { return envelope; },
+    }, {
+        async create() {
+            return {
+                async reconcile() { reconciles += 1; return {}; },
+                getExecutable() { return '/usr/local/bin/ssh'; },
+            };
+        },
+    }, 'session-12345678', {
+        platform: 'linux',
+        openTerminal(options) { terminals.push(options); },
+        async writeClipboard(value) { copied.push(value); },
+    });
+    const target = 'machine:one';
+    const terminal = await controller.execute({
+        ...request('openLocalSshTerminal', slot.revisionId),
+        targetId: target,
+    });
+    const copy = await controller.execute({
+        ...request('copyLocalSshCommand', slot.revisionId),
+        targetId: target,
+    });
+
+    assert.equal(terminal.status, 'ok');
+    assert.equal(copy.status, 'ok');
+    assert.equal(reconciles, 2);
+    assert.equal(terminals[0].name, 'SSH: Build');
+    assert.equal(terminals[0].shellPath, '/usr/local/bin/ssh');
+    assert.equal(terminals[0].shellArgs.length, 1);
+    assert.match(terminals[0].shellArgs[0], /^agent-pivot-[a-f0-9]{32}$/u);
+    assert.equal(copied[0], formatManagedSshCommand(
+        '/usr/local/bin/ssh', terminals[0].shellArgs[0], 'linux',
+    ));
+    assert.doesNotMatch(copied[0], /build\.example\.com|dev@/u);
 });

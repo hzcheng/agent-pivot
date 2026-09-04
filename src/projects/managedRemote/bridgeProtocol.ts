@@ -6,8 +6,9 @@ export const MANAGED_REMOTE_BRIDGE_EXECUTE_COMMAND = '_agentPivotManagedRemote.b
 
 export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'managedSshConfigV1',
-    'manualIncludeConsentV1',
+    'automaticIncludeConsentV1',
     'openSshValidationV1',
+    'localSshTerminalV1',
 ] as const;
 
 export type ManagedRemoteBridgeOperation =
@@ -20,7 +21,9 @@ export type ManagedRemoteBridgeOperation =
     | 'beginDisable'
     | 'confirmDisable'
     | 'cancelTransition'
-    | 'recover';
+    | 'recover'
+    | 'openLocalSshTerminal'
+    | 'copyLocalSshCommand';
 
 export interface ManagedRemoteBridgeHandshakeRequest {
     protocolVersion: 1;
@@ -42,6 +45,7 @@ export interface ManagedRemoteBridgeRequest {
     sessionToken: string;
     operation: ManagedRemoteBridgeOperation;
     expectedRevisionId?: string;
+    targetId?: string;
 }
 
 export type ManagedRemoteBridgeResponse =
@@ -93,7 +97,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         || !hasExactKeys(
             value,
             ['protocolVersion', 'requestId', 'sessionToken', 'operation'],
-            ['expectedRevisionId'],
+            ['expectedRevisionId', 'targetId'],
         )
         || value.protocolVersion !== MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION
         || !isCorrelationValue(value.requestId)
@@ -109,6 +113,8 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             'confirmDisable',
             'cancelTransition',
             'recover',
+            'openLocalSshTerminal',
+            'copyLocalSshCommand',
         ].includes(value.operation as string)
         || (value.expectedRevisionId !== undefined
             && (typeof value.expectedRevisionId !== 'string'
@@ -117,6 +123,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
     }
     const requiresRevision = [
         'preflightEnable', 'beginEnable', 'confirmEnable', 'reconcile',
+        'openLocalSshTerminal', 'copyLocalSshCommand',
     ].includes(value.operation as string);
     if (requiresRevision && typeof value.expectedRevisionId !== 'string') {
         return null;
@@ -124,6 +131,14 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
     if (!requiresRevision
         && value.operation !== 'recover'
         && value.expectedRevisionId !== undefined) {
+        return null;
+    }
+    const requiresTarget = value.operation === 'openLocalSshTerminal'
+        || value.operation === 'copyLocalSshCommand';
+    const validTarget = typeof value.targetId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value.targetId);
+    if ((requiresTarget && !validTarget)
+        || (!requiresTarget && value.targetId !== undefined)) {
         return null;
     }
     return value as unknown as ManagedRemoteBridgeRequest;

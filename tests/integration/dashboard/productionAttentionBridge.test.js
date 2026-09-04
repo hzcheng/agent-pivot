@@ -84,8 +84,9 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
         assert.match(managedHandshake.sessionToken, /^[a-f0-9]{64}$/);
         assert.deepEqual(managedHandshake.capabilities, [
             'managedSshConfigV1',
-            'manualIncludeConsentV1',
+            'automaticIncludeConsentV1',
             'openSshValidationV1',
+            'localSshTerminalV1',
         ]);
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');

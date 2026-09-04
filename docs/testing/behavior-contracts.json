@@ -7163,6 +7163,24 @@
     ]
   },
   {
+    "id": "MANAGED-REMOTE-SSH-COMMAND-001",
+    "domain": "project",
+    "title": "Command Palette SSH actions select endpoint-qualified Machines and delegate identity-only terminal or clipboard effects to the local UI host",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js",
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeClient.ts",
+      "src/projects/managedRemote/localSshCommandController.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/dashboard/commandRegistration.ts"
+    ]
+  },
+  {
     "id": "MANAGED-REMOTE-MIGRATION-001",
     "domain": "project",
     "title": "Migration classifies explicit SSH targets, local-only records, and unresolved aliases without dropping V1 identity or Group tags",

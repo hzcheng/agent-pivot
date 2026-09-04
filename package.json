@@ -79,6 +79,14 @@
                 "title": "Agent Pivot: Add Project"
             },
             {
+                "command": "agentPivot.sshToMachine",
+                "title": "Agent Pivot: SSH to Machine…"
+            },
+            {
+                "command": "agentPivot.copySshCommand",
+                "title": "Agent Pivot: Copy SSH Command…"
+            },
+            {
                 "command": "agentPivot.saveProject",
                 "title": "Agent Pivot: Save Project"
             },

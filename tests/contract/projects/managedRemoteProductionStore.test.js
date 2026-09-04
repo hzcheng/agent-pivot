@@ -74,7 +74,7 @@ test('MANAGED-REMOTE-MANAGEMENT-002 does not persist an empty catalog before own
     assert.equal(result.repairedReplica, false);
     assert.deepEqual(calls, []);
     assert.equal(memento.get('managedRemote.writers'), undefined);
-    assert.ok(writerIdentityMemento.get('managedRemote.writerIdentity'));
+    assert.equal(writerIdentityMemento.get('managedRemote.writerIdentity'), undefined);
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-002 restores a synced backend from every durable local writer', async () => {

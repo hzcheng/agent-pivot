@@ -31,6 +31,8 @@ export interface DashboardCommandHandlers {
     switchWorktreeOrSession: DashboardCommandHandler;
     toggleLastAiSession: DashboardCommandHandler;
     switchToOpenWindow: DashboardCommandHandler;
+    sshToManagedMachine: DashboardCommandHandler;
+    copyManagedSshCommand: DashboardCommandHandler;
 }
 
 export interface DashboardCommandRegistrationOptions<TDisposable extends DisposableLike = DisposableLike> {
@@ -69,6 +71,8 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.switchWorktreeOrSession', 'switchWorktreeOrSession'],
     ['agentPivot.toggleLastAiSession', 'toggleLastAiSession'],
     ['agentPivot.switchToOpenWindow', 'switchToOpenWindow'],
+    ['agentPivot.sshToMachine', 'sshToManagedMachine'],
+    ['agentPivot.copySshCommand', 'copyManagedSshCommand'],
 ];
 
 interface DashboardCommandGeneration {

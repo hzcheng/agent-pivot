@@ -122,6 +122,10 @@ export class ManagedSshConsentCoordinator {
         return record;
     }
 
+    getExecutable(): string {
+        return this.executable;
+    }
+
     preflightEnable(slot: ManagedRevisionSlot): Promise<ManagedSshEnablePreflight> {
         return this.enqueue(() => this.preflightEnableNow(slot));
     }

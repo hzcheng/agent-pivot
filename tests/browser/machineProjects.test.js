@@ -57,29 +57,32 @@ function markup(includeFavorite = true, machineOverrides = {}, managedRemoteRevi
     }, managedRemoteRevisionId);
 }
 
-function managedMarkup() {
+function managedMarkup(clientState = 'preview') {
+    const ready = clientState === 'ready';
     const managedProject = {
         id: 'project:managed', environmentId: 'environment:managed-host',
         machineId: 'machine:managed', machineName: 'Build',
         machineEndpoint: 'dev@build.example.com:22022', environmentName: 'Host',
         name: 'Managed API', remotePath: '/work/api', tags: ['backend'], favorite: true,
-        color: '#c586c0', searchText: 'managed api backend build host', openable: false,
-        unavailableReason: 'Managed Remote preview.',
+        color: '#c586c0', searchText: 'managed api backend build host', openable: ready,
+        ...(ready ? {} : { unavailableReason: 'Managed Remote preview.' }),
     };
     return renderManagedRemoteProjectsPanel({
         revisionId: `revision:${'a'.repeat(64)}`,
-        lifecycle: 'preview', clientState: 'preview',
-        clientMessage: 'Managed Remote preview.', projectCount: 1,
+        lifecycle: ready ? 'active' : 'preview', clientState,
+        clientMessage: ready ? 'Managed connections are ready on this computer.' : 'Managed Remote preview.', projectCount: 1,
         tags: ['backend'], favorites: [managedProject],
         machines: [{
             id: 'machine:managed', name: 'Build', endpoint: 'dev@build.example.com:22022',
             connection: { kind: 'ssh', host: 'build.example.com', user: 'dev', port: 22022 },
-            projectCount: 1, openable: false, unavailableReason: 'Managed Remote preview.',
+            projectCount: 1, openable: ready,
+            ...(ready ? {} : { unavailableReason: 'Managed Remote preview.' }),
             conflict: false,
             environments: [{
                 id: 'environment:managed-host', machineId: 'machine:managed', kind: 'host',
                 name: 'Host', projects: [managedProject], openable: false,
-                unavailableReason: 'Managed Remote preview.', conflict: false,
+                ...(ready ? {} : { unavailableReason: 'Managed Remote preview.' }),
+                conflict: false,
             }],
         }],
     });
@@ -367,6 +370,21 @@ test('MANAGED-REMOTE-MANAGEMENT-003 keeps row-menu focus stable while a mutation
     }, request.requestId);
     assert.equal(await page.locator('[data-machine-projects-announcer]').textContent(),
         'No changes were saved.');
+});
+
+test('MANAGED-REMOTE-SSH-COMMAND-001 sends a strict row-menu SSH identity intent', async t => {
+    const page = await openPage(t, 360, managedMarkup('ready'));
+    await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
+    await page.getByRole('menuitem', { name: 'Copy SSH Command' }).click();
+
+    const message = await page.evaluate(() => window.messages.at(-1));
+    assert.deepEqual(Object.keys(message).sort(), [
+        'action', 'expectedRevisionId', 'requestId', 'targetId', 'type', 'version',
+    ]);
+    assert.equal(message.type, 'managed-remote-client-action');
+    assert.equal(message.action, 'copySsh');
+    assert.equal(message.targetId, 'machine:managed');
+    assert.equal(message.expectedRevisionId, `revision:${'a'.repeat(64)}`);
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-003 stays within 260px with endpoint-qualified rows', async t => {

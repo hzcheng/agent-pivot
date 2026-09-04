@@ -1818,6 +1818,8 @@ async function runDashboardCommandRegistrationChecks() {
         'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
+        'sshToManagedMachine',
+        'copyManagedSshCommand',
     ];
     const registration = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {
@@ -1856,6 +1858,8 @@ async function runDashboardCommandRegistrationChecks() {
         'agentPivot.switchWorktreeOrSession',
         'agentPivot.toggleLastAiSession',
         'agentPivot.switchToOpenWindow',
+        'agentPivot.sshToMachine',
+        'agentPivot.copySshCommand',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
 
@@ -1897,6 +1901,8 @@ async function runDashboardCommandRegistrationChecks() {
         'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
+        'sshToManagedMachine',
+        'copyManagedSshCommand',
     ]);
 
     registration.dispose();

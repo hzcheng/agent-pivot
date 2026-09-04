@@ -1,6 +1,5 @@
 'use strict';
 
-import { randomBytes } from 'crypto';
 import type * as vscode from 'vscode';
 
 import {
@@ -10,6 +9,7 @@ import {
 } from './managementController';
 import type { ManagedRemoteManagementOperation } from './managementProtocol';
 import { ManagedRemoteCatalogManagementStore } from './managementStore';
+import { createEmptyManagedRemoteCatalog, materializeManagedRemoteCatalog } from './merge';
 import {
     ConfigurationManagedCatalogBackend,
     ManagedRemoteConfigurationLike,
@@ -24,6 +24,19 @@ export interface ManagedRemoteManagementCapability {
     reconcile(): Promise<ManagedRemoteManagementSnapshot>;
 }
 
+export function createDisabledManagedRemoteSnapshot(
+    catalogActorId: string,
+): ManagedRemoteManagementSnapshot {
+    return {
+        revisionId: null,
+        lifecycle: 'disabled',
+        catalog: materializeManagedRemoteCatalog(
+            createEmptyManagedRemoteCatalog(catalogActorId),
+        ),
+        machineConflictCandidates: {},
+    };
+}
+
 export async function createManagedRemoteManagementCapability(options: {
     configuration: ManagedRemoteConfigurationLike;
     catalogSettingKey: string;
@@ -31,6 +44,7 @@ export async function createManagedRemoteManagementCapability(options: {
     memento: ManagedRemoteMementoLike;
     writerIdentityMemento: ManagedRemoteMementoLike;
     localReplicaKey: string;
+    catalogActorId: string;
     prompts: ManagedRemoteManagementPrompts;
     refreshAuthoritative(
         requestId: string,
@@ -51,15 +65,9 @@ export async function createManagedRemoteManagementCapability(options: {
             options.writerIdentityMemento,
         ),
     );
-    const catalogActorKey = `${options.localReplicaKey}.catalogActorId`;
-    let catalogActorId = options.writerIdentityMemento.get<string>(catalogActorKey);
-    if (!catalogActorId || !/^managed-catalog:[a-f0-9]{32}$/u.test(catalogActorId)) {
-        catalogActorId = `managed-catalog:${randomBytes(16).toString('hex')}`;
-        await options.writerIdentityMemento.update(catalogActorKey, catalogActorId);
-    }
     const store = new ManagedRemoteCatalogManagementStore(
         coordinator,
-        catalogActorId,
+        options.catalogActorId,
     );
     return {
         snapshot: await store.getSnapshot(),

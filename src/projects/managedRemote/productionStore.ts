@@ -55,6 +55,8 @@ function isWriterReplica(value: unknown): value is ManagedCatalogWriterReplicaV1
 }
 
 export class MementoManagedCatalogReplicaFacade implements ManagedCatalogReplicaFacade {
+    private allocatedIdentity?: { writerId: string; actorId: string };
+
     constructor(
         private readonly memento: ManagedRemoteMementoLike,
         private readonly keyPrefix: string,
@@ -66,6 +68,7 @@ export class MementoManagedCatalogReplicaFacade implements ManagedCatalogReplica
     async allocateWriter(): Promise<{ writerId: string; actorId: string }> {
         const persisted = this.writerIdentityMemento.get<unknown>(this.writerIdentityKey());
         if (isWriterIdentity(persisted)) {
+            this.allocatedIdentity = cloneManagedValue(persisted);
             return cloneManagedValue(persisted);
         }
         const unfinished = Object.entries(this.readWriterMap())
@@ -77,14 +80,14 @@ export class MementoManagedCatalogReplicaFacade implements ManagedCatalogReplica
                 writerId: unfinished.writerId,
                 actorId: unfinished.value.actorId,
             };
-            await this.writerIdentityMemento.update(this.writerIdentityKey(), identity);
+            this.allocatedIdentity = identity;
             return identity;
         }
         const identity = {
             writerId: this.createIdentity(),
             actorId: `catalog-actor:${this.createIdentity()}`,
         };
-        await this.writerIdentityMemento.update(this.writerIdentityKey(), identity);
+        this.allocatedIdentity = identity;
         return identity;
     }
 
@@ -116,6 +119,17 @@ export class MementoManagedCatalogReplicaFacade implements ManagedCatalogReplica
         value: ManagedCatalogWriterReplicaV1,
     ): Promise<void> {
         this.assertWriterId(writerId);
+        if (this.allocatedIdentity?.writerId === writerId) {
+            const persisted = this.writerIdentityMemento.get<unknown>(this.writerIdentityKey());
+            if (!isWriterIdentity(persisted)
+                || persisted.writerId !== this.allocatedIdentity.writerId
+                || persisted.actorId !== this.allocatedIdentity.actorId) {
+                await this.writerIdentityMemento.update(
+                    this.writerIdentityKey(),
+                    cloneManagedValue(this.allocatedIdentity),
+                );
+            }
+        }
         const writers = this.readWriterMap();
         writers[writerId] = cloneManagedValue(value);
         await this.memento.update(this.writerMapKey(), writers);

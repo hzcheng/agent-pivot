@@ -127,7 +127,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 managedSshConsent,
             );
         },
-    }, managedRemoteSessionToken);
+    }, managedRemoteSessionToken, {
+        platform: process.platform,
+        openTerminal: options => {
+            const terminal = vscode.window.createTerminal(options);
+            terminal.show();
+        },
+        writeClipboard: value => vscode.env.clipboard.writeText(value),
+    });
     const instanceId = crypto.randomBytes(16).toString('hex');
     const store = new LocalStore(bridgeRoot, instanceId, bridgeProcessId);
     const productionStore = new ProductionAttentionStore(path.join(bridgeRoot, 'production-attention', 'v1'), bridgeProcessId);

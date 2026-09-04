@@ -64,6 +64,7 @@ async function openPage(t, width = 320, panelMarkup = markup()) {
     t.after(() => page.close());
     await page.setContent(`<!doctype html><style>${styles}</style>
         <button type="button" data-action="toggle-all-groups">Collapse All Groups</button>
+        <div id="outside-click-target">Outside</div>
         <main id="panel">${panelMarkup}</main>`);
     await page.evaluate(() => {
         window.messages = [];
@@ -81,6 +82,9 @@ async function openPage(t, width = 320, panelMarkup = markup()) {
         window.groupCollapse.syncCollapseButton();
         document.querySelector('[data-action="toggle-all-groups"]').addEventListener(
             'click', () => window.groupCollapse.toggleAllGroups(),
+        );
+        document.getElementById('outside-click-target').addEventListener(
+            'click', event => event.stopPropagation(),
         );
     });
     return page;
@@ -162,7 +166,11 @@ test('MACHINE-PROJECTS-ACTIONS-001 exposes a dismissible Project actions menu', 
     }
 
     await page.click(`${row} [data-action="toggle-machine-project-menu"]`);
-    await page.mouse.click(1, 200);
+    await page.click('#outside-click-target');
+    assert.equal(await page.locator(`${row} [data-machine-project-menu]`).isHidden(), true);
+
+    await page.click(`${row} [data-action="toggle-machine-project-menu"]`);
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     assert.equal(await page.locator(`${row} [data-machine-project-menu]`).isHidden(), true);
 });
 

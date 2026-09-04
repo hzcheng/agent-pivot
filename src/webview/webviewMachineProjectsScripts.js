@@ -414,7 +414,7 @@ function createMachineProjectsUi() {
         if (event.key === 'Escape') closeTags(true);
     }
 
-    function onDocumentClick(event) {
+    function onDocumentPointerDown(event) {
         if (!panel || !event.target || !event.target.closest) return;
         if (!event.target.closest('.machine-tag-filter')) closeTags(false);
         if (!event.target.closest('.machine-project-menu-shell')) closeProjectMenu(false);
@@ -426,7 +426,19 @@ function createMachineProjectsUi() {
         if (shell && !shell.contains(event.target)) closeProjectMenu(false);
     }
 
+    function onDocumentScroll(event) {
+        if (!activeProjectMenuTrigger) return;
+        var row = activeProjectMenuTrigger.closest('[data-machine-project-row]');
+        if (!row || !row.contains(event.target)) closeProjectMenu(false);
+    }
+
+    function onWindowBlur() {
+        closeProjectMenu(false);
+        closeTags(false);
+    }
+
     function mount(nextPanel) {
+        closeProjectMenu(false);
         panel = nextPanel && nextPanel.querySelector('[data-machine-projects]')
             ? nextPanel : null;
         if (!panel) return false;
@@ -441,8 +453,10 @@ function createMachineProjectsUi() {
         return true;
     }
 
-    document.addEventListener('click', onDocumentClick);
+    document.addEventListener('pointerdown', onDocumentPointerDown, true);
     document.addEventListener('focusin', onDocumentFocusIn);
+    document.addEventListener('scroll', onDocumentScroll, true);
+    window.addEventListener('blur', onWindowBlur);
     return {
         mount: mount,
         isMounted: function () { return Boolean(panel); },

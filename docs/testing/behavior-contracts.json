@@ -6914,7 +6914,7 @@
   {
     "id": "MACHINE-PROJECTS-ACTIONS-001",
     "domain": "webview",
-    "title": "Every Project row exposes a dismissible actions menu for current-window opening, Project editing, color editing, and removal",
+    "title": "Every Project row exposes an actions menu that closes on outside interaction or view deactivation and supports current-window opening, Project editing, color editing, and removal",
     "priority": "P1",
     "status": "automated",
     "owners": [

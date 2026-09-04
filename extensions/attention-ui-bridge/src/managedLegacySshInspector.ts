@@ -4,10 +4,6 @@ import {
     ManagedSshCommandRunner,
     NodeManagedSshCommandRunner,
 } from './managedSshValidator';
-import {
-    NodeManagedSshConfigFileSystem,
-    scanManagedSshConfigGraph,
-} from './managedSshConfigPolicy';
 import { isManagedMachine } from '../../../src/projects/managedRemote/validation';
 
 export interface ManagedLegacySshInspection {
@@ -17,9 +13,7 @@ export interface ManagedLegacySshInspection {
 }
 
 export interface ManagedLegacySshInspectorOptions {
-    platform: NodeJS.Platform;
     runner?: ManagedSshCommandRunner;
-    scan?: (activeConfigPath: string) => { issues: string[] };
     timeoutMs?: number;
 }
 
@@ -40,17 +34,11 @@ function disabled(value: string | undefined): boolean {
 
 export class ManagedLegacySshInspector {
     private readonly runner: ManagedSshCommandRunner;
-    private readonly scan: (activeConfigPath: string) => { issues: string[] };
     private readonly timeoutMs: number;
 
-    constructor(private readonly options: ManagedLegacySshInspectorOptions) {
+    constructor(options: ManagedLegacySshInspectorOptions) {
         this.runner = options.runner || new NodeManagedSshCommandRunner();
         this.timeoutMs = options.timeoutMs || 10_000;
-        this.scan = options.scan || (activeConfigPath => scanManagedSshConfigGraph(
-            activeConfigPath,
-            new NodeManagedSshConfigFileSystem(),
-            { platform: options.platform },
-        ));
     }
 
     async inspect(
@@ -63,21 +51,6 @@ export class ManagedLegacySshInspector {
             return {
                 status: 'unsupported',
                 reason: 'The legacy SSH target cannot be inspected safely.',
-            };
-        }
-        let scan: { issues: string[] };
-        try {
-            scan = this.scan(activeConfigPath);
-        } catch (_error) {
-            return {
-                status: 'unsupported',
-                reason: 'The active SSH config could not be inspected safely.',
-            };
-        }
-        if (scan.issues.length) {
-            return {
-                status: 'unsupported',
-                reason: 'The active SSH config contains a dynamic, cyclic, unreadable, or unsupported Include/Match rule.',
             };
         }
         let result;
@@ -128,7 +101,7 @@ export class ManagedLegacySshInspector {
         }
         return {
             status: 'needsInput',
-            reason: 'Plain connection details were detected. Review them before migration; authentication settings are not copied.',
+            reason: 'Plain connection details were resolved automatically; authentication settings are not copied.',
             endpoint: { host, user, port },
         };
     }

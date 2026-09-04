@@ -37,7 +37,9 @@ import {
     MANAGED_REMOTE_CATALOG_DATA_KEY,
     MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
     OPEN_TAB_LAST_FOCUSED_NAVIGATION_AT_MS_KEY,
+    PROJECTS_KEY,
     PROJECT_SYNC_DATA_KEY,
+    PROJECT_SYNC_LOCAL_STATE_KEY,
     USER_CANCELED,
     RelevantExtensions,
     REOPEN_KEY,
@@ -985,39 +987,74 @@ async function initializeDashboard(
     let managedRemoteSnapshot = createDisabledManagedRemoteSnapshot(
         managedRemoteCatalogActorId,
     );
+    let managedRemoteLegacyStorageRetired = false;
     let managedRemoteClientState: ManagedRemoteClientUiState = 'preview';
     let managedRemoteCapability: ManagedRemoteManagementCapability | undefined;
     const managedRemoteBridgeClient = new ManagedRemoteBridgeClient(vscode.commands);
-    const managedRemoteCapabilityPromise = createManagedRemoteManagementCapability({
-        configuration: promptConfiguration,
-        catalogSettingKey: MANAGED_REMOTE_CATALOG_DATA_KEY,
-        globalTarget: vscode.ConfigurationTarget.Global,
-        memento: context.globalState,
-        writerIdentityMemento: context.workspaceState,
-        localReplicaKey: MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
-        catalogActorId: managedRemoteCatalogActorId,
-        migrationSource: {
-            getGroups: () => projectService.getRemoteGroupsForManagedMigration(),
-            getProjectData: () => promptConfiguration.get('projectData'),
-            getProjectSyncData: () => promptConfiguration.get(PROJECT_SYNC_DATA_KEY),
-        },
-        prompts: new ManagedRemotePromptController(
-            new VscodeManagedRemoteWizardUi(vscode.window),
-            target => managedRemoteBridgeClient.inspectLegacySshTarget(target),
-        ),
-        refreshAuthoritative: async (_requestId, _operation, snapshot) => {
-            managedRemoteSnapshot = snapshot;
-            managedRemoteClientState = snapshot.lifecycle === 'active'
-                ? 'applying' : 'preview';
-            await projectsPanelController?.postUpdated('replace');
-            if (snapshot.lifecycle === 'active' && snapshot.revisionId) {
-                await managedRemoteClientActions.syncCatalog(snapshot.revisionId);
-            }
-        },
-        postSettlement: async settlement => {
-            await provider.postMessage(settlement);
-        },
-    });
+    const managedRemoteCapabilityPromise = runAfterStorageMigration(() =>
+        createManagedRemoteManagementCapability({
+            configuration: promptConfiguration,
+            catalogSettingKey: MANAGED_REMOTE_CATALOG_DATA_KEY,
+            globalTarget: vscode.ConfigurationTarget.Global,
+            memento: context.globalState,
+            writerIdentityMemento: context.workspaceState,
+            localReplicaKey: MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
+            catalogActorId: managedRemoteCatalogActorId,
+            migrationSource: {
+                getGroups: () => projectService.getRemoteGroupsForManagedMigration(),
+                getProjectData: () => promptConfiguration.get('projectData'),
+                getProjectSyncData: () => promptConfiguration.get(PROJECT_SYNC_DATA_KEY),
+                clearLegacyData: async () => {
+                    managedRemoteLegacyStorageRetired = true;
+                    projectService.retireLegacyRemoteCache();
+                    await context.globalState.update(PROJECTS_KEY, undefined);
+                    await context.globalState.update(
+                        PROJECT_SYNC_LOCAL_STATE_KEY,
+                        undefined,
+                    );
+                    await promptConfiguration.update(
+                        'projectData',
+                        undefined,
+                        vscode.ConfigurationTarget.Global,
+                    );
+                    await promptConfiguration.update(
+                        PROJECT_SYNC_DATA_KEY,
+                        undefined,
+                        vscode.ConfigurationTarget.Global,
+                    );
+                },
+                restoreLegacyData: async snapshot => {
+                    await promptConfiguration.update(
+                        'projectData',
+                        snapshot.projectData === null ? undefined : snapshot.projectData,
+                        vscode.ConfigurationTarget.Global,
+                    );
+                    await promptConfiguration.update(
+                        PROJECT_SYNC_DATA_KEY,
+                        snapshot.projectSyncData === null ? undefined : snapshot.projectSyncData,
+                        vscode.ConfigurationTarget.Global,
+                    );
+                    projectService.resumeLegacyRemoteCache();
+                    managedRemoteLegacyStorageRetired = false;
+                },
+            },
+            prompts: new ManagedRemotePromptController(
+                new VscodeManagedRemoteWizardUi(vscode.window),
+                target => managedRemoteBridgeClient.inspectLegacySshTarget(target),
+            ),
+            refreshAuthoritative: async (_requestId, _operation, snapshot) => {
+                managedRemoteSnapshot = snapshot;
+                managedRemoteClientState = snapshot.lifecycle === 'active'
+                    ? 'applying' : 'preview';
+                await projectsPanelController?.postUpdated('replace');
+                if (snapshot.lifecycle === 'active' && snapshot.revisionId) {
+                    await managedRemoteClientActions.syncCatalog(snapshot.revisionId);
+                }
+            },
+            postSettlement: async settlement => {
+                await provider.postMessage(settlement);
+            },
+        }));
     void managedRemoteCapabilityPromise.then(async capability => {
         managedRemoteCapability = capability;
         managedRemoteSnapshot = capability.snapshot;
@@ -3709,7 +3746,10 @@ async function initializeDashboard(
         checkDataMigration: async openStewardAfterMigrate => {
             await dashboardStartupController.checkDataMigration(openStewardAfterMigrate);
         },
-        reconcileProjectCatalog: () => projectService.reconcileProjectCatalog(),
+        reconcileProjectCatalog: () => managedRemoteLegacyStorageRetired
+            || managedRemoteSnapshot.lifecycle === 'active'
+            ? Promise.resolve()
+            : projectService.reconcileProjectCatalog(),
         reconcileManagedRemoteCatalog: async () => {
             const capability = managedRemoteCapability
                 || await managedRemoteCapabilityPromise;

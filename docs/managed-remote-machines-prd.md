@@ -297,35 +297,41 @@ The tag chooser uses a labeled group that announces selected tags match all.
 
 Migration preparation runs automatically once when the managed lifecycle is
 `disabled`. There is no Migrate button and no final “build preview” confirmation.
-V1 remains authoritative until the user enables managed SSH on this computer, and
-the frozen V1 snapshot remains available for rollback.
+V1 remains authoritative until Agent Pivot has generated the local managed SSH
+projection and activated the synchronized catalog. The frozen V1 snapshot remains
+inside the managed migration journal for rollback; the live V1 settings are then
+removed automatically.
 
 ### 9.1 Automatic preparation and exception resolution
 
 Every synchronized remote Project is classified:
 
-- **Ready** — direct `user@host`, or an alias whose endpoint and connection behavior
-  are proven compatible with the managed subset;
-- **Needs input** — alias unavailable, fields ambiguous, or identity deduplication
-  requires a choice;
-- **Unsupported** — route or authentication/host-checking behavior is outside the
-  first release, including `ProxyJump`, `ProxyCommand`, `Match exec`, dynamic
-  Includes, or unverified alias-specific directives;
+- **Ready** — direct `user@host`, or an alias whose final endpoint is resolved by
+  the UI-host OpenSSH executable;
+- **Needs input** — alias unavailable or fields ambiguous;
+- **Unsupported** — OpenSSH cannot produce a valid plain endpoint, or the route
+  requires behavior outside the first release such as `ProxyJump`, `ProxyCommand`,
+  forwarding, or remote/local commands;
 - **Client-local** — Local, computer-local `wsl+` WSL, and local-container records
   stay on this computer unless a WSL record is explicitly converted using an
   independently reachable SSH endpoint.
 
 Direct endpoints and compatible aliases detected by the UI-host OpenSSH inspector
-are accepted automatically. Client-local records are skipped automatically. Only
-unresolved records open a focused prompt for `Enter connection details` or `Remove
-from Agent Pivot` (does not delete files). Cancelling leaves V1 authoritative and
-retries preparation on a later startup. Activation requires zero unresolved
-records.
+are accepted automatically. Client-local records are skipped automatically. There
+is no migration wizard or per-record decision UI. If any remote record cannot be
+resolved without guessing, the upgrade stops before creating or deleting data,
+records a diagnostic, and retries on a later startup. Activation requires zero
+unresolved records.
 
 Migration retains only host/user/port from a compatible alias. Authentication
 settings are not copied; SSH uses the local agent/default keys or prompts for a
 password when the generated alias is opened. Proxy, command, and forwarding routes
 remain unsupported because they cannot be represented by the managed model.
+
+After local SSH generation and synchronized-catalog activation both succeed, Agent
+Pivot deletes the live legacy `projectData`, `projectSyncData`, and their obsolete
+local replicas. This never deletes Local Projects, project files, or user-authored
+SSH `Host` blocks. Rollback restores the exact frozen V1 Project snapshot.
 
 ### 9.2 Field mapping
 
@@ -371,17 +377,12 @@ them after activation; they remain inert rollback material.
   restores the exact V1 snapshot and leaves all legacy SSH blocks untouched.
 - Rollback data remains through owner acceptance and at least one released minor
   version.
-- Managed activation freezes the original V1 keys; it does not emit managed-alias
-  URIs into them. An older plugin may show the pre-migration snapshot and can open
-  it only on a computer where its original aliases already work. It receives no
-  managed updates, empty Machines, or conflict safety guarantee.
-- An older plugin cannot be forced read-only. If it edits frozen V1 data, the new
-  version detects fingerprint divergence,
-  preserves both branches, and requires `Import legacy edits` or `Keep managed
-  catalog`; it never silently discards edits. Activation warns that old-client edits
-  are unsupported until all synced clients are upgraded.
-- Mixed-version behavior is verified against actual N-1/N-2 VSIX builds before
-  activation is offered.
+- Managed activation removes the original V1 keys; it does not emit managed-alias
+  URIs into them. An older plugin therefore has no remote Project catalog after the
+  cleanup syncs. It receives no managed updates or conflict guarantees.
+- If an old client republishes V1 data, the current personal-upgrade build ignores
+  it as an authority and retires it again. Returning to the old format requires the
+  explicit rollback action, which restores the frozen journal snapshot first.
 
 ## 11. Conflict behavior
 
@@ -464,9 +465,10 @@ them after activation; they remain inert rollback material.
 - Project Machine/Environment ownership is immutable; another location is another
   Project rather than a move.
 - Generated SSH config is a local projection, not an authority.
-- Existing SSH blocks are retained throughout the first release and rollback window.
-- Active mode freezes original V1 keys; it does not promise managed behavior on an
-  old client.
+- Existing user-authored SSH blocks are not deleted; active Agent Pivot no longer
+  reads them after migration.
+- Active mode removes the original V1 Project keys after storing their checksummed
+  values in the synchronized migration journal.
 - The target is one managed runtime mechanism; legacy data is migration/rollback
   material only.
 - Work remains on this branch and one PR is opened only after all owner milestones.
@@ -474,9 +476,11 @@ them after activation; they remain inert rollback material.
 ## 15. Confirmed owner decisions
 
 1. Existing data upgrades automatically, including the local generated SSH
-   projection; there is no Migrate, Setup, Enable, or rehearsal step.
+   projection and legacy Project cleanup; there is no Migrate, Setup, Enable,
+   review form, or rehearsal step.
 2. First-release Dev Containers are created only by migration or `Save
    Current Project`, without an arbitrary container editor. **Recommendation:
    approve this narrower boundary.**
 3. Advanced proxy/command/forwarding behavior stays unsupported, with no legacy
-   runtime fallback; ordinary host/user/port aliases migrate automatically.
+   runtime fallback; ordinary host/user/port aliases migrate automatically. An
+   unresolved alias aborts without changing data and never opens a form.

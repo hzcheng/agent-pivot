@@ -200,7 +200,7 @@ test('MANAGED-REMOTE-ENVELOPE-002 retains a staged mutation across backend failu
     assert.equal(recovered.repairedBackend, true);
 });
 
-test('MANAGED-REMOTE-COMPATIBILITY-001 preserves old-client edits as an explicit divergence', () => {
+test('MANAGED-REMOTE-COMPATIBILITY-001 fingerprints a legacy branch without importing it', () => {
     const frozen = createChecksummedLegacySnapshot([{ id: 'old' }], { revision: 1 });
     assert.equal(detectManagedLegacyDivergence(
         frozen, [{ id: 'old' }], { revision: 1 },

@@ -276,6 +276,16 @@ export class ProjectCatalogSyncService {
         });
     }
 
+    retireForManagedMigration(): void {
+        this.cachedGroups = [];
+        this.pendingSyncDataWrites = [];
+        this.pendingLegacyGroupWrites = [];
+    }
+
+    resumeAfterManagedRollback(): void {
+        this.cachedGroups = null;
+    }
+
     saveGroups(
         groups: Group[],
         options: ProjectCatalogMutationOptions = {}

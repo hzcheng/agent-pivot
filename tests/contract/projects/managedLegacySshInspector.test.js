@@ -29,8 +29,6 @@ function effective(overrides = '') {
 test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 uses OpenSSH argv without a shell and returns only plain endpoint fields', async () => {
     const calls = [];
     const inspector = new ManagedLegacySshInspector({
-        platform: 'linux',
-        scan: () => ({ issues: [] }),
         runner: {
             async run(executable, args, timeoutMs) {
                 calls.push({ executable, args, timeoutMs });
@@ -48,7 +46,7 @@ test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 uses OpenSSH argv without a sh
     }]);
     assert.deepEqual(result, {
         status: 'needsInput',
-        reason: 'Plain connection details were detected. Review them before migration; authentication settings are not copied.',
+        reason: 'Plain connection details were resolved automatically; authentication settings are not copied.',
         endpoint: { host: 'build.example.com', user: 'dev', port: 2207 },
     });
     assert.equal(JSON.stringify(result).includes('private diagnostic'), false);
@@ -57,8 +55,6 @@ test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 uses OpenSSH argv without a sh
 test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 rejects advanced routing and hostile aliases', async () => {
     let runs = 0;
     const inspector = new ManagedLegacySshInspector({
-        platform: 'linux',
-        scan: () => ({ issues: [] }),
         runner: {
             async run() {
                 runs += 1;
@@ -76,15 +72,14 @@ test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 rejects advanced routing and h
     assert.equal(runs, 1);
 });
 
-test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 fails closed before OpenSSH when config inspection is unsafe', async () => {
+test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 returns a noninteractive failure when OpenSSH cannot resolve an alias', async () => {
     let runs = 0;
     const inspector = new ManagedLegacySshInspector({
-        platform: 'linux',
-        scan: () => ({ issues: ['match-exec'] }),
-        runner: { async run() { runs += 1; throw new Error('must not run'); } },
+        runner: { async run() { runs += 1; throw new Error('cannot resolve'); } },
     });
 
     const result = await inspector.inspect('/usr/bin/ssh', '/home/me/.ssh/config', 'build');
-    assert.equal(result.status, 'unsupported');
-    assert.equal(runs, 0);
+    assert.equal(result.status, 'needsInput');
+    assert.match(result.reason, /could not inspect/u);
+    assert.equal(runs, 1);
 });

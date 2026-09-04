@@ -10,11 +10,7 @@ export interface ManagedLegacyDivergence {
     current: ChecksummedLegacySnapshot;
 }
 
-/**
- * Detect edits made by an older extension after managed activation. The guard
- * reports complete branches for explicit import/keep decisions and never folds
- * them into the managed catalog automatically.
- */
+/** Fingerprint a legacy branch for diagnostics without importing it. */
 export function detectManagedLegacyDivergence(
     frozen: ChecksummedLegacySnapshot,
     projectData: unknown,

@@ -78,8 +78,9 @@ There is one business authority and one runtime projection:
 - the managed envelope is edited and synchronized;
 - generated SSH config is local, revisioned, accepts no reverse import, and can be
   deleted/rebuilt;
-- the original V1 keys are frozen as rollback material; no managed-alias Project
-  projection is emitted into them.
+- the original V1 values are checksummed and frozen in the migration journal, then
+  the live V1 keys and obsolete local replica are removed after activation; no
+  managed-alias Project projection is emitted into them.
 
 The UI Bridge never saves Machine or Project business data. It owns only local SSH
 filesystem effects and local VS Code navigation. Existing user SSH blocks are
@@ -95,7 +96,8 @@ disabled ── preview ── active
 
 - `disabled`: current URI-derived view and V1 authority.
 - `preview`: candidate IDs and decisions are durable, but V1 remains authoritative.
-- `active`: managed envelope is authoritative; original V1 keys are frozen.
+- `active`: managed envelope is authoritative; original V1 values exist only in the
+  rollback journal and the live V1 keys are empty.
 - `rolledBack`: exact captured V1 snapshot is authoritative again.
 
 Lifecycle and active revision are one envelope mutation. The Machine hierarchy is
@@ -617,15 +619,17 @@ quotes, and unsupported Unicode/IDN forms rather than guessing.
 
 For config aliases:
 
-1. statically read the active config and bounded Include graph without execution;
-2. if a dynamic Include, `Match exec`, include cycle, unreadable source, wildcard
-   ambiguity, or oversized graph is present, return Unsupported/Needs input and do
-   not invoke SSH;
-3. otherwise use the exact Remote - SSH executable as
+1. use the exact Remote - SSH executable as
    `ssh -F <active-config> -G <alias>` with argument arrays, no shell, bounded output,
    timeout, and whole-process-tree termination;
-4. collect effective hostname/user/port and compare route/auth/host-checking facts;
-5. never log raw output or source contents.
+2. collect effective hostname/user/port and compare route facts;
+3. never log raw output or source contents.
+
+The active SSH config is user-owned trusted input. OpenSSH itself evaluates its
+normal `Match` semantics while resolving the alias. Agent Pivot does not parse or
+execute a command string and does not copy any resulting authentication directive.
+If OpenSSH cannot produce a valid plain endpoint, migration aborts without a prompt
+or any data mutation.
 
 Migration intentionally keeps only the resolved host/user/port. Authentication
 directives are not copied, so local SSH defaults apply and password authentication
@@ -657,17 +661,21 @@ LOCAL_READY
 ACTIVE
   └─ active authority candidate committed in the envelope
 COMPLETE
-  └─ frozen V1 fingerprints recorded; no legacy-key or SSH deletion
+  ├─ frozen V1 values retained in the synchronized journal
+  └─ live V1 settings and obsolete local replica deleted
 ```
 
 Every phase is resumable and idempotent. Activation never writes a managed-alias
-projection to `projectData` or `projectSyncData`; it records their frozen checksums
-and detects later changes as legacy divergence.
+projection to `projectData` or `projectSyncData`. Cleanup starts only after the
+managed authority commit, can be retried after a partial settings write, and treats
+both `undefined` and the schema default `null` as cleared. Configuration-change
+handling must not let the retired V1 replica republish deleted data.
 
 ## 12. Rollback, downgrade, and mixed versions
 
-Managed activation freezes the original `projectSyncData` and `projectData`; it does
-not emit managed aliases into either key. Rollback is a journaled cross-resource
+Managed activation backs up and then clears the original `projectSyncData` and
+`projectData`; it does not emit managed aliases into either key. Rollback is a
+journaled cross-resource
 operation because VS Code offers no transaction across those two settings and the
 managed envelope:
 
@@ -680,20 +688,17 @@ ROLLED_BACK
   └─ causally commit rolledBack authority as the final step
 ```
 
-Each legacy write uses expected fingerprints and is idempotent. A crash resumes from
-the journal. An old-client write at any point is preserved as divergence and moves
-the plan to Recovery required instead of being overwritten. Because current V1 code
-prefers `projectSyncData`, it is restored and verified before the secondary
-`projectData`; the V1 renderer remains unreachable until both are valid and the last
-authority transition commits.
+Each legacy write is idempotent. A crash can retry restoration from the frozen
+journal. Both keys are reread and checksum-verified before the final authority
+transition commits; the V1 renderer remains unreachable until both are valid.
 
 Generated Agent Pivot aliases and all original legacy SSH blocks remain untouched by
 rollback. Migration-created WSL local copies follow the digest rule in section 11.1.
 
-Old versions cannot be forced read-only. While active, compare both frozen V1
-fingerprints. Store every changed branch as a versioned legacy-divergence candidate
-and require `Import legacy edits` through a new migration candidate or `Keep managed
-catalog`. Rollback waits for resolution. No old edit is silently discarded.
+Old versions cannot be forced read-only. They are outside this personal-upgrade
+contract: the current version deletes any V1 values that reappear after sync and
+continues to use only the managed catalog. The frozen journal remains the sole
+rollback source.
 
 Compatibility gates use real packaged versions:
 
@@ -702,10 +707,9 @@ Compatibility gates use real packaged versions:
 | new main + new Bridge | full managed behavior |
 | new main + old Bridge | disabled local actions + Update Bridge |
 | old main + new Bridge | existing V1 behavior; no managed command is invoked |
-| N-1/N-2 reads frozen V1 | pre-migration view; opens only where original alias works |
-| N-1/N-2 edits frozen V1 | new version detects and preserves divergence |
-| downgrade then re-upgrade | no silent import, loss, or authority flip |
-| second old client syncs during active | divergence/recovery state is deterministic |
+| N-1/N-2 after cleanup | no V1 Project catalog is available |
+| downgrade then rollback | explicit rollback restores the frozen V1 snapshot |
+| second old client syncs during active | current version retires the reappearing V1 data again |
 
 Activation warns that all clients should be upgraded and that editing from an old
 version is unsupported, while the divergence protocol prevents silent loss.
@@ -760,7 +764,7 @@ rollback window.
 
 - schema/invariant rejection, including credential fields and ports;
 - catalog and outer-envelope join laws and deterministic bytes, including concurrent
-  rollback vs active edit and two legacy-divergence branches;
+  rollback vs active edit;
 - concurrent endpoint conflict and resolution;
 - live-candidate parent deletion guards;
 - local/backend replica loss, out-of-order sync, corrupt slot, candidate activate/
@@ -787,8 +791,8 @@ rollback window.
 
 - direct/domain user, DNS, IPv4/IPv6, ports 22/1/65535/two custom ports;
 - literal alias, static Include, wildcard defaults, custom config;
-- startup automatically creates one preview without a Migrate action, while a
-  `Match exec` canary proves inspection does not execute it;
+- startup resolves aliases and creates one preview without a Migrate action or any
+  migration Quick Pick;
 - IdentityFile/certificate/agent/host-checking/proxy directives never become Ready
   from endpoint parsing alone;
 - automatic host/user/port projection without a Remote - SSH rehearsal;
@@ -797,7 +801,8 @@ rollback window.
 - two-computer plus offline-client local-WSL claim/stage/failure/rollback behavior;
 - remote WSL explicit SSH conversion, non-22 port, cross-computer open, and rejection
   when only a `wsl+` authority or inferred parent-Windows route is available;
-- rollback plus N-1/N-2 read/write/downgrade/re-upgrade matrix.
+- activation cleanup crash/retry, settings-default `null`, rollback restore, and
+  downgrade-after-explicit-rollback matrix.
 
 ### 15.4 UI/accessibility
 

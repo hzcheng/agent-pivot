@@ -7091,7 +7091,7 @@
   {
     "id": "MANAGED-REMOTE-COMPATIBILITY-001",
     "domain": "persistence",
-    "title": "Old-client changes to frozen Project settings are retained as explicit divergence branches",
+    "title": "Legacy snapshot changes can be fingerprinted for diagnostics without importing them into managed authority",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7259,7 +7259,7 @@
   {
     "id": "MANAGED-REMOTE-MIGRATION-003",
     "domain": "project",
-    "title": "Startup automatically resolves compatible aliases, preserves local-only records, freezes legacy authority, and commits a preview candidate before activation",
+    "title": "Startup automatically resolves compatible aliases without a migration wizard, preserves local-only records, backs up V1, and clears live legacy storage after activation",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7311,7 +7311,7 @@
   {
     "id": "MANAGED-REMOTE-MIGRATION-ROLLBACK-001",
     "domain": "project",
-    "title": "Managed migration rollback returns to the checksummed frozen V1 authority and refuses to overwrite divergent legacy edits",
+    "title": "Managed migration rollback restores the checksummed frozen V1 authority after active legacy storage has been cleared",
     "priority": "P0",
     "status": "automated",
     "owners": [

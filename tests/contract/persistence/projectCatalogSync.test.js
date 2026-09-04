@@ -507,6 +507,14 @@ test('PROJECT-INCREMENTAL-REFRESH-001 reuses the materialized catalog until conf
     }), false);
     service.getGroups();
     assert.deepEqual([syncReads, localReads, legacyReads], [2, 2, 3]);
+
+    service.retireForManagedMigration();
+    assert.deepEqual(service.getGroups(), []);
+    assert.deepEqual([syncReads, localReads, legacyReads], [2, 2, 3]);
+
+    service.resumeAfterManagedRollback();
+    assert.equal(service.getGroups()[0].projects[0].name, 'Existing');
+    assert.deepEqual([syncReads, localReads, legacyReads], [3, 3, 4]);
 });
 
 test('PROJECT-CATALOG-SYNC-CONFLICT-001 hardening repairs malformed sync data without logging catalog content', async () => {

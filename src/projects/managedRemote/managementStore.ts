@@ -1,7 +1,5 @@
 'use strict';
 
-import type { Group } from '../../models';
-
 import {
     AddManagedMachineInput,
     AddManagedProjectInput,
@@ -19,6 +17,7 @@ import {
 } from './migrationPlan';
 import {
     ManagedRemoteManagementSnapshot,
+    ManagedRemoteMigrationSource,
     ManagedRemoteManagementStore,
 } from './managementController';
 import { ManagedCatalogCoordinator, ManagedCatalogReconcileResult } from './store';
@@ -48,16 +47,16 @@ function machineConflictCandidates(
     return result;
 }
 
+function isClearedLegacyValue(value: unknown): boolean {
+    return value === undefined || value === null;
+}
+
 export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagementStore {
     constructor(
         private readonly coordinator: ManagedCatalogCoordinator,
         private readonly catalogActorId: string,
         private readonly createId?: (prefix: string) => string,
-        private readonly migrationSource?: {
-            getGroups(): Group[];
-            getProjectData(): unknown;
-            getProjectSyncData(): unknown;
-        },
+        private readonly migrationSource?: ManagedRemoteMigrationSource,
     ) {
     }
 
@@ -185,6 +184,38 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         return this.snapshot(await this.coordinator.reconcile());
     }
 
+    async finalizeMigrationCleanup(
+        expectedRevisionId: string,
+    ): Promise<ManagedRemoteManagementSnapshot> {
+        if (!this.migrationSource) {
+            throw new Error('Managed Remote migration source is unavailable.');
+        }
+        const reconciled = await this.coordinator.reconcile();
+        const authority = authorityState(reconciled);
+        if (authority.lifecycle !== 'active'
+            || !authority.migrationPlanId
+            || authority.active?.revisionId !== expectedRevisionId) {
+            throw new Error('Managed migration authority changed before legacy cleanup.');
+        }
+        const values = reconciled.envelope.migrationPlans[authority.migrationPlanId]
+            ? distinctCandidateValues(
+                reconciled.envelope.migrationPlans[authority.migrationPlanId],
+            ) : [];
+        const journals = values.filter(value => value !== null);
+        if (journals.length !== 1 || journals[0].phase !== 'complete') {
+            throw new Error('Managed migration backup is missing or conflicted.');
+        }
+        // The source also owns obsolete client-local replicas that are not part
+        // of the two synchronized V1 values. Run the idempotent cleanup even
+        // when both configuration keys already read as their default `null`.
+        await this.migrationSource.clearLegacyData();
+        if (!isClearedLegacyValue(this.migrationSource.getProjectData())
+            || !isClearedLegacyValue(this.migrationSource.getProjectSyncData())) {
+            throw new Error('Legacy Project data could not be cleared after migration.');
+        }
+        return this.snapshot(await this.coordinator.reconcile());
+    }
+
     async rollbackMigration(
         expectedRevisionId: string,
     ): Promise<ManagedRemoteManagementSnapshot> {
@@ -206,16 +237,15 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         if (journals.length !== 1 || journals[0].phase !== 'complete') {
             throw new Error('Managed migration rollback material is missing or conflicted.');
         }
-        const projectData = this.migrationSource.getProjectData();
-        const projectSyncData = this.migrationSource.getProjectSyncData();
+        await this.migrationSource.restoreLegacyData(journals[0].frozenLegacy);
         const currentLegacy = createChecksummedLegacySnapshot(
-            projectData === undefined ? null : projectData,
-            projectSyncData === undefined ? null : projectSyncData,
+            this.migrationSource.getProjectData() === undefined
+                ? null : this.migrationSource.getProjectData(),
+            this.migrationSource.getProjectSyncData() === undefined
+                ? null : this.migrationSource.getProjectSyncData(),
         );
         if (currentLegacy.checksum !== journals[0].frozenLegacy.checksum) {
-            throw new Error(
-                'Legacy Project data changed after migration. Review those edits before rollback; Agent Pivot did not overwrite them.',
-            );
+            throw new Error('Legacy Project backup could not be restored.');
         }
         await this.coordinator.completePreparedMigrationRollback(
             authority.migrationPlanId,

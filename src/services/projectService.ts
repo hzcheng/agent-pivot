@@ -115,6 +115,14 @@ export default class ProjectService extends BaseService {
         return cloneGroups(this.getLocalProjects());
     }
 
+    retireLegacyRemoteCache(): void {
+        this.catalogSyncService.retireForManagedMigration();
+    }
+
+    resumeLegacyRemoteCache(): void {
+        this.catalogSyncService.resumeAfterManagedRollback();
+    }
+
     getProject(projectId: string): Project {
         var [project] = this.getProjectAndGroup(projectId);
         return project;

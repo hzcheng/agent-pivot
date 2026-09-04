@@ -106,16 +106,8 @@ test('MANAGED-REMOTE-MANAGEMENT-004 Project wizard keeps placement fixed and rev
     assert.equal(ui.picks.filter(pick => pick.step === 7).length, 2);
 });
 
-test('MANAGED-REMOTE-MIGRATION-003 reviews unresolved aliases without moving client-local Projects', async () => {
-    const ui = new ScriptedWizardUi([
-        { action: 'accept', value: 'details' },
-        { action: 'accept', value: 'Build' },
-        { action: 'accept', value: 'build.example.com' },
-        { action: 'accept', value: 'dev' },
-        { action: 'accept', value: '2207' },
-        { action: 'accept', value: '/work/api' },
-        { action: 'accept', value: true },
-    ]);
+test('MANAGED-REMOTE-MIGRATION-003 never opens a migration wizard when an alias cannot be resolved', async () => {
+    const ui = new ScriptedWizardUi([]);
     const plan = {
         schemaVersion: 1,
         planId: `migration:${'a'.repeat(64)}`,
@@ -132,14 +124,12 @@ test('MANAGED-REMOTE-MIGRATION-003 reviews unresolved aliases without moving cli
             tags: [],
         }],
     };
-    const result = await new ManagedRemotePromptController(ui).reviewMigration(plan);
-
-    assert.equal(result.records[0].classification, 'ready');
-    assert.deepEqual(result.records[0].endpoint, {
-        host: 'build.example.com', user: 'dev', port: 2207,
-    });
-    assert.equal(result.records[1].classification, 'clientLocal');
-    assert.match(ui.picks.at(-1).items[0].detail, /Saved to all synced computers/u);
+    await assert.rejects(
+        new ManagedRemotePromptController(ui).reviewMigration(plan),
+        /Could not automatically migrate Project "API"/u,
+    );
+    assert.equal(ui.inputs.length, 0);
+    assert.equal(ui.picks.length, 0);
 });
 
 test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 automatically accepts detected plain endpoint details without copying authentication', async () => {

@@ -1,11 +1,10 @@
 'use strict';
 
 import type * as vscode from 'vscode';
-import type { Group } from '../../models';
-
 import {
     ManagedRemoteManagementController,
     ManagedRemoteManagementPrompts,
+    ManagedRemoteMigrationSource,
     ManagedRemoteManagementSnapshot,
     ManagedRemoteManagementStore,
 } from './managementController';
@@ -75,11 +74,7 @@ export async function createManagedRemoteManagementCapability(options: {
     writerIdentityMemento: ManagedRemoteMementoLike;
     localReplicaKey: string;
     catalogActorId: string;
-    migrationSource: {
-        getGroups(): Group[];
-        getProjectData(): unknown;
-        getProjectSyncData(): unknown;
-    };
+    migrationSource: ManagedRemoteMigrationSource;
     prompts: ManagedRemoteManagementPrompts;
     refreshAuthoritative(
         requestId: string,
@@ -106,10 +101,13 @@ export async function createManagedRemoteManagementCapability(options: {
         undefined,
         options.migrationSource,
     );
-    const snapshot = await prepareAutomaticManagedRemoteMigration(
+    let snapshot = await prepareAutomaticManagedRemoteMigration(
         store,
         options.prompts,
     );
+    if (snapshot.lifecycle === 'active' && snapshot.revisionId) {
+        snapshot = await store.finalizeMigrationCleanup(snapshot.revisionId);
+    }
     return {
         snapshot,
         controller: new ManagedRemoteManagementController({
@@ -119,6 +117,9 @@ export async function createManagedRemoteManagementCapability(options: {
             postSettlement: options.postSettlement,
         }),
         reconcile: () => store.getSnapshot(),
-        activateMigration: expectedRevisionId => store.activateMigration(expectedRevisionId),
+        activateMigration: async expectedRevisionId => {
+            const active = await store.activateMigration(expectedRevisionId);
+            return store.finalizeMigrationCleanup(active.revisionId as string);
+        },
     };
 }

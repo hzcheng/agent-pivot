@@ -107,9 +107,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const bridgeRoot = resolveBridgeStorageRoot(context.globalStoragePath, context.globalStorageUri.scheme);
     const managedRemoteSessionToken = crypto.randomBytes(32).toString('hex');
     const managedSshConsent = new ManagedSshConsentFileStore(bridgeRoot);
-    const managedLegacySshInspector = new ManagedLegacySshInspector({
-        platform: process.platform,
-    });
+    const managedLegacySshInspector = new ManagedLegacySshInspector({});
     const managedRemoteController = new ManagedRemoteBridgeController({
         readManagedCatalogEnvelope: () => vscode.workspace
             .getConfiguration('agentPivot')

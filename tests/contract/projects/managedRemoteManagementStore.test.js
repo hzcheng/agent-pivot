@@ -113,16 +113,28 @@ test('MANAGED-REMOTE-MIGRATION-003 freezes V1 authority and installs only review
             id: 'local', name: 'Local', path: '/work/local',
         }],
     }];
-    const projectData = [{ id: 'legacy', value: true }];
-    const projectSyncData = { schemaVersion: 1, marker: 'frozen' };
+    const frozenProjectData = [{ id: 'legacy', value: true }];
+    const frozenProjectSyncData = { schemaVersion: 1, marker: 'frozen' };
+    let projectData = cloneManagedValue(frozenProjectData);
+    let projectSyncData = cloneManagedValue(frozenProjectSyncData);
     const store = new ManagedRemoteCatalogManagementStore(
         coordinator,
         'catalog:migration',
         undefined,
         {
             getGroups: () => JSON.parse(JSON.stringify(groups)),
-            getProjectData: () => JSON.parse(JSON.stringify(projectData)),
-            getProjectSyncData: () => JSON.parse(JSON.stringify(projectSyncData)),
+            getProjectData: () => cloneManagedValue(projectData),
+            getProjectSyncData: () => cloneManagedValue(projectSyncData),
+            async clearLegacyData() {
+                projectData = undefined;
+                projectSyncData = undefined;
+            },
+            async restoreLegacyData(snapshot) {
+                projectData = snapshot.projectData === null
+                    ? undefined : cloneManagedValue(snapshot.projectData);
+                projectSyncData = snapshot.projectSyncData === null
+                    ? undefined : cloneManagedValue(snapshot.projectSyncData);
+            },
         },
     );
 
@@ -134,8 +146,8 @@ test('MANAGED-REMOTE-MIGRATION-003 freezes V1 authority and installs only review
     const envelope = backend.value;
     const journal = envelope.migrationPlans[plan.planId].candidates[0].value;
     assert.equal(journal.phase, 'prepared');
-    assert.deepEqual(journal.frozenLegacy.projectData, projectData);
-    assert.deepEqual(journal.frozenLegacy.projectSyncData, projectSyncData);
+    assert.deepEqual(journal.frozenLegacy.projectData, frozenProjectData);
+    assert.deepEqual(journal.frozenLegacy.projectSyncData, frozenProjectSyncData);
     assert.equal(journal.candidate.revisionId, snapshot.revisionId);
 
     const active = await store.activateMigration(snapshot.revisionId);
@@ -144,22 +156,28 @@ test('MANAGED-REMOTE-MIGRATION-003 freezes V1 authority and installs only review
     const completed = backend.value.migrationPlans[plan.planId].candidates[0].value;
     assert.equal(completed.phase, 'complete');
 
+    await store.finalizeMigrationCleanup(active.revisionId);
+    assert.equal(projectData, undefined);
+    assert.equal(projectSyncData, undefined);
+
     const rolledBack = await store.rollbackMigration(active.revisionId);
     assert.equal(rolledBack.lifecycle, 'rolledBack');
+    assert.deepEqual(projectData, frozenProjectData);
+    assert.deepEqual(projectSyncData, frozenProjectSyncData);
     const authority = backend.value.authority.candidates[0].value;
     assert.equal(authority.rollbackPlanId, `rollback:${plan.planId}`);
     const rollback = backend.value.rollbackPlans[authority.rollbackPlanId]
         .candidates[0].value;
     assert.equal(rollback.phase, 'rolledBack');
-    assert.deepEqual(rollback.target.projectData, projectData);
-    assert.deepEqual(rollback.target.projectSyncData, projectSyncData);
+    assert.deepEqual(rollback.target.projectData, frozenProjectData);
+    assert.deepEqual(rollback.target.projectSyncData, frozenProjectSyncData);
 });
 
-test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 refuses to overwrite legacy edits made after activation', async () => {
+test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 restores the frozen backup after legacy cleanup', async () => {
     const backend = new MemoryBackend();
     const coordinator = await ManagedCatalogCoordinator.create(backend, new MemoryReplicas());
     let projectData = [{ id: 'legacy', value: true }];
-    const projectSyncData = { schemaVersion: 1, marker: 'frozen' };
+    let projectSyncData = { schemaVersion: 1, marker: 'frozen' };
     const store = new ManagedRemoteCatalogManagementStore(
         coordinator,
         'catalog:migration-divergence',
@@ -171,18 +189,26 @@ test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 refuses to overwrite legacy edits ma
                     path: 'vscode-remote://ssh-remote%2Bdev%40build.example.com/work/api',
                 }],
             }],
-            getProjectData: () => JSON.parse(JSON.stringify(projectData)),
-            getProjectSyncData: () => JSON.parse(JSON.stringify(projectSyncData)),
+            getProjectData: () => cloneManagedValue(projectData),
+            getProjectSyncData: () => cloneManagedValue(projectSyncData),
+            async clearLegacyData() {
+                projectData = undefined;
+                projectSyncData = undefined;
+            },
+            async restoreLegacyData(snapshot) {
+                projectData = cloneManagedValue(snapshot.projectData);
+                projectSyncData = cloneManagedValue(snapshot.projectSyncData);
+            },
         },
     );
     const preview = await store.beginMigration(null, store.prepareMigration());
     const active = await store.activateMigration(preview.revisionId);
-    projectData = [{ id: 'legacy', value: 'edited by old plugin' }];
+    await store.finalizeMigrationCleanup(active.revisionId);
+    assert.equal(projectData, undefined);
+    assert.equal(projectSyncData, undefined);
 
-    await assert.rejects(
-        store.rollbackMigration(active.revisionId),
-        /did not overwrite/u,
-    );
-    assert.equal((await store.getSnapshot()).lifecycle, 'active');
-    assert.equal(projectData[0].value, 'edited by old plugin');
+    const rolledBack = await store.rollbackMigration(active.revisionId);
+    assert.equal(rolledBack.lifecycle, 'rolledBack');
+    assert.deepEqual(projectData, [{ id: 'legacy', value: true }]);
+    assert.deepEqual(projectSyncData, { schemaVersion: 1, marker: 'frozen' });
 });

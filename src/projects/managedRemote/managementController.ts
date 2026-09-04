@@ -1,5 +1,6 @@
 'use strict';
 
+import type { Group } from '../../models';
 import type {
     AddManagedMachineInput,
     AddManagedProjectInput,
@@ -15,6 +16,7 @@ import {
     readManagedRemoteManagementCorrelation,
 } from './managementProtocol';
 import type {
+    ChecksummedLegacySnapshot,
     ManagedEnvironment,
     ManagedRemoteProject,
     ManagedSshMachine,
@@ -40,6 +42,7 @@ export interface ManagedRemoteManagementStore {
     resolveMachineConflict(expectedRevisionId: string | null, machineId: string, selected: ManagedSshMachine): Promise<ManagedRemoteManagementSnapshot>;
     prepareMigration(): ManagedRemoteMigrationPlanV1;
     beginMigration(expectedRevisionId: string | null, plan: ManagedRemoteMigrationPlanV1): Promise<ManagedRemoteManagementSnapshot>;
+    finalizeMigrationCleanup(expectedRevisionId: string): Promise<ManagedRemoteManagementSnapshot>;
     rollbackMigration(expectedRevisionId: string): Promise<ManagedRemoteManagementSnapshot>;
 }
 
@@ -57,6 +60,14 @@ export interface ManagedRemoteManagementPrompts {
     resolveMachineConflict(machineId: string, candidates: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
     reviewMigration(plan: ManagedRemoteMigrationPlanV1): Promise<ManagedRemoteMigrationPlanV1 | undefined>;
     confirmRollbackMigration(): Promise<boolean>;
+}
+
+export interface ManagedRemoteMigrationSource {
+    getGroups(): Group[];
+    getProjectData(): unknown;
+    getProjectSyncData(): unknown;
+    clearLegacyData(): Promise<void>;
+    restoreLegacyData(snapshot: ChecksummedLegacySnapshot): Promise<void>;
 }
 
 export interface ManagedRemoteManagementControllerOptions {

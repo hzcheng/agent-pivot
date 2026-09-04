@@ -40,6 +40,7 @@ export interface ManagedCatalogBackend {
 export interface ManagedCatalogReplicaFacade {
     allocateWriter(): Promise<{ writerId: string; actorId: string }>;
     readWriter(writerId: string): ManagedCatalogWriterReplicaV1 | null;
+    readWriters?(): Array<{ writerId: string; value: ManagedCatalogWriterReplicaV1 }>;
     writeWriter(writerId: string, value: ManagedCatalogWriterReplicaV1): Thenable<void>;
 }
 
@@ -332,27 +333,45 @@ export class ManagedCatalogCoordinator {
         const backendParsed = rawBackend === null || rawBackend === undefined
             ? null
             : parseManagedCatalogEnvelope(rawBackend);
-        const writer = this.replicas.readWriter(this.writerId);
-        const replicaParsed = writer ? parseManagedCatalogEnvelope(writer.envelope) : null;
-        const stagedParsed = writer?.stagedCandidate
-            ? parseManagedCatalogEnvelope(writer.stagedCandidate)
-            : null;
-        const replicaEnvelope = replicaParsed && !replicaParsed.issues.length
-            ? replicaParsed.envelope : null;
-        const stagedEnvelope = stagedParsed && !stagedParsed.issues.length
-            ? stagedParsed.envelope : null;
+        const writerEntries = this.replicas.readWriters?.()
+            || (this.replicas.readWriter(this.writerId)
+                ? [{
+                    writerId: this.writerId,
+                    value: this.replicas.readWriter(this.writerId) as ManagedCatalogWriterReplicaV1,
+                }]
+                : []);
+        const writer = writerEntries.find(entry => entry.writerId === this.writerId)?.value || null;
+        const parsedWriters = writerEntries.map(entry => ({
+            ...entry,
+            replica: parseManagedCatalogEnvelope(entry.value.envelope),
+            staged: entry.value.stagedCandidate
+                ? parseManagedCatalogEnvelope(entry.value.stagedCandidate)
+                : null,
+        }));
+        const replicaEnvelopes = parsedWriters
+            .filter(entry => entry.replica && !entry.replica.issues.length)
+            .map(entry => entry.replica!.envelope);
+        const stagedEnvelopes = parsedWriters
+            .filter(entry => entry.staged && !entry.staged.issues.length)
+            .map(entry => entry.staged!.envelope);
         const issues = [
             ...(backendParsed?.issues || []),
             ...(rawBackend !== null && rawBackend !== undefined && !backendParsed
                 ? ['backend:invalid-envelope'] : []),
-            ...(writer && !replicaEnvelope ? ['replica:invalid-envelope'] : []),
-            ...(writer?.stagedCandidate && !stagedEnvelope
-                ? ['replica:invalid-staged-candidate'] : []),
+            ...parsedWriters.reduce<string[]>((result, entry) => {
+                if (entry.replica && entry.replica.issues.length) {
+                    result.push(`replica:${entry.writerId}:invalid-envelope`);
+                }
+                if (entry.staged && entry.staged.issues.length) {
+                    result.push(`replica:${entry.writerId}:invalid-staged-candidate`);
+                }
+                return result;
+            }, []),
         ];
         const cleanBackendEnvelope = backendParsed && !backendParsed.issues.length
             ? backendParsed.envelope
             : null;
-        const sources = [cleanBackendEnvelope, replicaEnvelope, stagedEnvelope]
+        const sources = [cleanBackendEnvelope, ...replicaEnvelopes, ...stagedEnvelopes]
             .filter((value): value is ManagedCatalogEnvelopeV1 => Boolean(value));
         if (!sources.length && !backendParsed && issues.length) {
             throw new Error('Managed catalog has no valid recovery source.');
@@ -365,8 +384,10 @@ export class ManagedCatalogCoordinator {
         const recoveryRequired = issues.length > 0 || authorityValues.length > 1;
         let repairedBackend = false;
         let repairedReplica = false;
+        const hasPersistedSource = sources.length > 0;
 
-        if (!recoveryRequired
+        if (hasPersistedSource
+            && !recoveryRequired
             && (!backendParsed || !envelopeEquals(backendParsed.envelope, envelope))) {
             assertManagedEnvelopePayload(envelope);
             await this.backend.write(envelope);
@@ -377,7 +398,7 @@ export class ManagedCatalogCoordinator {
             nextCounter: (envelope.causalContext[this.actorId] || 0) + 1,
             envelope: cloneManagedValue(envelope),
         };
-        if (!recoveryRequired && (!writer
+        if (hasPersistedSource && !recoveryRequired && (!writer
             || writer.stagedCandidate
             || !envelopeEquals(writer.envelope, nextWriter.envelope)
             || writer.nextCounter !== nextWriter.nextCounter
@@ -393,8 +414,11 @@ export class ManagedCatalogCoordinator {
             issues: Array.from(new Set(issues)).sort(),
             recoveryCandidates: uniqueRevisionSlots([
                 ...(backendParsed?.recoveryCandidates || []),
-                ...(replicaParsed?.recoveryCandidates || []),
-                ...(stagedParsed?.recoveryCandidates || []),
+                ...parsedWriters.reduce<ManagedRevisionSlot[]>((result, entry) => {
+                    result.push(...(entry.replica?.recoveryCandidates || []));
+                    result.push(...(entry.staged?.recoveryCandidates || []));
+                    return result;
+                }, []),
             ]),
         };
     }

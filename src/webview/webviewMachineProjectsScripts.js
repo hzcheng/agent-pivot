@@ -3,6 +3,8 @@ function createMachineProjectsUi() {
     var selectedTags = new Set();
     var textQuery = '';
     var activeProjectMenuTrigger = null;
+    var nextManagedRequestId = 1;
+    var pendingManagedActions = new Map();
     var storageKeys = {
         tags: 'machineProjects.selectedTags.v1',
         collapsed: 'machineProjects.collapsed.v1',
@@ -279,9 +281,106 @@ function createMachineProjectsUi() {
         });
     }
 
+    function managedControlKey(operation, targetId) {
+        return operation + '\n' + (targetId || '');
+    }
+
+    function managedRoot() {
+        return panel && panel.querySelector('[data-managed-remote-projects]');
+    }
+
+    function findManagedControls(operation, targetId) {
+        if (!panel) return [];
+        return Array.from(panel.querySelectorAll('[data-managed-operation]'))
+            .filter(function (control) {
+                return control.getAttribute('data-managed-operation') === operation
+                    && (control.getAttribute('data-managed-target-id') || '') === (targetId || '');
+            });
+    }
+
+    function setManagedControlsPending(operation, targetId, requestId, pending) {
+        findManagedControls(operation, targetId).forEach(function (control) {
+            if (pending) {
+                control.setAttribute('data-managed-pending', requestId);
+                control.disabled = true;
+            } else if (control.getAttribute('data-managed-pending') === requestId) {
+                control.removeAttribute('data-managed-pending');
+                control.disabled = false;
+            }
+        });
+    }
+
+    function restoreManagedPendingControls() {
+        pendingManagedActions.forEach(function (pending, requestId) {
+            setManagedControlsPending(
+                pending.operation,
+                pending.targetId,
+                requestId,
+                true
+            );
+        });
+    }
+
+    function announceManaged(message) {
+        var announcer = panel && panel.querySelector('[data-machine-projects-announcer]');
+        if (announcer) announcer.textContent = message;
+    }
+
+    function postManagedAction(control) {
+        var operation = control.getAttribute('data-managed-operation');
+        var targetId = control.getAttribute('data-managed-target-id') || '';
+        var root = managedRoot();
+        if (!operation || !root) return;
+        var key = managedControlKey(operation, targetId);
+        var duplicate = Array.from(pendingManagedActions.values()).some(function (pending) {
+            return pending.key === key;
+        });
+        if (duplicate) return;
+        var focusOwner = control.closest(
+            '[data-machine-project-row], [data-machine-row]'
+        );
+        var focusReturn = focusOwner && focusOwner.querySelector(
+            '.machine-project-primary, .machine-row-primary'
+        );
+        closeProjectMenu(false);
+        if (focusReturn && typeof focusReturn.focus === 'function') focusReturn.focus();
+        var requestId = 'managed-' + Date.now() + '-' + nextManagedRequestId++;
+        pendingManagedActions.set(requestId, {
+            key: key,
+            operation: operation,
+            targetId: targetId,
+        });
+        setManagedControlsPending(operation, targetId, requestId, true);
+        announceManaged('Working…');
+        window.vscode.postMessage({
+            type: 'managed-remote-action',
+            version: 1,
+            requestId: requestId,
+            operation: operation,
+            expectedRevisionId: root.getAttribute('data-managed-revision-id') || null,
+            ...(targetId ? { targetId: targetId } : {}),
+        });
+    }
+
+    function postManagedClientAction(control) {
+        var action = control.getAttribute('data-managed-client-action');
+        var root = managedRoot();
+        if (!action || !root) return;
+        closeProjectMenu(false);
+        window.vscode.postMessage({
+            type: 'managed-remote-client-action',
+            version: 1,
+            requestId: 'managed-client-' + Date.now() + '-' + nextManagedRequestId++,
+            action: action,
+            expectedRevisionId: root.getAttribute('data-managed-revision-id') || null,
+            ...(control.getAttribute('data-managed-target-id')
+                ? { targetId: control.getAttribute('data-managed-target-id') } : {}),
+        });
+    }
+
     function onClick(event) {
         var control = event.target && event.target.closest
-            ? event.target.closest('[data-action], [data-machine-disclosure]')
+            ? event.target.closest('[data-action], [data-machine-disclosure], [data-managed-operation], [data-managed-client-action]')
             : null;
         if (!control) {
             if (event.target && event.target.closest
@@ -302,6 +401,14 @@ function createMachineProjectsUi() {
             return;
         }
         if (!panel.contains(control)) return;
+        if (control.hasAttribute('data-managed-operation')) {
+            postManagedAction(control);
+            return;
+        }
+        if (control.hasAttribute('data-managed-client-action')) {
+            postManagedClientAction(control);
+            return;
+        }
         if (control.hasAttribute('data-machine-disclosure')) {
             var machine = control.closest('[data-machine-row]');
             if (machine && machine.hasAttribute('data-filter-collapsed')) {
@@ -456,6 +563,31 @@ function createMachineProjectsUi() {
         closeTags(false);
     }
 
+    function onWindowMessage(event) {
+        var message = event && event.data;
+        if (!message || message.type !== 'managed-remote-settlement'
+            || message.version !== 1 || typeof message.requestId !== 'string') {
+            return;
+        }
+        var pending = pendingManagedActions.get(message.requestId);
+        if (!pending || message.operation !== pending.operation) return;
+        pendingManagedActions.delete(message.requestId);
+        setManagedControlsPending(
+            pending.operation,
+            pending.targetId,
+            message.requestId,
+            false
+        );
+        if (message.status === 'applied') {
+            announceManaged('Changes saved to your VS Code User settings.');
+        } else if (message.status === 'cancelled') {
+            announceManaged('No changes were saved.');
+        } else {
+            announceManaged(typeof message.message === 'string'
+                ? message.message : 'The Managed Remote action failed.');
+        }
+    }
+
     function mount(nextPanel) {
         closeProjectMenu(false);
         panel = nextPanel && nextPanel.querySelector('[data-machine-projects]')
@@ -469,6 +601,7 @@ function createMachineProjectsUi() {
             panel.__agentPivotMachineProjectsBound = true;
         }
         restoreState();
+        restoreManagedPendingControls();
         return true;
     }
 
@@ -476,6 +609,7 @@ function createMachineProjectsUi() {
     document.addEventListener('focusin', onDocumentFocusIn);
     document.addEventListener('scroll', onDocumentScroll, true);
     window.addEventListener('blur', onWindowBlur);
+    window.addEventListener('message', onWindowMessage);
     return {
         mount: mount,
         isMounted: function () { return Boolean(panel); },

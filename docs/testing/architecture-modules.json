@@ -740,15 +740,19 @@
         "src/projects/projectTags.ts",
         "src/projects/managedRemote/catalogService.ts",
         "src/projects/managedRemote/bridgeProtocol.ts",
+        "src/projects/managedRemote/composition.ts",
         "src/projects/managedRemote/envelope.ts",
         "src/projects/managedRemote/legacyCompatibilityGuard.ts",
         "src/projects/managedRemote/managementController.ts",
         "src/projects/managedRemote/managementProtocol.ts",
         "src/projects/managedRemote/managementStore.ts",
         "src/projects/managedRemote/migrationPlan.ts",
+        "src/projects/managedRemote/productionStore.ts",
         "src/projects/managedRemote/sshConfigProjection.ts",
         "src/projects/managedRemote/store.ts",
         "src/projects/managedRemote/types.ts",
+        "src/projects/managedRemote/vscodePrompts.ts",
+        "src/projects/managedRemote/viewModel.ts",
         "src/projects/remoteProjectResolver.ts",
         "src/projects/workspaceHelpers.ts",
         "src/services/colorService.ts",
@@ -791,7 +795,8 @@
           "include": [
             "src/services/**",
             "src/projects/gitRepositoryDetector.ts",
-            "src/projects/managedRemote/store.ts"
+            "src/projects/managedRemote/store.ts",
+            "src/projects/managedRemote/productionStore.ts"
           ]
         },
         {

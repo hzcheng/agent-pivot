@@ -83,3 +83,12 @@ test('MACHINE-PROJECTS-RENAME-001 renders the alias while preserving the connect
     assert.match(html, /title="Build Box — connection: devbox"/);
     assert.match(html, /data-action="reset-machine-name">Reset to devbox/);
 });
+
+test('MANAGED-REMOTE-MANAGEMENT-003 exposes the managed Machine entry without replacing the derived catalog', () => {
+    const html = renderMachineProjectsPanel(viewModel(), null);
+
+    assert.match(html, /data-managed-remote-projects/);
+    assert.match(html, /data-managed-revision-id=""/);
+    assert.match(html, /data-managed-operation="addMachine"/);
+    assert.match(html, /data-action="open-machine-project"/);
+});

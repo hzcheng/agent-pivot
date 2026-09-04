@@ -7,6 +7,9 @@ const test = require('node:test');
 const { chromium } = require('playwright-chromium');
 
 const { renderMachineProjectsPanel } = require('../../out/webview/webviewMachineProjectsContent');
+const {
+    renderManagedRemoteProjectsPanel,
+} = require('../../out/webview/webviewManagedRemoteProjectsContent');
 const script = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewMachineProjectsScripts.js'),
     'utf8',
@@ -31,7 +34,7 @@ function project(id, name, tags, favorite = false) {
     };
 }
 
-function markup(includeFavorite = true, machineOverrides = {}) {
+function markup(includeFavorite = true, machineOverrides = {}, managedRemoteRevisionId) {
     const api = project('api', 'API', ['active', 'api'], true);
     const worker = project('worker', 'Worker', ['active', 'worker']);
     const machineName = machineOverrides.displayName || 'devbox';
@@ -49,6 +52,34 @@ function markup(includeFavorite = true, machineOverrides = {}) {
             environments: [{
                 id: 'host', machineId: 'machine', kind: 'host', displayName: 'Host',
                 projects: [api, worker],
+            }],
+        }],
+    }, managedRemoteRevisionId);
+}
+
+function managedMarkup() {
+    const managedProject = {
+        id: 'project:managed', environmentId: 'environment:managed-host',
+        machineId: 'machine:managed', machineName: 'Build',
+        machineEndpoint: 'dev@build.example.com:22022', environmentName: 'Host',
+        name: 'Managed API', remotePath: '/work/api', tags: ['backend'], favorite: true,
+        color: '#c586c0', searchText: 'managed api backend build host', openable: false,
+        unavailableReason: 'Managed Remote preview.',
+    };
+    return renderManagedRemoteProjectsPanel({
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'preview', clientState: 'preview',
+        clientMessage: 'Managed Remote preview.', projectCount: 1,
+        tags: ['backend'], favorites: [managedProject],
+        machines: [{
+            id: 'machine:managed', name: 'Build', endpoint: 'dev@build.example.com:22022',
+            connection: { kind: 'ssh', host: 'build.example.com', user: 'dev', port: 22022 },
+            projectCount: 1, openable: false, unavailableReason: 'Managed Remote preview.',
+            conflict: false,
+            environments: [{
+                id: 'environment:managed-host', machineId: 'machine:managed', kind: 'host',
+                name: 'Host', projects: [managedProject], openable: false,
+                unavailableReason: 'Managed Remote preview.', conflict: false,
             }],
         }],
     });
@@ -282,4 +313,69 @@ test('MACHINE-PROJECTS-NARROW-001 avoids horizontal scrolling at 260px', async t
     }));
     assert.equal(geometry.scrollWidth, geometry.clientWidth);
     assert.equal(await page.locator('[data-action="open-machine-host"]').isVisible(), true);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after replacement', async t => {
+    const page = await openPage(t, 360, managedMarkup());
+    await page.click('[data-managed-operation="addMachine"]');
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.type, 'managed-remote-action');
+    assert.equal(request.version, 1);
+    assert.equal(request.operation, 'addMachine');
+    assert.equal(request.expectedRevisionId, `revision:${'a'.repeat(64)}`);
+    assert.match(request.requestId, /^managed-/);
+    assert.equal(await page.locator('[data-managed-operation="addMachine"]').isDisabled(), true);
+
+    await page.evaluate(({ html, requestId }) => {
+        document.getElementById('panel').innerHTML = html;
+        window.machineUi.mount(document.getElementById('panel'));
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'managed-remote-settlement', version: 1, requestId,
+            operation: 'addMachine', status: 'applied',
+        } }));
+    }, { html: managedMarkup(), requestId: request.requestId });
+    assert.equal(await page.locator('[data-managed-operation="addMachine"]').isEnabled(), true);
+    assert.equal(await page.locator('[data-machine-projects-announcer]').textContent(),
+        'Changes saved to your VS Code User settings.');
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 starts a managed preview from the existing derived view', async t => {
+    const page = await openPage(t, 360, markup(true, {}, null));
+    await page.getByRole('button', { name: 'Add Managed Machine' }).click();
+
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.type, 'managed-remote-action');
+    assert.equal(request.operation, 'addMachine');
+    assert.equal(request.expectedRevisionId, null);
+    assert.equal(await page.locator('[data-action="open-machine-project"]').first().isEnabled(), true);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 keeps row-menu focus stable while a mutation is pending', async t => {
+    const page = await openPage(t, 360, managedMarkup());
+    await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
+    await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.operation, 'editMachine');
+    assert.equal(await page.locator('[data-machine-row] .machine-row-primary')
+        .evaluate(node => document.activeElement === node), true);
+
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'managed-remote-settlement', version: 1, requestId,
+            operation: 'editMachine', status: 'cancelled',
+        } }));
+    }, request.requestId);
+    assert.equal(await page.locator('[data-machine-projects-announcer]').textContent(),
+        'No changes were saved.');
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 stays within 260px with endpoint-qualified rows', async t => {
+    const page = await openPage(t, 260, managedMarkup());
+    const geometry = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+    }));
+    assert.equal(geometry.scrollWidth, geometry.clientWidth);
+    assert.equal(await page.locator('.managed-toolbar-label').first().isHidden(), true);
+    assert.equal(await page.locator('.managed-machine-endpoint').isVisible(), true);
 });

@@ -1041,6 +1041,33 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 reconciles synchronized project data bef
     ]);
 });
 
+test('MANAGED-REMOTE-MANAGEMENT-002 reconciles managed catalog data before incremental publication', async () => {
+    const events = [];
+    const controller = new DashboardLifecycleController({
+        checkDataMigration: async () => undefined,
+        reconcileManagedRemoteCatalog: async () => {
+            events.push('managed:start');
+            await Promise.resolve();
+            events.push('managed:end');
+        },
+        applyProjectColorToCurrentWindow: () => events.push('color'),
+        refresh: reason => events.push(['refresh', reason]),
+        refreshProjects: reason => events.push(['projects', reason]),
+        publishOpenWorkspace: () => events.push('publish'),
+        evaluateAiSessionAttention: () => undefined,
+    });
+
+    await controller.handleConfigurationChanged(
+        makeConfigurationEvent('agentPivot.managedRemoteCatalogData')
+    );
+
+    assert.deepEqual(events, [
+        'managed:start',
+        'managed:end',
+        ['projects', 'configuration-changed'],
+    ]);
+});
+
 test('PROJECT-INCREMENTAL-REFRESH-001 suppresses local catalog echoes and routes external catalog changes partially', async () => {
     const events = [];
     let localEcho = true;

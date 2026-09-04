@@ -7123,11 +7123,43 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/projects/managedRemoteManagementStore.test.js"
+      "tests/contract/projects/managedRemoteManagementStore.test.js",
+      "tests/contract/projects/managedRemoteProductionStore.test.js"
     ],
     "evidence": [
       "src/projects/managedRemote/managementStore.ts",
+      "src/projects/managedRemote/productionStore.ts",
       "src/projects/managedRemote/store.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-MANAGEMENT-003",
+    "domain": "webview",
+    "title": "Managed Remote preview renders endpoint-qualified Machines, immutable Project placement, complete unavailable names, colors, tags, and management actions",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/managedRemoteViewModel.test.js",
+      "tests/unit/webview/managedRemoteProjectsRendering.test.js",
+      "tests/unit/webview/machineProjectsRendering.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/viewModel.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-MANAGEMENT-004",
+    "domain": "project",
+    "title": "Managed Machine and Project wizards support Back, cancellation, non-default SSH ports, synchronized impact review, and immutable Project placement",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/managedRemotePrompts.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/vscodePrompts.ts"
     ]
   },
   {

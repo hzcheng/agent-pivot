@@ -35,7 +35,6 @@ export interface ManagedRemoteManagementSettlement {
 const TARGET_OPERATIONS = new Set<ManagedRemoteManagementOperation>([
     'editMachine',
     'removeMachine',
-    'addProject',
     'editProject',
     'removeProject',
     'toggleFavorite',
@@ -93,10 +92,19 @@ export function parseManagedRemoteManagementRequest(
     const requiredKeys = [
         'type', 'version', 'requestId', 'operation', 'expectedRevisionId',
     ];
-    const allowedKeys = TARGET_OPERATIONS.has(operation)
+    const acceptsTarget = TARGET_OPERATIONS.has(operation) || operation === 'addProject';
+    const allowedKeys = acceptsTarget
         ? [...requiredKeys, 'targetId'] : requiredKeys;
     if (Object.keys(value).some(key => !allowedKeys.includes(key))) { return null; }
-    if (TARGET_OPERATIONS.has(operation) !== isBoundedIdentity(value.targetId)) {
+    if (TARGET_OPERATIONS.has(operation) && !isBoundedIdentity(value.targetId)) {
+        return null;
+    }
+    if (!acceptsTarget && value.targetId !== undefined) {
+        return null;
+    }
+    if (operation === 'addProject'
+        && value.targetId !== undefined
+        && !isBoundedIdentity(value.targetId)) {
         return null;
     }
     return value as unknown as ManagedRemoteManagementRequest;

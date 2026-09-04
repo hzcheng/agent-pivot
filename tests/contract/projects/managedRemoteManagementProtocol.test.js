@@ -33,6 +33,13 @@ test('MANAGED-REMOTE-MANAGEMENT-001 accepts strict identity-only management inte
         expectedRevisionId: `revision:${'a'.repeat(64)}`,
         targetId: 'project:one',
     }));
+    assert.ok(parseManagedRemoteManagementRequest({
+        type: 'managed-remote-action',
+        version: 1,
+        requestId,
+        operation: 'addProject',
+        expectedRevisionId: `revision:${'a'.repeat(64)}`,
+    }));
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-001 rejects payload injection and target-shape drift', () => {

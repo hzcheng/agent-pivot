@@ -10,23 +10,33 @@ import type {
     MachineRowViewModel,
 } from '../projects/machineProjectsViewModel';
 
-export function renderMachineProjectsPanel(model: MachineProjectsViewModel): string {
+export function renderMachineProjectsPanel(
+    model: MachineProjectsViewModel,
+    managedRemoteRevisionId?: string | null,
+): string {
+    const managedAttributes = managedRemoteRevisionId === undefined
+        ? ''
+        : ` data-managed-remote-projects data-managed-revision-id="${escapeAttribute(managedRemoteRevisionId || '')}"`;
+    const addManagedMachine = managedRemoteRevisionId === undefined
+        ? ''
+        : `<button type="button" class="machine-toolbar-button" data-managed-operation="addMachine" aria-label="Add Managed Machine" title="Add Managed Machine">${Icons.add}<span class="managed-toolbar-label">Machine</span></button>`;
     if (!model.machines.length) {
-        return `<section class="machine-projects machine-projects-empty" data-machine-projects data-machine-project-count="0">
+        return `<section class="machine-projects machine-projects-empty" data-machine-projects${managedAttributes} data-machine-project-count="0">
             <div class="machine-projects-toolbar">
                 <span class="machine-projects-summary">0 projects</span>
-                <button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button>
+                <div class="machine-projects-toolbar-actions">${addManagedMachine}<button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button></div>
             </div>
             <p>No projects have been added yet.</p>
         </section>`;
     }
-    return `<section class="machine-projects" data-machine-projects data-machine-project-count="${model.projectCount}">
+    return `<section class="machine-projects" data-machine-projects${managedAttributes} data-machine-project-count="${model.projectCount}">
         <div class="machine-projects-toolbar">
             <div class="machine-projects-summary" data-machine-projects-summary role="status" aria-live="polite">
                 ${formatResultCount(model.projectCount, model.machines.length)}
             </div>
             <div class="machine-projects-toolbar-actions">
                 ${renderTagControls(model.tags)}
+                ${addManagedMachine}
                 <button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button>
             </div>
         </div>

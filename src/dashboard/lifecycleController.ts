@@ -47,6 +47,7 @@ export interface DashboardLifecycleControllerOptions {
     ) => Promise<void>;
     checkDataMigration: (openStewardAfterMigrate: boolean) => Promise<void>;
     reconcileProjectCatalog?: () => Promise<void>;
+    reconcileManagedRemoteCatalog?: () => Promise<void>;
     consumeProjectCatalogWriteEcho?: (
         change: { syncData: boolean; legacyGroups: boolean }
     ) => boolean;
@@ -100,6 +101,9 @@ export class DashboardLifecycleController {
         const promptDataChanged = event.affectsConfiguration(configurationKey('promptData'));
         const localPromptDataWriteEcho = promptDataChanged
             && this.options.consumePromptDataWriteEcho?.() === true;
+        const managedRemoteCatalogChanged = event.affectsConfiguration(
+            configurationKey('managedRemoteCatalogData'),
+        );
         const dashboardConfigurationChanged =
             DASHBOARD_CONFIGURATION_SECTIONS.some(
                 section => event.affectsConfiguration(section)
@@ -117,13 +121,23 @@ export class DashboardLifecycleController {
             }
         }
 
-        const trackedDataChanged = projectCatalogChanged || promptDataChanged;
+        if (managedRemoteCatalogChanged && this.options.reconcileManagedRemoteCatalog) {
+            await this.options.reconcileManagedRemoteCatalog();
+            this.assertActive();
+        }
+
+        const trackedDataChanged = projectCatalogChanged
+            || promptDataChanged
+            || managedRemoteCatalogChanged;
         const fullDashboardRefreshRequired = dashboardConfigurationChanged;
         if (trackedDataChanged && !fullDashboardRefreshRequired) {
-            if (projectCatalogChanged && !localProjectCatalogWriteEcho) {
+            if ((projectCatalogChanged && !localProjectCatalogWriteEcho)
+                || managedRemoteCatalogChanged) {
                 this.options.refreshProjects?.('configuration-changed');
-                this.options.applyProjectColorToCurrentWindow();
-                this.options.publishOpenWorkspace();
+                if (projectCatalogChanged && !localProjectCatalogWriteEcho) {
+                    this.options.applyProjectColorToCurrentWindow();
+                    this.options.publishOpenWorkspace();
+                }
             }
             if (promptDataChanged && !localPromptDataWriteEcho) {
                 this.options.refreshPrompts?.('configuration-changed');

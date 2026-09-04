@@ -71,6 +71,7 @@ function fixture(overrides = {}) {
         async addMachine() { return { name: 'New', host: 'new.example.com', user: 'dev', port: 22022 }; },
         async editMachine() { return { name: 'Build 2' }; },
         async confirmRemoveMachine() { return true; },
+        async chooseMachineForProject(machines) { return machines[0]; },
         async addProject() { return { environmentId: 'environment:host:machine:one', name: 'Web', remotePath: '/work/web' }; },
         async editProject() { return { name: 'API 2' }; },
         async confirmRemoveProject() { return true; },

@@ -11,6 +11,13 @@ import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessio
 import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
 import { buildMachineProjectsViewModel } from './projects/machineProjectsViewModel';
 import { renderMachineProjectsPanel } from './webview/webviewMachineProjectsContent';
+import { renderManagedRemoteProjectsPanel } from './webview/webviewManagedRemoteProjectsContent';
+import { buildManagedRemoteProjectsViewModel } from './projects/managedRemote/viewModel';
+import { createManagedRemoteManagementCapability } from './projects/managedRemote/composition';
+import {
+    ManagedRemotePromptController,
+    VscodeManagedRemoteWizardUi,
+} from './projects/managedRemote/vscodePrompts';
 import {
     getEffectiveRunningCardAnimation,
     getEffectiveRunningIconAnimation,
@@ -19,6 +26,8 @@ import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
     AGENT_PIVOT_DASHBOARD_VIEW_ID,
+    MANAGED_REMOTE_CATALOG_DATA_KEY,
+    MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
     OPEN_TAB_LAST_FOCUSED_NAVIGATION_AT_MS_KEY,
     USER_CANCELED,
     RelevantExtensions,
@@ -963,6 +972,27 @@ async function initializeDashboard(
     let openWorkspaceController: OpenWorkspaceController;
     let openWorkspaceDashboardController: OpenWorkspaceDashboardController<vscode.Terminal>;
     let projectsPanelController: ProjectsPanelController | undefined;
+    let managedRemoteSnapshot: import('./projects/managedRemote/managementController')
+        .ManagedRemoteManagementSnapshot;
+    const managedRemoteCapability = await createManagedRemoteManagementCapability({
+        configuration: promptConfiguration,
+        catalogSettingKey: MANAGED_REMOTE_CATALOG_DATA_KEY,
+        globalTarget: vscode.ConfigurationTarget.Global,
+        memento: context.globalState,
+        writerIdentityMemento: context.workspaceState,
+        localReplicaKey: MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
+        prompts: new ManagedRemotePromptController(
+            new VscodeManagedRemoteWizardUi(vscode.window),
+        ),
+        refreshAuthoritative: async (_requestId, _operation, snapshot) => {
+            managedRemoteSnapshot = snapshot;
+            await projectsPanelController?.postUpdated('replace');
+        },
+        postSettlement: async settlement => {
+            await provider.postMessage(settlement);
+        },
+    });
+    managedRemoteSnapshot = managedRemoteCapability.snapshot;
     let workspaceNavigationController: WorkspaceNavigationController;
     let openWindowNavigationRequestController: OpenWindowNavigationRequestController;
     let openWorkspacePinController: OpenWorkspacePinController;
@@ -2630,6 +2660,8 @@ async function initializeDashboard(
             ...skillPanel.handlers,
             ...dashboardMessageHandlers,
             ...isolatedSessionHandlers,
+            'managed-remote-action': message =>
+                managedRemoteCapability.controller.handle(message),
         },
         createAiSession: async e => {
             const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
@@ -3434,7 +3466,15 @@ async function initializeDashboard(
         if (infos.config.get<boolean>('remoteMachineProjects.enabled', false) !== true) {
             return getProjectsPanelContent(groups, infos);
         }
-        return renderMachineProjectsPanel(buildMachineProjectsViewModel(groups));
+        if (managedRemoteSnapshot.lifecycle !== 'disabled') {
+            return renderManagedRemoteProjectsPanel(
+                buildManagedRemoteProjectsViewModel(managedRemoteSnapshot),
+            );
+        }
+        return renderMachineProjectsPanel(
+            buildMachineProjectsViewModel(groups),
+            managedRemoteSnapshot.revisionId,
+        );
     };
     projectsPanelController = new ProjectsPanelController({
         getGroups: () => projectService.getGroups(),
@@ -3502,6 +3542,9 @@ async function initializeDashboard(
             await dashboardStartupController.checkDataMigration(openStewardAfterMigrate);
         },
         reconcileProjectCatalog: () => projectService.reconcileProjectCatalog(),
+        reconcileManagedRemoteCatalog: async () => {
+            managedRemoteSnapshot = await managedRemoteCapability.reconcile();
+        },
         consumeProjectCatalogWriteEcho: change =>
             projectService.consumeProjectCatalogWriteEcho(change),
         consumePromptDataWriteEcho: () =>

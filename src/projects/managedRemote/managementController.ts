@@ -14,6 +14,7 @@ import {
     readManagedRemoteManagementCorrelation,
 } from './managementProtocol';
 import type {
+    ManagedEnvironment,
     ManagedRemoteProject,
     ManagedSshMachine,
     MaterializedManagedRemoteCatalog,
@@ -42,7 +43,11 @@ export interface ManagedRemoteManagementPrompts {
     addMachine(): Promise<AddManagedMachineInput | undefined>;
     editMachine(machine: ManagedSshMachine, affectedProjectCount: number): Promise<EditManagedMachineInput | undefined>;
     confirmRemoveMachine(machine: ManagedSshMachine): Promise<boolean>;
-    addProject(machine: ManagedSshMachine): Promise<AddManagedProjectInput | undefined>;
+    chooseMachineForProject(machines: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
+    addProject(
+        machine: ManagedSshMachine,
+        environments: ManagedEnvironment[],
+    ): Promise<AddManagedProjectInput | undefined>;
     editProject(project: ManagedRemoteProject): Promise<EditManagedProjectInput | undefined>;
     confirmRemoveProject(project: ManagedRemoteProject): Promise<boolean>;
     resolveMachineConflict(machineId: string, candidates: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
@@ -159,6 +164,17 @@ export class ManagedRemoteManagementController {
             return await this.options.prompts.confirmBeginMigration()
                 ? this.options.store.beginMigration(snapshot.revisionId) : null;
         }
+        if (operation === 'addProject') {
+            const machine = targetId
+                ? findMachine(snapshot, targetId)
+                : await this.options.prompts.chooseMachineForProject(snapshot.catalog.machines);
+            if (!machine) { return null; }
+            const environments = snapshot.catalog.environments
+                .filter(environment => environment.machineId === machine.id);
+            const input = await this.options.prompts.addProject(machine, environments);
+            return input
+                ? this.options.store.addProject(snapshot.revisionId, input) : null;
+        }
         if (!targetId) { throw new Error('The Managed Remote target is missing.'); }
         if (operation === 'editMachine') {
             const machine = findMachine(snapshot, targetId);
@@ -173,12 +189,6 @@ export class ManagedRemoteManagementController {
             const machine = findMachine(snapshot, targetId);
             return await this.options.prompts.confirmRemoveMachine(machine)
                 ? this.options.store.removeMachine(snapshot.revisionId, targetId) : null;
-        }
-        if (operation === 'addProject') {
-            const machine = findMachine(snapshot, targetId);
-            const input = await this.options.prompts.addProject(machine);
-            return input
-                ? this.options.store.addProject(snapshot.revisionId, input) : null;
         }
         if (operation === 'editProject') {
             const project = findProject(snapshot, targetId);

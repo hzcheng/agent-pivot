@@ -223,7 +223,7 @@ function classifyProject(project: Project, groupName: string): ManagedProjectMig
         return parsed ? {
             ...base,
             classification: 'needsInput',
-            reason: 'The outer SSH authority must be resolved and rehearsed on this computer.',
+            reason: 'The outer SSH authority must be resolved to plain host, user, and port details.',
             remotePath: parsed.remotePath,
             devContainerAuthority: parsed.anchor.originalAuthority,
             outerSshAuthority: parsed.outerSshAuthority,
@@ -302,7 +302,7 @@ export function resolveWslMigrationAsManagedMachine(
     return {
         ...cloneManagedValue(record),
         classification: 'needsInput',
-        reason: 'Remote - SSH rehearsal is required before this WSL Project is ready.',
+        reason: 'Plain SSH host, user, port, and Linux path are required for this WSL Project.',
         proposedMachineId: stableMachineId(endpoint),
         proposedMachineName: machineName,
         endpoint: cloneManagedValue(endpoint),

@@ -7183,7 +7183,7 @@
   {
     "id": "MANAGED-REMOTE-CLIENT-ENABLE-001",
     "domain": "project",
-    "title": "A reviewed preview shows local SSH file targets before consent, enables through the UI host, and only then activates Managed Remote authority",
+    "title": "A prepared legacy catalog automatically materializes local SSH aliases through the UI host and only then activates Managed Remote authority",
     "priority": "P0",
     "status": "automated",
     "owners": [

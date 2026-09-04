@@ -69,7 +69,7 @@ test('MANAGED-REMOTE-MIGRATION-002 converts local WSL only after explicit SSH de
 
     assert.equal(converted.classification, 'needsInput');
     assert.equal(converted.endpoint.port, 22022);
-    assert.match(converted.reason, /rehearsal/i);
+    assert.match(converted.reason, /host, user, port, and Linux path/i);
     assert.equal(parseDirectManagedSshTarget('dev@build.example.com:22022').port, 22022);
 });
 

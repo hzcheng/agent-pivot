@@ -12,12 +12,11 @@ Projects. A user adds an SSH Machine once with a display name, host, user, and p
 Projects and Dev Container environments reference the Machine by stable ID rather
 than inferring identity from an SSH alias embedded in a URI.
 
-After one computer-level consent, Agent Pivot materializes this catalog into an
-isolated generated SSH config and automatically adds one exact managed `Include`
-to the config used by Remote - SSH. The generated file is a rebuildable local
-cache, not a second source of truth. Passwords, keys, passphrases, and tokens are
-never stored or synchronized; Remote - SSH continues to prompt when authentication
-is needed.
+Agent Pivot automatically materializes this catalog into an isolated generated SSH
+config and adds one exact managed `Include` to the config used by Remote - SSH. The
+generated file is a rebuildable local cache, not a second source of truth.
+Passwords, keys, passphrases, and tokens are never stored or synchronized; Remote -
+SSH continues to prompt when authentication is needed.
 
 The intended end state has one Agent Pivot connection model. Existing alias-based
 Projects are migrated once and then open through stable Agent Pivot aliases. The
@@ -44,9 +43,9 @@ to connect is local and implicit.
 
 1. **One business authority.** The synchronized catalog owns managed Machine
    identity and endpoint metadata. Generated SSH config is disposable.
-2. **No per-Machine binding.** A Machine contains enough non-secret information to
-   connect on any enabled computer. Each VS Code installation asks once before
-   enabling the local generated projection.
+2. **No setup flow.** A Machine contains enough non-secret information to connect
+   on any computer. Each VS Code installation automatically builds the local
+   generated projection when it first receives the catalog.
 3. **Authentication stays with SSH.** Agent Pivot never accepts or persists a
    password, private key, passphrase, certificate, or token.
 4. **Identity is stable.** Renaming a Machine or changing its endpoint does not
@@ -130,28 +129,17 @@ Saving creates the synchronized Machine and its fixed Host environment immediate
 There is no per-Machine `Setup`, `Assign`, `Rebind`, or Profile state. The Machine
 appears even with no Projects.
 
-### 7.2 Enable managed connections on this computer
+### 7.2 Automatic local SSH projection
 
-The first time a VS Code installation receives or creates a Managed Machine, the
-catalog is visible but SSH files stay untouched. A client-level banner offers
-`Enable on This Computer`. Its preflight shows:
+The first time a VS Code installation creates or receives a Managed Machine catalog,
+Agent Pivot automatically backs up the active SSH config, inserts its exact owned
+Include, generates the Machine aliases, validates their OpenSSH syntax, and activates
+the new catalog. There is no Migrate, Setup, Enable, or connection-rehearsal step.
 
-- the active SSH config path and SSH executable;
-- the exact Include block;
-- generated-directory and generated-file backup paths;
-- that later synchronized Machine changes update the generated file automatically;
-- `Enable` and `Cancel`.
-
-After confirmation, Enable backs up the exact active config, inserts the Include
-automatically, and validates the result. It uses a no-overwrite exchange: if another
-editor saves during the operation, that save wins and Agent Pivot offers
-`Copy Include` + `Open Config` as the manual fallback. Normal use requires no SSH
-config editing.
-
-Consent is local to that installation and canonical active-config path, and applies
-to all Managed Machines. Changing the active config path requires a new preflight.
-It is not Machine setup. Until enabled, remote Open actions are disabled with an
-accessible reason pointing to the preflight.
+The update uses a no-overwrite exchange: if another editor saves during the
+operation, that save wins and Agent Pivot reports the exact config path requiring
+attention. Normal use requires no SSH config editing. Later synchronized Machine
+changes automatically rebuild the generated file.
 
 `Disable on This Computer…` previews removal of only the exact owned Include and
 generated directory; it never changes the catalog or another SSH block. Checksum or
@@ -238,9 +226,8 @@ continues to mean Ubuntu on the current Windows computer and therefore stays loc
 
 During migration, an existing WSL Project offers either `Keep on this computer` or
 `Use an SSH-reachable WSL Machine…`. The second path requires explicit host, user,
-port, path confirmation, and a successful Remote - SSH rehearsal before the Project
-can enter the managed catalog. After activation, converting between a local WSL
-Project and a Managed Project creates a separate Project rather than moving it.
+port, and path information. After activation, converting between a local WSL Project
+and a Managed Project creates a separate Project rather than moving it.
 
 ### 7.9 Remove a Machine
 
@@ -251,8 +238,9 @@ computers remove its generated alias on their next reconcile.
 
 ### 7.10 Use another computer
 
-An already-enabled computer automatically materializes newly synced catalog data.
-A new computer asks once for local file consent. There is no per-Machine step.
+Every computer automatically materializes newly synced catalog data. There is no
+per-computer or per-Machine setup step. A computer explicitly disabled through
+`Disable on This Computer…` stays disabled until the user re-enables it.
 
 Managed mode requires `agentPivot.storeProjectsInSettings=true`; Add/Edit and
 automatic migration enable it before changing data. User-setting storage makes the catalog
@@ -290,7 +278,6 @@ must not disappear.
 Client-wide status is a persistent banner above filters and never appears as a
 Machine property:
 
-- `Enable managed connections on this computer`;
 - `Applying SSH config…`;
 - `SSH config needs attention` with Retry, Show Details, and Open Config;
 - `Remote - SSH required` with Install and Retry;
@@ -335,11 +322,10 @@ from Agent Pivot` (does not delete files). Cancelling leaves V1 authoritative an
 retries preparation on a later startup. Activation requires zero unresolved
 records.
 
-An alias using `IdentityFile`, `IdentitiesOnly`, `CertificateFile`, `IdentityAgent`,
-`HostKeyAlias`, or `UserKnownHostsFile` is not Ready merely because host/user/port
-can be parsed. Credentials remain out of scope: the user must confirm the managed
-endpoint and successfully rehearse the generated alias through Remote - SSH with
-their intended local authentication before it becomes Ready.
+Migration retains only host/user/port from a compatible alias. Authentication
+settings are not copied; SSH uses the local agent/default keys or prompts for a
+password when the generated alias is opened. Proxy, command, and forwarding routes
+remain unsupported because they cannot be represented by the managed model.
 
 ### 9.2 Field mapping
 
@@ -365,10 +351,9 @@ Container becomes a distinct versioned Environment under its outer SSH Machine.
 2. For each historically synced WSL Project, ask either `Keep on this computer` or
    `Use an SSH-reachable WSL Machine…`. The local choice writes and verifies a
    migration-tagged local copy before remote activation; other clients do not copy
-   it. The managed choice requires explicit endpoint/path confirmation and a
-   successful Remote - SSH rehearsal.
+   it. The managed choice requires explicit endpoint/path information.
 3. Generate and validate stable Agent Pivot aliases locally.
-4. Complete the required Remote - SSH rehearsal for risky migrated aliases.
+4. Automatically publish the owned local SSH Include.
 5. Commit the managed catalog and lifecycle activation atomically.
 
 The first release does not alter legacy Host blocks. Managed mode never consults
@@ -429,9 +414,8 @@ them after activation; they remain inert rollback material.
 
 - [ ] Add an empty Machine with required user and port `22` or a custom port; it is
   stored in User settings and appears on a second computer after Settings Sync.
-- [ ] Each computer/config-path pair asks once before enabling managed SSH; the
-  normal path edits no file manually, while Cancel before confirmation leaves SSH
-  files byte-identical and the catalog visible.
+- [ ] Each new computer/config-path automatically materializes the managed SSH
+  projection; an explicit local Disable remains respected across reloads.
 - [ ] No credential or key path/content appears in synced storage, logs,
   diagnostics, or telemetry.
 - [ ] Password-authenticated opens delegate to Remote - SSH and prompt normally.
@@ -442,7 +426,7 @@ them after activation; they remain inert rollback material.
 - [ ] A remote WSL distro with an explicitly configured SSH host/user/port is stored
   as an independent Managed Machine, syncs, and opens from another computer.
 - [ ] Historical synced WSL Projects are either copied only to the migration owner's
-  local store or explicitly converted to a rehearsed SSH-reachable WSL Machine;
+  local store or explicitly converted to an SSH-reachable WSL Machine;
   another client never silently claims or converts them.
 - [ ] Project activation opens its current Environment/path; Edit cannot change its
   Machine or Environment, and saving the same code elsewhere creates a new Project.
@@ -456,8 +440,8 @@ them after activation; they remain inert rollback material.
 - [ ] Reconcile never changes unrelated SSH config bytes.
 - [ ] Migration covers direct targets, simple aliases, Include, custom ports, and
   nested remote Dev Containers; unknown anchors are Unsupported.
-- [ ] Alias-specific auth/host-checking config is not Ready without an explicit
-  generated-alias Remote - SSH rehearsal.
+- [ ] Migration copies only host/user/port; authentication remains owned by SSH and
+  password prompts continue to work.
 - [ ] Unsupported records have a completion or cancellation path.
 - [ ] Rollback restores the original V1 Project snapshot and original aliases still
   resolve because first-release migration never deletes them.
@@ -487,14 +471,12 @@ them after activation; they remain inert rollback material.
   material only.
 - Work remains on this branch and one PR is opened only after all owner milestones.
 
-## 15. Decisions requiring owner approval
+## 15. Confirmed owner decisions
 
-1. Approve one-time, per-computer SSH config consent. It is not per-Machine Setup;
-   without it, synced data would mutate a new computer's files without consent.
-   **Recommendation: approve.**
-2. Confirm first-release Dev Containers are created only by migration or `Save
+1. Existing data upgrades automatically, including the local generated SSH
+   projection; there is no Migrate, Setup, Enable, or rehearsal step.
+2. First-release Dev Containers are created only by migration or `Save
    Current Project`, without an arbitrary container editor. **Recommendation:
    approve this narrower boundary.**
-3. Confirm advanced/alias-specific SSH behavior stays blocked until a generated
-   alias is proven to work, with no legacy runtime fallback. **Recommendation:
-   block to preserve one managed authority.**
+3. Advanced proxy/command/forwarding behavior stays unsupported, with no legacy
+   runtime fallback; ordinary host/user/port aliases migrate automatically.

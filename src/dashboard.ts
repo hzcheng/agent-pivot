@@ -1021,6 +1021,15 @@ async function initializeDashboard(
     void managedRemoteCapabilityPromise.then(async capability => {
         managedRemoteCapability = capability;
         managedRemoteSnapshot = capability.snapshot;
+        if ((managedRemoteSnapshot.lifecycle === 'active'
+            || (managedRemoteSnapshot.lifecycle === 'preview'
+                && managedRemoteSnapshot.migrationPlanId))
+            && managedRemoteSnapshot.revisionId) {
+            await managedRemoteClientActions.enableAutomatically(
+                managedRemoteSnapshot.revisionId,
+            );
+            return;
+        }
         managedRemoteClientState = await managedRemoteClientActions.readState(
             managedRemoteSnapshot,
         );

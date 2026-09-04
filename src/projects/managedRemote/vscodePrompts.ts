@@ -475,7 +475,7 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
                 continue;
             }
             const review = await this.ui.pick({
-                title: `Review Migration — ${record.originalProject.name}`,
+                title: `Complete Upgrade — ${record.originalProject.name}`,
                 step: fields.length + 1,
                 totalSteps: fields.length + 1,
                 canGoBack: true,

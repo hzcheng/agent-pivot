@@ -69,7 +69,7 @@ ownership mismatch when the main extension runs remotely.
                     │
         ManagedSshConfigMaterializer + path lock
           ├─ isolated generated SSH config
-          ├─ one consented Include in active config
+          ├─ one automatically managed Include in active config
           └─ Remote - SSH / vscode.openFolder
 ```
 
@@ -318,13 +318,13 @@ because an earlier subset passed.
 If this corpus cannot fit, implementation stops for owner scope approval rather than
 silently truncating history or metadata.
 
-## 6. Local consent and config discovery
+## 6. Automatic local projection and config discovery
 
 UI Bridge stores a local `managedSshConsent.v1`, scoped to the canonical active SSH
 config path, with `disabled | enabling | enabled | disabling | recoveryRequired`
-state and a journal. Synchronization never sets it. The first preflight shows the
-path, executable, Include, generated directory, generated-file backup, and
-automatic-update behavior. Cancel performs no write.
+state and a journal. Synchronization never sets it. Generation zero means the
+projection has never run on this computer and starts automatic enable; a later
+disabled generation is an explicit local opt-out and remains disabled across reloads.
 
 `Disable on This Computer` previews and journal-removes only the exact owned marker/
 Include plus generated directory; it does not change the catalog or legacy blocks.
@@ -420,7 +420,7 @@ Reconcile performs:
 5. atomically install Agent Pivot-owned `current.conf`, fsync its parent, retain
    `previous.conf`, and verify revision/checksum; a crash here is harmless because
    first enable has not published the Include yet;
-6. on first enable only, after explicit confirmation, snapshot the active config,
+6. on first enable only, snapshot the active config,
    write and fsync a sibling candidate, rename the active file to an exchange path,
    verify that the displaced inode and checksum still match the snapshot, then
    hard-link the candidate into the now-empty active path; `EEXIST` means an external
@@ -431,10 +431,10 @@ Reconcile performs:
 8. re-read the active config and every dependency, reject a changed fingerprint,
    validate the actual aggregate read-only, and commit local state.
 
-First enable publishes and verifies `current.conf` before updating the active config.
-After confirmation it adds the exact owned Include automatically; the
-manual edit is only a fallback when the no-overwrite exchange detects an external
-writer or a safe primitive is unavailable. A crash before that commit leaves either
+First enable publishes and verifies `current.conf` before updating the active config,
+then adds the exact owned Include automatically. A manual edit is only a fallback
+when the no-overwrite exchange detects an external writer or a safe primitive is
+unavailable. A crash before that commit leaves either
 an unreferenced generated file or a recoverable exchange: missing active restores
 the displaced original, while active plus exchange preserves the active bytes and
 archives the displaced original before revalidation. Normal reconcile never
@@ -483,8 +483,8 @@ Reuse the existing main/UI Bridge challenge and issue a short-lived per-session
 capability for correlation/replay rejection. VS Code Commands API does not provide a
 strong caller identity: all installed extensions in the same Extension Host are in
 the trusted computing base. The security boundary is therefore validation plus the
-user's local consent, not a claim that a token defeats a malicious installed
-extension. The threat model explicitly excludes a malicious extension already able
+local state, not a claim that a token defeats a malicious installed extension. The
+threat model explicitly excludes a malicious extension already able
 to read User settings and invoke VS Code commands.
 
 Responses are discriminated unions with protocol version and request ID. Progress
@@ -540,7 +540,7 @@ The main extension contributes `Agent Pivot: SSH to Machine…` and `Agent Pivot
 Copy SSH Command…`. It reads the current managed view, offers an endpoint-qualified
 Machine QuickPick, and sends only Machine ID plus expected revision to UI Bridge.
 
-UI Bridge repeats the same catalog/conflict/consent/dependency checks as Machine
+UI Bridge repeats the same catalog/conflict/local-state/dependency checks as Machine
 Open. For terminal launch it calls `vscode.window.createTerminal` from the local
 `extensionKind: ["ui"]` host with:
 
@@ -604,10 +604,8 @@ local copy that retry reuses; rollback removes it only when its digest is unchan
 otherwise preserves it and asks the owner.
 
 For the managed choice, migration collects an explicit SSH host, required user,
-port, and confirmed Linux path; creates an independent Machine candidate; and runs
-the same generated-alias Remote - SSH rehearsal as other risky migrations. It never
-derives this endpoint from `wsl+<distro>` or from the parent Windows Machine. The
-Project enters the synchronized candidate only after rehearsal succeeds.
+port, and confirmed Linux path and creates an independent Machine candidate. It
+never derives this endpoint from `wsl+<distro>` or from the parent Windows Machine.
 
 ### 11.2 Safe alias inspection
 
@@ -629,11 +627,9 @@ For config aliases:
 4. collect effective hostname/user/port and compare route/auth/host-checking facts;
 5. never log raw output or source contents.
 
-Endpoint resolution alone is not proof of connection equivalence. Alias-specific
-`IdentityFile`, `IdentitiesOnly`, `CertificateFile`, `IdentityAgent`, `HostKeyAlias`,
-`UserKnownHostsFile`, Proxy/Jump, canonicalization, or local-command behavior keeps a
-record unresolved. The owner may explicitly use plain managed details only after a
-generated-alias Remote - SSH rehearsal succeeds. Advanced routing stays unsupported.
+Migration intentionally keeps only the resolved host/user/port. Authentication
+directives are not copied, so local SSH defaults apply and password authentication
+continues to prompt. Proxy/Jump, forwarding, and command behavior stays unsupported.
 
 ### 11.3 Field mapping and identity
 
@@ -657,7 +653,7 @@ PREPARED
   ├─ candidate IDs and review decisions
   └─ inactive candidate catalog
 LOCAL_READY
-  └─ consented managed config generated and verified
+  └─ managed config generated and verified automatically
 ACTIVE
   └─ active authority candidate committed in the envelope
 COMPLETE
@@ -795,7 +791,7 @@ rollback window.
   `Match exec` canary proves inspection does not execute it;
 - IdentityFile/certificate/agent/host-checking/proxy directives never become Ready
   from endpoint parsing alone;
-- real Remote - SSH rehearsal for migrated risky aliases;
+- automatic host/user/port projection without a Remote - SSH rehearsal;
 - versioned nested Dev Container round-trip and unknown anchor failure;
 - V1 Group→tag and full metadata round-trip;
 - two-computer plus offline-client local-WSL claim/stage/failure/rollback behavior;
@@ -829,11 +825,11 @@ all owner acceptance.
 1. **M0 — Design acceptance:** approve these documents and three product decisions.
 2. **M1 — Catalog, disabled:** envelope/replica/merge, migration planning, frozen-V1
    divergence guard, Dev Container codec spike, payload gate, no activation.
-3. **M2 — Materializer, disabled:** consent, Bridge capability, generated config,
+3. **M2 — Materializer, disabled:** automatic local projection, Bridge capability, generated config,
    POSIX fault/security tests, and an explicit Windows fail-closed gate.
 4. **M3 — Management UI, disabled:** Machine/Project operations, automatic
    migration exception handling, conflict review, accessibility/browser tests.
-5. **M4 — Disposable rehearsal:** complete and prove the Windows DACL/reparse-point
+5. **M4 — Owner installation:** complete and prove the Windows DACL/reparse-point
    adapter, build from an exact commit, install both VSIXs, migrate
    port-22/non-22/password/Dev Container fixtures, and test rollback.
 6. **M5 — Owner real-data acceptance:** no legacy SSH deletion; verify a second

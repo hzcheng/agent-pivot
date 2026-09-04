@@ -75,6 +75,11 @@ function resultStatus(value: unknown): string {
     return isRecord(value) && typeof value.status === 'string' ? value.status : '';
 }
 
+function resultGeneration(value: unknown): number {
+    return isRecord(value) && Number.isSafeInteger(value.generation)
+        && Number(value.generation) >= 0 ? Number(value.generation) : 0;
+}
+
 function stateFromStatus(status: string): ManagedRemoteClientUiState {
     if (status === 'enabled') { return 'ready'; }
     if (status === 'enabling' || status === 'disabling') { return 'applying'; }
@@ -95,7 +100,41 @@ export class ManagedRemoteClientActionController {
     }
 
     enable(expectedRevisionId: string | null): Promise<void> {
-        return this.enqueue(() => this.enableNow(expectedRevisionId));
+        return this.enqueue(() => this.enableNow(expectedRevisionId, true));
+    }
+
+    enableAutomatically(expectedRevisionId: string): Promise<void> {
+        return this.enqueue(async () => {
+            try {
+                const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
+                if (snapshot.lifecycle === 'preview') {
+                    await this.enableNow(expectedRevisionId, false);
+                    return;
+                }
+                let localState: unknown;
+                try {
+                    localState = await this.options.bridge.execute('getStatus');
+                } catch (_error) {
+                    await this.reconcileNow('recover', expectedRevisionId, false);
+                    return;
+                }
+                const status = resultStatus(localState);
+                if (status === 'enabled') {
+                    await this.reconcileNow('reconcile', expectedRevisionId, false);
+                    return;
+                }
+                if (status === 'disabled' && resultGeneration(localState) === 0) {
+                    await this.enableNow(expectedRevisionId, false);
+                    return;
+                }
+                await this.options.refresh(snapshot, stateFromStatus(status));
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                const snapshot = await this.options.getSnapshot().catch(() => null);
+                if (snapshot) { await this.options.refresh(snapshot, 'attention'); }
+                await this.options.showErrorMessage(`Agent Pivot: ${message}`);
+            }
+        });
     }
 
     disable(expectedRevisionId: string | null): Promise<void> {
@@ -126,25 +165,34 @@ export class ManagedRemoteClientActionController {
         return this.navigate('openManagedEnvironment', targetId, expectedRevisionId);
     }
 
-    private async enableNow(expectedRevisionId: string | null): Promise<void> {
+    private async enableNow(
+        expectedRevisionId: string | null,
+        requireConfirmation: boolean,
+    ): Promise<void> {
         try {
             let snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
             if (!snapshot.migrationPlanId) {
-                throw new Error('Review the existing Projects before enabling Managed Remote.');
+                throw new Error('Existing Projects have not been prepared for Managed Remote.');
             }
             const revisionId = snapshot.revisionId as string;
-            const preflight = parsePreflight(await this.options.bridge.execute(
-                'preflightEnable',
-                revisionId,
-            ));
-            if (!await this.options.confirmEnable(preflight)) { return; }
+            let preflight: ManagedEnablePreflightSummary | undefined;
+            if (requireConfirmation) {
+                preflight = parsePreflight(await this.options.bridge.execute(
+                    'preflightEnable',
+                    revisionId,
+                ));
+                if (!await this.options.confirmEnable(preflight)) { return; }
+            }
             await this.options.refresh(snapshot, 'applying');
             const result = await this.options.bridge.execute('beginEnable', revisionId);
             const status = resultStatus(result);
             if (status === 'awaitingManualInclude') {
                 await this.options.refresh(snapshot, 'attention');
+                const fallback = preflight || parsePreflight(
+                    isRecord(result) ? result.preflight : undefined,
+                );
                 throw new Error(
-                    `Automatic SSH config update was unavailable. Add the Agent Pivot Include to ${preflight.activeConfigPath}, then Retry.`,
+                    `Automatic SSH config update was unavailable. Add the Agent Pivot Include to ${fallback.activeConfigPath}, then Retry.`,
                 );
             }
             if (status !== 'enabled') {
@@ -154,9 +202,11 @@ export class ManagedRemoteClientActionController {
                 snapshot = await this.options.activateMigration(revisionId);
             }
             await this.options.refresh(snapshot, 'ready');
-            await this.options.showInformationMessage(
-                'Managed Remote is ready on this computer.',
-            );
+            if (requireConfirmation) {
+                await this.options.showInformationMessage(
+                    'Managed Remote is ready on this computer.',
+                );
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             const snapshot = await this.options.getSnapshot().catch(() => null);

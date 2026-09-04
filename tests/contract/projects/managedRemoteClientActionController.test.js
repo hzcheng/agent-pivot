@@ -68,6 +68,127 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 previews local files before enabling and 
     assert.equal(calls.some(call => call[0] === 'error'), false);
 });
 
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 automatically activates a prepared legacy upgrade without consent UI', async () => {
+    const calls = [];
+    const preview = snapshot();
+    const active = snapshot('active');
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return preview; },
+        async activateMigration(expected) {
+            calls.push(['activate', expected]);
+            return active;
+        },
+        bridge: {
+            async execute(operation, expected) {
+                calls.push(['bridge', operation, expected]);
+                return { status: 'enabled' };
+            },
+        },
+        async confirmEnable() { calls.push(['confirm']); return false; },
+        async confirmDisable() { return false; },
+        async refresh(value, state) { calls.push(['refresh', value.lifecycle, state]); },
+        async showInformationMessage(message) { calls.push(['info', message]); },
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    await controller.enableAutomatically(revisionId);
+
+    assert.deepEqual(calls, [
+        ['refresh', 'preview', 'applying'],
+        ['bridge', 'beginEnable', revisionId],
+        ['activate', revisionId],
+        ['refresh', 'active', 'ready'],
+    ]);
+});
+
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 automatically materializes a synced catalog on a new computer', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return active; },
+        async activateMigration() { throw new Error('must not activate'); },
+        bridge: {
+            async execute(operation, expected) {
+                calls.push(['bridge', operation, expected]);
+                if (operation === 'getStatus') {
+                    return { status: 'disabled', generation: 0 };
+                }
+                return { status: 'enabled' };
+            },
+        },
+        async confirmEnable() { calls.push(['confirm']); return false; },
+        async confirmDisable() { return false; },
+        async refresh(value, state) { calls.push(['refresh', value.lifecycle, state]); },
+        async showInformationMessage(message) { calls.push(['info', message]); },
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    await controller.enableAutomatically(revisionId);
+
+    assert.deepEqual(calls, [
+        ['bridge', 'getStatus', undefined],
+        ['refresh', 'active', 'applying'],
+        ['bridge', 'beginEnable', revisionId],
+        ['refresh', 'active', 'ready'],
+    ]);
+});
+
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 automatically reconciles an already enabled computer', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return active; },
+        async activateMigration() { throw new Error('must not activate'); },
+        bridge: {
+            async execute(operation, expected) {
+                calls.push(['bridge', operation, expected]);
+                return { status: 'enabled', generation: 2 };
+            },
+        },
+        async confirmEnable() { throw new Error('must not confirm'); },
+        async confirmDisable() { return false; },
+        async refresh(value, state) { calls.push(['refresh', value.lifecycle, state]); },
+        async showInformationMessage() {},
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    await controller.enableAutomatically(revisionId);
+
+    assert.deepEqual(calls, [
+        ['bridge', 'getStatus', undefined],
+        ['refresh', 'active', 'applying'],
+        ['bridge', 'reconcile', revisionId],
+        ['refresh', 'active', 'ready'],
+    ]);
+});
+
+test('MANAGED-REMOTE-CLIENT-DISABLE-001 preserves an explicit local opt-out across reloads', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return active; },
+        async activateMigration() { throw new Error('must not activate'); },
+        bridge: {
+            async execute(operation, expected) {
+                calls.push(['bridge', operation, expected]);
+                return { status: 'disabled', generation: 3 };
+            },
+        },
+        async confirmEnable() { throw new Error('must not confirm'); },
+        async confirmDisable() { return false; },
+        async refresh(value, state) { calls.push(['refresh', value.lifecycle, state]); },
+        async showInformationMessage() {},
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    await controller.enableAutomatically(revisionId);
+
+    assert.deepEqual(calls, [
+        ['bridge', 'getStatus', undefined],
+        ['refresh', 'active', 'enableRequired'],
+    ]);
+});
+
 test('MANAGED-REMOTE-CLIENT-ENABLE-001 maps local consent status without mutating the catalog', async () => {
     const active = snapshot('active');
     const controller = new ManagedRemoteClientActionController({

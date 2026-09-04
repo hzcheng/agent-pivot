@@ -69,7 +69,7 @@ function managedMarkup(clientState = 'preview', migrationPrepared = false) {
     };
     return renderManagedRemoteProjectsPanel({
         revisionId: `revision:${'a'.repeat(64)}`,
-        lifecycle: ready ? 'active' : 'preview', clientState,
+        lifecycle: clientState === 'preview' ? 'preview' : 'active', clientState,
         clientMessage: ready ? 'Managed connections are ready on this computer.' : 'Managed Remote preview.', projectCount: 1,
         migrationPrepared,
         tags: ['backend'], favorites: [managedProject],
@@ -389,8 +389,8 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 sends a strict row-menu SSH identity intent
     assert.equal(message.expectedRevisionId, `revision:${'a'.repeat(64)}`);
 });
 
-test('MANAGED-REMOTE-CLIENT-ENABLE-001 sends a revisioned enable intent without connection fields', async t => {
-    const page = await openPage(t, 360, managedMarkup('preview', true));
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 lets an explicitly disabled client send a revisioned re-enable intent', async t => {
+    const page = await openPage(t, 360, managedMarkup('enableRequired', true));
     await page.getByRole('button', { name: 'Enable on This Computer' }).click();
 
     const message = await page.evaluate(() => window.messages.at(-1));

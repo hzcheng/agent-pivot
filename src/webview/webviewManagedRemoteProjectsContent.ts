@@ -21,11 +21,7 @@ function operationAttributes(operation: string, targetId?: string): string {
 }
 
 function renderClientBanner(model: ManagedRemoteProjectsViewModel): string {
-    const action = model.clientState === 'preview'
-            ? model.migrationPrepared
-                ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="enable">Enable on This Computer</button>'
-                : ''
-            : model.clientState === 'enableRequired'
+    const action = model.clientState === 'enableRequired'
             ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="enable">Enable on This Computer</button>'
             : model.clientState === 'attention'
                 ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="recover">Retry</button>'

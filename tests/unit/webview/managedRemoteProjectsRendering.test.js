@@ -59,11 +59,11 @@ test('MANAGED-REMOTE-MANAGEMENT-003 keeps unavailable Favorite identity and reas
     assert.match(html, /machine-project-color/);
 });
 
-test('MANAGED-REMOTE-CLIENT-ENABLE-001 replaces Review with local enable after migration preparation', () => {
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 keeps automatic migration free of a local enable button', () => {
     const value = model();
     value.migrationPrepared = true;
     const html = renderManagedRemoteProjectsPanel(value);
-    assert.match(html, /data-managed-client-action="enable"/u);
+    assert.doesNotMatch(html, /data-managed-client-action="enable"/u);
     assert.doesNotMatch(html, /beginMigration|>Migrate</u);
 });
 

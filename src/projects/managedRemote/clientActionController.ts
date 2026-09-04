@@ -16,6 +16,10 @@ interface ManagedEnablePreflightSummary {
 
 export interface ManagedRemoteClientActionControllerOptions {
     getSnapshot(): Promise<ManagedRemoteManagementSnapshot>;
+    openProjectFromCurrentMachine?(
+        snapshot: ManagedRemoteManagementSnapshot,
+        projectId: string,
+    ): Promise<boolean>;
     bridge: ManagedRemoteBridgeClient;
     confirmEnable(summary: ManagedEnablePreflightSummary): Promise<boolean>;
     refresh(
@@ -229,6 +233,11 @@ export class ManagedRemoteClientActionController {
         return this.enqueue(async () => {
             try {
                 const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
+                if (operation === 'openManagedProject'
+                    && this.options.openProjectFromCurrentMachine
+                    && await this.options.openProjectFromCurrentMachine(snapshot, targetId)) {
+                    return;
+                }
                 await this.options.bridge.execute(
                     operation,
                     snapshot.revisionId as string,

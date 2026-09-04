@@ -95,7 +95,7 @@ function resolveVSCodeCliTarget(options = {}) {
     return { command: 'code', source: 'path', extensionsDir: null };
 }
 
-/** Server roots observed in running Linux Extension Host command lines. */
+/** Server roots observed in running Linux VS Code Server host command lines. */
 function defaultListActiveServerRoots(environment, procRoot = '/proc') {
     const home = environment.HOME || environment.USERPROFILE;
     if (!home) {
@@ -120,7 +120,12 @@ function defaultListActiveServerRoots(environment, procRoot = '/proc') {
         } catch (_error) {
             continue;
         }
-        if (!commandLine.includes('--type=extensionHost')) {
+        if (!commandLine.some(value => [
+            '--type=extensionHost',
+            '--type=fileWatcher',
+            '--type=ptyHost',
+            '--type=agentHost',
+        ].includes(value))) {
             continue;
         }
         const bootstrap = commandLine.find(value =>

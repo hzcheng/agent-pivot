@@ -7200,7 +7200,7 @@
   {
     "id": "MANAGED-REMOTE-NAVIGATION-001",
     "domain": "project",
-    "title": "Active Machine, Project, and Dev Container rows send stable identities and the local UI host rebuilds navigation from the authoritative managed catalog",
+    "title": "Managed Project rows reuse a proven current-Machine authority and use the local UI host only for cross-Machine navigation",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7211,6 +7211,8 @@
     ],
     "evidence": [
       "src/projects/managedRemote/clientActionController.ts",
+      "src/projects/openProjectMatcher.ts",
+      "src/dashboard.ts",
       "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
       "src/webview/webviewManagedRemoteProjectsContent.ts"
     ]

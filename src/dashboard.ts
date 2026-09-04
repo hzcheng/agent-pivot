@@ -229,8 +229,12 @@ import {
 import {
     findManagedProjectForOpenProject,
     findSavedProjectForOpenProject,
+    managedProjectUriFromCurrentMachine,
 } from './projects/openProjectMatcher';
-import { getWorkspacePath as resolveWorkspacePath } from './projects/workspaceHelpers';
+import {
+    getWorkspacePath as resolveWorkspacePath,
+    getWorkspaceUris,
+} from './projects/workspaceHelpers';
 import RemoteProjectResolver from './projects/remoteProjectResolver';
 import { AddProjectsFromFolderController } from './projects/addProjectsFromFolderController';
 import { CurrentProjectDetailsResolver } from './projects/currentProjectDetails';
@@ -1063,6 +1067,23 @@ async function initializeDashboard(
                 || await managedRemoteCapabilityPromise;
             managedRemoteSnapshot = await capability.reconcile();
             return managedRemoteSnapshot;
+        },
+        openProjectFromCurrentMachine: async (snapshot, projectId) => {
+            const projectUri = managedProjectUriFromCurrentMachine(
+                snapshot,
+                projectId,
+                getWorkspaceUris(
+                    vscode.workspace.workspaceFile,
+                    vscode.workspace.workspaceFolders,
+                ),
+            );
+            if (!projectUri) { return false; }
+            await vscode.commands.executeCommand(
+                'vscode.openFolder',
+                projectUri,
+                { forceNewWindow: true },
+            );
+            return true;
         },
         bridge: managedRemoteBridgeClient,
         confirmEnable: async summary => vscode.window.showWarningMessage(

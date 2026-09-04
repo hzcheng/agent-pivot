@@ -142,6 +142,19 @@ test('LOCAL-INSTALL-CLI-TARGET-001 discovers the Server root of a running Extens
     assert.deepEqual(defaultListActiveServerRoots({ HOME: root }, procRoot), [serverRoot]);
 });
 
+test('LOCAL-INSTALL-CLI-TARGET-001 keeps the live Server root while its Extension Host is restarting', t => {
+    const root = makeTempDirectory(t, 'vscode-cli-active-server-restart-');
+    const procRoot = path.join(root, 'proc');
+    const serverRoot = path.join(root, '.vscode-server', 'bin', 'active-commit');
+    fs.mkdirSync(path.join(procRoot, '321'), { recursive: true });
+    fs.writeFileSync(
+        path.join(procRoot, '321', 'cmdline'),
+        `${path.join(serverRoot, 'node')}\0${path.join(serverRoot, 'out', 'bootstrap-fork')}\0--type=fileWatcher\0`,
+    );
+
+    assert.deepEqual(defaultListActiveServerRoots({ HOME: root }, procRoot), [serverRoot]);
+});
+
 test('LOCAL-INSTALL-CLI-TARGET-001 probes a real socket rather than trusting the path', async t => {
     const root = makeTempDirectory(t, 'vscode-cli-socket-');
     const livePath = path.join(root, 'live.sock');

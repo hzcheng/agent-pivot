@@ -10,16 +10,129 @@ import type {
     ManagedRemoteProject,
     ManagedSshMachine,
 } from './managedRemote/types';
-import { parseManagedDevContainerProjectUri } from './managedRemote/devContainerCodec';
+import {
+    parseManagedDevContainerProjectUri,
+    rebuildManagedDevContainerProjectUri,
+} from './managedRemote/devContainerCodec';
 import {
     isManagedSshAliasForMachine,
 } from './managedRemote/sshConfigProjection';
-import { normalizePosixPath, normalizeRemoteAuthority } from './projectPathUtils';
+import {
+    encodeRemoteAuthority,
+    normalizePosixPath,
+    normalizeRemoteAuthority,
+} from './projectPathUtils';
 
 export interface ManagedOpenProjectMatch {
     project: ManagedRemoteProject;
     environment: ManagedEnvironment;
     machine: ManagedSshMachine;
+}
+
+function environmentMachine(
+    snapshot: ManagedRemoteManagementSnapshot,
+    environment: ManagedEnvironment,
+): ManagedSshMachine | undefined {
+    return snapshot.catalog.machines.find(machine => machine.id === environment.machineId);
+}
+
+function environmentMatchesRemoteAuthority(
+    snapshot: ManagedRemoteManagementSnapshot,
+    environment: ManagedEnvironment,
+    uri: vscode.Uri,
+): boolean {
+    const authority = normalizeRemoteAuthority(uri.authority);
+    const machine = environmentMachine(snapshot, environment);
+    if (!machine) { return false; }
+    if (environment.kind === 'host') {
+        const openedAlias = authority.startsWith('ssh-remote+')
+            ? authority.slice('ssh-remote+'.length) : '';
+        return isManagedSshAliasForMachine(
+            openedAlias,
+            machine.id,
+            machine.name,
+            machine.connection.host,
+        );
+    }
+    const anchor = environment.devContainerAnchor;
+    if (!anchor) { return false; }
+    if (authority === normalizeRemoteAuthority(anchor.originalAuthority)) {
+        return true;
+    }
+    const parsed = parseManagedDevContainerProjectUri(uri.toString());
+    return Boolean(parsed
+        && parsed.anchor.sourceKind === anchor.sourceKind
+        && parsed.anchor.sourceLocator === anchor.sourceLocator
+        && isManagedSshAliasForMachine(
+            parsed.outerSshAuthority,
+            machine.id,
+            machine.name,
+            machine.connection.host,
+        ));
+}
+
+/**
+ * Resolve the current remote Environment only from its authority. Paths are
+ * intentionally ignored because the same path can exist on unrelated hosts.
+ */
+export function findManagedEnvironmentForWorkspace(
+    snapshot: ManagedRemoteManagementSnapshot,
+    uri: vscode.Uri,
+): ManagedEnvironment | null {
+    if (snapshot.lifecycle !== 'active' || !uri || uri.scheme !== 'vscode-remote') {
+        return null;
+    }
+    const matches = snapshot.catalog.environments.filter(environment =>
+        environmentMatchesRemoteAuthority(snapshot, environment, uri));
+    return matches.length === 1 ? matches[0] : null;
+}
+
+function currentOuterSshAlias(uri: vscode.Uri): string | null {
+    const authority = normalizeRemoteAuthority(uri.authority);
+    if (authority.startsWith('ssh-remote+')) {
+        return authority.slice('ssh-remote+'.length) || null;
+    }
+    return parseManagedDevContainerProjectUri(uri.toString())?.outerSshAuthority || null;
+}
+
+export function managedProjectUriFromCurrentMachine(
+    snapshot: ManagedRemoteManagementSnapshot,
+    projectId: string,
+    workspaceUris: readonly vscode.Uri[],
+): vscode.Uri | null {
+    const project = snapshot.catalog.projects.find(value => value.id === projectId);
+    if (!project) { throw new Error('Managed Project no longer exists.'); }
+    const targetEnvironment = snapshot.catalog.environments.find(environment =>
+        environment.id === project.environmentId);
+    if (!targetEnvironment) { throw new Error('Managed Project Environment no longer exists.'); }
+    for (const currentUri of workspaceUris || []) {
+        const currentEnvironment = findManagedEnvironmentForWorkspace(snapshot, currentUri);
+        if (!currentEnvironment
+            || currentEnvironment.machineId !== targetEnvironment.machineId) {
+            continue;
+        }
+        if (currentEnvironment.id === targetEnvironment.id) {
+            return currentUri.with({
+                path: project.remotePath,
+                query: '',
+                fragment: '',
+            });
+        }
+        const alias = currentOuterSshAlias(currentUri);
+        if (!alias) { continue; }
+        if (targetEnvironment.kind === 'host') {
+            return vscode.Uri.parse(
+                `vscode-remote://${encodeRemoteAuthority(`ssh-remote+${alias}`)}${project.remotePath}`,
+            );
+        }
+        const rebuilt = rebuildManagedDevContainerProjectUri(
+            targetEnvironment.devContainerAnchor!,
+            alias,
+            project.remotePath,
+        );
+        if (rebuilt) { return vscode.Uri.parse(rebuilt); }
+    }
+    return null;
 }
 
 export function findManagedProjectForOpenProject(
@@ -29,37 +142,14 @@ export function findManagedProjectForOpenProject(
     if (snapshot.lifecycle !== 'active' || !uri || uri.scheme !== 'vscode-remote') {
         return null;
     }
-    const authority = normalizeRemoteAuthority(uri.authority);
     const remotePath = normalizePosixPath(uri.path || uri.fsPath);
-    const parsedContainer = parseManagedDevContainerProjectUri(uri.toString());
     for (const project of snapshot.catalog.projects) {
         if (normalizePosixPath(project.remotePath) !== remotePath) { continue; }
         const environment = snapshot.catalog.environments.find(candidate =>
             candidate.id === project.environmentId);
-        const machine = environment && snapshot.catalog.machines.find(candidate =>
-            candidate.id === environment.machineId);
+        const machine = environment && environmentMachine(snapshot, environment);
         if (!environment || !machine) { continue; }
-        const openedAlias = authority.startsWith('ssh-remote+')
-            ? authority.slice('ssh-remote+'.length) : '';
-        if (environment.kind === 'host'
-            && isManagedSshAliasForMachine(
-                openedAlias,
-                machine.id,
-                machine.name,
-                machine.connection.host,
-            )) {
-            return { project, environment, machine };
-        }
-        if (environment.kind === 'devContainer'
-            && parsedContainer
-            && isManagedSshAliasForMachine(
-                parsedContainer.outerSshAuthority,
-                machine.id,
-                machine.name,
-                machine.connection.host,
-            )
-            && parsedContainer.anchor.sourceKind === environment.devContainerAnchor?.sourceKind
-            && parsedContainer.anchor.sourceLocator === environment.devContainerAnchor?.sourceLocator) {
+        if (environmentMatchesRemoteAuthority(snapshot, environment, uri)) {
             return { project, environment, machine };
         }
     }

@@ -18,6 +18,17 @@ class FakeUri {
         return this.raw;
     }
 
+    with(change) {
+        const path = change.path === undefined ? this.path : change.path;
+        return new FakeUri(
+            this.scheme,
+            this.authority,
+            path,
+            path,
+            `${this.scheme}://${this.authority}${path}`,
+        );
+    }
+
     static file(filePath) {
         const normalized = String(filePath).replace(/\\/g, '/');
         return new FakeUri('file', '', normalized, filePath, `file://${normalized}`);
@@ -192,6 +203,133 @@ test('MANAGED-REMOTE-NAVIGATION-001 recognizes opened Host and Dev Container Pro
     assert.equal(matcher.findManagedProjectForOpenProject(
         snapshot,
         FakeUri.parse(`vscode-remote://ssh-remote%2B${alias}/work/other`),
+    ), null);
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 identifies the current Dev Container Environment from its migrated authority', () => {
+    const payload = Buffer.from(JSON.stringify({ hostPath: '/work/container' }), 'utf8')
+        .toString('hex');
+    const targetPayload = Buffer.from(JSON.stringify({ hostPath: '/work/other-container' }), 'utf8')
+        .toString('hex');
+    const originalAuthority = `dev-container+${payload}@ssh-remote+legacy-reddev`;
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [{
+                id: 'machine:reddev', name: 'RedDev',
+                connection: { kind: 'ssh', host: '10.0.0.8', user: 'dev', port: 22022 },
+            }],
+            environments: [{
+                id: 'environment:host', machineId: 'machine:reddev',
+                kind: 'host', name: 'Host',
+            }, {
+                id: 'environment:container', machineId: 'machine:reddev',
+                kind: 'devContainer', name: 'Container',
+                devContainerAnchor: {
+                    version: 1,
+                    originalAuthority,
+                    sourceKind: 'workspace',
+                    sourceLocator: '/work/container',
+                },
+            }, {
+                id: 'environment:other-container', machineId: 'machine:reddev',
+                kind: 'devContainer', name: 'Other Container',
+                devContainerAnchor: {
+                    version: 1,
+                    originalAuthority: `dev-container+${targetPayload}@ssh-remote+other-alias`,
+                    sourceKind: 'workspace',
+                    sourceLocator: '/work/other-container',
+                },
+            }],
+            projects: [{
+                id: 'project:host', environmentId: 'environment:host',
+                name: 'Host Project', remotePath: '/work/host-project',
+            }, {
+                id: 'project:current', environmentId: 'environment:container',
+                name: 'Current', remotePath: '/work/current',
+            }, {
+                id: 'project:target', environmentId: 'environment:container',
+                name: 'Target', remotePath: '/work/target',
+            }, {
+                id: 'project:other-container', environmentId: 'environment:other-container',
+                name: 'Other Container Project', remotePath: '/work/other-target',
+            }],
+            layout: {
+                machineIds: ['machine:reddev'], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+    const currentUri = FakeUri.parse(
+        `vscode-remote://${encodeURIComponent(originalAuthority)}/work/current`,
+    );
+
+    assert.equal(
+        matcher.findManagedEnvironmentForWorkspace(snapshot, currentUri).id,
+        'environment:container',
+    );
+    assert.equal(
+        matcher.findManagedProjectForOpenProject(snapshot, currentUri).project.id,
+        'project:current',
+    );
+    assert.equal(
+        matcher.managedProjectUriFromCurrentMachine(
+            snapshot,
+            'project:target',
+            [currentUri],
+        ).toString(),
+        `vscode-remote://${encodeURIComponent(originalAuthority)}/work/target`,
+    );
+    assert.equal(
+        matcher.managedProjectUriFromCurrentMachine(
+            snapshot,
+            'project:host',
+            [currentUri],
+        ).toString(),
+        'vscode-remote://ssh-remote%2Blegacy-reddev/work/host-project',
+    );
+    assert.equal(
+        matcher.managedProjectUriFromCurrentMachine(
+            snapshot,
+            'project:other-container',
+            [currentUri],
+        ).toString(),
+        `vscode-remote://${encodeURIComponent(`dev-container+${targetPayload}@ssh-remote+legacy-reddev`)}/work/other-target`,
+    );
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 does not guess an Environment from an ambiguous remote path', () => {
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [], environments: [{
+                id: 'environment:one', machineId: 'machine:one', kind: 'host', name: 'Host',
+            }, {
+                id: 'environment:two', machineId: 'machine:two', kind: 'host', name: 'Host',
+            }],
+            projects: [{
+                id: 'project:one', environmentId: 'environment:one',
+                name: 'One', remotePath: '/work/shared',
+            }, {
+                id: 'project:two', environmentId: 'environment:two',
+                name: 'Two', remotePath: '/work/shared',
+            }],
+            layout: {
+                machineIds: [], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+
+    assert.equal(matcher.findManagedEnvironmentForWorkspace(
+        snapshot,
+        FakeUri.parse('vscode-remote://dev-container+unknown/work/shared'),
     ), null);
 });
 

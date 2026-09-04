@@ -381,6 +381,9 @@ became a distinct Environment under its outer SSH Machine.
   as an independent Managed Machine, syncs, and opens from another computer.
 - [ ] Project activation opens its current Environment/path; Edit cannot change its
   Machine or Environment, and saving the same code elsewhere creates a new Project.
+- [ ] From a Host or Dev Container window, Projects on that same Machine reuse the
+  window's proven SSH authority and open even when local managed-config projection
+  needs attention; Projects on another Machine still require the local UI bridge.
 - [ ] `SSH to Machine` launched from Local, SSH, WSL, and Dev Container windows runs
   the local SSH executable in an interactive terminal; Copy produces the equivalent
   credential-free command.
@@ -393,8 +396,9 @@ became a distinct Environment under its outer SSH Machine.
   Machine/Environment/Project counts without running legacy cleanup.
 - [ ] No migration, rollback, Setup, Assign, or legacy remote fallback action is
   present in the Projects UI.
-- [ ] With new main + new UI Bridge, Project navigation cannot bypass conflict
-  review; old/offline clients are explicitly outside that guarantee.
+- [ ] Project navigation cannot bypass conflict review. Current-Machine navigation
+  proves identity from the live remote authority; cross-Machine navigation requires
+  new main + new UI Bridge. Old/offline clients are explicitly outside that guarantee.
 - [ ] Pointer actions have keyboard equivalents; unavailable controls retain full
   identity in their accessible name.
 - [ ] Two offline-created equal Machine names enter rename conflict and remain

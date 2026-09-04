@@ -71,13 +71,13 @@ ownership mismatch when the main extension runs remotely.
               shared view model      frozen V1 snapshot
                     │                 inert backup bytes only
              identity + revision intent
-                    │
-          UI Bridge on the local Extension Host
-                    │
-        ManagedSshConfigMaterializer + path lock
-          ├─ isolated generated SSH config
-          ├─ one automatically managed Include in active config
-          └─ Remote - SSH / vscode.openFolder
+              ┌─────┴──────────────────┐
+              │                        │
+       current-Machine open      cross-Machine open
+       workspace Extension Host  UI Bridge on local host
+       reuses live authority      materializes SSH alias
+              └──────────┬─────────────┘
+                 vscode.openFolder
 ```
 
 There is one business authority and one runtime projection:
@@ -88,8 +88,11 @@ There is one business authority and one runtime projection:
 - the original V1 values and frozen snapshot are ignored by runtime behavior and
   are never automatically cleared, verified, restored, or projected.
 
-The UI Bridge never saves Machine or Project business data. It owns only local SSH
-filesystem effects and local VS Code navigation. Existing user SSH blocks are
+The UI Bridge never saves Machine or Project business data. It owns local SSH
+filesystem effects and cross-Machine navigation. A Project on the currently
+connected Machine opens directly from the workspace Extension Host by reusing the
+window's proven SSH/Dev Container authority; this path does not depend on local SSH
+projection health. Existing user SSH blocks are
 neither an Agent Pivot source nor modified by this release.
 
 ## 4. Runtime lifecycle
@@ -485,22 +488,27 @@ threat model explicitly excludes a malicious extension already able
 to read User settings and invoke VS Code commands.
 
 Responses are discriminated unions with protocol version and request ID. Progress
-is non-terminal. Missing/old Bridge capability disables navigation with `Update UI
-Bridge`; there is no silent legacy fallback.
+is non-terminal. Missing/old Bridge capability disables cross-Machine navigation
+with `Update UI Bridge`; current-Machine Project navigation remains available and
+does not silently consume legacy Project storage.
 
 ## 9. Navigation
 
 ### 9.1 Machine and Host Project
 
-UI Bridge resolves an unconflicted Machine from the exact catalog revision,
-reconciles its alias, and opens:
+For a different Machine, UI Bridge resolves the unconflicted Machine from the exact
+catalog revision, reconciles its alias, and opens:
 
 ```text
 vscode-remote://ssh-remote+<encoded-managed-alias>/
 ```
 
-For a Host Project, it resolves Project → Host → Machine and appends the normalized
-remote path. The path parser cannot replace the URI authority.
+For a Host Project on the current Machine, the workspace host proves the current
+Environment from the live `vscode-remote` authority. It preserves the already
+working outer SSH alias, replaces only the path, and invokes `vscode.openFolder` in
+a new window. When the current window is a Dev Container, its parsed outer SSH
+authority is reused to cross from that Container to the Machine Host. Paths alone
+never establish Machine identity because the same path may exist on multiple hosts.
 
 ### 9.2 Dev Container
 
@@ -508,6 +516,11 @@ Resolve Project → versioned Dev Container anchor → Machine. A format-specifi
 rebuilds the authority with the verified managed alias and path. It preserves opaque
 source bytes for diagnostics but never derives stable identity from those bytes.
 Unknown versions or failed round-trip are `Needs repair`, never string-replaced.
+
+On the current Machine, the same codec uses the outer SSH authority already proven
+by the open Host/Container window. This permits Host ↔ Dev Container and Container
+↔ Container Project opens without UI Bridge or regenerated SSH config. A target on
+another Machine continues through UI Bridge and its authoritative local projection.
 
 M1 cannot pass until at least one real current Remote-SSH → Dev Container URI fixture
 round-trips across two different aliases and unsupported formats fail closed.
@@ -565,8 +578,9 @@ interactive command is blocked on that combination rather than accidentally runn
 - **Add/Edit:** validate and commit catalog, refresh UI, then request local reconcile.
   A local failure keeps synced data and raises the client banner; it never rolls
   back using a stale local snapshot.
-- **Open:** fail closed until UI Bridge sees the expected unconflicted revision and
-  a verified local projection.
+- **Open:** current-Machine Projects fail closed unless the live remote authority
+  identifies exactly one managed Environment; cross-Machine opens fail closed until
+  UI Bridge sees the expected unconflicted revision and a verified local projection.
 - **Delete:** authoritative tombstone first, local cleanup later. A stale generated
   alias may remain temporarily but UI no longer references it. All live relationship
   candidates participate in delete guards.

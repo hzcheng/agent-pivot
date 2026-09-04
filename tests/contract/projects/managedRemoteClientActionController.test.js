@@ -253,6 +253,58 @@ test('MANAGED-REMOTE-NAVIGATION-001 forwards only active revision and stable tar
     ]);
 });
 
+test('MANAGED-REMOTE-NAVIGATION-001 opens a Project directly inside the current Environment without the UI Bridge', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return active; },
+        async openProjectFromCurrentMachine(value, projectId) {
+            calls.push(['direct', value.revisionId, projectId]);
+            return true;
+        },
+        bridge: {
+            async execute(...args) {
+                calls.push(['bridge', ...args]);
+                throw new Error('the bridge must not be used for the current Environment');
+            },
+        },
+        async confirmEnable() { return false; },
+        async refresh() {},
+        async showInformationMessage() {},
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    await controller.openProject('project:one', revisionId);
+
+    assert.deepEqual(calls, [
+        ['direct', revisionId, 'project:one'],
+    ]);
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 uses the UI Bridge only when the Project is outside the current Environment', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return active; },
+        async openProjectFromCurrentMachine(value, projectId) {
+            calls.push(['direct', value.revisionId, projectId]);
+            return false;
+        },
+        bridge: { async execute(...args) { calls.push(['bridge', ...args]); return {}; } },
+        async confirmEnable() { return false; },
+        async refresh() {},
+        async showInformationMessage() {},
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    await controller.openProject('project:other', revisionId);
+
+    assert.deepEqual(calls, [
+        ['direct', revisionId, 'project:other'],
+        ['bridge', 'openManagedProject', revisionId, 'project:other'],
+    ]);
+});
+
 test('MANAGED-REMOTE-NAVIGATION-001 repairs the local projection and retries Project navigation', async () => {
     const calls = [];
     const active = snapshot('active');

@@ -6,6 +6,9 @@ const test = require('node:test');
 const {
     ManagedRemoteClientActionController,
 } = require('../../../out/projects/managedRemote/clientActionController');
+const {
+    ManagedRemoteBridgeClientError,
+} = require('../../../out/projects/managedRemote/bridgeClient');
 
 const revisionId = `revision:${'a'.repeat(64)}`;
 
@@ -247,5 +250,40 @@ test('MANAGED-REMOTE-NAVIGATION-001 forwards only active revision and stable tar
         ['openManagedMachine', revisionId, 'machine:one'],
         ['openManagedProject', revisionId, 'project:one'],
         ['openManagedEnvironment', revisionId, 'environment:one'],
+    ]);
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 repairs the local projection and retries Project navigation', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    let openAttempts = 0;
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return active; },
+        bridge: {
+            async execute(...args) {
+                calls.push(['bridge', ...args]);
+                if (args[0] === 'openManagedProject' && openAttempts++ === 0) {
+                    throw new ManagedRemoteBridgeClientError(
+                        'recoveryRequired',
+                        'The local SSH projection needs recovery.',
+                    );
+                }
+                return args[0] === 'recover' ? { status: 'enabled' } : {};
+            },
+        },
+        async confirmEnable() { return false; },
+        async refresh(value, state) { calls.push(['refresh', value.lifecycle, state]); },
+        async showInformationMessage() {},
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    await controller.openProject('project:one', revisionId);
+
+    assert.deepEqual(calls, [
+        ['bridge', 'openManagedProject', revisionId, 'project:one'],
+        ['refresh', 'active', 'applying'],
+        ['bridge', 'recover', revisionId],
+        ['refresh', 'active', 'ready'],
+        ['bridge', 'openManagedProject', revisionId, 'project:one'],
     ]);
 });

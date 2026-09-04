@@ -235,15 +235,40 @@ export class ManagedRemoteClientActionController {
                     targetId,
                 );
             } catch (error) {
-                if (error instanceof ManagedRemoteBridgeClientError) {
+                let failure: unknown = error;
+                if (error instanceof ManagedRemoteBridgeClientError
+                    && (error.status === 'clientNotEnabled'
+                        || error.status === 'recoveryRequired')) {
+                    try {
+                        const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
+                        const revisionId = snapshot.revisionId as string;
+                        await this.options.refresh(snapshot, 'applying');
+                        const result = await this.options.bridge.execute(
+                            error.status === 'recoveryRequired' ? 'recover' : 'beginEnable',
+                            revisionId,
+                        );
+                        const state = stateFromStatus(resultStatus(result));
+                        await this.options.refresh(snapshot, state);
+                        if (state !== 'ready') {
+                            throw new Error(
+                                'The local SSH configuration could not be prepared automatically.',
+                            );
+                        }
+                        await this.options.bridge.execute(operation, revisionId, targetId);
+                        return;
+                    } catch (retryError) {
+                        failure = retryError;
+                    }
+                }
+                if (failure instanceof ManagedRemoteBridgeClientError) {
                     const snapshot = await this.options.getSnapshot().catch(() => null);
-                    if (snapshot && error.status === 'clientNotEnabled') {
+                    if (snapshot && failure.status === 'clientNotEnabled') {
                         await this.options.refresh(snapshot, 'enableRequired');
-                    } else if (snapshot && error.status === 'recoveryRequired') {
+                    } else if (snapshot && failure.status === 'recoveryRequired') {
                         await this.options.refresh(snapshot, 'attention');
                     }
                 }
-                const message = error instanceof Error ? error.message : String(error);
+                const message = failure instanceof Error ? failure.message : String(failure);
                 await this.options.showErrorMessage(`Agent Pivot: ${message}`);
             }
         });

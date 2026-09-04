@@ -49,6 +49,7 @@ function serverEntryPoint(serverRoot) {
 function resolveVSCodeCliTarget(options = {}) {
     const environment = options.environment || process.env;
     const exists = options.exists || (candidate => fs.existsSync(candidate));
+    const listActiveServerRoots = options.listActiveServerRoots || defaultListActiveServerRoots;
     const listServerRoots = options.listServerRoots || defaultListServerRoots;
     const socketIsLive = options.isLiveIpcSocket || isLiveIpcSocket;
 
@@ -60,7 +61,11 @@ function resolveVSCodeCliTarget(options = {}) {
         };
     }
 
-    const serverRoots = listServerRoots(environment);
+    const activeServerRoots = listActiveServerRoots(environment);
+    const serverRoots = Array.from(new Set([
+        ...activeServerRoots,
+        ...listServerRoots(environment),
+    ]));
     const hookPath = environment.VSCODE_IPC_HOOK_CLI || '';
     const hookIsLive = socketIsLive(hookPath);
     for (const serverRoot of serverRoots) {
@@ -70,7 +75,9 @@ function resolveVSCodeCliTarget(options = {}) {
         }
         return {
             command,
-            source: hookIsLive ? 'server' : 'server-stale-ipc',
+            source: activeServerRoots.includes(serverRoot)
+                ? 'active-server'
+                : hookIsLive ? 'server' : 'server-stale-ipc',
             extensionsDir: path.join(path.dirname(path.dirname(serverRoot)), 'extensions'),
         };
     }
@@ -86,6 +93,48 @@ function resolveVSCodeCliTarget(options = {}) {
         };
     }
     return { command: 'code', source: 'path', extensionsDir: null };
+}
+
+/** Server roots observed in running Linux Extension Host command lines. */
+function defaultListActiveServerRoots(environment, procRoot = '/proc') {
+    const home = environment.HOME || environment.USERPROFILE;
+    if (!home) {
+        return [];
+    }
+    const binRoot = path.resolve(home, '.vscode-server', 'bin');
+    let entries;
+    try {
+        entries = fs.readdirSync(procRoot, { withFileTypes: true });
+    } catch (_error) {
+        return [];
+    }
+    const roots = [];
+    for (const entry of entries
+        .filter(value => value.isDirectory() && /^\d+$/u.test(value.name))
+        .sort((left, right) => Number(right.name) - Number(left.name))) {
+        let commandLine;
+        try {
+            commandLine = fs.readFileSync(path.join(procRoot, entry.name, 'cmdline'), 'utf8')
+                .split('\0')
+                .filter(Boolean);
+        } catch (_error) {
+            continue;
+        }
+        if (!commandLine.includes('--type=extensionHost')) {
+            continue;
+        }
+        const bootstrap = commandLine.find(value =>
+            path.basename(value) === 'bootstrap-fork'
+                && path.basename(path.dirname(value)) === 'out');
+        if (!bootstrap) {
+            continue;
+        }
+        const serverRoot = path.resolve(path.dirname(path.dirname(bootstrap)));
+        if (path.dirname(serverRoot) === binRoot && !roots.includes(serverRoot)) {
+            roots.push(serverRoot);
+        }
+    }
+    return roots;
 }
 
 /** Server installations under ~/.vscode-server/bin, newest mtime first. */
@@ -119,6 +168,7 @@ function defaultListServerRoots(environment) {
 }
 
 module.exports = {
+    defaultListActiveServerRoots,
     defaultListServerRoots,
     isLiveIpcSocket,
     resolveVSCodeCliTarget,

@@ -7,6 +7,7 @@ const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
 const {
+    defaultListActiveServerRoots,
     defaultListServerRoots,
     isLiveIpcSocket,
     resolveVSCodeCliTarget,
@@ -19,6 +20,7 @@ function resolve(overrides = {}) {
     return resolveVSCodeCliTarget({
         environment: {},
         exists: () => true,
+        listActiveServerRoots: () => [],
         listServerRoots: () => [],
         isLiveIpcSocket: () => false,
         ...overrides,
@@ -92,6 +94,17 @@ test('LOCAL-INSTALL-CLI-TARGET-001 skips a Server directory with no entry point'
     assert.equal(target.command, serverEntryPoint(SERVER_ROOT));
 });
 
+test('LOCAL-INSTALL-CLI-TARGET-001 prefers the active Extension Host Server over a newer stale install', () => {
+    const stale = '/home/dev/.vscode-server/bin/stale-newer';
+    const target = resolve({
+        listActiveServerRoots: () => [SERVER_ROOT],
+        listServerRoots: () => [stale, SERVER_ROOT],
+    });
+
+    assert.equal(target.command, serverEntryPoint(SERVER_ROOT));
+    assert.equal(target.source, 'active-server');
+});
+
 test('LOCAL-INSTALL-CLI-TARGET-001 treats an unreachable socket path as dead', () => {
     assert.equal(isLiveIpcSocket('', () => true), false, 'an unset hook is not live');
     assert.equal(isLiveIpcSocket('/tmp/whatever.sock', () => false), false);
@@ -114,6 +127,19 @@ test('LOCAL-INSTALL-CLI-TARGET-001 lists Server installations newest first', t =
     assert.deepEqual(defaultListServerRoots({ HOME: path.join(root, 'missing') }), [],
         'a machine with no Server installation lists nothing');
     assert.deepEqual(defaultListServerRoots({}), [], 'no home means no discovery');
+});
+
+test('LOCAL-INSTALL-CLI-TARGET-001 discovers the Server root of a running Extension Host', t => {
+    const root = makeTempDirectory(t, 'vscode-cli-active-server-');
+    const procRoot = path.join(root, 'proc');
+    const serverRoot = path.join(root, '.vscode-server', 'bin', 'active-commit');
+    fs.mkdirSync(path.join(procRoot, '321'), { recursive: true });
+    fs.writeFileSync(
+        path.join(procRoot, '321', 'cmdline'),
+        `${path.join(serverRoot, 'node')}\0${path.join(serverRoot, 'out', 'bootstrap-fork')}\0--type=extensionHost\0`,
+    );
+
+    assert.deepEqual(defaultListActiveServerRoots({ HOME: root }, procRoot), [serverRoot]);
 });
 
 test('LOCAL-INSTALL-CLI-TARGET-001 probes a real socket rather than trusting the path', async t => {

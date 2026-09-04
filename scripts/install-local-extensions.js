@@ -40,10 +40,28 @@ function main(options = {}) {
         return 1;
     }
 
-    const packagePlan = createExtensionPackagePlan(repositoryRoot);
+    const completePackagePlan = createExtensionPackagePlan(repositoryRoot);
+    const remoteServerTarget = target.source === 'active-server'
+        || target.source === 'server'
+        || target.source === 'server-stale-ipc';
+    const packagePlan = remoteServerTarget
+        ? completePackagePlan.filter(extensionPackage =>
+            !Array.isArray(extensionPackage.manifest.extensionKind)
+                || !extensionPackage.manifest.extensionKind.includes('ui')
+                || extensionPackage.manifest.extensionKind.includes('workspace'))
+        : completePackagePlan;
     logger.log(`==> installing with ${target.command} (${target.source})`);
     if (target.extensionsDir) {
         logger.log(`    extensions dir: ${target.extensionsDir}`);
+    }
+    if (remoteServerTarget && packagePlan.length !== completePackagePlan.length) {
+        const skipped = completePackagePlan.filter(item => !packagePlan.includes(item));
+        for (const item of skipped) {
+            logger.log(
+                `    UI Bridge ${item.id}@${item.version} is packaged at ${item.artifactPath}; `
+                + 'install it in the local UI host.'
+            );
+        }
     }
 
     for (const extensionPackage of packagePlan) {

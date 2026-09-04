@@ -414,6 +414,20 @@ test('MANAGED-REMOTE-NAVIGATION-001 sends Project identity instead of a remote U
     assert.equal('uri' in message, false);
 });
 
+test('MANAGED-REMOTE-NAVIGATION-001 lets an attention-state Project retry navigation', async t => {
+    const page = await openPage(t, 360, managedMarkup('attention'));
+    const project = page.locator(
+        '[data-managed-project-row]:not(.machine-favorite-row) .machine-project-primary'
+    );
+
+    assert.equal(await project.isEnabled(), true);
+    await project.click();
+
+    const message = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(message.action, 'openProject');
+    assert.equal(message.targetId, 'project:managed');
+});
+
 test('MANAGED-REMOTE-MANAGEMENT-003 stays within 260px with endpoint-qualified rows', async t => {
     const page = await openPage(t, 260, managedMarkup());
     const geometry = await page.evaluate(() => ({

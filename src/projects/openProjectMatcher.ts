@@ -4,7 +4,67 @@ import { isUriString } from '../uriStrings';
 import * as vscode from 'vscode';
 
 import { getRemoteType, getRemoteTypeFromRemoteName, Project, ProjectRemoteType } from '../models';
+import type { ManagedRemoteManagementSnapshot } from './managedRemote/managementController';
+import type {
+    ManagedEnvironment,
+    ManagedRemoteProject,
+    ManagedSshMachine,
+} from './managedRemote/types';
+import { parseManagedDevContainerProjectUri } from './managedRemote/devContainerCodec';
+import {
+    isManagedSshAliasForMachine,
+} from './managedRemote/sshConfigProjection';
 import { normalizePosixPath, normalizeRemoteAuthority } from './projectPathUtils';
+
+export interface ManagedOpenProjectMatch {
+    project: ManagedRemoteProject;
+    environment: ManagedEnvironment;
+    machine: ManagedSshMachine;
+}
+
+export function findManagedProjectForOpenProject(
+    snapshot: ManagedRemoteManagementSnapshot,
+    uri: vscode.Uri,
+): ManagedOpenProjectMatch | null {
+    if (snapshot.lifecycle !== 'active' || !uri || uri.scheme !== 'vscode-remote') {
+        return null;
+    }
+    const authority = normalizeRemoteAuthority(uri.authority);
+    const remotePath = normalizePosixPath(uri.path || uri.fsPath);
+    const parsedContainer = parseManagedDevContainerProjectUri(uri.toString());
+    for (const project of snapshot.catalog.projects) {
+        if (normalizePosixPath(project.remotePath) !== remotePath) { continue; }
+        const environment = snapshot.catalog.environments.find(candidate =>
+            candidate.id === project.environmentId);
+        const machine = environment && snapshot.catalog.machines.find(candidate =>
+            candidate.id === environment.machineId);
+        if (!environment || !machine) { continue; }
+        const openedAlias = authority.startsWith('ssh-remote+')
+            ? authority.slice('ssh-remote+'.length) : '';
+        if (environment.kind === 'host'
+            && isManagedSshAliasForMachine(
+                openedAlias,
+                machine.id,
+                machine.name,
+                machine.connection.host,
+            )) {
+            return { project, environment, machine };
+        }
+        if (environment.kind === 'devContainer'
+            && parsedContainer
+            && isManagedSshAliasForMachine(
+                parsedContainer.outerSshAuthority,
+                machine.id,
+                machine.name,
+                machine.connection.host,
+            )
+            && parsedContainer.anchor.sourceKind === environment.devContainerAnchor?.sourceKind
+            && parsedContainer.anchor.sourceLocator === environment.devContainerAnchor?.sourceLocator) {
+            return { project, environment, machine };
+        }
+    }
+    return null;
+}
 
 export function findSavedProjectForOpenProject(savedProjects: Project[], uri: vscode.Uri, currentRemoteName: string): Project {
     let exactMatch = savedProjects.find(project => projectMatchesOpenProject(project, uri));

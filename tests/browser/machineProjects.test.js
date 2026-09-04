@@ -421,6 +421,8 @@ test('MANAGED-REMOTE-MANAGEMENT-003 stays within 260px with endpoint-qualified r
         clientWidth: document.documentElement.clientWidth,
     }));
     assert.equal(geometry.scrollWidth, geometry.clientWidth);
-    assert.equal(await page.locator('.managed-toolbar-label').first().isHidden(), true);
-    assert.equal(await page.locator('.managed-machine-endpoint').isVisible(), true);
+    assert.equal(await page.locator('[data-managed-operation="addMachine"]').getAttribute('aria-label'), 'Add Machine');
+    assert.equal(await page.locator('.machine-projects-toolbar-actions [data-managed-operation="addProject"]').count(), 0);
+    assert.equal(await page.locator('.managed-machine-endpoint').count(), 0);
+    assert.equal(await page.locator('[data-managed-machine-row] .machine-row-primary').getAttribute('title'), 'Build — dev@build.example.com:22022');
 });

@@ -761,13 +761,6 @@ body .project {
     }
 }
 
-.managed-remote-projects .machine-toolbar-button {
-    width: auto;
-    gap: 4px;
-    padding-right: 6px;
-    padding-left: 6px;
-}
-
 .managed-toolbar-label {
     font-size: 11px;
 }
@@ -943,26 +936,6 @@ body .project {
 
 .machine-row-primary {
     font-weight: 600;
-}
-
-.machine-row-copy {
-    display: flex;
-    flex: 1 1 auto;
-    min-width: 0;
-    flex-direction: column;
-    justify-content: center;
-    line-height: 1.15;
-}
-
-.managed-machine-endpoint {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--vscode-descriptionForeground);
-    font-family: var(--vscode-editor-font-family, monospace);
-    font-size: 9px;
-    font-weight: 400;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .managed-remote-row-status {

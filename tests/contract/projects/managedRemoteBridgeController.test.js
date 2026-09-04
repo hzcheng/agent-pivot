@@ -238,7 +238,7 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies only the stable alias from
     assert.equal(terminals[0].name, 'SSH: Build');
     assert.equal(terminals[0].shellPath, '/usr/local/bin/ssh');
     assert.equal(terminals[0].shellArgs.length, 1);
-    assert.match(terminals[0].shellArgs[0], /^agent-pivot-[a-f0-9]{32}$/u);
+    assert.equal(terminals[0].shellArgs[0], 'build');
     assert.equal(copied[0], formatManagedSshCommand(
         '/usr/local/bin/ssh', terminals[0].shellArgs[0], 'linux',
     ));
@@ -273,7 +273,7 @@ test('MANAGED-REMOTE-NAVIGATION-001 resolves Machine and Project identities insi
 
     assert.equal(machine.status, 'ok');
     assert.equal(project.status, 'ok');
-    assert.match(windows[0], /^ssh-remote\+agent-pivot-[a-f0-9]{32}$/u);
-    assert.match(folders[0], /^vscode-remote:\/\/ssh-remote%2Bagent-pivot-[a-f0-9]{32}\/work\/api$/u);
+    assert.equal(windows[0], 'ssh-remote+build');
+    assert.equal(folders[0], 'vscode-remote://ssh-remote%2Bbuild/work/api');
     assert.doesNotMatch(`${windows[0]} ${folders[0]}`, /build\.example\.com|dev@/u);
 });

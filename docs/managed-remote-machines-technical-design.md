@@ -274,7 +274,10 @@ guesses how to rewrite them.
   ordinary Managed Machine and uses no WSL-specific catalog authority;
 - parents cannot be deleted while any causally live child candidate references them;
 - only Dev Containers carry a launch anchor;
-- generated aliases derive from Machine IDs, not names or endpoints.
+- generated aliases are the sanitized Machine name itself, including safe Unicode
+  letters such as Chinese. If the name has no SSH-safe letters or digits, the
+  connection host supplies the readable alias. Add/Edit rejects two names that
+  normalize to the same alias; names remain display metadata rather than identity.
 - resolved Machine names are case-insensitively unique; concurrent duplicates keep
   both IDs, enter rename conflict, and use endpoint disambiguators until resolved;
 
@@ -363,11 +366,14 @@ Include "/path/to/.ssh/agent-pivot/current.conf"
 # <<< Agent Pivot managed SSH hosts
 ```
 
-Generated records use an immutable reserved alias derived from the SHA-256 digest
-of the Machine ID (the first 32 hexadecimal characters):
+Generated records use the sanitized Machine name itself as the readable alias.
+Safe Unicode letters are retained, whitespace becomes `-`, and an unusable name
+falls back to the connection host. Add/Edit rejects normalized alias collisions.
+Renaming changes the local alias and triggers projection regeneration; Project
+identity remains the stable Machine/Environment/Project IDs:
 
 ```sshconfig
-Host agent-pivot-74c29df6f27da9e44a741ea31183243b
+Host reddev
     HostName dev.example.com
     User alice
     Port 22022
@@ -794,8 +800,8 @@ rollback window.
 
 - one-time client preflight, journaled Disable, recovery, and byte-identical Cancel;
 - Add/Edit Machine global-impact copy and custom ports;
-- Add Project current-environment/Managed split and rejection of Machine/Environment
-  changes during Edit;
+- Machine-context Add Project, Open-tab current-workspace Save, saved-workspace
+  recognition, and rejection of Machine/Environment changes during Edit;
 - Command Palette local SSH terminal/copy actions, endpoint-qualified picker, and a
   process-location matrix across Local/SSH/WSL/Dev Container windows;
 - Dev Container Open/repair/remove and missing extension;

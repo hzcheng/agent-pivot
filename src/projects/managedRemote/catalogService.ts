@@ -27,6 +27,7 @@ import {
     VersionedCandidates,
 } from './types';
 import { parseManagedRemoteCatalog } from './validation';
+import { managedSshAliasName } from './sshConfigProjection';
 
 export interface AddManagedMachineInput {
     name: string;
@@ -165,7 +166,7 @@ export class ManagedRemoteCatalogService {
     }
 
     addMachine(input: AddManagedMachineInput): ManagedSshMachine {
-        this.assertUniqueMachineName(input.name);
+        this.assertUniqueMachineName(input.name, input.host);
         const machineId = this.createId('machine');
         const machine: ManagedSshMachine = {
             id: machineId,
@@ -211,7 +212,7 @@ export class ManagedRemoteCatalogService {
                 port: patch.port === undefined ? current.connection.port : patch.port,
             },
         };
-        this.assertUniqueMachineName(machine.name, machineId);
+        this.assertUniqueMachineName(machine.name, machine.connection.host, machineId);
         const transaction: ManagedCatalogTransaction = { machines: { [machineId]: machine } };
         const hostId = hostEnvironmentId(machineId);
         if (!this.document.environments[hostId]
@@ -365,7 +366,11 @@ export class ManagedRemoteCatalogService {
         if (!selected || selected.id !== machineId) {
             throw new Error('Conflict resolution must retain the Managed Machine ID.');
         }
-        this.assertUniqueMachineName(selected.name, machineId);
+        this.assertUniqueMachineName(
+            selected.name,
+            selected.connection.host,
+            machineId,
+        );
         const hostId = hostEnvironmentId(machineId);
         const transaction: ManagedCatalogTransaction = {
             machines: { [machineId]: cloneManagedValue(selected) },
@@ -393,14 +398,22 @@ export class ManagedRemoteCatalogService {
             nonNullValues(register).some(project => project.environmentId === environmentId));
     }
 
-    private assertUniqueMachineName(name: string, exceptMachineId?: string): void {
+    private assertUniqueMachineName(
+        name: string,
+        connectionHost: string,
+        exceptMachineId?: string,
+    ): void {
         const key = typeof name === 'string' ? name.trim().toLowerCase() : '';
+        const aliasKey = managedSshAliasName(name, connectionHost)
+            .toLocaleLowerCase('en-US');
         const duplicate = Object.entries(this.document.machines).some(([machineId, register]) =>
             machineId !== exceptMachineId
             && nonNullValues(register).some(machine =>
-                machine.name.trim().toLowerCase() === key));
+                machine.name.trim().toLowerCase() === key
+                || managedSshAliasName(machine.name, machine.connection.host)
+                    .toLocaleLowerCase('en-US') === aliasKey));
         if (duplicate) {
-            throw new Error('Managed Machine names must be unique.');
+            throw new Error('Managed Machine names must produce unique SSH aliases.');
         }
     }
 

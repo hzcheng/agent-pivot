@@ -226,7 +226,10 @@ import {
     isUriString,
     parsePathAsUri,
 } from './projects/openProjectService';
-import { findSavedProjectForOpenProject } from './projects/openProjectMatcher';
+import {
+    findManagedProjectForOpenProject,
+    findSavedProjectForOpenProject,
+} from './projects/openProjectMatcher';
 import { getWorkspacePath as resolveWorkspacePath } from './projects/workspaceHelpers';
 import RemoteProjectResolver from './projects/remoteProjectResolver';
 import { AddProjectsFromFolderController } from './projects/addProjectsFromFolderController';
@@ -1003,6 +1006,8 @@ async function initializeDashboard(
                 managedRemoteClientState = snapshot.lifecycle === 'active'
                     ? 'applying' : 'preview';
                 await projectsPanelController?.postUpdated('replace');
+                openWorkspaceDashboardController?.invalidatePendingUpdates();
+                await openWorkspaceDashboardController?.postUpdated();
                 if (snapshot.lifecycle === 'active' && snapshot.revisionId) {
                     await managedRemoteClientActions.syncCatalog(snapshot.revisionId);
                 }
@@ -1021,6 +1026,8 @@ async function initializeDashboard(
             environmentCount: managedRemoteSnapshot.catalog.environments.length,
             projectCount: managedRemoteSnapshot.catalog.projects.length,
         });
+        openWorkspaceDashboardController?.invalidatePendingUpdates();
+        await openWorkspaceDashboardController?.postUpdated();
         if (managedRemoteSnapshot.lifecycle === 'active'
             && managedRemoteSnapshot.revisionId) {
             await managedRemoteClientActions.enableAutomatically(
@@ -1067,6 +1074,8 @@ async function initializeDashboard(
             managedRemoteSnapshot = snapshot;
             managedRemoteClientState = state;
             await projectsPanelController?.postUpdated('replace');
+            openWorkspaceDashboardController?.invalidatePendingUpdates();
+            await openWorkspaceDashboardController?.postUpdated();
         },
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showErrorMessage: message => vscode.window.showErrorMessage(message),
@@ -4259,9 +4268,27 @@ async function initializeDashboard(
             return null;
         }
         try {
+            const workspaceUri = vscode.Uri.parse(workspace.navigationUri);
+            const managed = findManagedProjectForOpenProject(
+                managedRemoteSnapshot,
+                workspaceUri,
+            );
+            if (managed) {
+                return {
+                    id: managed.project.id,
+                    name: managed.project.name,
+                    description: managed.project.description || null,
+                    path: workspace.navigationUri,
+                    tags: managed.project.tags,
+                    favorite: managed.project.favorite,
+                    color: managed.project.color || '',
+                    remoteType: managed.environment.kind === 'devContainer'
+                        ? ProjectRemoteType.DevContainer : ProjectRemoteType.SSH,
+                } as Project;
+            }
             return findSavedProjectForOpenProject(
                 projectService.getProjectsFlat(),
-                vscode.Uri.parse(workspace.navigationUri),
+                workspaceUri,
                 vscode.env.remoteName,
             );
         } catch (_error) {

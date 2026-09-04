@@ -112,8 +112,9 @@ The Projects toolbar has `Add Machine`. A VS Code QuickInput flow collects:
 
 1. **Name** — required, display only, and case-insensitively unique in a resolved
    catalog. Offline duplicate-name creation becomes a rename conflict; until it is
-   resolved, both rows show `user@host:port` and every related visible/accessibility
-   name uses that disambiguator.
+   resolved, both rows expose `user@host:port` as a disambiguator. In normal state,
+   the endpoint stays in the Machine tooltip and accessible name instead of taking
+   permanent vertical space under the display name.
 2. **Host** — required DNS name, IPv4 address, or IPv6 address.
 3. **User** — required so every computer uses the same remote account.
 4. **Port** — required integer, defaults to `22`.
@@ -163,21 +164,19 @@ with the stable managed alias as an argument and remains interactive for passwor
 input.
 
 `Agent Pivot: Copy SSH Command…` uses the same picker and copies the equivalent
-local command, normally `ssh agent-pivot-<machine-id>`. It contains no password or
-other credential. Both commands require this computer to be enabled and the exact
+local command, normally `ssh <readable-machine-name>`. It
+contains no password or other credential. Both commands require this computer to be enabled and the exact
 catalog revision/config projection to be ready; otherwise they show the same
 Enable/Retry/conflict recovery as Machine Open.
 
 ### 7.5 Add or edit a Project
 
-Global `Add Project` first offers `Current Environment — <actual Local, local WSL
-distro, Local Dev Container, or Managed Machine/Environment>` followed by named
-Managed Machines. Review always shows the final hierarchy. Selecting a local,
-computer-local WSL, or local-container environment uses the local-only save path.
-An independently SSH-reachable remote WSL is selected by its Managed Machine name,
-not by a `wsl+` authority. Choosing a Machine collects metadata, tags, color,
-favorite state, Environment, and path. Machine-row `Add Project…` skips the Machine
-step and defaults to Host.
+There is no global `Add Project` toolbar action. A Managed Project is added from a
+Machine row's `Add Project…` menu, which fixes the Machine context and defaults to
+Host. The Open tab's Save action remains the entry point for the current Local,
+computer-local WSL, local-container, or already managed remote workspace. Review
+always shows the final hierarchy, and the Save action disappears as soon as the
+current workspace matches an existing managed or local Project.
 
 `Edit Project…` changes metadata and the path in the current Environment only. A
 Project cannot be moved to another Machine or Environment: that represents a
@@ -267,9 +266,10 @@ Machine rows use a computer icon. Project rows retain their color marker. Redund
 derived labels such as `#REDDEV` are not shown because hierarchy and accessible
 names already provide context.
 
-The toolbar groups Tags, Add Machine, and Add Project. Use text where width permits;
-at 260 px use distinct icon actions or one overflow with full action text. Actions
-must not disappear.
+The toolbar contains Tags and one compact `+` icon whose tooltip and accessible name
+are `Add Machine`. Project creation remains contextual to a Machine row (or the Open
+tab for the current workspace), so the toolbar never shows a global Add Project
+action. These controls remain available at 260 px.
 
 Client-wide status is a persistent banner above filters and never appears as a
 Machine property:
@@ -354,7 +354,9 @@ became a distinct Environment under its outer SSH Machine.
 - Host, user, and port reject newlines, control characters, config directives, and
   record injection.
 - Port is an integer from `1` through `65535`.
-- Names never participate in alias or identity generation.
+- Machine names become readable SSH aliases directly; safe Unicode letters are
+  retained and normalized collisions are rejected. Names never become business
+  identity.
 - Host/user are synchronized by product requirement but redacted from diagnostics
   and telemetry by default.
 - Generated files contain `DO NOT EDIT` and a connection checksum, but no

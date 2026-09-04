@@ -226,7 +226,11 @@ export class ManagedRemoteBridgeController {
                     throw new Error('Managed Remote navigation target has an unresolved conflict.');
                 }
                 await coordinator.reconcile(slot);
-                const alias = managedSshAlias(machine.id);
+                const alias = managedSshAlias(
+                    machine.id,
+                    machine.name,
+                    machine.connection.host,
+                );
                 if (request.operation === 'openManagedMachine') {
                     await this.localActions.openRemoteWindow(sshRemoteAuthority(alias));
                 } else if (environment?.kind === 'devContainer') {
@@ -269,7 +273,11 @@ export class ManagedRemoteBridgeController {
                     throw new Error('Managed Machine is missing or has a connection conflict.');
                 }
                 await coordinator.reconcile(slot);
-                const alias = managedSshAlias(machine.id);
+                const alias = managedSshAlias(
+                    machine.id,
+                    machine.name,
+                    machine.connection.host,
+                );
                 if (request.operation === 'openLocalSshTerminal') {
                     await this.localActions.openTerminal({
                         name: `SSH: ${machine.name}`,

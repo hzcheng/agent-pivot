@@ -17,7 +17,7 @@ test('MANAGED-REMOTE-SSH-VALIDATION-001 validates the installed Linux OpenSSH -F
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const generated = path.join(root, 'current.conf');
     fs.writeFileSync(generated, [
-        'Host agent-pivot-fixture',
+        'Host 小红书开发机',
         '    HostName build.example.com',
         '    User dev',
         '    Port 22022',
@@ -33,8 +33,8 @@ test('MANAGED-REMOTE-SSH-VALIDATION-001 validates the installed Linux OpenSSH -F
         aggregateConfigContent: `Include "${generated}"\nHost *\n  Port 22\n`,
         entries: [{
             machineId: 'machine:fixture',
-            alias: 'agent-pivot-fixture',
-            name: 'Build',
+            alias: '小红书开发机',
+            name: '小红书开发机',
             host: 'build.example.com',
             user: 'dev',
             port: 22022,

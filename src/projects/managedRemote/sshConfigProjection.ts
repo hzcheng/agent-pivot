@@ -22,18 +22,50 @@ export interface ManagedSshProjection {
     unavailableMachineIds: string[];
 }
 
-const SAFE_ALIAS = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const SAFE_ALIAS = /^[\p{L}\p{N}][\p{L}\p{N}.-]{0,62}$/u;
 
 function hash(value: string): string {
     return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-export function managedSshAlias(machineId: string): string {
-    const alias = `agent-pivot-${hash(machineId).slice(0, 32)}`;
+function readableAliasSegment(value: string): string {
+    const normalized = (value || '')
+        .normalize('NFKC')
+        .toLocaleLowerCase('en-US')
+        .replace(/[^\p{L}\p{N}.]+/gu, '-')
+        .replace(/^[.-]+|[.-]+$/gu, '');
+    return Array.from(normalized).slice(0, 54).join('').replace(/[.-]+$/gu, '');
+}
+
+export function managedSshAliasName(machineName: string, connectionHost: string = ''): string {
+    return readableAliasSegment(machineName)
+        || readableAliasSegment(connectionHost)
+        || 'machine';
+}
+
+export function managedSshAlias(
+    _machineId: string,
+    machineName: string = 'machine',
+    connectionHost: string = '',
+): string {
+    const alias = managedSshAliasName(machineName, connectionHost);
     if (!SAFE_ALIAS.test(alias)) {
         throw new Error('Managed SSH alias generation failed.');
     }
     return alias;
+}
+
+export function isManagedSshAliasForMachine(
+    alias: string,
+    machineId: string,
+    machineName: string = '',
+    connectionHost: string = '',
+): boolean {
+    if (!SAFE_ALIAS.test(alias)) { return false; }
+    const digest = hash(machineId);
+    return alias === managedSshAlias(machineId, machineName, connectionHost)
+        || alias === `agent-pivot-${digest.slice(0, 32)}`
+        || alias.endsWith(`-${digest.slice(0, 8)}`);
 }
 
 export function buildManagedSshProjection(slot: ManagedRevisionSlot): ManagedSshProjection {
@@ -45,13 +77,17 @@ export function buildManagedSshProjection(slot: ManagedRevisionSlot): ManagedSsh
         .filter(machine => !unavailable.has(machine.id))
         .map(machine => ({
             machineId: machine.id,
-            alias: managedSshAlias(machine.id),
+            alias: managedSshAlias(machine.id, machine.name, machine.connection.host),
             name: machine.name,
             host: machine.connection.host,
             user: machine.connection.user,
             port: machine.connection.port,
         }))
         .sort((left, right) => left.machineId.localeCompare(right.machineId));
+    if (new Set(entries.map(entry => entry.alias.toLocaleLowerCase('en-US'))).size
+        !== entries.length) {
+        throw new Error('Managed Machine names must produce unique SSH aliases.');
+    }
     const connectionDigest = hash(stableManagedValue(entries.map(entry => ({
         machineId: entry.machineId,
         alias: entry.alias,

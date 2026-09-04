@@ -7135,7 +7135,7 @@
   {
     "id": "MANAGED-REMOTE-MANAGEMENT-003",
     "domain": "webview",
-    "title": "Managed Remote preview renders endpoint-qualified Machines, immutable Project placement, complete unavailable names, colors, tags, and management actions",
+    "title": "Managed Remote renders compact Machine rows with endpoint tooltips, contextual Project creation, immutable placement, complete unavailable names, colors, tags, and management actions",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7206,6 +7206,7 @@
     "owners": [
       "tests/contract/projects/managedRemoteClientActionController.test.js",
       "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/unit/projects/workspaceAndOpenMatching.test.js",
       "tests/browser/machineProjects.test.js"
     ],
     "evidence": [

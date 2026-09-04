@@ -60,6 +60,7 @@ function loadProjectModules() {
 }
 
 const { matcher, service, workspace } = loadProjectModules();
+const { managedSshAlias } = require('../../../out/projects/managedRemote/sshConfigProjection');
 
 test('PROJECT-WORKSPACE-HELPER-001 selects a workspace file before folders and returns every folder otherwise', () => {
     const workspaceFile = FakeUri.file('/work/app.code-workspace');
@@ -131,6 +132,67 @@ test('PROJECT-WORKSPACE-HELPER-001 resolves one unambiguous legacy remote-path m
         }), FakeUri.file('/work/app'), 'ssh-remote'),
         null
     );
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 recognizes opened Host and Dev Container Projects as saved', () => {
+    const machine = {
+        id: 'machine:reddev', name: 'RedDev Main',
+        connection: { kind: 'ssh', host: '10.0.0.8', user: 'dev', port: 22022 },
+    };
+    const payload = Buffer.from(JSON.stringify({ hostPath: '/work/container' }), 'utf8')
+        .toString('hex');
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [machine],
+            environments: [{
+                id: 'environment:host', machineId: machine.id, kind: 'host', name: 'Host',
+            }, {
+                id: 'environment:container', machineId: machine.id,
+                kind: 'devContainer', name: 'Container',
+                devContainerAnchor: {
+                    version: 1,
+                    originalAuthority: `dev-container+${payload}@ssh-remote+legacy`,
+                    sourceKind: 'workspace',
+                    sourceLocator: '/work/container',
+                },
+            }],
+            projects: [{
+                id: 'project:host', environmentId: 'environment:host',
+                name: 'API', remotePath: '/work/api',
+            }, {
+                id: 'project:container', environmentId: 'environment:container',
+                name: 'Container API', remotePath: '/work/container',
+            }],
+            layout: {
+                machineIds: [machine.id],
+                environmentIdsByMachine: {}, projectIdsByEnvironment: {},
+                favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+    const alias = managedSshAlias(machine.id, machine.name);
+    const host = matcher.findManagedProjectForOpenProject(
+        snapshot,
+        FakeUri.parse(`vscode-remote://ssh-remote%2B${alias}/work/api`),
+    );
+    const containerAuthority = encodeURIComponent(
+        `dev-container+${payload}@ssh-remote+${alias}`,
+    );
+    const container = matcher.findManagedProjectForOpenProject(
+        snapshot,
+        FakeUri.parse(`vscode-remote://${containerAuthority}/work/container`),
+    );
+
+    assert.equal(host.project.id, 'project:host');
+    assert.equal(container.project.id, 'project:container');
+    assert.equal(matcher.findManagedProjectForOpenProject(
+        snapshot,
+        FakeUri.parse(`vscode-remote://ssh-remote%2B${alias}/work/other`),
+    ), null);
 });
 
 test('PROJECT-WORKSPACE-HELPER-001 delegates workspace navigation to the current workspace URI', () => {

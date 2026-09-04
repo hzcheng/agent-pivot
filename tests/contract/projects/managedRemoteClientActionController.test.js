@@ -50,6 +50,7 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 previews local files before enabling and 
             calls.push(['confirm', summary.activeConfigPath]);
             return true;
         },
+        async confirmDisable() { return false; },
         async refresh(value, state) { calls.push(['refresh', value.lifecycle, state]); },
         async showInformationMessage(message) { calls.push(['info', message]); },
         async showErrorMessage(message) { calls.push(['error', message]); },
@@ -74,12 +75,53 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 maps local consent status without mutatin
         async activateMigration() { throw new Error('must not activate'); },
         bridge: { async execute() { return { status: 'enabled' }; } },
         async confirmEnable() { return false; },
+        async confirmDisable() { return false; },
         async refresh() {},
         async showInformationMessage() {},
         async showErrorMessage() {},
     });
     assert.equal(await controller.readState(active), 'ready');
     assert.equal(await controller.readState(snapshot()), 'preview');
+});
+
+test('MANAGED-REMOTE-CLIENT-DISABLE-001 previews owned files and disables only this computer', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return active; },
+        async activateMigration() { throw new Error('must not activate'); },
+        bridge: {
+            async execute(operation, expected) {
+                calls.push(['bridge', operation, expected]);
+                return operation === 'preflightDisable' ? {
+                    activeConfigPath: '/home/dev/.ssh/config',
+                    generatedDirectory: '/home/dev/.agent-pivot/ssh',
+                    backupPath: '/home/dev/.ssh/config.agent-pivot-backup',
+                    editMode: 'automatic',
+                } : { status: 'disabled' };
+            },
+        },
+        async confirmEnable() { return false; },
+        async confirmDisable(summary) {
+            calls.push(['confirm', summary.activeConfigPath, summary.generatedDirectory]);
+            return true;
+        },
+        async refresh(value, state) { calls.push(['refresh', value.lifecycle, state]); },
+        async showInformationMessage(message) { calls.push(['info', message]); },
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    await controller.disable(revisionId);
+
+    assert.deepEqual(calls.slice(0, 5), [
+        ['bridge', 'preflightDisable', undefined],
+        ['confirm', '/home/dev/.ssh/config', '/home/dev/.agent-pivot/ssh'],
+        ['refresh', 'active', 'applying'],
+        ['bridge', 'beginDisable', undefined],
+        ['refresh', 'active', 'enableRequired'],
+    ]);
+    assert.match(calls.find(call => call[0] === 'info')[1], /Synced Machines and Projects were not changed/u);
+    assert.equal(calls.some(call => call[0] === 'error'), false);
 });
 
 test('MANAGED-REMOTE-NAVIGATION-001 forwards only active revision and stable target identity', async () => {
@@ -90,6 +132,7 @@ test('MANAGED-REMOTE-NAVIGATION-001 forwards only active revision and stable tar
         async activateMigration() { throw new Error('must not activate'); },
         bridge: { async execute(...args) { calls.push(args); return {}; } },
         async confirmEnable() { return false; },
+        async confirmDisable() { return false; },
         async refresh() {},
         async showInformationMessage() {},
         async showErrorMessage(message) { calls.push(['error', message]); },

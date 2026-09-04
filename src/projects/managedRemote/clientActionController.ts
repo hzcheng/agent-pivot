@@ -14,11 +14,19 @@ interface ManagedEnablePreflightSummary {
     editMode: 'automatic' | 'manualFallback';
 }
 
+interface ManagedDisablePreflightSummary {
+    activeConfigPath: string;
+    generatedDirectory: string;
+    backupPath: string;
+    editMode: 'automatic' | 'manualFallback';
+}
+
 export interface ManagedRemoteClientActionControllerOptions {
     getSnapshot(): Promise<ManagedRemoteManagementSnapshot>;
     activateMigration(expectedRevisionId: string): Promise<ManagedRemoteManagementSnapshot>;
     bridge: ManagedRemoteBridgeClient;
     confirmEnable(summary: ManagedEnablePreflightSummary): Promise<boolean>;
+    confirmDisable(summary: ManagedDisablePreflightSummary): Promise<boolean>;
     refresh(
         snapshot: ManagedRemoteManagementSnapshot,
         state: ManagedRemoteClientUiState,
@@ -42,6 +50,22 @@ function parsePreflight(value: unknown): ManagedEnablePreflightSummary {
     return {
         activeConfigPath: value.activeConfigPath,
         generatedConfigPath: value.generatedConfigPath,
+        backupPath: value.backupPath,
+        editMode: value.editMode,
+    };
+}
+
+function parseDisablePreflight(value: unknown): ManagedDisablePreflightSummary {
+    if (!isRecord(value)
+        || typeof value.activeConfigPath !== 'string'
+        || typeof value.generatedDirectory !== 'string'
+        || typeof value.backupPath !== 'string'
+        || (value.editMode !== 'automatic' && value.editMode !== 'manualFallback')) {
+        throw new Error('Agent Pivot UI Bridge returned an invalid disable preview.');
+    }
+    return {
+        activeConfigPath: value.activeConfigPath,
+        generatedDirectory: value.generatedDirectory,
         backupPath: value.backupPath,
         editMode: value.editMode,
     };
@@ -72,6 +96,10 @@ export class ManagedRemoteClientActionController {
 
     enable(expectedRevisionId: string | null): Promise<void> {
         return this.enqueue(() => this.enableNow(expectedRevisionId));
+    }
+
+    disable(expectedRevisionId: string | null): Promise<void> {
+        return this.enqueue(() => this.disableNow(expectedRevisionId));
     }
 
     recover(expectedRevisionId: string | null): Promise<void> {
@@ -128,6 +156,40 @@ export class ManagedRemoteClientActionController {
             await this.options.refresh(snapshot, 'ready');
             await this.options.showInformationMessage(
                 'Managed Remote is ready on this computer.',
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const snapshot = await this.options.getSnapshot().catch(() => null);
+            if (snapshot) { await this.options.refresh(snapshot, 'attention'); }
+            await this.options.showErrorMessage(`Agent Pivot: ${message}`);
+        }
+    }
+
+    private async disableNow(expectedRevisionId: string | null): Promise<void> {
+        try {
+            const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
+            if (snapshot.lifecycle !== 'active') {
+                throw new Error('Managed Remote is not active.');
+            }
+            const preflight = parseDisablePreflight(await this.options.bridge.execute(
+                'preflightDisable',
+            ));
+            if (!await this.options.confirmDisable(preflight)) { return; }
+            await this.options.refresh(snapshot, 'applying');
+            const result = await this.options.bridge.execute('beginDisable');
+            const status = resultStatus(result);
+            if (status === 'awaitingManualIncludeRemoval') {
+                await this.options.refresh(snapshot, 'attention');
+                throw new Error(
+                    `Automatic SSH config update was unavailable. Remove the exact Agent Pivot Include from ${preflight.activeConfigPath}, then Retry.`,
+                );
+            }
+            if (status !== 'disabled') {
+                throw new Error('Managed SSH configuration did not reach the disabled state.');
+            }
+            await this.options.refresh(snapshot, 'enableRequired');
+            await this.options.showInformationMessage(
+                'Managed SSH connections are disabled on this computer. Synced Machines and Projects were not changed.',
             );
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);

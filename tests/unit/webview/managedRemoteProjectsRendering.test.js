@@ -67,6 +67,16 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 replaces Review with local enable after m
     assert.doesNotMatch(html, /data-managed-operation="beginMigration"/u);
 });
 
+test('MANAGED-REMOTE-CLIENT-DISABLE-001 exposes a computer-local disable action only when ready', () => {
+    const ready = model();
+    ready.lifecycle = 'active';
+    ready.clientState = 'ready';
+    const readyHtml = renderManagedRemoteProjectsPanel(ready);
+    assert.match(readyHtml, /data-managed-client-action="disable"/u);
+    assert.match(readyHtml, /Disable on This Computer…/u);
+    assert.doesNotMatch(renderManagedRemoteProjectsPanel(model()), /data-managed-client-action="disable"/u);
+});
+
 test('MANAGED-REMOTE-LOCAL-PROJECTION-001 keeps client-local Projects beside the active managed catalog', () => {
     const localProject = {
         id: 'local-project', environmentId: 'local-host', machineId: 'local-machine',

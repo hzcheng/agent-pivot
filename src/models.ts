@@ -30,8 +30,6 @@ export class Project {
     path: string;
     /** Optional presentation-only name shared by Projects on the same derived Machine. */
     machineDisplayName?: string;
-    /** Opaque physical-machine scope for local paths and local containers. */
-    localMachineScope?: string;
     tags?: string[];
     lastOpenedAt?: number;
     remoteType?: ProjectRemoteType;

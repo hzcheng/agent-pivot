@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { Project, Group } from "../models";
 import {
     ADD_NEW_PROJECT_TO_FRONT,
+    LOCAL_PROJECTS_KEY,
     PROJECTS_KEY,
     PROJECT_SYNC_DATA_KEY,
     PROJECT_SYNC_LOCAL_STATE_KEY,
@@ -12,11 +13,9 @@ import {
 } from "../constants";
 import type { ProjectCatalogMutationOptions } from '../projects/projectCatalogSync';
 import {
-    createLocalMachineScopeId,
     getMachineDisplayNameForPath,
     getMachineViewId,
     isLocalMachineProjectPath,
-    normalizeLocalMachineScope,
 } from '../projects/machineProjectsViewModel';
 import BaseService from './baseService';
 import ColorService from './colorService';
@@ -28,8 +27,6 @@ import {
 
 export interface ProjectServiceSyncOptions {
     createActorId?: () => string;
-    /** VS Code computer identity; only its one-way derived scope is persisted. */
-    localMachineId?: string;
     onDiagnostic?: (event: Record<string, unknown>) => void;
     onConflict?: (projectIds: string[]) => void;
 }
@@ -38,7 +35,6 @@ export default class ProjectService extends BaseService {
 
     colorService: ColorService;
     private readonly catalogSyncService: ProjectCatalogSyncService;
-    private readonly localMachineScope: string | null;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -47,7 +43,6 @@ export default class ProjectService extends BaseService {
     ) {
         super(context);
         this.colorService = colorService;
-        this.localMachineScope = createLocalMachineScopeId(syncOptions.localMachineId);
         this.catalogSyncService = new ProjectCatalogSyncService({
             getSyncData: () => this.getConfig<unknown>(PROJECT_SYNC_DATA_KEY),
             updateSyncData: value => this.configurationSection.update(
@@ -73,9 +68,10 @@ export default class ProjectService extends BaseService {
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ GET ~~~~~~~~~~~~~~~~~~~~~~~~~
     getGroups(noSanitize = false): Group[] {
-        var groups = this.useSettingsStorage()
+        const remoteGroups = this.useSettingsStorage()
             ? this.catalogSyncService.getGroups()
             : this.getProjectsFromGlobalState();
+        var groups = mergeProjectStores(remoteGroups, this.getLocalProjects());
 
         if (!noSanitize) {
             groups = this.sanitizeGroups(groups);
@@ -122,10 +118,6 @@ export default class ProjectService extends BaseService {
         return [null, null];
     }
 
-    getLocalMachineScope(): string | null {
-        return this.localMachineScope;
-    }
-
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ ADD ~~~~~~~~~~~~~~~~~~~~~~~~~
     async addGroup(groupName: string, projects: Project[] = null): Promise<Group> {
         var groups = this.getGroups();
@@ -160,12 +152,7 @@ export default class ProjectService extends BaseService {
             }
         }
 
-        this.applyLocalMachineScope(project);
-        const machineDisplayName = getMachineDisplayNameForPath(
-            groups,
-            project.path,
-            this.localMachineScope,
-        );
+        const machineDisplayName = getMachineDisplayNameForPath(groups, project.path);
         if (machineDisplayName && !project.machineDisplayName) {
             project.machineDisplayName = machineDisplayName;
         }
@@ -207,10 +194,6 @@ export default class ProjectService extends BaseService {
             if (project != null) {
                 const updatedPath = updatedProject.path || project.path;
                 const nextProject = { ...updatedProject, path: updatedPath } as Project;
-                this.applyLocalMachineScope(nextProject, project);
-                if (!isLocalMachineProjectPath(updatedPath)) {
-                    delete project.localMachineScope;
-                }
                 if (getMachineViewId(project.path) !== getMachineViewId(updatedPath)
                     && !Object.prototype.hasOwnProperty.call(
                         nextProject,
@@ -329,7 +312,7 @@ export default class ProjectService extends BaseService {
             return;
         }
         await this.catalogSyncService.reconcile();
-        await this.scopeLegacyLocalProjects();
+        await this.migrateLocalProjectsOutOfSelectedStorage();
     }
 
     consumeProjectCatalogWriteEcho(change: ProjectCatalogConfigurationChange): boolean {
@@ -337,16 +320,44 @@ export default class ProjectService extends BaseService {
             && this.catalogSyncService.consumeConfigurationWriteEcho(change);
     }
 
-    private saveGroupsWithMutation(
+    private async saveGroupsWithMutation(
         groups: Group[],
         options: ProjectCatalogMutationOptions = {}
-    ): Thenable<void> {
+    ): Promise<void> {
         groups = this.sanitizeGroups(groups);
+        const { remoteGroups, localGroups } = partitionProjectStores(groups);
+        const currentLocalGroups = this.getLocalProjects();
+        const remoteProjectIds = getProjectIds(remoteGroups);
+        const retainedLocalGroups = filterProjectGroups(
+            currentLocalGroups,
+            project => remoteProjectIds.has(project.id),
+        );
+
+        // Stage destination copies before changing either source. A Local → Remote
+        // move retains its Local copy until the Remote write succeeds; a Remote →
+        // Local move writes the Local copy before deleting the synchronized one.
+        await this.saveLocalProjects(mergeProjectStores(localGroups, retainedLocalGroups));
 
         if (this.useSettingsStorage()) {
-            return this.catalogSyncService.saveGroups(groups, options).then(() => undefined);
+            const currentRemoteGroups = this.catalogSyncService.getGroups();
+            const desiredLocalIds = getProjectIds(localGroups);
+            const localIdsInRemoteStore = getProjectIds(filterProjectGroups(
+                currentRemoteGroups,
+                project => isLocalMachineProjectPath(project.path)
+                    || desiredLocalIds.has(project.id),
+            ));
+            await this.catalogSyncService.saveGroups(remoteGroups, {
+                deletedGroupIds: options.deletedGroupIds,
+                deletedProjectIds: Array.from(new Set([
+                    ...(options.deletedProjectIds || []),
+                    ...localIdsInRemoteStore,
+                ])),
+            });
+        } else {
+            await this.saveGroupsInGlobalState(remoteGroups);
         }
-        return this.saveGroupsInStorage(groups);
+
+        await this.saveLocalProjects(localGroups);
     }
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ STORAGE ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -377,6 +388,10 @@ export default class ProjectService extends BaseService {
         return groups;
     }
 
+    private getLocalProjects(): Group[] {
+        return this.context.globalState.get(LOCAL_PROJECTS_KEY, []) as Group[];
+    }
+
     private getProjectsFromSettings(unsafe: boolean = false): Group[] {
         var groups = this.getConfig<Group[]>('projectData');
 
@@ -387,21 +402,12 @@ export default class ProjectService extends BaseService {
         return groups;
     }
 
-    private saveGroupsInStorage(groups: Group[], storage: StorageOption = null): Thenable<void> {
-        storage = storage || this.getCurrentStorageOption();
-
-        switch (storage) {
-            case StorageOption.Settings:
-                return this.saveGroupsInSettings(groups);
-            case StorageOption.GlobalState:
-                return this.saveGroupsInGlobalState(groups);
-            default:
-                return Promise.resolve();
-        }
-    }
-
     private saveGroupsInGlobalState(groups: Group[]): Thenable<void> {
         return this.context.globalState.update(PROJECTS_KEY, groups);
+    }
+
+    private saveLocalProjects(groups: Group[]): Thenable<void> {
+        return this.context.globalState.update(LOCAL_PROJECTS_KEY, groups);
     }
 
     private saveGroupsInSettings(groups: Group[]): Thenable<void> {
@@ -435,12 +441,11 @@ export default class ProjectService extends BaseService {
 
         var storageOptionToCopyFrom = this.getStorageOptionsWithData().find(s => s !== this.getCurrentStorageOption());
 
-        var projects = this.getProjectsFromStorage(storageOptionToCopyFrom, true);
-        await this.saveGroupsInStorage(projects);
-        if (this.useSettingsStorage()) {
-            await this.catalogSyncService.reconcile();
-        }
-        await this.scopeLegacyLocalProjects();
+        const projects = mergeProjectStores(
+            this.getProjectsFromStorage(storageOptionToCopyFrom, true),
+            this.getLocalProjects(),
+        );
+        await this.saveGroups(projects);
     }
 
     async migrateDataIfNeeded() {
@@ -453,7 +458,7 @@ export default class ProjectService extends BaseService {
             toMigrate = projectsInSettings == null && projectsInGlobalState != null;
 
             if (toMigrate) {
-                await this.saveGroupsInSettings(projectsInGlobalState);
+                await this.saveGroups(projectsInGlobalState);
             }
 
             //await this.saveGroupsInGlobalState(null);
@@ -462,7 +467,7 @@ export default class ProjectService extends BaseService {
             toMigrate = projectsInGlobalState == null && projectsInSettings != null;
 
             if (toMigrate) {
-                await this.saveGroupsInGlobalState(projectsInSettings);
+                await this.saveGroups(projectsInSettings);
             }
 
             //await this.saveGroupsInSettings(null);
@@ -473,8 +478,8 @@ export default class ProjectService extends BaseService {
             await this.catalogSyncService.reconcile();
         }
 
-        const scopedLocalProjects = await this.scopeLegacyLocalProjects();
-        return scopedLocalProjects || toMigrate;
+        const movedLocalProjects = await this.migrateLocalProjectsOutOfSelectedStorage();
+        return movedLocalProjects || toMigrate;
     }
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ HELPERS ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -488,55 +493,89 @@ export default class ProjectService extends BaseService {
                 g.id = Group.getRandomId();
             }
         }
-        this.applyMissingLocalMachineScopes(groups);
+        for (const group of groups) {
+            for (const project of group.projects || []) {
+                delete (project as Project & { localMachineScope?: string }).localMachineScope;
+            }
+        }
 
         return groups;
     }
 
-    private applyLocalMachineScope(project: Project, previous?: Project): void {
-        if (!isLocalMachineProjectPath(project.path)) {
-            delete project.localMachineScope;
-            return;
+    private async migrateLocalProjectsOutOfSelectedStorage(): Promise<boolean> {
+        const remoteGroups = this.useSettingsStorage()
+            ? this.catalogSyncService.getGroups()
+            : this.getProjectsFromGlobalState();
+        const localProjectsInRemoteStore = filterProjectGroups(
+            remoteGroups,
+            project => isLocalMachineProjectPath(project.path),
+        );
+        if (!getProjectIds(localProjectsInRemoteStore).size) {
+            return false;
         }
-        const previousScope = normalizeLocalMachineScope(previous?.localMachineScope);
-        if (previousScope) {
-            project.localMachineScope = previousScope;
-        } else if (this.localMachineScope) {
-            project.localMachineScope = this.localMachineScope;
-        } else {
-            delete project.localMachineScope;
-        }
+        await this.saveGroups(mergeProjectStores(remoteGroups, this.getLocalProjects()));
+        return true;
     }
+}
 
-    private async scopeLegacyLocalProjects(): Promise<boolean> {
-        if (!this.localMachineScope) { return false; }
-        const groups = this.getGroups(true);
-        const changed = this.applyMissingLocalMachineScopes(groups);
-        if (changed) {
-            await this.saveGroups(groups);
+function cloneGroups(groups: Group[]): Group[] {
+    return JSON.parse(JSON.stringify(Array.isArray(groups) ? groups : []));
+}
+
+function filterProjectGroups(
+    groups: Group[],
+    predicate: (project: Project) => boolean,
+): Group[] {
+    return cloneGroups(groups).map(group => ({
+        ...group,
+        projects: (group.projects || []).filter(predicate),
+    } as Group)).filter(group => group.projects.length > 0);
+}
+
+function partitionProjectStores(groups: Group[]): {
+    remoteGroups: Group[];
+    localGroups: Group[];
+} {
+    const sanitized = cloneGroups(groups);
+    return {
+        // Group metadata remains shared so tags/names stay consistent. Only Local
+        // Project records and their paths are excluded from synchronization.
+        remoteGroups: sanitized.map(group => ({
+            ...group,
+            projects: (group.projects || []).filter(project =>
+                !isLocalMachineProjectPath(project.path)),
+        } as Group)),
+        localGroups: filterProjectGroups(
+            sanitized,
+            project => isLocalMachineProjectPath(project.path),
+        ),
+    };
+}
+
+function mergeProjectStores(remoteGroups: Group[], localGroups: Group[]): Group[] {
+    const merged = cloneGroups(remoteGroups);
+    const groupsById = new Map(merged.map(group => [group.id, group]));
+    const projectIds = getProjectIds(merged);
+    for (const localGroup of cloneGroups(localGroups)) {
+        let target = groupsById.get(localGroup.id);
+        if (!target) {
+            target = { ...localGroup, projects: [] } as Group;
+            groupsById.set(localGroup.id, target);
+            merged.push(target);
         }
-        return changed;
-    }
-
-    private applyMissingLocalMachineScopes(groups: Group[]): boolean {
-        if (!this.localMachineScope) { return false; }
-        let changed = false;
-        for (const group of groups) {
-            for (const project of group.projects || []) {
-                if (isLocalMachineProjectPath(project.path)) {
-                    if (!normalizeLocalMachineScope(project.localMachineScope)) {
-                        project.localMachineScope = this.localMachineScope;
-                        changed = true;
-                    }
-                } else if (Object.prototype.hasOwnProperty.call(
-                    project,
-                    'localMachineScope',
-                )) {
-                    delete project.localMachineScope;
-                    changed = true;
-                }
+        for (const project of localGroup.projects || []) {
+            if (!projectIds.has(project.id)) {
+                target.projects.push(project);
+                projectIds.add(project.id);
             }
         }
-        return changed;
     }
+    return merged;
+}
+
+function getProjectIds(groups: Group[]): Set<string> {
+    return new Set((groups || []).reduce(
+        (ids, group) => ids.concat((group.projects || []).map(project => project.id)),
+        [] as string[],
+    ));
 }

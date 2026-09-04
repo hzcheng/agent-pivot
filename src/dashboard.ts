@@ -9,10 +9,7 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
-import {
-    buildMachineProjectsViewModel,
-    filterGroupsForLocalMachine,
-} from './projects/machineProjectsViewModel';
+import { buildMachineProjectsViewModel } from './projects/machineProjectsViewModel';
 import { renderMachineProjectsPanel } from './webview/webviewMachineProjectsContent';
 import {
     getEffectiveRunningCardAnimation,
@@ -688,19 +685,6 @@ async function initializeDashboard(
         fileService,
         gitRepositoryDetector,
     } = createProjectServices({ context, logDashboardDiagnostic });
-    const getMachineScopedProjectGroups = (): import('./models').Group[] =>
-        filterGroupsForLocalMachine(
-            projectService.getGroups(),
-            projectService.getLocalMachineScope(),
-        );
-    const getPresentedProjectGroups = (): import('./models').Group[] => {
-        return getAgentPivotConfiguration().get<boolean>(
-            'remoteMachineProjects.enabled',
-            false,
-        ) === true
-            ? getMachineScopedProjectGroups()
-            : projectService.getGroups();
-    };
     const promptConfiguration = getAgentPivotConfiguration();
     const promptStore = await initializePromptMementoStore({
         globalState: context.globalState,
@@ -1660,7 +1644,7 @@ async function initializeDashboard(
         isVisible: () => provider.visible,
         invalidateCache: providerId => invalidateAiSessionCache(providerId),
         watchSessionChanges: (providerId, onDidChange) => getRegisteredAiSessionProvider(providerId).service.watchSessionChanges(onDidChange),
-        getGroups: getPresentedProjectGroups,
+        getGroups: () => projectService.getGroups(),
         getSkillRecords: () => skillPanel.getRecords(),
         getCards: projection => getOpenWorkspaceCards(projection),
         buildAiSessionsUpdatedMessage,
@@ -2390,7 +2374,7 @@ async function initializeDashboard(
         projectService,
         renderProjectsPanel: (groups, infos) => renderProjectsPanel(groups, infos),
         getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
-            getPresentedProjectGroups(),
+            projectService.getGroups(),
             getOpenWorkspaceCards(),
             skillPanel.getRecords(),
         ),
@@ -2779,7 +2763,7 @@ async function initializeDashboard(
             return getStewardContent(
                 context,
                 webview,
-                getPresentedProjectGroups(),
+                projectService.getGroups(),
                 stewardInfos,
                 true,
                 cards,
@@ -2900,7 +2884,7 @@ async function initializeDashboard(
             );
             return transaction;
         },
-        getGroups: getPresentedProjectGroups,
+        getGroups: () => projectService.getGroups(),
         getSkillRecords: () => skillPanel.getRecords(),
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
@@ -3450,15 +3434,12 @@ async function initializeDashboard(
         if (infos.config.get<boolean>('remoteMachineProjects.enabled', false) !== true) {
             return getProjectsPanelContent(groups, infos);
         }
-        return renderMachineProjectsPanel(buildMachineProjectsViewModel(
-            groups,
-            projectService.getLocalMachineScope(),
-        ));
+        return renderMachineProjectsPanel(buildMachineProjectsViewModel(groups));
     };
     projectsPanelController = new ProjectsPanelController({
         getGroups: () => projectService.getGroups(),
         getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
-            getPresentedProjectGroups(),
+            projectService.getGroups(),
             getOpenWorkspaceCards(),
             skillPanel.getRecords(),
         ),
@@ -4082,10 +4063,7 @@ async function initializeDashboard(
         }
         try {
             return findSavedProjectForOpenProject(
-                getMachineScopedProjectGroups().reduce(
-                    (projects, group) => projects.concat(group.projects || []),
-                    [] as Project[],
-                ),
+                projectService.getProjectsFlat(),
                 vscode.Uri.parse(workspace.navigationUri),
                 vscode.env.remoteName,
             );

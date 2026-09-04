@@ -70,7 +70,6 @@ export function createProjectControllers(deps: ProjectControllersDeps) {
     });
     const machineRenameController = new MachineRenameController({
         getGroups: () => projectService.getGroups(),
-        localMachineScope: projectService.getLocalMachineScope(),
         saveGroups: groups => projectService.saveGroups(groups),
         showInputBox: options => vscode.window.showInputBox(options),
         showWarningMessage: message => vscode.window.showWarningMessage(message),

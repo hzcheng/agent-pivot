@@ -84,43 +84,9 @@ interface MachineBuilder extends MachineRowViewModel {
 
 const REMOTE_URI_PREFIX = 'vscode-remote://';
 export const MACHINE_DISPLAY_NAME_MAX_LENGTH = 80;
-const LOCAL_MACHINE_SCOPE_PATTERN = /^local-machine-[a-f0-9]{16}$/;
-
-export function createLocalMachineScopeId(machineId: unknown): string | null {
-    if (typeof machineId !== 'string' || !machineId.trim()) { return null; }
-    return stableViewId('local-machine', machineId.trim());
-}
-
-export function normalizeLocalMachineScope(value: unknown): string | null {
-    return typeof value === 'string' && LOCAL_MACHINE_SCOPE_PATTERN.test(value)
-        ? value
-        : null;
-}
 
 export function isLocalMachineProjectPath(projectPath: string): boolean {
     return deriveProjectTopology(projectPath).machineKey === 'local';
-}
-
-export function isProjectVisibleOnLocalMachine(
-    project: Project,
-    localMachineScope: string | null = null,
-): boolean {
-    if (!isLocalMachineProjectPath(project.path) || !localMachineScope) {
-        return true;
-    }
-    const projectScope = normalizeLocalMachineScope(project.localMachineScope);
-    return !projectScope || projectScope === localMachineScope;
-}
-
-export function filterGroupsForLocalMachine(
-    groups: readonly Group[],
-    localMachineScope: string | null,
-): Group[] {
-    return (groups || []).map(group => ({
-        ...group,
-        projects: (group?.projects || []).filter(project =>
-            isProjectVisibleOnLocalMachine(project, localMachineScope)),
-    } as Group));
 }
 
 export function normalizeMachineDisplayName(value: unknown): string | null {
@@ -141,7 +107,6 @@ export function withMachineDisplayName(
     groups: readonly Group[],
     machineId: string,
     displayName: string | null,
-    localMachineScope: string | null = null,
 ): Group[] | null {
     const normalized = displayName === null ? null : normalizeMachineDisplayName(displayName);
     if (typeof machineId !== 'string' || !machineId
@@ -153,8 +118,7 @@ export function withMachineDisplayName(
         let changed = false;
         const projects = (group?.projects || []).map(project => {
             const topology = deriveProjectTopology(project.path);
-            if (!isProjectVisibleOnLocalMachine(project, localMachineScope)
-                || getMachineViewId(project.path) !== machineId) {
+            if (getMachineViewId(project.path) !== machineId) {
                 return project;
             }
             matched = true;
@@ -179,10 +143,9 @@ export function getMachineViewId(projectPath: string): string {
 export function getMachineDisplayNameForPath(
     groups: readonly Group[],
     projectPath: string,
-    localMachineScope: string | null = null,
 ): string | null {
     const machineKey = deriveProjectTopology(projectPath).machineKey;
-    return resolveMachineDisplayNames(groups, localMachineScope).get(machineKey) || null;
+    return resolveMachineDisplayNames(groups).get(machineKey) || null;
 }
 
 /**
@@ -191,21 +154,15 @@ export function getMachineDisplayNameForPath(
  * profile participates in this projection. The Project path is copied exactly
  * so Project activation can continue through the existing opener.
  */
-export function buildMachineProjectsViewModel(
-    groups: readonly Group[],
-    localMachineScope: string | null = null,
-): MachineProjectsViewModel {
+export function buildMachineProjectsViewModel(groups: readonly Group[]): MachineProjectsViewModel {
     const machines = new Map<string, MachineBuilder>();
     const rowByProject = new Map<Project, MachineProjectRowViewModel>();
     const allProjects: Project[] = [];
     const tagsByKey = new Map<string, string>();
-    const displayNames = resolveMachineDisplayNames(groups, localMachineScope);
+    const displayNames = resolveMachineDisplayNames(groups);
 
     for (const group of groups || []) {
         for (const project of group?.projects || []) {
-            if (!isProjectVisibleOnLocalMachine(project, localMachineScope)) {
-                continue;
-            }
             const topology = deriveProjectTopology(project.path);
             let machine = machines.get(topology.machineKey);
             if (!machine) {
@@ -316,16 +273,10 @@ export function buildMachineProjectsViewModel(
     };
 }
 
-function resolveMachineDisplayNames(
-    groups: readonly Group[],
-    localMachineScope: string | null,
-): Map<string, string> {
+function resolveMachineDisplayNames(groups: readonly Group[]): Map<string, string> {
     const votesByMachine = new Map<string, Map<string, number>>();
     for (const group of groups || []) {
         for (const project of group?.projects || []) {
-            if (!isProjectVisibleOnLocalMachine(project, localMachineScope)) {
-                continue;
-            }
             const displayName = normalizeMachineDisplayName(project.machineDisplayName);
             if (!displayName) { continue; }
             const topology = deriveProjectTopology(project.path);
@@ -353,7 +304,6 @@ function resolveMachineDisplayNames(
 export function resolveMachineHostTarget(
     groups: readonly Group[],
     target: { machineId: string; projectId: string },
-    localMachineScope: string | null = null,
 ): MachineHostTarget | null {
     if (!target || typeof target.machineId !== 'string'
         || typeof target.projectId !== 'string') {
@@ -363,9 +313,6 @@ export function resolveMachineHostTarget(
         const project = (group?.projects || []).find(candidate =>
             candidate.id === target.projectId);
         if (!project) { continue; }
-        if (!isProjectVisibleOnLocalMachine(project, localMachineScope)) {
-            return null;
-        }
         const topology = deriveProjectTopology(project.path);
         if (stableViewId('machine', topology.machineKey) !== target.machineId) {
             return null;

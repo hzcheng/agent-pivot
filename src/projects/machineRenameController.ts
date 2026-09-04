@@ -12,7 +12,6 @@ import {
 
 export interface MachineRenameControllerOptions {
     getGroups: () => Group[];
-    localMachineScope?: string | null;
     saveGroups: (groups: Group[]) => Thenable<unknown>;
     showInputBox: (options: vscode.InputBoxOptions) => Thenable<string | undefined>;
     showWarningMessage: (message: string) => unknown;
@@ -25,10 +24,7 @@ export class MachineRenameController {
 
     async renameMachine(machineId: string): Promise<void> {
         const groups = this.options.getGroups();
-        const model = buildMachineProjectsViewModel(
-            groups,
-            this.options.localMachineScope,
-        );
+        const model = buildMachineProjectsViewModel(groups);
         const machine = model.machines.find(candidate => candidate.id === machineId);
         if (!machine) {
             this.options.showWarningMessage('The Machine no longer exists.');
@@ -66,10 +62,7 @@ export class MachineRenameController {
 
     async resetMachineName(machineId: string): Promise<void> {
         const groups = this.options.getGroups();
-        const machine = buildMachineProjectsViewModel(
-            groups,
-            this.options.localMachineScope,
-        ).machines
+        const machine = buildMachineProjectsViewModel(groups).machines
             .find(candidate => candidate.id === machineId);
         if (!machine) {
             this.options.showWarningMessage('The Machine no longer exists.');
@@ -87,7 +80,6 @@ export class MachineRenameController {
             this.options.getGroups(),
             machineId,
             displayName,
-            this.options.localMachineScope,
         );
         if (!updated) {
             this.options.showWarningMessage('The Machine no longer exists.');

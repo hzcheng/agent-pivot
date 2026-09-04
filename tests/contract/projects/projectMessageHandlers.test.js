@@ -50,7 +50,6 @@ function createFixture(overrides = {}) {
                     tags: [],
                 }],
             }],
-            getLocalMachineScope: () => overrides.localMachineScope || null,
         },
         projectOpenController: {
             openProject: overrides.failOpen

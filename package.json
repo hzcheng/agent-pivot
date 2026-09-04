@@ -196,7 +196,7 @@
                         "array",
                         "null"
                     ],
-                    "markdownDescription": "Stores the Agent Pivot data if the ```agentPivot.storeProjectsInSettings``` option is set to ```true```. The raw data can be edited by using the command ```Agent Pivot: Edit Projects```.",
+                    "markdownDescription": "Stores synchronized remote Agent Pivot Projects if ```agentPivot.storeProjectsInSettings``` is ```true```. Local Projects remain in extension storage on this computer. Use ```Agent Pivot: Edit Projects``` to edit the merged Project list.",
                     "default": null
                 },
                 "agentPivot.projectSyncData": {
@@ -287,7 +287,7 @@
                 "agentPivot.storeProjectsInSettings": {
                     "type": "boolean",
                     "default": true,
-                    "markdownDescription": "If set to ```true```, the Agent Pivot data is saved in the user settings and can be synced using the ```Settings Sync``` extension to multiple devices. NOTE: This disables the possibility of having varying Agent Pivot data on these devices. **(VSCode restart required)**"
+                    "markdownDescription": "If set to ```true```, remote Agent Pivot Projects are saved in user settings and can be synchronized across devices. Local paths and local containers always remain on this computer. **(VSCode restart required)**"
                 },
                 "agentPivot.remoteMachineProjects.enabled": {
                     "type": "boolean",

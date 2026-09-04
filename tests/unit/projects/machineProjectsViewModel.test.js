@@ -5,8 +5,6 @@ const test = require('node:test');
 
 const {
     buildMachineProjectsViewModel,
-    createLocalMachineScopeId,
-    filterGroupsForLocalMachine,
     normalizeMachineDisplayName,
     resolveMachineHostTarget,
     withMachineDisplayName,
@@ -150,43 +148,4 @@ test('MACHINE-PROJECTS-RENAME-001 projects share one synced display name without
         [undefined, undefined]);
     assert.equal(buildMachineProjectsViewModel(reset).machines[0].displayName, 'devbox');
     assert.equal(normalizeMachineDisplayName('x'.repeat(81)), null);
-});
-
-test('MACHINE-PROJECTS-LOCAL-SCOPE-001 shows only Local Projects owned by this physical machine', () => {
-    const scopeA = createLocalMachineScopeId('computer-a');
-    const scopeB = createLocalMachineScopeId('computer-b');
-    const source = [{
-        id: 'mixed', groupName: 'Mixed', projects: [{
-            id: 'local-a', name: 'Local A', path: '/work/a',
-            localMachineScope: scopeA, favorite: true, tags: ['a'],
-        }, {
-            id: 'local-b', name: 'Local B', path: '/work/b',
-            localMachineScope: scopeB, favorite: true, tags: ['b'],
-        }, {
-            id: 'remote', name: 'Remote',
-            path: 'vscode-remote://ssh-remote%2Bdevbox/work/remote',
-            tags: ['remote'],
-        }],
-    }];
-
-    const modelA = buildMachineProjectsViewModel(source, scopeA);
-    assert.equal(scopeA.includes('computer-a'), false, 'the persisted scope is one-way');
-    assert.equal(modelA.projectCount, 2);
-    assert.deepEqual(modelA.favorites.map(project => project.id), ['local-a']);
-    assert.deepEqual(modelA.tags, ['a', 'Mixed', 'remote']);
-    assert.deepEqual(modelA.machines.flatMap(machine => machine.environments)
-        .flatMap(environment => environment.projects)
-        .map(project => project.id), ['local-a', 'remote']);
-    assert.deepEqual(filterGroupsForLocalMachine(source, scopeA)[0].projects
-        .map(project => project.id), ['local-a', 'remote']);
-
-    const localMachine = modelA.machines.find(machine => machine.displayName === 'Local');
-    assert.equal(resolveMachineHostTarget(source, {
-        machineId: localMachine.id,
-        projectId: 'local-b',
-    }, scopeA), null);
-
-    const renamed = withMachineDisplayName(source, localMachine.id, 'Laptop A', scopeA);
-    assert.equal(renamed[0].projects[0].machineDisplayName, 'Laptop A');
-    assert.equal(renamed[0].projects[1].machineDisplayName, undefined);
 });

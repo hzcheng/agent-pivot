@@ -30,7 +30,6 @@ export function createProjectServices(deps: ProjectServicesDeps): ProjectService
     const { context, logDashboardDiagnostic } = deps;
     const colorService = new ColorService(context);
     const projectService = new ProjectService(context, colorService, {
-        localMachineId: vscode.env.machineId,
         onDiagnostic: event => logDashboardDiagnostic(event),
         onConflict: projectIds => {
             logDashboardDiagnostic({

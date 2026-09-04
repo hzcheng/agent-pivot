@@ -6898,21 +6898,18 @@
     ]
   },
   {
-    "id": "MACHINE-PROJECTS-LOCAL-SCOPE-001",
+    "id": "MACHINE-PROJECTS-LOCAL-STORE-001",
     "domain": "project",
-    "title": "Synchronized Local Projects are visible only on their owning physical computer while every remote Project remains cross-computer visible",
+    "title": "Local Projects remain in computer-local extension storage while Remote Projects remain synchronized",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/projects/machineProjectsViewModel.test.js",
-      "tests/unit/services/projectService.test.js",
-      "tests/contract/persistence/projectCatalogSync.test.js"
+      "tests/contract/persistence/projectLocalStorage.test.js"
     ],
     "evidence": [
-      "src/models.ts",
+      "src/constants.ts",
       "src/services/projectService.ts",
-      "src/projects/machineProjectsViewModel.ts",
-      "src/dashboard.ts"
+      "src/projects/machineProjectsViewModel.ts"
     ]
   },
   {

@@ -95,7 +95,7 @@ function makeCatalogGroups(projects = []) {
         projects: [{
             id: 'project-existing',
             name: 'Existing',
-            path: '/work/existing',
+            path: 'vscode-remote://ssh-remote%2Bdevbox/work/existing',
             color: '#112233',
         }, ...projects],
     }];
@@ -165,7 +165,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 preserves a project when a stale client 
         projects: [{
             id: 'project-existing',
             name: 'Existing',
-            path: '/work/existing',
+            path: 'vscode-remote://ssh-remote%2Bdevbox/work/existing',
             color: '#112233',
         }],
     }];
@@ -174,7 +174,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 preserves a project when a stale client 
     const added = {
         id: 'project-build-your-own-x',
         name: 'build-your-own-x',
-        path: '/work/build-your-own-x',
+        path: 'vscode-remote://ssh-remote%2Bdevbox/work/build-your-own-x',
         color: '#445566',
     };
 
@@ -194,7 +194,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 keeps an observed deletion after an olde
     const added = {
         id: 'project-build-your-own-x',
         name: 'build-your-own-x',
-        path: '/work/build-your-own-x',
+        path: 'vscode-remote://ssh-remote%2Bdevbox/work/build-your-own-x',
         color: '#445566',
     };
     await clientB.addProject(added, 'group-main');
@@ -214,7 +214,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 manual replacement deletes only baseline
     const removeTarget = {
         id: 'project-remove',
         name: 'Remove',
-        path: '/work/remove',
+        path: 'vscode-remote://ssh-remote%2Bdevbox/work/remove',
         color: '#991122',
     };
     const { clientA, clientB } = makeTwoClientHarness(makeCatalogGroups([removeTarget]));
@@ -224,7 +224,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 manual replacement deletes only baseline
     const remoteAddition = {
         id: 'project-remote-addition',
         name: 'Remote addition',
-        path: '/work/remote-addition',
+        path: 'vscode-remote://ssh-remote%2Bdevbox/work/remote-addition',
         color: '#229944',
     };
     await clientB.addProject(remoteAddition, 'group-main');
@@ -250,7 +250,7 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 model preserves unseen additions and obs
     const addedProject = {
         id: 'project-build-your-own-x',
         name: 'build-your-own-x',
-        path: '/work/build-your-own-x',
+        path: 'vscode-remote://ssh-remote%2Bdevbox/work/build-your-own-x',
         color: '#445566',
     };
     const base = migrateLegacyProjectCatalog(baseGroups, 'actor-a');
@@ -297,52 +297,6 @@ test('MACHINE-PROJECTS-RENAME-001 preserves Machine display names through the sy
         materializeProjectCatalog(merged.document)[0].projects[0].machineDisplayName,
         'Build Box',
     );
-});
-
-test('MACHINE-PROJECTS-LOCAL-SCOPE-001 keeps synchronized Local Projects on their owning computers', () => {
-    const {
-        applyProjectCatalogSnapshot,
-        materializeProjectCatalog,
-        mergeProjectCatalogDocuments,
-        migrateLegacyProjectCatalog,
-    } = loadProjectCatalogSyncModel();
-    const {
-        buildMachineProjectsViewModel,
-        createLocalMachineScopeId,
-    } = require('../../../out/projects/machineProjectsViewModel');
-    const scopeA = createLocalMachineScopeId('computer-a');
-    const scopeB = createLocalMachineScopeId('computer-b');
-    const initial = makeCatalogGroups();
-    initial[0].projects[0].localMachineScope = scopeA;
-    initial[0].projects.push({
-        id: 'project-remote',
-        name: 'Remote',
-        path: 'vscode-remote://ssh-remote%2Bdevbox/work/remote',
-        color: '#445566',
-    });
-    const base = migrateLegacyProjectCatalog(initial, 'actor-a');
-    const clientBGroups = clone(initial);
-    clientBGroups[0].projects.push({
-        id: 'project-local-b',
-        name: 'Local B',
-        path: '/work/local-b',
-        color: '#778899',
-        localMachineScope: scopeB,
-    });
-    const mergedGroups = materializeProjectCatalog(mergeProjectCatalogDocuments(
-        base,
-        applyProjectCatalogSnapshot(base, clientBGroups, 'actor-b'),
-    ).document);
-    const idsFor = scope => buildMachineProjectsViewModel(
-        mergedGroups,
-        scope,
-    ).machines.flatMap(machine => machine.environments)
-        .flatMap(environment => environment.projects)
-        .map(project => project.id)
-        .sort();
-
-    assert.deepEqual(idsFor(scopeA), ['project-existing', 'project-remote']);
-    assert.deepEqual(idsFor(scopeB), ['project-local-b', 'project-remote']);
 });
 
 test('PROJECT-CATALOG-SYNC-CONFLICT-001 model keeps a concurrent live update and reports recovery', () => {

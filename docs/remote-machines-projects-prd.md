@@ -18,8 +18,8 @@ Container。该数据会沿用现有项目设置和同步机制跨机器保存�
 - 如何直接打开远端 Host；
 - 如何用 tag 过滤跨 Machine 的 Project。
 
-本次重构不建立第二套项目目录；除 Machine 显示名称和 Local Project 归属这两个可选
-字段外，继续复用现有 Project 数据、同步与导航链路。
+本次重构不建立第二套用户可见目录；ProjectService 在内部合并本机 Local 存储和现有
+Remote 同步存储，继续复用原有模型与导航链路。
 
 ## 2. 产品目标
 
@@ -32,11 +32,11 @@ Container。该数据会沿用现有项目设置和同步机制跨机器保存�
 7. 当前 Group 名在新视图中作为兼容 tag 展示。
 8. 功能开关关闭后立即恢复原 Projects 页面。
 9. Machine 支持修改同步的显示名称，但不改变连接信息。
-10. Local Project 只在其所属物理机器上展示；远端 Project 继续跨机器展示。
+10. Local Project 只保存在当前物理机器；远端 Project 继续跨机器同步。
 
 ## 3. 非目标
 
-- 不引入 Project V2、CRDT、影子目录或恢复流程。
+- 不引入新的 Project 模型、用户可见目录或恢复界面。
 - 不把 Machine、Environment 作为新的持久化实体。
 - 不新增 Connection Profile、Setup、Assign、Repair 或 Preview 状态。
 - 不修改 UI Bridge 的 Project 协议或保存任何本机 SSH alias。
@@ -50,7 +50,6 @@ Container。该数据会沿用现有项目设置和同步机制跨机器保存�
 - `Project.id`：打开、收藏等操作的身份；
 - `Project.path`：本地路径或完整 remote URI；
 - `Project.machineDisplayName`：同一派生 Machine 共享的可选显示名称；
-- `Project.localMachineScope`：本地路径和本地容器所属计算机的可选不透明作用域；
 - `Project.remoteType`：旧数据兼容提示；
 - `Project.tags`：用户 tag；
 - `Project.favorite` / `favoriteOrder`：收藏及顺序；
@@ -64,11 +63,10 @@ Machine 改名时，把规范化后的 `machineDisplayName` 写入该 Machine �
 名称会删除这些可选字段。该字段只影响显示与搜索，不参与 Machine ID、连接 authority
 或 Project 打开 URI 的计算。
 
-`localMachineScope` 由 VS Code 的计算机标识经单向 SHA-256 截断派生，原始标识不写入
-同步数据。本地文件路径、本地 Dev Container 和 Attached Container 只在作用域匹配的
-计算机上进入视图、Favorites、结果计数和搜索；SSH、WSL、远端容器及其他 remote URI
-不受该字段限制。新增 Local Project 自动写入当前作用域；Project 从 Local 移到远端时
-删除作用域，从远端移到 Local 时写入当前作用域。
+本地文件路径、本地 Dev Container 和 Attached Container 写入 Extension
+`globalState['localProjects.v1']`，不进入 VS Code Settings Sync。SSH、WSL、远端容器及
+其他 remote URI 继续写入用户选择的 Project 存储。ProjectService 在读取时合并两类记录，
+因此 Favorites、计数、搜索和编辑链路不需要区分存储来源。
 
 ## 5. 派生规则
 
@@ -90,7 +88,7 @@ Machine 改名时，把规范化后的 `machineDisplayName` 写入该 Machine �
 - WSL 视为独立 Machine；
 - 派生 ID 只用于 DOM、折叠状态和点击时防止陈旧目标，不是持久化身份；
 - 无法识别的路径仍保留为可打开 Project，不进入“待分配”状态。
-- Local Machine 的归属按 `localMachineScope` 过滤，不以本地绝对路径是否碰巧存在作为判断。
+- Local Machine 的归属由本机存储决定，不以本地绝对路径是否碰巧存在作为判断。
 
 ## 6. 打开行为
 
@@ -160,14 +158,16 @@ Group 名只做派生兼容映射，不在后台批量改写 Project，也不改
 
 ## 9. 同步、兼容与回退
 
-- 同步完全沿用现有 Project 存储；remote URI 在不同机器得到相同层级，Local Project
-  虽保留在同步目录中但仅由所属机器投影；
+- Remote Project 沿用现有 Project 存储和 Settings Sync；Local Project 只保存在当前
+  Extension Host 的 `globalState['localProjects.v1']`，不写入 `projectData` 或
+  `projectSyncData`；
 - Machine 显示名称作为 Project 的可选字段沿用现有同步 key 与冲突处理，不执行数据迁移；
-- Local Project 作用域同样沿用现有同步 key；旧的无作用域 Local Project 在升级后由首个
-  完成迁移的计算机认领。历史数据没有来源信息，因此该首次认领无法反向精确推断；
+- 升级时先把同步目录中的 Local Project 写入本机存储，写入成功后再从同步目录删除；
+  如果中途失败，来源副本仍保留，下次启动可以重试；
+- 历史 Local Project 没有来源信息，因此由首台完成升级迁移的计算机接收；
 - `agentPivot.remoteMachineProjects.enabled=false` 时使用原 Projects renderer；
-- 旧版本会忽略可选显示名称和 Local 作用域字段；代码回退无需转换数据，但旧页面会恢复
-  展示同步目录中的全部 Local Project；
+- 回退代码不会删除本机 Local 数据，但不认识 `localProjects.v1` 的旧插件无法显示这些
+  Local Project；重新安装本版本即可恢复，Remote Project 不受影响；
 - 已安装的 UI Bridge 继续服务原有窗口/Project 导航，本功能不要求升级。
 
 ## 10. 验收标准
@@ -189,8 +189,8 @@ Group 名只做派生兼容映射，不在后台批量改写 Project，也不改
 - [ ] 260px 宽度下无水平滚动，核心操作仍可访问。
 - [ ] 关闭功能开关后原 Projects 页立即恢复，Project 数据无变化。
 - [ ] Machine 可以修改和重置显示名称；名称跨设备同步且不改变连接 URI。
-- [ ] 两台物理机器各自新增的 Local Project 仍同步保存，但只在所属机器的 Projects
-      视图、Favorites、计数和搜索中出现。
+- [ ] 两台物理机器各自新增的 Local Project 不进入 `projectData`/`projectSyncData`，只在
+      本机 Projects 视图、Favorites、计数和搜索中出现。
 - [ ] Remote、SSH、WSL 与远端 Dev Container Project 在不同物理机器上仍保持可见。
 
 ## 11. 交付节奏

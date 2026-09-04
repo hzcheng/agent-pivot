@@ -338,6 +338,51 @@
         "writerFacade": true
       },
       "tracking": "ARCH-CHANGE-001"
+    },
+    {
+      "id": "ARCH-MANAGED-REMOTE-CATALOG-WRITER-001",
+      "module": "MOD-PROJECT-CATALOG",
+      "productCapabilities": [
+        "MAIN-PROJECT-CATALOG-CONSISTENCY"
+      ],
+      "priority": "P0",
+      "kind": "concurrency",
+      "statement": "The synchronized Managed Remote envelope is staged, reconciled, activated, or discarded only through ManagedCatalogCoordinator; domain catalog services cannot write the backend directly.",
+      "authority": {
+        "path": "src/projects/managedRemote/store.ts",
+        "symbol": "ManagedCatalogCoordinator"
+      },
+      "writers": [
+        "src/projects/managedRemote/store.ts"
+      ],
+      "linearizationPoint": "The coordinator publishes a causally joined envelope after first persisting its writer-local staged candidate.",
+      "enforcement": [
+        "single-writer",
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/contract/projects/managedRemoteEnvelope.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "src/projects/managedRemote/store.ts",
+        "src/projects/managedRemote/catalogService.ts"
+      ],
+      "stateFamily": {
+        "storePath": "src/projects/managedRemote/store.ts",
+        "writeMethods": [
+          "stageCatalog",
+          "activateStagedCatalog",
+          "discardStagedCatalog",
+          "activateRecoveryCandidate",
+          "discardRecoveryCandidate",
+          "rollBackToPrevious",
+          "discardRecoveryState"
+        ],
+        "writerFacade": true
+      }
     }
   ]
 }

@@ -7007,6 +7007,154 @@
     ]
   },
   {
+    "id": "MANAGED-REMOTE-CATALOG-001",
+    "domain": "project",
+    "title": "Managed Machines own validated SSH endpoints, one fixed Host, and Projects whose Environment placement cannot be edited",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteCatalog.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/catalogService.ts",
+      "src/projects/managedRemote/validation.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-CATALOG-002",
+    "domain": "persistence",
+    "title": "Managed catalog joins are deterministic and preserve concurrent update and delete candidates for review",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteCatalog.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/causal.ts",
+      "src/projects/managedRemote/merge.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-CATALOG-003",
+    "domain": "persistence",
+    "title": "Every live relationship and Environment-kind candidate participates in destructive-operation guards",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteCatalog.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/catalogService.ts",
+      "src/projects/managedRemote/merge.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-CATALOG-004",
+    "domain": "persistence",
+    "title": "Causal metadata remains merge-closed when a catalog gains a writer after ten thousand historical actors",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteCatalog.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/causal.ts",
+      "src/projects/managedRemote/validation.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-ENVELOPE-001",
+    "domain": "persistence",
+    "title": "Managed authority envelopes join deterministically and expose intact recovery revisions when another slot is corrupt",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteEnvelope.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/envelope.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-ENVELOPE-002",
+    "domain": "persistence",
+    "title": "Writer-local staging survives partial publication and repairs either missing synchronized or replica state",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteEnvelope.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/store.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-COMPATIBILITY-001",
+    "domain": "persistence",
+    "title": "Old-client changes to frozen Project settings are retained as explicit divergence branches",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteEnvelope.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/legacyCompatibilityGuard.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-MIGRATION-001",
+    "domain": "project",
+    "title": "Migration classifies explicit SSH targets, local-only records, and unresolved aliases without dropping V1 identity or Group tags",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteMigration.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/migrationPlan.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-MIGRATION-002",
+    "domain": "project",
+    "title": "A computer-local WSL Project becomes managed only through explicit SSH endpoint, port, path, and rehearsal state",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteMigration.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/migrationPlan.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-DEV-CONTAINER-001",
+    "domain": "open-project",
+    "title": "Known Remote-SSH Dev Container authorities round-trip through a stable managed alias while unknown or attached formats fail closed",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteMigration.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/devContainerCodec.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-PERFORMANCE-001",
+    "domain": "persistence",
+    "title": "A two-candidate 50-Machine 500-Project catalog merges within budget and its active, previous, and rollback envelope stays below the product ceiling",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemotePerformance.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/merge.ts",
+      "src/projects/managedRemote/payload.ts"
+    ]
+  },
+  {
     "id": "WORKTREE-SNAPSHOT-001",
     "domain": "session",
     "title": "Worktree snapshots refresh automatically with single-flight generation safety and flow coherently through session hydration and presentation",

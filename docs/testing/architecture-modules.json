@@ -738,6 +738,11 @@
         "src/projects/projectPromptController.ts",
         "src/projects/projectRemovalController.ts",
         "src/projects/projectTags.ts",
+        "src/projects/managedRemote/catalogService.ts",
+        "src/projects/managedRemote/legacyCompatibilityGuard.ts",
+        "src/projects/managedRemote/migrationPlan.ts",
+        "src/projects/managedRemote/store.ts",
+        "src/projects/managedRemote/types.ts",
         "src/projects/remoteProjectResolver.ts",
         "src/projects/workspaceHelpers.ts",
         "src/services/colorService.ts",
@@ -762,14 +767,22 @@
             "src/projects/favoriteProjectOrder.ts",
             "src/projects/projectNavigationProtocol.ts",
             "src/projects/projectCatalogSync.ts",
-            "src/projects/projectTags.ts"
+            "src/projects/projectTags.ts",
+            "src/projects/managedRemote/causal.ts",
+            "src/projects/managedRemote/devContainerCodec.ts",
+            "src/projects/managedRemote/envelope.ts",
+            "src/projects/managedRemote/merge.ts",
+            "src/projects/managedRemote/payload.ts",
+            "src/projects/managedRemote/types.ts",
+            "src/projects/managedRemote/validation.ts"
           ]
         },
         {
           "role": "infrastructure",
           "include": [
             "src/services/**",
-            "src/projects/gitRepositoryDetector.ts"
+            "src/projects/gitRepositoryDetector.ts",
+            "src/projects/managedRemote/store.ts"
           ]
         },
         {

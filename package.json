@@ -207,6 +207,15 @@
                     "markdownDescription": "Versioned Agent Pivot sync metadata. Use Agent Pivot commands to edit projects.",
                     "default": null
                 },
+                "agentPivot.managedRemoteCatalogData": {
+                    "type": [
+                        "object",
+                        "null"
+                    ],
+                    "scope": "application",
+                    "markdownDescription": "Versioned synchronized Managed Remote Machine and Project catalog. This value is maintained by Agent Pivot; do not edit it manually.",
+                    "default": null
+                },
                 "agentPivot.promptData": {
                     "type": "object",
                     "scope": "application",

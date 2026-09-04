@@ -10,7 +10,6 @@ import { performance } from 'perf_hooks';
 import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getStewardContent } from './webview/webviewContent';
 import { buildMachineProjectsViewModel } from './projects/machineProjectsViewModel';
-import { renderMachineProjectsPanel } from './webview/webviewMachineProjectsContent';
 import { renderManagedRemoteProjectsPanel } from './webview/webviewManagedRemoteProjectsContent';
 import { buildManagedRemoteProjectsViewModel } from './projects/managedRemote/viewModel';
 import {
@@ -37,9 +36,6 @@ import {
     MANAGED_REMOTE_CATALOG_DATA_KEY,
     MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
     OPEN_TAB_LAST_FOCUSED_NAVIGATION_AT_MS_KEY,
-    PROJECTS_KEY,
-    PROJECT_SYNC_DATA_KEY,
-    PROJECT_SYNC_LOCAL_STATE_KEY,
     USER_CANCELED,
     RelevantExtensions,
     REOPEN_KEY,
@@ -987,7 +983,6 @@ async function initializeDashboard(
     let managedRemoteSnapshot = createDisabledManagedRemoteSnapshot(
         managedRemoteCatalogActorId,
     );
-    let managedRemoteLegacyStorageRetired = false;
     let managedRemoteClientState: ManagedRemoteClientUiState = 'preview';
     let managedRemoteCapability: ManagedRemoteManagementCapability | undefined;
     const managedRemoteBridgeClient = new ManagedRemoteBridgeClient(vscode.commands);
@@ -1000,47 +995,8 @@ async function initializeDashboard(
             writerIdentityMemento: context.workspaceState,
             localReplicaKey: MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
             catalogActorId: managedRemoteCatalogActorId,
-            migrationSource: {
-                getGroups: () => projectService.getRemoteGroupsForManagedMigration(),
-                getProjectData: () => promptConfiguration.get('projectData'),
-                getProjectSyncData: () => promptConfiguration.get(PROJECT_SYNC_DATA_KEY),
-                clearLegacyData: async () => {
-                    managedRemoteLegacyStorageRetired = true;
-                    projectService.retireLegacyRemoteCache();
-                    await context.globalState.update(PROJECTS_KEY, undefined);
-                    await context.globalState.update(
-                        PROJECT_SYNC_LOCAL_STATE_KEY,
-                        undefined,
-                    );
-                    await promptConfiguration.update(
-                        'projectData',
-                        undefined,
-                        vscode.ConfigurationTarget.Global,
-                    );
-                    await promptConfiguration.update(
-                        PROJECT_SYNC_DATA_KEY,
-                        undefined,
-                        vscode.ConfigurationTarget.Global,
-                    );
-                },
-                restoreLegacyData: async snapshot => {
-                    await promptConfiguration.update(
-                        'projectData',
-                        snapshot.projectData === null ? undefined : snapshot.projectData,
-                        vscode.ConfigurationTarget.Global,
-                    );
-                    await promptConfiguration.update(
-                        PROJECT_SYNC_DATA_KEY,
-                        snapshot.projectSyncData === null ? undefined : snapshot.projectSyncData,
-                        vscode.ConfigurationTarget.Global,
-                    );
-                    projectService.resumeLegacyRemoteCache();
-                    managedRemoteLegacyStorageRetired = false;
-                },
-            },
             prompts: new ManagedRemotePromptController(
                 new VscodeManagedRemoteWizardUi(vscode.window),
-                target => managedRemoteBridgeClient.inspectLegacySshTarget(target),
             ),
             refreshAuthoritative: async (_requestId, _operation, snapshot) => {
                 managedRemoteSnapshot = snapshot;
@@ -1058,9 +1014,14 @@ async function initializeDashboard(
     void managedRemoteCapabilityPromise.then(async capability => {
         managedRemoteCapability = capability;
         managedRemoteSnapshot = capability.snapshot;
-        if ((managedRemoteSnapshot.lifecycle === 'active'
-            || (managedRemoteSnapshot.lifecycle === 'preview'
-                && managedRemoteSnapshot.migrationPlanId))
+        logDashboardDiagnostic({
+            event: 'managed-remote-catalog-ready',
+            lifecycle: managedRemoteSnapshot.lifecycle,
+            machineCount: managedRemoteSnapshot.catalog.machines.length,
+            environmentCount: managedRemoteSnapshot.catalog.environments.length,
+            projectCount: managedRemoteSnapshot.catalog.projects.length,
+        });
+        if (managedRemoteSnapshot.lifecycle === 'active'
             && managedRemoteSnapshot.revisionId) {
             await managedRemoteClientActions.enableAutomatically(
                 managedRemoteSnapshot.revisionId,
@@ -1094,12 +1055,6 @@ async function initializeDashboard(
             const capability = managedRemoteCapability
                 || await managedRemoteCapabilityPromise;
             managedRemoteSnapshot = await capability.reconcile();
-            return managedRemoteSnapshot;
-        },
-        activateMigration: async expectedRevisionId => {
-            const capability = managedRemoteCapability
-                || await managedRemoteCapabilityPromise;
-            managedRemoteSnapshot = await capability.activateMigration(expectedRevisionId);
             return managedRemoteSnapshot;
         },
         bridge: managedRemoteBridgeClient,
@@ -3662,23 +3617,17 @@ async function initializeDashboard(
         get skills() { return skillPanel.getRecords() },
     };
     const renderProjectsPanel = (
-        groups: import('./models').Group[],
+        _groups: import('./models').Group[],
         infos: StewardInfos,
     ): string => {
-        if (managedRemoteSnapshot.lifecycle !== 'disabled') {
-            return renderManagedRemoteProjectsPanel(
-                buildManagedRemoteProjectsViewModel(
-                    managedRemoteSnapshot,
-                    managedRemoteClientState,
-                ),
-                buildMachineProjectsViewModel(
-                    projectService.getLocalGroupsForDisplay(),
-                ),
-            );
-        }
-        return renderMachineProjectsPanel(
-            buildMachineProjectsViewModel(groups),
-            managedRemoteSnapshot.revisionId,
+        return renderManagedRemoteProjectsPanel(
+            buildManagedRemoteProjectsViewModel(
+                managedRemoteSnapshot,
+                managedRemoteClientState,
+            ),
+            buildMachineProjectsViewModel(
+                projectService.getLocalGroupsForDisplay(),
+            ),
         );
     };
     projectsPanelController = new ProjectsPanelController({
@@ -3746,8 +3695,7 @@ async function initializeDashboard(
         checkDataMigration: async openStewardAfterMigrate => {
             await dashboardStartupController.checkDataMigration(openStewardAfterMigrate);
         },
-        reconcileProjectCatalog: () => managedRemoteLegacyStorageRetired
-            || managedRemoteSnapshot.lifecycle === 'active'
+        reconcileProjectCatalog: () => managedRemoteSnapshot.lifecycle === 'active'
             ? Promise.resolve()
             : projectService.reconcileProjectCatalog(),
         reconcileManagedRemoteCatalog: async () => {

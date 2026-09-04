@@ -10,8 +10,7 @@ export type ManagedRemoteManagementOperation =
     | 'editProject'
     | 'removeProject'
     | 'toggleFavorite'
-    | 'resolveMachineConflict'
-    | 'rollbackMigration';
+    | 'resolveMachineConflict';
 
 export interface ManagedRemoteManagementRequest {
     type: 'managed-remote-action';
@@ -85,7 +84,6 @@ export function parseManagedRemoteManagementRequest(
         'removeProject',
         'toggleFavorite',
         'resolveMachineConflict',
-        'rollbackMigration',
     ].includes(operation) || !isRevisionId(value.expectedRevisionId)) {
         return null;
     }

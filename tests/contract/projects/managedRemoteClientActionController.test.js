@@ -25,16 +25,11 @@ function snapshot(lifecycle = 'preview') {
     };
 }
 
-test('MANAGED-REMOTE-CLIENT-ENABLE-001 previews local files before enabling and activating migration', async () => {
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 previews local files before enabling an active catalog', async () => {
     const calls = [];
-    const preview = snapshot();
     const active = snapshot('active');
     const controller = new ManagedRemoteClientActionController({
-        async getSnapshot() { return preview; },
-        async activateMigration(expected) {
-            calls.push(['activate', expected]);
-            return active;
-        },
+        async getSnapshot() { return active; },
         bridge: {
             async execute(operation, expected) {
                 calls.push(['bridge', operation, expected]);
@@ -57,27 +52,21 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 previews local files before enabling and 
     });
 
     await controller.enable(revisionId);
-    assert.deepEqual(calls.slice(0, 6), [
+    assert.deepEqual(calls.slice(0, 5), [
         ['bridge', 'preflightEnable', revisionId],
         ['confirm', '/home/dev/.ssh/config'],
-        ['refresh', 'preview', 'applying'],
+        ['refresh', 'active', 'applying'],
         ['bridge', 'beginEnable', revisionId],
-        ['activate', revisionId],
         ['refresh', 'active', 'ready'],
     ]);
     assert.equal(calls.some(call => call[0] === 'error'), false);
 });
 
-test('MANAGED-REMOTE-CLIENT-ENABLE-001 automatically activates a prepared legacy upgrade without consent UI', async () => {
+test('managed client actions never activate a preview catalog', async () => {
     const calls = [];
     const preview = snapshot();
-    const active = snapshot('active');
     const controller = new ManagedRemoteClientActionController({
         async getSnapshot() { return preview; },
-        async activateMigration(expected) {
-            calls.push(['activate', expected]);
-            return active;
-        },
         bridge: {
             async execute(operation, expected) {
                 calls.push(['bridge', operation, expected]);
@@ -94,10 +83,8 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 automatically activates a prepared legacy
     await controller.enableAutomatically(revisionId);
 
     assert.deepEqual(calls, [
-        ['refresh', 'preview', 'applying'],
-        ['bridge', 'beginEnable', revisionId],
-        ['activate', revisionId],
-        ['refresh', 'active', 'ready'],
+        ['refresh', 'preview', 'attention'],
+        ['error', 'Agent Pivot: The Managed Machine catalog is unavailable.'],
     ]);
 });
 

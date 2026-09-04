@@ -40,13 +40,13 @@ test('MANAGED-REMOTE-MANAGEMENT-001 accepts strict identity-only management inte
         operation: 'addProject',
         expectedRevisionId: `revision:${'a'.repeat(64)}`,
     }));
-    assert.ok(parseManagedRemoteManagementRequest({
+    assert.equal(parseManagedRemoteManagementRequest({
         type: 'managed-remote-action',
         version: 1,
         requestId,
         operation: 'rollbackMigration',
         expectedRevisionId: `revision:${'a'.repeat(64)}`,
-    }));
+    }), null, 'the managed catalog is the sole authority and cannot be rolled back');
     assert.equal(parseManagedRemoteManagementRequest({
         type: 'managed-remote-action',
         version: 1,

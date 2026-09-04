@@ -1,6 +1,13 @@
 # Managed Remote Machines Technical Design
 
-> Status: M1 catalog foundation implemented behind a disabled path; owner acceptance pending
+> Current cutover contract (2026-09-04): the owner's already-active managed
+> catalog is the sole runtime authority. Startup only reconciles and reads this
+> catalog. It does not prepare migrations, clear or verify legacy storage, activate
+> previews, or expose rollback. Existing migration-envelope fields and frozen V1
+> bytes are retained only so the persisted catalog can be decoded without a
+> destructive storage rewrite; no product path consumes them.
+
+> Status: personal managed-catalog cutover active
 >
 > Date: 2026-09-04
 > Product contract: [Managed Remote Machines PRD](./managed-remote-machines-prd.md)
@@ -62,7 +69,7 @@ ownership mismatch when the main extension runs remotely.
                     ┌──────────┴──────────┐
                     │                     │
               shared view model      frozen V1 snapshot
-                    │                 rollback/old-client view
+                    │                 inert backup bytes only
              identity + revision intent
                     │
           UI Bridge on the local Extension Host
@@ -78,33 +85,21 @@ There is one business authority and one runtime projection:
 - the managed envelope is edited and synchronized;
 - generated SSH config is local, revisioned, accepts no reverse import, and can be
   deleted/rebuilt;
-- the original V1 values are checksummed and frozen in the migration journal, then
-  the live V1 keys and obsolete local replica are removed after activation; no
-  managed-alias Project projection is emitted into them.
+- the original V1 values and frozen snapshot are ignored by runtime behavior and
+  are never automatically cleared, verified, restored, or projected.
 
 The UI Bridge never saves Machine or Project business data. It owns only local SSH
 filesystem effects and local VS Code navigation. Existing user SSH blocks are
 neither an Agent Pivot source nor modified by this release.
 
-## 4. Lifecycle state machine
+## 4. Runtime lifecycle
 
-```text
-disabled ── preview ── active
-    ▲          │          │
-    └──────────┴── rolledBack
-```
-
-- `disabled`: current URI-derived view and V1 authority.
-- `preview`: candidate IDs and decisions are durable, but V1 remains authoritative.
-- `active`: managed envelope is authoritative; original V1 values exist only in the
-  rollback journal and the live V1 keys are empty.
-- `rolledBack`: exact captured V1 snapshot is authoritative again.
-
-Lifecycle and active revision are one envelope mutation. The Machine hierarchy is
-the default renderer and has no user-facing feature flag. Before activation it
-projects the authoritative V1 data; in `active`, the legacy editor is not reachable
-from the new version. Actual authority changes only through the migration or
-rollback coordinator.
+The supported product state is `active`: one managed revision drives the Machine
+hierarchy, edits, generated SSH projection, and navigation. `disabled`, `preview`,
+`rolledBack`, migration-plan fields, and frozen V1 values remain decodable only to
+avoid a destructive rewrite of the owner's persisted envelope. No runtime command
+can enter or leave those historical states, and the renderer never falls back to a
+legacy remote catalog.
 
 ## 5. Synchronized persistence and recovery
 

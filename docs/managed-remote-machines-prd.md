@@ -1,6 +1,6 @@
 # Managed Remote Machines PRD
 
-> Status: M1 accepted; M2 local materializer implemented behind a disabled path, owner acceptance pending
+> Status: personal catalog cutover active; migration and rollback are not product flows
 >
 > Date: 2026-09-04
 > Related: [Remote Machines Projects PRD](./remote-machines-projects-prd.md)
@@ -18,10 +18,10 @@ generated file is a rebuildable local cache, not a second source of truth.
 Passwords, keys, passphrases, and tokens are never stored or synchronized; Remote -
 SSH continues to prompt when authentication is needed.
 
-The intended end state has one Agent Pivot connection model. Existing alias-based
-Projects are migrated once and then open through stable Agent Pivot aliases. The
-first release does not delete existing SSH blocks: they remain inert, user-owned
-rollback material and are never consulted by managed mode.
+The product has one Agent Pivot connection model. The owner's existing data has
+already been converted and the managed catalog is now the only runtime authority.
+Legacy values and the frozen conversion snapshot may remain as inert emergency
+backup bytes, but startup does not read, clean, verify, restore, or expose them.
 
 ## 2. Problem
 
@@ -54,9 +54,9 @@ to connect is local and implicit.
    addressed through this computer's `wsl+<distro>` authority, and local-container
    Projects stay on the computer where they were saved. A remote WSL distro with
    its own SSH endpoint is instead a Managed Machine and synchronizes normally.
-6. **Migration is automatic and reversible.** Existing compatible remote Projects
-   are converted once on startup. Only records that cannot be resolved safely ask
-   for input. The first release never removes an existing SSH config entry.
+6. **The cutover is final in product behavior.** Startup reads the managed catalog
+   directly. There is no migration wizard, upgrade state, cleanup gate, rollback
+   action, or legacy remote fallback.
 
 ## 4. Goals
 
@@ -71,9 +71,8 @@ to connect is local and implicit.
 - Open a Machine in a new Remote - SSH window and a Project at its current path.
 - Save a remote WSL distro that exposes SSH as an independent Managed Machine.
 - Distinguish the fixed Host environment from every Dev Container environment.
-- Automatically migrate compatible existing SSH and remote Dev Container Projects;
-  ask only when a connection cannot be resolved safely.
-- Retain a bounded rollback path until owner acceptance.
+- Treat the already-converted managed catalog as the sole remote Project authority.
+- Keep frozen legacy bytes untouched and unreachable from normal product behavior.
 
 ## 5. Non-goals
 
@@ -293,47 +292,22 @@ and Shift+F10 for equivalent row actions. Refresh, filter, edit, and delete rest
 focus by stable ID, then mirror, adjacent row, parent, section first row, or toolbar.
 The tag chooser uses a labeled group that announces selected tags match all.
 
-## 9. Migration
+## 9. Personal data cutover
 
-Migration preparation runs automatically once when the managed lifecycle is
-`disabled`. There is no Migrate button and no final “build preview” confirmation.
-V1 remains authoritative until Agent Pivot has generated the local managed SSH
-projection and activated the synchronized catalog. The frozen V1 snapshot remains
-inside the managed migration journal for rollback; the live V1 settings are then
-removed automatically.
+The owner's existing remote Projects have already been converted into the managed
+catalog. This conversion is not a reusable product workflow. On every startup,
+Agent Pivot reads that catalog directly and renders `Machine → Environment →
+Project`; it does not inspect live legacy Project values, verify their cleanup, or
+offer migration and rollback actions.
 
-### 9.1 Automatic preparation and exception resolution
+The frozen pre-cutover snapshot remains internal, inert backup data. Keeping it
+does not create a second authority: no renderer, editor, opener, synchronizer, or
+SSH generator reads it. The product never deletes it automatically.
 
-Every synchronized remote Project is classified:
+The historical mapping below documents how the preserved catalog was produced; it
+is not executed during startup.
 
-- **Ready** — direct `user@host`, or an alias whose final endpoint is resolved by
-  the UI-host OpenSSH executable;
-- **Needs input** — alias unavailable or fields ambiguous;
-- **Unsupported** — OpenSSH cannot produce a valid plain endpoint, or the route
-  requires behavior outside the first release such as `ProxyJump`, `ProxyCommand`,
-  forwarding, or remote/local commands;
-- **Client-local** — Local, computer-local `wsl+` WSL, and local-container records
-  stay on this computer unless a WSL record is explicitly converted using an
-  independently reachable SSH endpoint.
-
-Direct endpoints and compatible aliases detected by the UI-host OpenSSH inspector
-are accepted automatically. Client-local records are skipped automatically. There
-is no migration wizard or per-record decision UI. If any remote record cannot be
-resolved without guessing, the upgrade stops before creating or deleting data,
-records a diagnostic, and retries on a later startup. Activation requires zero
-unresolved records.
-
-Migration retains only host/user/port from a compatible alias. Authentication
-settings are not copied; SSH uses the local agent/default keys or prompts for a
-password when the generated alias is opened. Proxy, command, and forwarding routes
-remain unsupported because they cannot be represented by the managed model.
-
-After local SSH generation and synchronized-catalog activation both succeed, Agent
-Pivot deletes the live legacy `projectData`, `projectSyncData`, and their obsolete
-local replicas. This never deletes Local Projects, project files, or user-authored
-SSH `Host` blocks. Rollback restores the exact frozen V1 Project snapshot.
-
-### 9.2 Field mapping
+### 9.1 Preserved field mapping
 
 | V1 field | Managed result |
 | --- | --- |
@@ -346,43 +320,22 @@ SSH `Host` blocks. Rollback restores the exact frozen V1 Project snapshot.
 | remote URI | split into Environment reference and remote path |
 | `lastOpenedAt` | retained only in client-local usage state |
 
-The automatically prepared candidate preserves all non-connection metadata. Equal
-normalized `(host, user, port)` endpoints become one Machine. Each remote Dev
-Container becomes a distinct versioned Environment under its outer SSH Machine.
+The preserved catalog retains all non-connection metadata. Equal normalized
+`(host, user, port)` endpoints became one Machine, and each remote Dev Container
+became a distinct Environment under its outer SSH Machine.
 
-### 9.3 Activation
+## 10. Runtime authority
 
-1. Automatically resolve compatible remote records and save a checksummed,
-   restorable V1 snapshot.
-2. For each historically synced WSL Project, ask either `Keep on this computer` or
-   `Use an SSH-reachable WSL Machine…`. The local choice writes and verifies a
-   migration-tagged local copy before remote activation; other clients do not copy
-   it. The managed choice requires explicit endpoint/path information.
-3. Generate and validate stable Agent Pivot aliases locally.
-4. Automatically publish the owned local SSH Include.
-5. Commit the managed catalog and lifecycle activation atomically.
-
-The first release does not alter legacy Host blocks. Managed mode never consults
-them after activation; they remain inert rollback material.
-
-## 10. Lifecycle, compatibility, and rollback
-
-- Lifecycle is `disabled → preview → active → rolledBack`; lifecycle, active
-  revision, and recovery state share one managed envelope.
-- The Machine → Environment → Project renderer is the default; there is no
-  user-facing feature flag for this view.
-- Before activation, existing V1 Project data remains authoritative and is
-  projected into the Machine view without migration.
-- After activation, only `Roll Back Managed Remote Migration` changes authority. It
-  restores the exact V1 snapshot and leaves all legacy SSH blocks untouched.
-- Rollback data remains through owner acceptance and at least one released minor
-  version.
-- Managed activation removes the original V1 keys; it does not emit managed-alias
-  URIs into them. An older plugin therefore has no remote Project catalog after the
-  cleanup syncs. It receives no managed updates or conflict guarantees.
-- If an old client republishes V1 data, the current personal-upgrade build ignores
-  it as an authority and retires it again. Returning to the old format requires the
-  explicit rollback action, which restores the frozen journal snapshot first.
+- The Machine → Environment → Project renderer is always used; there is no
+  user-facing feature flag or legacy remote renderer.
+- Only the active managed revision is authoritative for remote Machines and
+  Projects.
+- Startup may repair synchronized/local replicas of that same managed revision,
+  but never starts a conversion or touches legacy Project storage.
+- Migration, rollback, downgrade, and mixed-version behavior are outside this
+  personal build's product contract.
+- Existing legacy and frozen-snapshot bytes are retained untouched as emergency
+  evidence only and have no command, UI, open, or synchronization path.
 
 ## 11. Conflict behavior
 
@@ -426,9 +379,6 @@ them after activation; they remain inert rollback material.
   managed catalog; the local WSL distro remains a separate client-local Machine.
 - [ ] A remote WSL distro with an explicitly configured SSH host/user/port is stored
   as an independent Managed Machine, syncs, and opens from another computer.
-- [ ] Historical synced WSL Projects are either copied only to the migration owner's
-  local store or explicitly converted to an SSH-reachable WSL Machine;
-  another client never silently claims or converts them.
 - [ ] Project activation opens its current Environment/path; Edit cannot change its
   Machine or Environment, and saving the same code elsewhere creates a new Project.
 - [ ] `SSH to Machine` launched from Local, SSH, WSL, and Dev Container windows runs
@@ -439,13 +389,10 @@ them after activation; they remain inert rollback material.
 - [ ] Generated aliases work with port `22`, two non-default ports, and boundaries
   `1` and `65535`.
 - [ ] Reconcile never changes unrelated SSH config bytes.
-- [ ] Migration covers direct targets, simple aliases, Include, custom ports, and
-  nested remote Dev Containers; unknown anchors are Unsupported.
-- [ ] Migration copies only host/user/port; authentication remains owned by SSH and
-  password prompts continue to work.
-- [ ] Unsupported records have a completion or cancellation path.
-- [ ] Rollback restores the original V1 Project snapshot and original aliases still
-  resolve because first-release migration never deletes them.
+- [ ] Startup loads the active managed catalog directly and logs non-sensitive
+  Machine/Environment/Project counts without running legacy cleanup.
+- [ ] No migration, rollback, Setup, Assign, or legacy remote fallback action is
+  present in the Projects UI.
 - [ ] With new main + new UI Bridge, Project navigation cannot bypass conflict
   review; old/offline clients are explicitly outside that guarantee.
 - [ ] Pointer actions have keyboard equivalents; unavailable controls retain full
@@ -465,19 +412,17 @@ them after activation; they remain inert rollback material.
 - Project Machine/Environment ownership is immutable; another location is another
   Project rather than a move.
 - Generated SSH config is a local projection, not an authority.
-- Existing user-authored SSH blocks are not deleted; active Agent Pivot no longer
-  reads them after migration.
-- Active mode removes the original V1 Project keys after storing their checksummed
-  values in the synchronized migration journal.
-- The target is one managed runtime mechanism; legacy data is migration/rollback
-  material only.
+- Existing user-authored SSH blocks and legacy Project bytes are not deleted;
+  active Agent Pivot does not read them.
+- The target is one managed runtime mechanism; preserved legacy bytes are inert
+  emergency evidence only.
 - Work remains on this branch and one PR is opened only after all owner milestones.
 
 ## 15. Confirmed owner decisions
 
-1. Existing data upgrades automatically, including the local generated SSH
-   projection and legacy Project cleanup; there is no Migrate, Setup, Enable,
-   review form, or rehearsal step.
+1. The owner's data has already been converted. The active managed catalog is used
+   directly; there is no migration, cleanup, rollback, Setup, Assign, review form,
+   rehearsal, or legacy remote fallback.
 2. First-release Dev Containers are created only by migration or `Save
    Current Project`, without an arbitrary container editor. **Recommendation:
    approve this narrower boundary.**

@@ -47,7 +47,7 @@ export class ManagedRemoteLocalSshCommandController {
         try {
             const snapshot = await this.options.getSnapshot();
             if (snapshot.lifecycle !== 'active' || !snapshot.revisionId) {
-                throw new Error('Complete Managed Remote migration before using this command.');
+                throw new Error('The Managed Machine catalog is unavailable.');
             }
             if (expectedRevisionId !== undefined
                 && expectedRevisionId !== snapshot.revisionId) {

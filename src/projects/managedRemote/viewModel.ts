@@ -47,7 +47,6 @@ export interface ManagedRemoteProjectsViewModel {
     lifecycle: ManagedRemoteManagementSnapshot['lifecycle'];
     clientState: ManagedRemoteClientUiState;
     clientMessage: string;
-    migrationPrepared: boolean;
     projectCount: number;
     tags: string[];
     favorites: ManagedRemoteProjectRowViewModel[];
@@ -76,7 +75,7 @@ function endpoint(machine: ManagedSshMachine): string {
 
 function clientMessage(state: ManagedRemoteClientUiState): string {
     if (state === 'preview') {
-        return 'Managed Remote preview. Existing Projects remain active until migration is completed.';
+        return 'The Managed Machine catalog is unavailable.';
     }
     if (state === 'enableRequired') {
         return 'Enable managed connections on this computer before opening remote Projects.';
@@ -195,10 +194,7 @@ export function buildManagedRemoteProjectsViewModel(
         revisionId: snapshot.revisionId,
         lifecycle: snapshot.lifecycle,
         clientState,
-        clientMessage: clientState === 'preview' && snapshot.migrationPlanId
-            ? 'Migration preview is ready. Existing Projects remain active until you enable it on this computer.'
-            : clientMessage(clientState),
-        migrationPrepared: Boolean(snapshot.migrationPlanId),
+        clientMessage: clientMessage(clientState),
         projectCount: snapshot.catalog.projects.length,
         tags: Array.from(tags.values()).sort((left, right) => left.localeCompare(right)),
         favorites,

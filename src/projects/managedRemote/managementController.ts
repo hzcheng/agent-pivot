@@ -59,7 +59,6 @@ export interface ManagedRemoteManagementPrompts {
     confirmRemoveProject(project: ManagedRemoteProject): Promise<boolean>;
     resolveMachineConflict(machineId: string, candidates: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
     reviewMigration(plan: ManagedRemoteMigrationPlanV1): Promise<ManagedRemoteMigrationPlanV1 | undefined>;
-    confirmRollbackMigration(): Promise<boolean>;
 }
 
 export interface ManagedRemoteMigrationSource {
@@ -175,13 +174,6 @@ export class ManagedRemoteManagementController {
             const input = await this.options.prompts.addMachine();
             return input
                 ? this.options.store.addMachine(snapshot.revisionId, input) : null;
-        }
-        if (operation === 'rollbackMigration') {
-            if (snapshot.lifecycle !== 'active' || !snapshot.revisionId) {
-                throw new Error('Managed Remote migration is not active.');
-            }
-            return await this.options.prompts.confirmRollbackMigration()
-                ? this.options.store.rollbackMigration(snapshot.revisionId) : null;
         }
         if (operation === 'addProject') {
             const machine = targetId

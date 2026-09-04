@@ -7183,7 +7183,7 @@
   {
     "id": "MANAGED-REMOTE-CLIENT-ENABLE-001",
     "domain": "project",
-    "title": "A prepared legacy catalog automatically materializes local SSH aliases through the UI host and only then activates Managed Remote authority",
+    "title": "An active managed catalog automatically materializes local SSH aliases through the UI host without changing catalog authority",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7194,7 +7194,6 @@
     "evidence": [
       "src/projects/managedRemote/clientActionController.ts",
       "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
-      "src/projects/managedRemote/store.ts",
       "src/webview/webviewManagedRemoteProjectsContent.ts"
     ]
   },
@@ -7218,7 +7217,7 @@
   {
     "id": "MANAGED-REMOTE-LOCAL-PROJECTION-001",
     "domain": "project",
-    "title": "Client-local Projects remain visible and use legacy local actions beside the synchronized managed catalog without entering migration fingerprints",
+    "title": "Client-local Projects remain visible and use local actions beside the synchronized managed catalog without entering synchronized storage",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7257,24 +7256,6 @@
     ]
   },
   {
-    "id": "MANAGED-REMOTE-MIGRATION-003",
-    "domain": "project",
-    "title": "Startup automatically resolves compatible aliases without a migration wizard, preserves local-only records, backs up V1, and clears live legacy storage after activation",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/managedRemoteManagementStore.test.js",
-      "tests/contract/projects/managedRemoteManagementController.test.js",
-      "tests/unit/projects/managedRemotePrompts.test.js"
-    ],
-    "evidence": [
-      "src/projects/managedRemote/migrationPlan.ts",
-      "src/projects/managedRemote/managementStore.ts",
-      "src/projects/managedRemote/composition.ts",
-      "src/projects/managedRemote/vscodePrompts.ts"
-    ]
-  },
-  {
     "id": "MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001",
     "domain": "project",
     "title": "Migration resolves a legacy SSH alias through OpenSSH in the local UI host, automatically accepts plain endpoint data, and rejects advanced behavior without returning config or authentication data",
@@ -7306,24 +7287,6 @@
       "src/projects/managedRemote/clientActionController.ts",
       "src/webview/webviewManagedRemoteProjectsContent.ts",
       "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts"
-    ]
-  },
-  {
-    "id": "MANAGED-REMOTE-MIGRATION-ROLLBACK-001",
-    "domain": "project",
-    "title": "Managed migration rollback restores the checksummed frozen V1 authority after active legacy storage has been cleared",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/managedRemoteManagementStore.test.js",
-      "tests/contract/projects/managedRemoteManagementController.test.js",
-      "tests/unit/webview/managedRemoteProjectsRendering.test.js",
-      "tests/browser/machineProjects.test.js"
-    ],
-    "evidence": [
-      "src/projects/managedRemote/store.ts",
-      "src/projects/managedRemote/managementStore.ts",
-      "src/webview/webviewManagedRemoteProjectsContent.ts"
     ]
   },
   {

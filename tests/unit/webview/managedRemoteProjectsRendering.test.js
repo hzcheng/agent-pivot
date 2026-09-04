@@ -20,7 +20,6 @@ function model() {
         lifecycle: 'preview',
         clientState: 'preview',
         clientMessage: 'Managed Remote preview.',
-        migrationPrepared: false,
         projectCount: 1,
         tags: ['Backend'],
         favorites: [project],
@@ -59,10 +58,8 @@ test('MANAGED-REMOTE-MANAGEMENT-003 keeps unavailable Favorite identity and reas
     assert.match(html, /machine-project-color/);
 });
 
-test('MANAGED-REMOTE-CLIENT-ENABLE-001 keeps automatic migration free of a local enable button', () => {
-    const value = model();
-    value.migrationPrepared = true;
-    const html = renderManagedRemoteProjectsPanel(value);
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 keeps an unavailable catalog free of a local enable button', () => {
+    const html = renderManagedRemoteProjectsPanel(model());
     assert.doesNotMatch(html, /data-managed-client-action="enable"/u);
     assert.doesNotMatch(html, /beginMigration|>Migrate</u);
 });
@@ -77,15 +74,12 @@ test('MANAGED-REMOTE-CLIENT-DISABLE-001 exposes a computer-local disable action 
     assert.doesNotMatch(renderManagedRemoteProjectsPanel(model()), /data-managed-client-action="disable"/u);
 });
 
-test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 exposes rollback only for an active migration', () => {
+test('managed catalog has no migration or rollback controls', () => {
     const ready = model();
     ready.lifecycle = 'active';
     ready.clientState = 'ready';
-    ready.migrationPrepared = true;
     const html = renderManagedRemoteProjectsPanel(ready);
-    assert.match(html, /data-managed-operation="rollbackMigration"/u);
-    assert.match(html, /Roll Back Migration…/u);
-    assert.doesNotMatch(renderManagedRemoteProjectsPanel(model()), /rollbackMigration/u);
+    assert.doesNotMatch(html, /rollbackMigration|Roll Back Migration|beginMigration|>Migrate</u);
 });
 
 test('MANAGED-REMOTE-LOCAL-PROJECTION-001 keeps client-local Projects beside the active managed catalog', () => {

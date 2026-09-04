@@ -4,9 +4,7 @@ import type * as vscode from 'vscode';
 import {
     ManagedRemoteManagementController,
     ManagedRemoteManagementPrompts,
-    ManagedRemoteMigrationSource,
     ManagedRemoteManagementSnapshot,
-    ManagedRemoteManagementStore,
 } from './managementController';
 import type { ManagedRemoteManagementOperation } from './managementProtocol';
 import { ManagedRemoteCatalogManagementStore } from './managementStore';
@@ -23,34 +21,6 @@ export interface ManagedRemoteManagementCapability {
     snapshot: ManagedRemoteManagementSnapshot;
     controller: ManagedRemoteManagementController;
     reconcile(): Promise<ManagedRemoteManagementSnapshot>;
-    activateMigration(expectedRevisionId: string): Promise<ManagedRemoteManagementSnapshot>;
-}
-
-export async function prepareAutomaticManagedRemoteMigration(
-    store: ManagedRemoteManagementStore,
-    prompts: ManagedRemoteManagementPrompts,
-): Promise<ManagedRemoteManagementSnapshot> {
-    const snapshot = await store.getSnapshot();
-    if (snapshot.lifecycle !== 'disabled') { return snapshot; }
-
-    const plan = store.prepareMigration();
-    const hasRemoteProject = plan.records.some(record =>
-        record.classification !== 'clientLocal'
-        && record.classification !== 'excluded');
-    if (!hasRemoteProject) { return snapshot; }
-
-    const resolved = await prompts.reviewMigration(plan);
-    if (!resolved) { return snapshot; }
-    try {
-        return await store.beginMigration(snapshot.revisionId, resolved);
-    } catch (error) {
-        // Another Extension Host may have completed the same one-time migration
-        // while this window was resolving aliases. Treat its authority as the
-        // result instead of failing the entire capability initialization.
-        const current = await store.getSnapshot();
-        if (current.lifecycle !== 'disabled') { return current; }
-        throw error;
-    }
 }
 
 export function createDisabledManagedRemoteSnapshot(
@@ -74,7 +44,6 @@ export async function createManagedRemoteManagementCapability(options: {
     writerIdentityMemento: ManagedRemoteMementoLike;
     localReplicaKey: string;
     catalogActorId: string;
-    migrationSource: ManagedRemoteMigrationSource;
     prompts: ManagedRemoteManagementPrompts;
     refreshAuthoritative(
         requestId: string,
@@ -98,16 +67,8 @@ export async function createManagedRemoteManagementCapability(options: {
     const store = new ManagedRemoteCatalogManagementStore(
         coordinator,
         options.catalogActorId,
-        undefined,
-        options.migrationSource,
     );
-    let snapshot = await prepareAutomaticManagedRemoteMigration(
-        store,
-        options.prompts,
-    );
-    if (snapshot.lifecycle === 'active' && snapshot.revisionId) {
-        snapshot = await store.finalizeMigrationCleanup(snapshot.revisionId);
-    }
+    const snapshot = await store.getSnapshot();
     return {
         snapshot,
         controller: new ManagedRemoteManagementController({
@@ -117,9 +78,5 @@ export async function createManagedRemoteManagementCapability(options: {
             postSettlement: options.postSettlement,
         }),
         reconcile: () => store.getSnapshot(),
-        activateMigration: async expectedRevisionId => {
-            const active = await store.activateMigration(expectedRevisionId);
-            return store.finalizeMigrationCleanup(active.revisionId as string);
-        },
     };
 }

@@ -314,13 +314,6 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         return result.action === 'accept' ? result.value : undefined;
     }
 
-    confirmRollbackMigration(): Promise<boolean> {
-        return this.ui.confirm(
-            'Roll back Managed Remote migration on all synced computers? Agent Pivot will return to the frozen legacy Project data. Existing SSH config blocks and locally generated aliases are not removed.',
-            'Roll Back Migration',
-        );
-    }
-
     async reviewMigration(
         planValue: ManagedRemoteMigrationPlanV1,
     ): Promise<ManagedRemoteMigrationPlanV1 | undefined> {

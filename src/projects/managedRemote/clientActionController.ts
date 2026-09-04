@@ -23,7 +23,6 @@ interface ManagedDisablePreflightSummary {
 
 export interface ManagedRemoteClientActionControllerOptions {
     getSnapshot(): Promise<ManagedRemoteManagementSnapshot>;
-    activateMigration(expectedRevisionId: string): Promise<ManagedRemoteManagementSnapshot>;
     bridge: ManagedRemoteBridgeClient;
     confirmEnable(summary: ManagedEnablePreflightSummary): Promise<boolean>;
     confirmDisable(summary: ManagedDisablePreflightSummary): Promise<boolean>;
@@ -107,10 +106,6 @@ export class ManagedRemoteClientActionController {
         return this.enqueue(async () => {
             try {
                 const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
-                if (snapshot.lifecycle === 'preview') {
-                    await this.enableNow(expectedRevisionId, false);
-                    return;
-                }
                 let localState: unknown;
                 try {
                     localState = await this.options.bridge.execute('getStatus');
@@ -170,9 +165,9 @@ export class ManagedRemoteClientActionController {
         requireConfirmation: boolean,
     ): Promise<void> {
         try {
-            let snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
-            if (!snapshot.migrationPlanId) {
-                throw new Error('Existing Projects have not been prepared for Managed Remote.');
+            const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
+            if (snapshot.lifecycle !== 'active') {
+                throw new Error('The Managed Machine catalog is unavailable.');
             }
             const revisionId = snapshot.revisionId as string;
             let preflight: ManagedEnablePreflightSummary | undefined;
@@ -197,9 +192,6 @@ export class ManagedRemoteClientActionController {
             }
             if (status !== 'enabled') {
                 throw new Error('Managed SSH configuration did not reach the enabled state.');
-            }
-            if (snapshot.lifecycle === 'preview') {
-                snapshot = await this.options.activateMigration(revisionId);
             }
             await this.options.refresh(snapshot, 'ready');
             if (requireConfirmation) {
@@ -257,7 +249,7 @@ export class ManagedRemoteClientActionController {
         try {
             const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
             if (snapshot.lifecycle !== 'active') {
-                throw new Error('Complete Managed Remote migration before retrying.');
+                throw new Error('The Managed Machine catalog is unavailable.');
             }
             await this.options.refresh(snapshot, 'applying');
             const result = await this.options.bridge.execute(
@@ -286,8 +278,8 @@ export class ManagedRemoteClientActionController {
         if (!snapshot.revisionId || snapshot.revisionId !== expectedRevisionId) {
             throw new Error('The Managed Remote catalog changed. Refresh and try again.');
         }
-        if (snapshot.lifecycle !== 'preview' && snapshot.lifecycle !== 'active') {
-            throw new Error('Managed Remote is not ready to enable.');
+        if (snapshot.lifecycle !== 'active') {
+            throw new Error('The Managed Machine catalog is unavailable.');
         }
         return snapshot;
     }
@@ -300,9 +292,6 @@ export class ManagedRemoteClientActionController {
         return this.enqueue(async () => {
             try {
                 const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
-                if (snapshot.lifecycle !== 'active') {
-                    throw new Error('Complete Managed Remote migration before opening this item.');
-                }
                 await this.options.bridge.execute(
                     operation,
                     snapshot.revisionId as string,

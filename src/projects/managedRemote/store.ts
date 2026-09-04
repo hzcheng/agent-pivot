@@ -21,10 +21,12 @@ import {
 import { materializeManagedRemoteCatalog } from './merge';
 import { assertManagedEnvelopePayload } from './payload';
 import {
+    ChecksummedLegacySnapshot,
     ManagedAuthorityState,
     ManagedCatalogEnvelopeV1,
     ManagedCatalogWriterReplicaV1,
     ManagedMigrationJournal,
+    ManagedRollbackJournal,
     ManagedRemoteCatalogV1,
     ManagedRevisionSlot,
 } from './types';
@@ -309,6 +311,63 @@ export class ManagedCatalogCoordinator {
             );
             await this.publishCandidate(envelope);
             return slot;
+        });
+    }
+
+    completePreparedMigrationRollback(
+        planId: string,
+        expectedRevisionId: string,
+        target: ChecksummedLegacySnapshot,
+    ): Promise<ManagedRevisionSlot> {
+        return this.enqueue(async () => {
+            const reconciled = await this.reconcileNow();
+            if (reconciled.recoveryRequired) {
+                throw new Error('Managed catalog recovery is required before rollback.');
+            }
+            const authorities = distinctCandidateValues(reconciled.envelope.authority);
+            if (authorities.length !== 1
+                || authorities[0].lifecycle !== 'active'
+                || authorities[0].migrationPlanId !== planId
+                || authorities[0].active?.revisionId !== expectedRevisionId) {
+                throw new Error('Managed migration authority changed before rollback.');
+            }
+            const planValues = reconciled.envelope.migrationPlans[planId]
+                ? distinctCandidateValues(reconciled.envelope.migrationPlans[planId]) : [];
+            const journals = planValues.filter(
+                (value): value is ManagedMigrationJournal => value !== null,
+            );
+            if (journals.length !== 1
+                || journals[0].phase !== 'complete'
+                || stableManagedValue(journals[0].frozenLegacy) !== stableManagedValue(target)) {
+                throw new Error('Managed migration rollback material is missing or conflicted.');
+            }
+            const rollbackPlanId = `rollback:${planId}`;
+            const rollback: ManagedRollbackJournal = {
+                planId: rollbackPlanId,
+                phase: 'rolledBack',
+                target: cloneManagedValue(target),
+            };
+            const active = cloneManagedValue(authorities[0].active);
+            const candidate = withEnvelopeMutation(
+                reconciled.envelope,
+                this.actorId,
+                (envelope, version) => {
+                    envelope.rollbackPlans[rollbackPlanId] = createVersionedCandidates(
+                        rollback,
+                        version,
+                    );
+                    envelope.authority = createVersionedCandidates({
+                        lifecycle: 'rolledBack',
+                        active,
+                        ...(authorities[0].previous
+                            ? { previous: authorities[0].previous } : {}),
+                        migrationPlanId: planId,
+                        rollbackPlanId,
+                    }, version);
+                },
+            );
+            await this.publishCandidate(candidate);
+            return active;
         });
     }
 

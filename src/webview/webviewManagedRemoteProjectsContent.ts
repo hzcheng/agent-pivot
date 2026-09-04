@@ -34,10 +34,13 @@ function renderClientBanner(model: ManagedRemoteProjectsViewModel): string {
                     : model.clientState === 'ready'
                         ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="disable">Disable on This Computer…</button>'
                         : '';
+    const rollback = model.lifecycle === 'active' && model.migrationPrepared
+        ? `<button type="button" class="managed-remote-banner-action" ${operationAttributes('rollbackMigration')}>Roll Back Migration…</button>`
+        : '';
     return `<div class="managed-remote-banner managed-remote-banner-${escapeAttribute(model.clientState)}" data-managed-client-banner role="status">
         <span class="managed-remote-banner-icon" aria-hidden="true">${Icons.remote}</span>
         <span class="managed-remote-banner-message">${escapeAttribute(model.clientMessage)}</span>
-        ${action}
+        ${action}${rollback}
     </div>`;
 }
 

@@ -143,4 +143,46 @@ test('MANAGED-REMOTE-MIGRATION-003 freezes V1 authority and installs only review
     assert.equal(active.migrationPlanId, plan.planId);
     const completed = backend.value.migrationPlans[plan.planId].candidates[0].value;
     assert.equal(completed.phase, 'complete');
+
+    const rolledBack = await store.rollbackMigration(active.revisionId);
+    assert.equal(rolledBack.lifecycle, 'rolledBack');
+    const authority = backend.value.authority.candidates[0].value;
+    assert.equal(authority.rollbackPlanId, `rollback:${plan.planId}`);
+    const rollback = backend.value.rollbackPlans[authority.rollbackPlanId]
+        .candidates[0].value;
+    assert.equal(rollback.phase, 'rolledBack');
+    assert.deepEqual(rollback.target.projectData, projectData);
+    assert.deepEqual(rollback.target.projectSyncData, projectSyncData);
+});
+
+test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 refuses to overwrite legacy edits made after activation', async () => {
+    const backend = new MemoryBackend();
+    const coordinator = await ManagedCatalogCoordinator.create(backend, new MemoryReplicas());
+    let projectData = [{ id: 'legacy', value: true }];
+    const projectSyncData = { schemaVersion: 1, marker: 'frozen' };
+    const store = new ManagedRemoteCatalogManagementStore(
+        coordinator,
+        'catalog:migration-divergence',
+        undefined,
+        {
+            getGroups: () => [{
+                id: 'group', groupName: 'Backend', projects: [{
+                    id: 'remote', name: 'API',
+                    path: 'vscode-remote://ssh-remote%2Bdev%40build.example.com/work/api',
+                }],
+            }],
+            getProjectData: () => JSON.parse(JSON.stringify(projectData)),
+            getProjectSyncData: () => JSON.parse(JSON.stringify(projectSyncData)),
+        },
+    );
+    const preview = await store.beginMigration(null, store.prepareMigration());
+    const active = await store.activateMigration(preview.revisionId);
+    projectData = [{ id: 'legacy', value: 'edited by old plugin' }];
+
+    await assert.rejects(
+        store.rollbackMigration(active.revisionId),
+        /did not overwrite/u,
+    );
+    assert.equal((await store.getSnapshot()).lifecycle, 'active');
+    assert.equal(projectData[0].value, 'edited by old plugin');
 });

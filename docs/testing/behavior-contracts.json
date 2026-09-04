@@ -7308,6 +7308,24 @@
     ]
   },
   {
+    "id": "MANAGED-REMOTE-MIGRATION-ROLLBACK-001",
+    "domain": "project",
+    "title": "Managed migration rollback returns to the checksummed frozen V1 authority and refuses to overwrite divergent legacy edits",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteManagementStore.test.js",
+      "tests/contract/projects/managedRemoteManagementController.test.js",
+      "tests/unit/webview/managedRemoteProjectsRendering.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/store.ts",
+      "src/projects/managedRemote/managementStore.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts"
+    ]
+  },
+  {
     "id": "MANAGED-REMOTE-DEV-CONTAINER-001",
     "domain": "open-project",
     "title": "Known Remote-SSH Dev Container authorities round-trip through a stable managed alias while unknown or attached formats fail closed",

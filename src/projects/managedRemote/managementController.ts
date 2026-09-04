@@ -40,6 +40,7 @@ export interface ManagedRemoteManagementStore {
     resolveMachineConflict(expectedRevisionId: string | null, machineId: string, selected: ManagedSshMachine): Promise<ManagedRemoteManagementSnapshot>;
     prepareMigration(): ManagedRemoteMigrationPlanV1;
     beginMigration(expectedRevisionId: string | null, plan: ManagedRemoteMigrationPlanV1): Promise<ManagedRemoteManagementSnapshot>;
+    rollbackMigration(expectedRevisionId: string): Promise<ManagedRemoteManagementSnapshot>;
 }
 
 export interface ManagedRemoteManagementPrompts {
@@ -56,6 +57,7 @@ export interface ManagedRemoteManagementPrompts {
     resolveMachineConflict(machineId: string, candidates: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
     confirmBeginMigration(): Promise<boolean>;
     reviewMigration(plan: ManagedRemoteMigrationPlanV1): Promise<ManagedRemoteMigrationPlanV1 | undefined>;
+    confirmRollbackMigration(): Promise<boolean>;
 }
 
 export interface ManagedRemoteManagementControllerOptions {
@@ -171,6 +173,13 @@ export class ManagedRemoteManagementController {
             );
             return plan
                 ? this.options.store.beginMigration(snapshot.revisionId, plan) : null;
+        }
+        if (operation === 'rollbackMigration') {
+            if (snapshot.lifecycle !== 'active' || !snapshot.revisionId) {
+                throw new Error('Managed Remote migration is not active.');
+            }
+            return await this.options.prompts.confirmRollbackMigration()
+                ? this.options.store.rollbackMigration(snapshot.revisionId) : null;
         }
         if (operation === 'addProject') {
             const machine = targetId

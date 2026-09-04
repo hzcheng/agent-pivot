@@ -72,6 +72,7 @@ function fixture(overrides = {}) {
         async resolveMachineConflict(expected, id, selected) { calls.push(['resolve', expected, id, selected]); return changed; },
         prepareMigration() { calls.push(['prepareMigration']); return migrationPlan; },
         async beginMigration(expected, plan) { calls.push(['beginMigration', expected, plan]); return changed; },
+        async rollbackMigration(expected) { calls.push(['rollbackMigration', expected]); return changed; },
         ...overrides.store,
     };
     const prompts = {
@@ -85,6 +86,7 @@ function fixture(overrides = {}) {
         async resolveMachineConflict(_id, candidates) { return candidates[0]; },
         async confirmBeginMigration() { return true; },
         async reviewMigration(plan) { calls.push(['reviewMigration', plan]); return plan; },
+        async confirmRollbackMigration() { return true; },
         ...overrides.prompts,
     };
     const controller = new ManagedRemoteManagementController({
@@ -212,4 +214,19 @@ test('MANAGED-REMOTE-MIGRATION-003 reviews a frozen plan before committing previ
     ]);
     assert.equal(calls[2][1], revisionId);
     assert.equal(calls[2][2].planId, `migration:${'c'.repeat(64)}`);
+});
+
+test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 confirms before rolling active authority back', async () => {
+    const active = snapshot();
+    active.lifecycle = 'active';
+    active.migrationPlanId = `migration:${'c'.repeat(64)}`;
+    const { controller, calls } = fixture({ snapshot: active });
+
+    await controller.handle(request('rollbackMigration'));
+
+    assert.deepEqual(calls.slice(0, 3), [
+        ['rollbackMigration', revisionId],
+        ['refresh', requestId, 'rollbackMigration', nextRevisionId],
+        ['settle', 'applied'],
+    ]);
 });

@@ -1024,7 +1024,8 @@ async function initializeDashboard(
         managedRemoteClientState = await managedRemoteClientActions.readState(
             managedRemoteSnapshot,
         );
-        if (managedRemoteSnapshot.lifecycle !== 'disabled') {
+        if (managedRemoteSnapshot.lifecycle === 'preview'
+            || managedRemoteSnapshot.lifecycle === 'active') {
             await projectsPanelController?.postUpdated('replace');
         }
     }, error => {

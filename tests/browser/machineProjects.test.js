@@ -414,6 +414,18 @@ test('MANAGED-REMOTE-CLIENT-DISABLE-001 sends a local disable intent without Mac
     assert.equal(message.expectedRevisionId, `revision:${'a'.repeat(64)}`);
 });
 
+test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 sends a revisioned global rollback intent', async t => {
+    const page = await openPage(t, 360, managedMarkup('ready', true));
+    await page.getByRole('button', { name: 'Roll Back Migration…' }).click();
+
+    const message = await page.evaluate(() => window.messages.at(-1));
+    assert.deepEqual(Object.keys(message).sort(), [
+        'expectedRevisionId', 'operation', 'requestId', 'type', 'version',
+    ]);
+    assert.equal(message.operation, 'rollbackMigration');
+    assert.equal(message.expectedRevisionId, `revision:${'a'.repeat(64)}`);
+});
+
 test('MANAGED-REMOTE-NAVIGATION-001 sends Project identity instead of a remote URI', async t => {
     const page = await openPage(t, 360, managedMarkup('ready'));
     await page.locator('[data-managed-project-row]:not(.machine-favorite-row) .machine-project-primary').click();

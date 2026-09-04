@@ -77,6 +77,17 @@ test('MANAGED-REMOTE-CLIENT-DISABLE-001 exposes a computer-local disable action 
     assert.doesNotMatch(renderManagedRemoteProjectsPanel(model()), /data-managed-client-action="disable"/u);
 });
 
+test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 exposes rollback only for an active migration', () => {
+    const ready = model();
+    ready.lifecycle = 'active';
+    ready.clientState = 'ready';
+    ready.migrationPrepared = true;
+    const html = renderManagedRemoteProjectsPanel(ready);
+    assert.match(html, /data-managed-operation="rollbackMigration"/u);
+    assert.match(html, /Roll Back Migration…/u);
+    assert.doesNotMatch(renderManagedRemoteProjectsPanel(model()), /rollbackMigration/u);
+});
+
 test('MANAGED-REMOTE-LOCAL-PROJECTION-001 keeps client-local Projects beside the active managed catalog', () => {
     const localProject = {
         id: 'local-project', environmentId: 'local-host', machineId: 'local-machine',

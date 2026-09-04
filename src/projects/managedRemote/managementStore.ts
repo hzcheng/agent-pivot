@@ -10,6 +10,7 @@ import {
     ManagedRemoteCatalogService,
 } from './catalogService';
 import { distinctCandidateValues } from './causal';
+import { createChecksummedLegacySnapshot } from './envelope';
 import { createEmptyManagedRemoteCatalog, materializeManagedRemoteCatalog } from './merge';
 import {
     buildManagedCatalogFromMigrationPlan,
@@ -180,6 +181,46 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         await this.coordinator.activatePreparedMigration(
             authority.migrationPlanId,
             expectedRevisionId,
+        );
+        return this.snapshot(await this.coordinator.reconcile());
+    }
+
+    async rollbackMigration(
+        expectedRevisionId: string,
+    ): Promise<ManagedRemoteManagementSnapshot> {
+        if (!this.migrationSource) {
+            throw new Error('Managed Remote migration source is unavailable.');
+        }
+        const reconciled = await this.coordinator.reconcile();
+        const authority = authorityState(reconciled);
+        if (authority.lifecycle !== 'active'
+            || !authority.migrationPlanId
+            || authority.active?.revisionId !== expectedRevisionId) {
+            throw new Error('Managed migration authority changed before rollback.');
+        }
+        const values = reconciled.envelope.migrationPlans[authority.migrationPlanId]
+            ? distinctCandidateValues(
+                reconciled.envelope.migrationPlans[authority.migrationPlanId],
+            ) : [];
+        const journals = values.filter(value => value !== null);
+        if (journals.length !== 1 || journals[0].phase !== 'complete') {
+            throw new Error('Managed migration rollback material is missing or conflicted.');
+        }
+        const projectData = this.migrationSource.getProjectData();
+        const projectSyncData = this.migrationSource.getProjectSyncData();
+        const currentLegacy = createChecksummedLegacySnapshot(
+            projectData === undefined ? null : projectData,
+            projectSyncData === undefined ? null : projectSyncData,
+        );
+        if (currentLegacy.checksum !== journals[0].frozenLegacy.checksum) {
+            throw new Error(
+                'Legacy Project data changed after migration. Review those edits before rollback; Agent Pivot did not overwrite them.',
+            );
+        }
+        await this.coordinator.completePreparedMigrationRollback(
+            authority.migrationPlanId,
+            expectedRevisionId,
+            journals[0].frozenLegacy,
         );
         return this.snapshot(await this.coordinator.reconcile());
     }

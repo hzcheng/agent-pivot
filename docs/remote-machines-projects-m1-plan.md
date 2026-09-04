@@ -9,7 +9,7 @@
   Local/Remote 存储分流、tag AND 过滤、折叠交互。
 - 删除：V2 catalog、CRDT、迁移/降级、Connection Profile、Setup/Assign/Preview、
   新增 UI Bridge Project commands。
-- 回退：保留 `agentPivot.remoteMachineProjects.enabled` 开关。
+- 视图：Machine → Environment → Project 默认启用，不增加用户配置开关。
 
 ## 依赖方向
 

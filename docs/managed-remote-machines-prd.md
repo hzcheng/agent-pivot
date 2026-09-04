@@ -375,9 +375,10 @@ them after activation; they remain inert rollback material.
 
 - Lifecycle is `disabled → preview → active → rolledBack`; lifecycle, active
   revision, and recovery state share one managed envelope.
-- `agentPivot.remoteMachineProjects.enabled` controls only the pre-activation
-  renderer. It is not a data rollback switch.
-- Before activation, disabling managed mode restores URI-derived behavior.
+- The Machine → Environment → Project renderer is the default; there is no
+  user-facing feature flag for this view.
+- Before activation, existing V1 Project data remains authoritative and is
+  projected into the Machine view without migration.
 - After activation, only `Roll Back Managed Remote Migration` changes authority. It
   restores the exact V1 snapshot and leaves all legacy SSH blocks untouched.
 - Rollback data remains through owner acceptance and at least one released minor

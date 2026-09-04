@@ -165,7 +165,7 @@ Group 名只做派生兼容映射，不在后台批量改写 Project，也不改
 - 升级时先把同步目录中的 Local Project 写入本机存储，写入成功后再从同步目录删除；
   如果中途失败，来源副本仍保留，下次启动可以重试；
 - 历史 Local Project 没有来源信息，因此由首台完成升级迁移的计算机接收；
-- `agentPivot.remoteMachineProjects.enabled=false` 时使用原 Projects renderer；
+- Machine → Environment → Project 视图默认启用，不再提供额外的用户配置开关；
 - 回退代码不会删除本机 Local 数据，但不认识 `localProjects.v1` 的旧插件无法显示这些
   Local Project；重新安装本版本即可恢复，Remote Project 不受影响；
 - 已安装的 UI Bridge 继续服务原有窗口/Project 导航，本功能不要求升级。

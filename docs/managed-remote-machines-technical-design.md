@@ -98,11 +98,11 @@ disabled ── preview ── active
 - `active`: managed envelope is authoritative; original V1 keys are frozen.
 - `rolledBack`: exact captured V1 snapshot is authoritative again.
 
-Lifecycle and active revision are one envelope mutation. The existing
-`remoteMachineProjects.enabled` setting controls only the pre-activation renderer;
-it is never described as data rollback. In `active`, the legacy editor is not
-reachable from the new version. Actual authority changes only through the migration
-or rollback coordinator.
+Lifecycle and active revision are one envelope mutation. The Machine hierarchy is
+the default renderer and has no user-facing feature flag. Before activation it
+projects the authoritative V1 data; in `active`, the legacy editor is not reachable
+from the new version. Actual authority changes only through the migration or
+rollback coordinator.
 
 ## 5. Synchronized persistence and recovery
 

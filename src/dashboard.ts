@@ -8,7 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
-import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
+import { getStewardContent } from './webview/webviewContent';
 import { buildMachineProjectsViewModel } from './projects/machineProjectsViewModel';
 import { renderMachineProjectsPanel } from './webview/webviewMachineProjectsContent';
 import { renderManagedRemoteProjectsPanel } from './webview/webviewManagedRemoteProjectsContent';
@@ -3619,9 +3619,6 @@ async function initializeDashboard(
         groups: import('./models').Group[],
         infos: StewardInfos,
     ): string => {
-        if (infos.config.get<boolean>('remoteMachineProjects.enabled', false) !== true) {
-            return getProjectsPanelContent(groups, infos);
-        }
         if (managedRemoteSnapshot.lifecycle !== 'disabled') {
             return renderManagedRemoteProjectsPanel(
                 buildManagedRemoteProjectsViewModel(

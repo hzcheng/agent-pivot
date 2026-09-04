@@ -75,12 +75,35 @@ test('SESSION-CONFIGURATION-001 reads only the scoped Agent Pivot configuration'
         path.resolve(__dirname, '../../src/dashboard/lifecycleController.ts'),
         'utf8'
     );
+    const dashboardSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+    const manifest = require('../../package.json');
     assert.equal(constants.AGENT_PIVOT_CONFIG_SECTION, 'agentPivot');
     assert.equal(constantsSource.includes('LEGACY_DASHBOARD_CONFIG_SECTION'), false);
     assert.equal(configurationSource.includes('LEGACY_DASHBOARD_CONFIG_SECTION'), false);
     assert.equal(configurationSource.includes("getConfiguration('dashboard')"), false);
     assert.equal(lifecycleSource.includes("affectsConfiguration('dashboard')"), false);
     assert.equal(lifecycleSource.includes("'dashboard.storeProjectsInSettings'"), false);
+    assert.equal(
+        Object.hasOwn(
+            manifest.contributes.configuration.properties,
+            'agentPivot.remoteMachineProjects.enabled'
+        ),
+        false,
+        'the Machine Projects view is the default and has no user-facing feature flag'
+    );
+    assert.equal(
+        dashboardSource.includes('remoteMachineProjects.enabled'),
+        false,
+        'dashboard rendering does not depend on the retired feature flag'
+    );
+    assert.equal(
+        lifecycleSource.includes('remoteMachineProjects.enabled'),
+        false,
+        'configuration refresh does not retain the retired feature flag'
+    );
 });
 
 test('SESSION-STARTUP-001 preserves reopen, always, never, and genuinely empty-workspace startup behavior', () => {

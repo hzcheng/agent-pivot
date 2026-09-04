@@ -306,12 +306,6 @@
                     "default": true,
                     "markdownDescription": "If set to ```true```, remote Agent Pivot Projects are saved in user settings and can be synchronized across devices. Local paths and local containers always remain on this computer. **(VSCode restart required)**"
                 },
-                "agentPivot.remoteMachineProjects.enabled": {
-                    "type": "boolean",
-                    "default": false,
-                    "scope": "application",
-                    "markdownDescription": "Show saved Projects as a Machine → Environment → Project hierarchy derived from their existing paths. Disabling this setting immediately restores the original Projects page; no data migration is performed."
-                },
                 "agentPivot.maxVisibleAiSessions": {
                     "type": "number",
                     "default": 3,

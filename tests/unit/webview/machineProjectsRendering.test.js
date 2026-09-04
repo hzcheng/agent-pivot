@@ -19,7 +19,8 @@ function viewModel() {
         tags: ['active', 'api'],
         favorites: [project],
         machines: [{
-            id: 'machine', displayName: 'devbox', hostOpenable: true,
+            id: 'machine', defaultName: 'devbox', displayName: 'devbox',
+            renamed: false, hostOpenable: true,
             hostProjectId: 'project-v1',
             environments: [{
                 id: 'host', machineId: 'machine', kind: 'host', displayName: 'Host',
@@ -39,6 +40,9 @@ test('MACHINE-PROJECTS-ARIA-001 renders a plain derived hierarchy with directly 
     assert.match(html, /data-action="open-machine-project"/);
     assert.match(html, /aria-label="Open API &lt;unsafe&gt; on devbox, Host"/);
     assert.match(html, /data-action="open-machine-host"/);
+    assert.match(html, /data-action="toggle-machine-menu"/);
+    assert.match(html, /data-action="rename-machine"/);
+    assert.doesNotMatch(html, /data-action="reset-machine-name"/);
     assert.match(html, /data-action="toggle-machine-project-menu"/);
     assert.match(html, /data-action="edit-machine-project"/);
     assert.match(html, /data-action="color-machine-project"/);
@@ -68,4 +72,14 @@ test('MACHINE-PROJECTS-HOST-NAVIGATION-001 renders the same Machine action for L
 
     const html = renderMachineProjectsPanel(model);
     assert.match(html, /aria-label="Open Local in a new window"/);
+});
+
+test('MACHINE-PROJECTS-RENAME-001 renders the alias while preserving the connection name in its tooltip and reset action', () => {
+    const model = viewModel();
+    model.machines[0].displayName = 'Build Box';
+    model.machines[0].renamed = true;
+
+    const html = renderMachineProjectsPanel(model);
+    assert.match(html, /title="Build Box — connection: devbox"/);
+    assert.match(html, /data-action="reset-machine-name">Reset to devbox/);
 });

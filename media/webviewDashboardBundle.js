@@ -9403,6 +9403,14 @@ function createMachineProjectsUi() {
         window.vscode.postMessage({ type: type, projectId: projectId });
     }
 
+    function postMachineAction(control, type) {
+        var row = control.closest('[data-machine-row]');
+        var machineId = row && row.getAttribute('data-machine-id');
+        if (!machineId) return;
+        closeProjectMenu(false);
+        window.vscode.postMessage({ type: type, machineId: machineId });
+    }
+
     function postProjectOpen(row, openType) {
         var projectId = row && row.getAttribute('data-machine-project-id');
         if (!projectId) return;
@@ -9474,6 +9482,12 @@ function createMachineProjectsUi() {
             }
         } else if (action === 'toggle-machine-project-menu') {
             toggleProjectMenu(control, false);
+        } else if (action === 'toggle-machine-menu') {
+            toggleProjectMenu(control, false);
+        } else if (action === 'rename-machine') {
+            postMachineAction(control, 'rename-machine');
+        } else if (action === 'reset-machine-name') {
+            postMachineAction(control, 'reset-machine-name');
         } else if (action === 'open-machine-project-current') {
             postProjectOpen(control.closest('[data-machine-project-row]'), ProjectOpenType.CurrentWindow);
             closeProjectMenu(false);
@@ -9545,8 +9559,13 @@ function createMachineProjectsUi() {
         }
         if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10'))
             && event.target && event.target.closest) {
-            var row = event.target.closest('[data-machine-project-row]');
-            var trigger = row && row.querySelector('[data-action="toggle-machine-project-menu"]');
+            var projectRow = event.target.closest('[data-machine-project-row]');
+            var machineRow = !projectRow && event.target.closest('[data-machine-row]');
+            var trigger = projectRow
+                ? projectRow.querySelector('[data-action="toggle-machine-project-menu"]')
+                : machineRow && machineRow.querySelector(
+                    ':scope > .machine-row-line [data-action="toggle-machine-menu"]'
+                );
             if (trigger) {
                 event.preventDefault();
                 toggleProjectMenu(trigger, true);

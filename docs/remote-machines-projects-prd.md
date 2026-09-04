@@ -30,6 +30,7 @@ Container。该数据会沿用现有项目设置和同步机制跨机器保存�
 6. Favorites 是 Project 的镜像入口，不重复计数。
 7. 当前 Group 名在新视图中作为兼容 tag 展示。
 8. 功能开关关闭后立即恢复原 Projects 页面。
+9. Machine 支持修改同步的显示名称，但不改变连接信息。
 
 ## 3. 非目标
 
@@ -37,8 +38,8 @@ Container。该数据会沿用现有项目设置和同步机制跨机器保存�
 - 不把 Machine、Environment 作为新的持久化实体。
 - 不新增 Connection Profile、Setup、Assign、Repair 或 Preview 状态。
 - 不修改 UI Bridge 的 Project 协议或保存任何本机 SSH alias。
-- 不在本次实现 Machine/Environment 的增删改、拖拽和手动重排。
-- 不改变现有 Project、Favorite、Group 和设置同步格式。
+- 不在本次实现 Machine/Environment 的新增、删除、拖拽和手动重排。
+- 不把显示名称当成新的连接身份或独立 Machine 实体。
 
 ## 4. 数据事实源
 
@@ -46,6 +47,7 @@ Container。该数据会沿用现有项目设置和同步机制跨机器保存�
 
 - `Project.id`：打开、收藏等操作的身份；
 - `Project.path`：本地路径或完整 remote URI；
+- `Project.machineDisplayName`：同一派生 Machine 共享的可选显示名称；
 - `Project.remoteType`：旧数据兼容提示；
 - `Project.tags`：用户 tag；
 - `Project.favorite` / `favoriteOrder`：收藏及顺序；
@@ -53,6 +55,11 @@ Container。该数据会沿用现有项目设置和同步机制跨机器保存�
 
 视图每次从这些字段重新派生。不得把派生 Machine ID、Environment ID 或 Host
 地址写回同步数据。
+
+Machine 改名时，把规范化后的 `machineDisplayName` 写入该 Machine 当前所有 Project；
+新增 Project 即使尚未携带该字段，也从同 Machine 的已有 Project 投影出同一名称。重置
+名称会删除这些可选字段。该字段只影响显示与搜索，不参与 Machine ID、连接 authority
+或 Project 打开 URI 的计算。
 
 ## 5. 派生规则
 
@@ -113,7 +120,7 @@ Bridge command、握手或配置存储。
 FAVORITES
   ● API                         devbox › Host  [★] […]
 
-devbox                                      [open Host]
+devbox                                  [open Host] […]
   Host
     ● API                                      [★] […]
   workspace (Dev Container)
@@ -129,6 +136,7 @@ devbox                                      [open Host]
 - 工具栏左侧显示结果数，右侧紧邻放置 tag 和 Add 图标按钮；
 - Project 行显示原有颜色标识，不内联显示 tag；
 - Project 的 `…` 菜单提供当前窗口打开、编辑 Project、编辑颜色与删除；
+- Machine 的 `…` 菜单提供 Rename Machine；改名后同时提供恢复派生名称；
 - Machine、Project、Favorite 与更多操作均可通过键盘访问；
 - 不显示 Setup、Assign、Preview、Migration Report 或 UI Bridge 状态。
 
@@ -143,9 +151,9 @@ Group 名只做派生兼容映射，不在后台批量改写 Project，也不改
 ## 9. 同步、兼容与回退
 
 - 同步完全沿用现有 Project 存储；不同机器看到同一 URI，因此能得到相同层级；
-- 本功能不增加同步 key，不执行数据迁移，不写 recovery copy；
+- Machine 显示名称作为 Project 的可选字段沿用现有同步 key 与冲突处理，不执行数据迁移；
 - `agentPivot.remoteMachineProjects.enabled=false` 时使用原 Projects renderer；
-- 因为没有数据格式变化，代码或功能开关回退无需转换数据；
+- 旧版本会忽略可选显示名称字段；代码或功能开关回退无需转换数据；
 - 已安装的 UI Bridge 继续服务原有窗口/Project 导航，本功能不要求升级。
 
 ## 10. 验收标准
@@ -166,6 +174,7 @@ Group 名只做派生兼容映射，不在后台批量改写 Project，也不改
 - [ ] 顶部 Expand/Collapse All 对当前 Projects 层级有效。
 - [ ] 260px 宽度下无水平滚动，核心操作仍可访问。
 - [ ] 关闭功能开关后原 Projects 页立即恢复，Project 数据无变化。
+- [ ] Machine 可以修改和重置显示名称；名称跨设备同步且不改变连接 URI。
 
 ## 11. 交付节奏
 

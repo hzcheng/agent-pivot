@@ -5,7 +5,9 @@ const test = require('node:test');
 
 const {
     buildMachineProjectsViewModel,
+    normalizeMachineDisplayName,
     resolveMachineHostTarget,
+    withMachineDisplayName,
 } = require('../../../out/projects/machineProjectsViewModel');
 
 function groups() {
@@ -120,4 +122,30 @@ test('MACHINE-PROJECTS-HOST-NAVIGATION-001 can derive an SSH Host from a contain
         machineId: machine.id,
         projectId: machine.hostProjectId,
     }).path, 'vscode-remote://ssh-remote%2Bdevbox/');
+});
+
+test('MACHINE-PROJECTS-RENAME-001 projects share one synced display name without changing Machine identity or URIs', () => {
+    const source = groups();
+    const original = buildMachineProjectsViewModel(source).machines[0];
+    source[0].projects[1].machineDisplayName = '  Build   Box  ';
+
+    const renamed = buildMachineProjectsViewModel(source).machines[0];
+    assert.equal(renamed.id, original.id);
+    assert.equal(renamed.defaultName, 'devbox');
+    assert.equal(renamed.displayName, 'Build Box');
+    assert.equal(renamed.renamed, true);
+    assert.deepEqual(renamed.environments.flatMap(environment =>
+        environment.projects.map(project => project.machineName)), ['Build Box', 'Build Box']);
+
+    const updated = withMachineDisplayName(source, renamed.id, 'Team Dev');
+    assert.deepEqual(updated[0].projects.map(project => project.machineDisplayName), [
+        'Team Dev', 'Team Dev',
+    ]);
+    assert.deepEqual(updated[0].projects.map(project => project.path),
+        source[0].projects.map(project => project.path));
+    const reset = withMachineDisplayName(updated, renamed.id, null);
+    assert.deepEqual(reset[0].projects.map(project => project.machineDisplayName),
+        [undefined, undefined]);
+    assert.equal(buildMachineProjectsViewModel(reset).machines[0].displayName, 'devbox');
+    assert.equal(normalizeMachineDisplayName('x'.repeat(81)), null);
 });

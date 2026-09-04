@@ -91,3 +91,36 @@ test('PROJECT-INCREMENTAL-REFRESH-001 inline metadata updates do not rewrite rec
 
     assert.deepEqual(colors, [], 'inline edits must not change recent-colour configuration');
 });
+
+test('MACHINE-PROJECTS-RENAME-001 inherits a Machine alias on add and clears it after a move', async () => {
+    const groups = [{
+        id: 'group-a',
+        groupName: 'A',
+        collapsed: false,
+        projects: [{
+            id: 'project-api',
+            name: 'API',
+            path: 'vscode-remote://ssh-remote%2Bdevbox/work/api',
+            color: '#112233',
+            machineDisplayName: 'Build Box',
+        }],
+    }];
+    const service = makeProjectService(makeGlobalState({ projects: groups }));
+
+    await service.addProject({
+        id: 'project-worker',
+        name: 'Worker',
+        path: 'vscode-remote://ssh-remote%2Bdevbox/work/worker',
+        color: '#445566',
+    }, 'group-a');
+    assert.equal(service.getProject('project-worker').machineDisplayName, 'Build Box');
+
+    await service.updateProject('project-worker', {
+        id: 'ignored-by-update',
+        name: 'Worker',
+        path: 'vscode-remote://ssh-remote%2Bother/work/worker',
+        color: '#445566',
+    });
+    assert.equal(service.getProject('project-worker').machineDisplayName, undefined);
+    assert.equal(service.getProject('project-api').machineDisplayName, 'Build Box');
+});

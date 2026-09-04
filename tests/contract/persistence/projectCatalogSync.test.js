@@ -279,6 +279,26 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 model preserves unseen additions and obs
     );
 });
 
+test('MACHINE-PROJECTS-RENAME-001 preserves Machine display names through the synchronized Project catalog', () => {
+    const {
+        applyProjectCatalogSnapshot,
+        materializeProjectCatalog,
+        mergeProjectCatalogDocuments,
+        migrateLegacyProjectCatalog,
+    } = loadProjectCatalogSyncModel();
+    const baseGroups = makeCatalogGroups();
+    const base = migrateLegacyProjectCatalog(baseGroups, 'actor-a');
+    const renamedGroups = clone(baseGroups);
+    renamedGroups[0].projects[0].machineDisplayName = 'Build Box';
+    const renamed = applyProjectCatalogSnapshot(base, renamedGroups, 'actor-b');
+    const merged = mergeProjectCatalogDocuments(base, renamed);
+
+    assert.equal(
+        materializeProjectCatalog(merged.document)[0].projects[0].machineDisplayName,
+        'Build Box',
+    );
+});
+
 test('PROJECT-CATALOG-SYNC-CONFLICT-001 model keeps a concurrent live update and reports recovery', () => {
     const {
         applyProjectCatalogSnapshot,

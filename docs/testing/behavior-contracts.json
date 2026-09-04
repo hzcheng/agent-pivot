@@ -6898,6 +6898,29 @@
     ]
   },
   {
+    "id": "MACHINE-PROJECTS-RENAME-001",
+    "domain": "project",
+    "title": "A Machine display name can be renamed and reset through its actions menu, synchronizes through existing Project records, and never changes derived identity or connection URIs",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/machineProjectsViewModel.test.js",
+      "tests/contract/projects/controllers.test.js",
+      "tests/contract/projects/projectMessageHandlers.test.js",
+      "tests/contract/persistence/projectCatalogSync.test.js",
+      "tests/unit/services/projectService.test.js",
+      "tests/browser/machineProjects.test.js",
+      "tests/unit/webview/machineProjectsRendering.test.js"
+    ],
+    "evidence": [
+      "src/models.ts",
+      "src/projects/machineProjectsViewModel.ts",
+      "src/projects/machineRenameController.ts",
+      "src/webview/webviewMachineProjectsContent.ts",
+      "src/webview/webviewMachineProjectsScripts.js"
+    ]
+  },
+  {
     "id": "MACHINE-PROJECTS-FILTER-001",
     "domain": "webview",
     "title": "Project tags use AND matching and Favorites mirrors never inflate unique Project or Machine result counts",

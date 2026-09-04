@@ -76,6 +76,10 @@ function createFixture(overrides = {}) {
             addGroup: record('addGroup'),
         },
         groupCollapseController: { collapseGroup: record('collapseGroup') },
+        machineRenameController: {
+            renameMachine: record('renameMachine'),
+            resetMachineName: record('resetMachineName'),
+        },
         getWorkspaceNavigationController: () => ({ open: record('openWorkspaceNavigation') }),
         getOpenWorkspacePinController: () => ({ handle: record('handleOpenWorkspacePin') }),
         getAttentionAggregate: () => overrides.attentionAggregate || null,
@@ -108,6 +112,8 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every production project/grou
 
     assert.deepEqual(Object.keys(handlers), [
         'open-machine-host',
+        'rename-machine',
+        'reset-machine-name',
         'selected-project',
         'set-open-workspace-pin',
         'open-window-navigation-request',
@@ -269,6 +275,23 @@ test('MACHINE-PROJECTS-HOST-NAVIGATION-001 opens Local as a blank local window',
     });
 
     assert.deepEqual(calls, [['openLocalWindow']]);
+});
+
+test('MACHINE-PROJECTS-RENAME-001 routes exact Machine rename and reset requests', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['rename-machine']({ type: 'rename-machine', machineId: 'machine-a' });
+    await handlers['reset-machine-name']({
+        type: 'reset-machine-name', machineId: 'machine-a', extra: true,
+    });
+    await handlers['reset-machine-name']({
+        type: 'reset-machine-name', machineId: 'machine-a',
+    });
+
+    assert.deepEqual(calls, [
+        ['renameMachine', 'machine-a'],
+        ['resetMachineName', 'machine-a'],
+    ]);
 });
 
 test('PROJECT-PROJECT-ORDER-CONTROLLER-001 passes group orders through unchanged', async () => {

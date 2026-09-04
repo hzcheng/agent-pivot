@@ -31,16 +31,21 @@ function project(id, name, tags, favorite = false) {
     };
 }
 
-function markup(includeFavorite = true) {
+function markup(includeFavorite = true, machineOverrides = {}) {
     const api = project('api', 'API', ['active', 'api'], true);
     const worker = project('worker', 'Worker', ['active', 'worker']);
+    const machineName = machineOverrides.displayName || 'devbox';
+    api.machineName = machineName;
+    worker.machineName = machineName;
     return renderMachineProjectsPanel({
         projectCount: 2,
         tags: ['active', 'api', 'worker'],
         favorites: includeFavorite ? [api] : [],
         machines: [{
-            id: 'machine', displayName: 'devbox', hostOpenable: true,
+            id: 'machine', defaultName: 'devbox', displayName: machineName,
+            renamed: false, hostOpenable: true,
             hostProjectId: 'api',
+            ...machineOverrides,
             environments: [{
                 id: 'host', machineId: 'machine', kind: 'host', displayName: 'Host',
                 projects: [api, worker],
@@ -174,6 +179,34 @@ test('MACHINE-PROJECTS-ACTIONS-001 exposes a dismissible Project actions menu', 
     assert.equal(await page.locator(`${row} [data-machine-project-menu]`).isHidden(), true);
 });
 
+test('MACHINE-PROJECTS-RENAME-001 exposes Rename and Reset from the Machine actions menu', async t => {
+    const page = await openPage(t, 320, markup(true, {
+        defaultName: 'devbox',
+        displayName: 'Build Box',
+        renamed: true,
+    }));
+    const machine = '[data-machine-row]';
+
+    await page.click(`${machine} > .machine-row-line [data-action="toggle-machine-menu"]`);
+    assert.equal(await page.getByRole('menuitem', { name: 'Rename Machine…' }).isVisible(), true);
+    assert.equal(await page.getByRole('menuitem', { name: 'Reset to devbox' }).isVisible(), true);
+    await page.getByRole('menuitem', { name: 'Rename Machine…' }).click();
+    assert.deepEqual(await page.evaluate(() => window.messages.at(-1)), {
+        type: 'rename-machine', machineId: 'machine',
+    });
+
+    await page.click(`${machine} > .machine-row-line [data-action="toggle-machine-menu"]`);
+    await page.getByRole('menuitem', { name: 'Reset to devbox' }).click();
+    assert.deepEqual(await page.evaluate(() => window.messages.at(-1)), {
+        type: 'reset-machine-name', machineId: 'machine',
+    });
+
+    await page.focus(`${machine} > .machine-row-line [data-machine-disclosure="machine"]`);
+    await page.keyboard.press('Shift+F10');
+    assert.equal(await page.getByRole('menuitem', { name: 'Rename Machine…' })
+        .evaluate(node => document.activeElement === node), true);
+});
+
 test('MACHINE-PROJECTS-TOOLBAR-001 keeps summary and icon actions in one compact row', async t => {
     const page = await openPage(t);
     const toolbar = page.locator('.machine-projects-toolbar');
@@ -207,7 +240,7 @@ test('MACHINE-PROJECTS-KEYBOARD-001 exposes disclosure, Machine, Project, Favori
         buttons.filter(button => button.tabIndex === 0).map(button => button.getAttribute('data-action')
             || button.getAttribute('data-machine-disclosure')));
     assert.deepEqual(tabStops, [
-        'machine', 'open-machine-host', 'environment',
+        'machine', 'open-machine-host', 'toggle-machine-menu', 'environment',
         'open-machine-project', 'toggle-machine-favorite', 'toggle-machine-project-menu',
         'open-machine-project', 'toggle-machine-favorite', 'toggle-machine-project-menu',
     ]);

@@ -725,6 +725,7 @@
         "src/projects/gitRepositoryDetector.ts",
         "src/projects/groupCommandController.ts",
         "src/projects/groupPrompts.ts",
+        "src/projects/machineRenameController.ts",
         "src/projects/openProjectMatcher.ts",
         "src/projects/openProjectService.ts",
         "src/projects/projectManualEditController.ts",

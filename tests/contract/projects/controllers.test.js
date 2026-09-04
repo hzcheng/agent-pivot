@@ -8,6 +8,7 @@ const { GroupCollapseController } = require('../../../out/dashboard/groupCollaps
 const { AddProjectsFromFolderController } = require('../../../out/projects/addProjectsFromFolderController');
 const { FavoriteProjectController } = require('../../../out/projects/favoriteProjectController');
 const { GroupCommandController } = require('../../../out/projects/groupCommandController');
+const { MachineRenameController } = require('../../../out/projects/machineRenameController');
 const { queryGroupName } = require('../../../out/projects/groupPrompts');
 const { ProjectOrderController } = require('../../../out/projects/projectOrderController');
 const { ProjectRemovalController } = require('../../../out/projects/projectRemovalController');
@@ -414,6 +415,69 @@ test('PROJECT-GROUP-COMMAND-CONTROLLER-001 mutates groups and suppresses only us
     nextPrompt = new Error('boom');
     await assert.rejects(() => controller.editGroup('group-a'), /boom/);
     assert.deepEqual(errors, ['An error occured while editing the group.']);
+});
+
+test('MACHINE-PROJECTS-RENAME-001 renames and resets every Project on a Machine through one catalog save', async () => {
+    const anchor = Buffer.from(JSON.stringify({
+        hostPath: '/work/worker',
+        localDocker: false,
+    }), 'utf8').toString('hex');
+    let groups = [{
+        id: 'remote', groupName: 'Remote', projects: [{
+            id: 'api', name: 'API',
+            path: 'vscode-remote://ssh-remote%2Bdevbox/work/api',
+        }, {
+            id: 'worker', name: 'Worker',
+            path: `vscode-remote://dev-container%2B${anchor}%40ssh-remote%2Bdevbox/work/worker`,
+        }, {
+            id: 'local', name: 'Local', path: '/work/local',
+        }],
+    }];
+    const machineId = require('../../../out/projects/machineProjectsViewModel')
+        .buildMachineProjectsViewModel(groups).machines[0].id;
+    const events = [];
+    let promptValue = 'Build Box';
+    let promptOptions;
+    const controller = new MachineRenameController({
+        getGroups: () => groups,
+        saveGroups: async updated => {
+            events.push('save');
+            groups = updated;
+        },
+        showInputBox: async options => {
+            promptOptions = options;
+            groups = JSON.parse(JSON.stringify(groups));
+            groups[0].projects[0].description = 'Updated while the prompt was open';
+            return promptValue;
+        },
+        showWarningMessage: message => events.push(['warning', message]),
+        refreshAfterMutation: () => events.push('refresh'),
+    });
+
+    await controller.renameMachine(machineId);
+    assert.deepEqual(groups[0].projects.map(project => project.machineDisplayName), [
+        'Build Box', 'Build Box', undefined,
+    ]);
+    assert.equal(groups[0].projects[0].description, 'Updated while the prompt was open');
+    assert.deepEqual(events, ['save', 'refresh']);
+    assert.equal(promptOptions.value, 'devbox');
+    assert.equal(promptOptions.prompt,
+        'Changes the display name only. Connection details stay the same.');
+    assert.equal(promptOptions.validateInput(''), 'Enter a Machine display name.');
+    assert.equal(promptOptions.validateInput('x'.repeat(81)),
+        'Machine names cannot exceed 80 characters.');
+
+    events.length = 0;
+    await controller.resetMachineName(machineId);
+    assert.deepEqual(groups[0].projects.map(project => project.machineDisplayName), [
+        undefined, undefined, undefined,
+    ]);
+    assert.deepEqual(events, ['save', 'refresh']);
+
+    events.length = 0;
+    promptValue = undefined;
+    await controller.renameMachine(machineId);
+    assert.deepEqual(events, []);
 });
 
 test('PROJECT-PROJECT-REMOVAL-CONTROLLER-001 honors picker and confirmation cancellation', async () => {

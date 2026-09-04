@@ -11,6 +11,10 @@ import {
     StorageOption,
 } from "../constants";
 import type { ProjectCatalogMutationOptions } from '../projects/projectCatalogSync';
+import {
+    getMachineDisplayNameForPath,
+    getMachineViewId,
+} from '../projects/machineProjectsViewModel';
 import BaseService from './baseService';
 import ColorService from './colorService';
 import {
@@ -145,6 +149,11 @@ export default class ProjectService extends BaseService {
             }
         }
 
+        const machineDisplayName = getMachineDisplayNameForPath(groups, project.path);
+        if (machineDisplayName && !project.machineDisplayName) {
+            project.machineDisplayName = machineDisplayName;
+        }
+
         if (ADD_NEW_PROJECT_TO_FRONT) {
             group.projects.unshift(project);
         } else {
@@ -180,6 +189,14 @@ export default class ProjectService extends BaseService {
             }
             let project = group.projects.find(p => p.id === projectId);
             if (project != null) {
+                const updatedPath = updatedProject.path || project.path;
+                if (getMachineViewId(project.path) !== getMachineViewId(updatedPath)
+                    && !Object.prototype.hasOwnProperty.call(
+                        updatedProject,
+                        'machineDisplayName'
+                    )) {
+                    delete project.machineDisplayName;
+                }
                 Object.assign(project, updatedProject, { id: projectId });
                 break;
             }

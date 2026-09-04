@@ -80,16 +80,28 @@ function renderFavorites(projects: MachineProjectRowViewModel[]): string {
 
 function renderMachine(machine: MachineRowViewModel): string {
     const childrenId = `machine-children-${machine.id}`;
+    const machineTitle = machine.renamed
+        ? `${machine.displayName} — connection: ${machine.defaultName}`
+        : machine.displayName;
     return `<li class="machine-row" data-machine-row data-machine-id="${escapeAttribute(machine.id)}" data-machine-name="${escapeAttribute(machine.displayName)}">
         <div class="machine-row-line">
             <button type="button" class="machine-row-primary machine-disclosure" data-machine-disclosure="machine" aria-expanded="true" aria-controls="${childrenId}" aria-label="Collapse ${escapeAttribute(machine.displayName)}">
                 <span class="machine-chevron" aria-hidden="true">${Icons.collapse}</span>
                 <span class="machine-row-icon machine-computer-icon" aria-hidden="true">${Icons.computer}</span>
-                <span class="machine-row-name" title="${escapeAttribute(machine.displayName)}">${escapeAttribute(machine.displayName)}</span>
+                <span class="machine-row-name" title="${escapeAttribute(machineTitle)}">${escapeAttribute(machine.displayName)}</span>
             </button>
-            ${machine.hostOpenable && machine.hostProjectId
-                ? `<button type="button" class="machine-pointer-action machine-primary-action" data-action="open-machine-host" data-host-project-id="${escapeAttribute(machine.hostProjectId)}" aria-label="Open ${escapeAttribute(machine.displayName)} in a new window" title="Open ${escapeAttribute(machine.displayName)} in a new window">${Icons.openNewWindow}</button>`
-                : ''}
+            <div class="machine-row-actions">
+                ${machine.hostOpenable && machine.hostProjectId
+                    ? `<button type="button" class="machine-pointer-action machine-primary-action" data-action="open-machine-host" data-host-project-id="${escapeAttribute(machine.hostProjectId)}" aria-label="Open ${escapeAttribute(machine.displayName)} in a new window" title="Open ${escapeAttribute(machine.displayName)} in a new window">${Icons.openNewWindow}</button>`
+                    : ''}
+                <div class="machine-project-menu-shell">
+                    <button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-menu" aria-label="More actions for ${escapeAttribute(machine.displayName)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button>
+                    <div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
+                        <button type="button" role="menuitem" tabindex="-1" data-action="rename-machine">Rename Machine…</button>
+                        ${machine.renamed ? `<button type="button" role="menuitem" tabindex="-1" data-action="reset-machine-name">Reset to ${escapeAttribute(machine.defaultName)}</button>` : ''}
+                    </div>
+                </div>
+            </div>
         </div>
         <ul id="${childrenId}" class="machine-environment-list">
             ${machine.environments.map(environment => renderEnvironment(machine, environment)).join('\n')}

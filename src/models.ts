@@ -28,6 +28,8 @@ export class Project {
     name: string;
     description: string;
     path: string;
+    /** Optional presentation-only name shared by Projects on the same derived Machine. */
+    machineDisplayName?: string;
     tags?: string[];
     lastOpenedAt?: number;
     remoteType?: ProjectRemoteType;

@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 
 import { AddProjectsFromFolderController } from '../../projects/addProjectsFromFolderController';
 import { CurrentProjectDetailsResolver } from '../../projects/currentProjectDetails';
+import { MachineRenameController } from '../../projects/machineRenameController';
 import { FavoriteProjectController } from '../../projects/favoriteProjectController';
 import { GroupCommandController } from '../../projects/groupCommandController';
 import { queryGroupName } from '../../projects/groupPrompts';
@@ -66,6 +67,13 @@ export function createProjectControllers(deps: ProjectControllersDeps) {
     const groupCollapseController = new GroupCollapseController({
         state: context.globalState,
         projectService,
+    });
+    const machineRenameController = new MachineRenameController({
+        getGroups: () => projectService.getGroups(),
+        saveGroups: groups => projectService.saveGroups(groups),
+        showInputBox: options => vscode.window.showInputBox(options),
+        showWarningMessage: message => vscode.window.showWarningMessage(message),
+        refreshAfterMutation: projectSurface.refreshAfterMutation,
     });
     const groupCommandController = new GroupCommandController({
         projectService,
@@ -184,6 +192,7 @@ export function createProjectControllers(deps: ProjectControllersDeps) {
     return {
         projectSurface,
         groupCollapseController,
+        machineRenameController,
         groupCommandController,
         projectOpenController,
         projectPromptController,

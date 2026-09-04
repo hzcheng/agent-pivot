@@ -16,6 +16,7 @@ import type { OpenWorkspacePinController } from '../openWorkspaces/pinController
 import type ProjectService from '../services/projectService';
 import type { FavoriteProjectController } from './favoriteProjectController';
 import type { GroupCommandController } from './groupCommandController';
+import type { MachineRenameController } from './machineRenameController';
 import type { ProjectMutationController } from './projectMutationController';
 import type { ProjectOpenController } from './projectOpenController';
 import type { ProjectOrderController } from './projectOrderController';
@@ -80,6 +81,7 @@ export interface ProjectMessageHandlersOptions {
     projectRemovalController: ProjectRemovalController;
     groupCommandController: GroupCommandController;
     groupCollapseController: GroupCollapseController;
+    machineRenameController: MachineRenameController;
     /** Late-bound: the navigation controller is constructed after the router. */
     getWorkspaceNavigationController: () => WorkspaceNavigationController;
     /** Late-bound: the navigation request controller is constructed after the router. */
@@ -116,6 +118,7 @@ export function createProjectMessageHandlers(
     const projectRemovalController = options.projectRemovalController;
     const groupCommandController = options.groupCommandController;
     const groupCollapseController = options.groupCollapseController;
+    const machineRenameController = options.machineRenameController;
     const getWorkspaceNavigationController = options.getWorkspaceNavigationController;
     const getOpenWindowNavigationRequestController = options.getOpenWindowNavigationRequestController;
     const getOpenWorkspacePinController = options.getOpenWorkspacePinController;
@@ -147,6 +150,18 @@ export function createProjectMessageHandlers(
             const host = new Project(target.name, target.path);
             host.remoteType = target.remoteType;
             await projectOpenController.openProject(host, ProjectOpenType.NewWindow);
+        },
+        'rename-machine': async e => {
+            if (Object.keys(e).length !== 2 || typeof e.machineId !== 'string') {
+                return;
+            }
+            await machineRenameController.renameMachine(e.machineId);
+        },
+        'reset-machine-name': async e => {
+            if (Object.keys(e).length !== 2 || typeof e.machineId !== 'string') {
+                return;
+            }
+            await machineRenameController.resetMachineName(e.machineId);
         },
         'selected-project': async e => {
             let projectId = e.projectId as string;

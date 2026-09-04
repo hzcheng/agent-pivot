@@ -993,7 +993,8 @@ body .project {
     background: transparent;
 }
 
-.machine-project-actions {
+.machine-project-actions,
+.machine-row-actions {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
@@ -1018,7 +1019,9 @@ body .project {
 .machine-project-row:hover .machine-more-action,
 .machine-project-row:focus-within .machine-more-action,
 .machine-project-row:hover .machine-favorite-action,
-.machine-project-row:focus-within .machine-favorite-action {
+.machine-project-row:focus-within .machine-favorite-action,
+.machine-row > .machine-row-line:hover .machine-more-action,
+.machine-row > .machine-row-line:focus-within .machine-more-action {
     opacity: .82;
 }
 

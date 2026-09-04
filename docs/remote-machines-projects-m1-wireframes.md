@@ -12,7 +12,7 @@
 │ ▾ FAVORITES  1                            │
 │     ● API          devbox › Host  [★][…] │
 │                                            │
-│ ▾ devbox                         [open ↗] │
+│ ▾ devbox                      [open ↗][…] │
 │   ▾ Host                                  │
 │       ● API                       [★][…] │
 │   ▾ workspace (Dev Container)             │
@@ -25,7 +25,7 @@
 ```
 
 - 点击 Machine 名称区域只切换展开状态。
-- 点击 Machine 右侧 `[open ↗]` 在新窗口打开 Host。
+- 点击 Machine 右侧 `[open ↗]` 在新窗口打开 Host；`[…]` 可修改或重置显示名称。
 - 点击 Project 行按保存的完整 URI 打开 Project。
 - 星标按钮只切换 Favorite。
 - `…` 菜单提供当前窗口打开、编辑、改色和删除，点击菜单外部即关闭。
@@ -40,7 +40,7 @@
 │ ▾ FAVORITES  1                            │
 │     ● API          devbox › Host  [★][…] │
 │                                            │
-│ ▾ devbox                         [open ↗] │
+│ ▾ devbox                      [open ↗][…] │
 │   ▾ Host                                  │
 │       ● API                       [★][…] │
 └────────────────────────────────────────────┘
@@ -56,7 +56,7 @@
 │ OPEN  PROJECTS  AI       │
 ├──────────────────────────┤
 │ 2 projects / 1 machine [tag][+] │
-│ ▾ devbox          [↗]   │
+│ ▾ devbox       [↗][…]   │
 │   ▾ Host                 │
 │       ● API        [★][…]│
 │   ▾ workspace (Container)│

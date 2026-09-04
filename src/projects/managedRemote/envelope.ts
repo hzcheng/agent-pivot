@@ -6,6 +6,7 @@ import {
     cloneManagedValue,
     createCausalVersion,
     createVersionedCandidates,
+    distinctCandidateValues,
     joinVersionVectors,
     joinVersionedCandidates,
     normalizeVersionedCandidates,
@@ -387,6 +388,16 @@ export function createEmptyManagedCatalogEnvelope(actorId: string): ManagedCatal
     });
 }
 
+export function readManagedActiveRevisionSlot(value: unknown): ManagedRevisionSlot | null {
+    const parsed = parseManagedCatalogEnvelope(value);
+    if (!parsed || parsed.issues.length) { return null; }
+    const authorities = distinctCandidateValues(parsed.envelope.authority);
+    return authorities.length === 1
+        && authorities[0].lifecycle === 'active'
+        && authorities[0].active
+        ? cloneManagedValue(authorities[0].active) : null;
+}
+
 function joinMaps<T>(
     left: Record<string, VersionedCandidates<T | null>>,
     right: Record<string, VersionedCandidates<T | null>>,
@@ -483,7 +494,8 @@ export function mergeActiveAuthorityCandidates(
     const envelope = parsed.envelope;
     const active = envelope.authority.candidates
         .map(candidate => candidate.value)
-        .filter(authority => authority.lifecycle === 'active' && authority.active);
+        .filter((authority): authority is ManagedAuthorityState & { active: ManagedRevisionSlot } =>
+            authority.lifecycle === 'active' && Boolean(authority.active));
     if (active.length < 2) {
         return envelope;
     }

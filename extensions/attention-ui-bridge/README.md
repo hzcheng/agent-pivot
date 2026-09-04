@@ -12,6 +12,12 @@ remote workspace host is not a substitute for the local companion.
 The bridge records workspace and root URIs locally for open-workspace coordination. Those URIs can include absolute local paths or remote-authority identifiers.
 The bridge does not record conversation content, prompts, or responses.
 
+The bridge also contains the disabled Managed Remote SSH materializer. When the
+main extension enables that feature in a later milestone, the bridge will rebuild
+Agent Pivot-owned SSH fragments from synchronized non-secret Machine metadata. It
+never stores credentials and never writes the user-owned active SSH config; enable
+and disable require the user to add or remove one exact marked `Include` manually.
+
 Agent Pivot began as a fork of Kruemelkatze/vscode-dashboard and retains the upstream MIT attribution.
 
 See the repository [LICENSE](https://github.com/hzcheng/agent-pivot/blob/main/LICENSE) and

@@ -323,8 +323,8 @@ silently truncating history or metadata.
 UI Bridge stores a local `managedSshConsent.v1`, scoped to the canonical active SSH
 config path, with `disabled | enabling | enabled | disabling | recoveryRequired`
 state and a journal. Synchronization never sets it. The first preflight shows the
-path, executable, Include, generated directory, backup, and automatic-update
-behavior. Cancel performs no write.
+path, executable, Include, generated directory, generated-file backup, and
+automatic-update behavior. Cancel performs no write.
 
 `Disable on This Computer` previews and journal-removes only the exact owned marker/
 Include plus generated directory; it does not change the catalog or legacy blocks.
@@ -347,9 +347,10 @@ Resolve local Remote - SSH inputs from User settings:
    behavior;
 4. fail closed when the executable/config is missing or unsupported.
 
-Minimum VS Code, Remote - SSH, and OpenSSH versions must be verified during M2. If
-VS Code 1.51 cannot satisfy the tested protocol, raise `engines.vscode` explicitly
-rather than shipping an untested claim.
+M2 verifies protocol compilation/activation and the installed POSIX OpenSSH client.
+The real VS Code, Remote - SSH, Windows OpenSSH, and cross-host version matrix is an
+M4 activation gate. If VS Code 1.51 cannot satisfy the tested protocol, raise
+`engines.vscode` explicitly rather than shipping an untested claim.
 
 ## 7. Generated SSH projection
 
@@ -374,10 +375,11 @@ Include "/path/to/.ssh/agent-pivot/current.conf"
 # <<< Agent Pivot managed SSH hosts
 ```
 
-Generated records use an immutable reserved alias:
+Generated records use an immutable reserved alias derived from the SHA-256 digest
+of the Machine ID (the first 32 hexadecimal characters):
 
 ```sshconfig
-Host agent-pivot-550e8400-e29b-41d4-a716-446655440000
+Host agent-pivot-74c29df6f27da9e44a741ea31183243b
     HostName dev.example.com
     User alice
     Port 22022
@@ -418,31 +420,25 @@ Reconcile performs:
 5. atomically install Agent Pivot-owned `current.conf`, fsync its parent, retain
    `previous.conf`, and verify revision/checksum; a crash here is harmless because
    first enable has not published the Include yet;
-6. on first enable only, prepare an active-config sibling temp with the marked
-   Include and re-read every dependency, rejecting a changed fingerprint;
-7. use a supported platform primitive that atomically exchanges/replaces the
-   user-owned active config while retaining the displaced file; verify displaced
-   bytes equal the snapshot, otherwise atomically restore and report an
-   external-writer conflict;
-8. on platforms where that reversible atomic exchange cannot be proved, do not
-   auto-edit active config: preflight offers Copy Include + Open Config, waits for
-   the user to save, then validates read-only;
-9. verify the active Include and exact current revision, then commit local state.
+6. on first enable only, return the exact marked Include through the local UI flow;
+   `Copy Include` + `Open Config` waits for the user to save it;
+7. re-read the active config and every dependency, reject a changed fingerprint,
+   validate the actual aggregate read-only, and commit local state.
 
-First enable publishes and verifies `current.conf` before adding the Include; the
-Include exchange is its final activation commit. A crash before that commit leaves
-only an unreferenced generated file. Normal reconcile does not rewrite
-the user-owned active config when its exact marker is intact. No automatic path uses
-a check-then-rename gap that can overwrite an uncooperative external writer; it uses
-exchange-and-verify or the manual one-time Include fallback. Existing Include
-reconcile validates before swapping `current.conf`, so unvalidated bytes are never
-active. Each supported automatic operation preserves unrelated bytes and EOL.
+First enable publishes and verifies `current.conf` before asking the user to add the
+Include; that manual edit plus read-only verification is its final activation
+commit. A crash before that commit leaves only an unreferenced generated file.
+Normal reconcile never rewrites the user-owned active config when its exact marker
+is intact. Existing-Include reconcile validates before swapping `current.conf`, so
+unvalidated bytes are never active. Cancel leaves the active config byte-identical.
 
-POSIX writes preserve uid/gid/mode and, where APIs permit, ACL/xattrs; reject foreign
-ownership, unexpected hardlinks, and unsafe symlinks. Windows code validates and
-copies DACLs, rejects unsafe reparse points/UNC behavior, and never treats `chmod` as
-an ACL substitute. Revision, backup, journal, and temp files receive equivalent
-protection. Platform limitations fail closed with remediation text.
+POSIX owned-file writes require private directories/files, current-user ownership,
+one link, and no symlink; atomic replacement rechecks an existing target before
+rename. The active config and static Include dependencies are read-only and reject
+foreign ownership, writable-by-group/other modes, unexpected hardlinks, symlinks,
+and read races. Windows materialization remains fail-closed in M2 until the M4 real
+Windows gate proves DACL and reparse-point handling; Node `chmod` is never treated
+as an ACL substitute. Platform limitations fail closed with remediation text.
 
 The first release never deletes or rewrites legacy Host blocks. This removes the
 highest-risk byte-range cleanup and keeps rollback coherent.
@@ -769,11 +765,10 @@ rollback window.
 ### 15.2 Filesystem and platform
 
 - temp-directory fault points at write/fsync/rename/CAS/state steps;
-- real external writer and rename races precisely between final check and replace,
-  reversible exchange/restore, manual-Include fallback, multi-process lock, and
+- real external writer races around manual confirmation, multi-process lock, and
   process kill;
 - first Enable process-kill before/after `current.conf` publication and before/after
-  Include exchange; Disable process-kill before/after Include removal;
+  manual Include confirmation; Disable process-kill before/after Include removal;
 - unrelated-byte/EOL preservation;
 - POSIX mode/owner/link/symlink/ACL behavior;
 - real Windows `ssh.exe`, DACL, reparse point, custom/default config, CRLF, and paths
@@ -822,11 +817,12 @@ all owner acceptance.
 2. **M1 — Catalog, disabled:** envelope/replica/merge, migration planning, frozen-V1
    divergence guard, Dev Container codec spike, payload gate, no activation.
 3. **M2 — Materializer, disabled:** consent, Bridge capability, generated config,
-   platform/fault/security tests.
+   POSIX fault/security tests, and an explicit Windows fail-closed gate.
 4. **M3 — Management UI, disabled:** Machine/Project operations, conflict/migration
    review, accessibility/browser tests.
-5. **M4 — Disposable rehearsal:** build from an exact commit, install both VSIXs,
-   migrate port-22/non-22/password/Dev Container fixtures, test rollback.
+5. **M4 — Disposable rehearsal:** complete and prove the Windows DACL/reparse-point
+   adapter, build from an exact commit, install both VSIXs, migrate
+   port-22/non-22/password/Dev Container fixtures, and test rollback.
 6. **M5 — Owner real-data acceptance:** no legacy SSH deletion; verify a second
    computer and mixed-version warnings; final full verification.
 7. **PR:** open one PR, wait for green checks, then request exact-head-SHA owner

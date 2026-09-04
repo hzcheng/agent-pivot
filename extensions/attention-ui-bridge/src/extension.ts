@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
@@ -45,6 +46,17 @@ import {
     SAVED_PROJECT_NAVIGATION_PROTOCOL_VERSION,
     validateSavedProjectNavigationRequest,
 } from '../../../src/projects/projectNavigationProtocol';
+import {
+    MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+    MANAGED_REMOTE_BRIDGE_EXECUTE_COMMAND,
+    MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND,
+    MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
+    parseManagedRemoteBridgeHandshakeRequest,
+} from '../../../src/projects/managedRemote/bridgeProtocol';
+import { ManagedRemoteBridgeController } from './managedRemoteBridgeController';
+import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
+import { ManagedSshConsentFileStore } from './managedSshConsentStore';
+import { discoverManagedSshLocalInputs } from './managedSshDiscovery';
 
 const BRIDGE_CHALLENGE = '_agentPivotAttentionSpike.bridge.challenge';
 const WORKSPACE_CHALLENGE = '_agentPivotAttentionSpike.workspace.challenge';
@@ -92,6 +104,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (vscode.workspace.workspaceFolders || []).map(folder => folder.uri.path)
     );
     const bridgeRoot = resolveBridgeStorageRoot(context.globalStoragePath, context.globalStorageUri.scheme);
+    const managedRemoteSessionToken = crypto.randomBytes(32).toString('hex');
+    const managedSshConsent = new ManagedSshConsentFileStore(bridgeRoot);
+    const managedRemoteController = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope: () => vscode.workspace
+            .getConfiguration('agentPivot')
+            .get('managedRemoteCatalogData'),
+    }, {
+        create: async () => {
+            const remoteSsh = vscode.workspace.getConfiguration('remote.SSH');
+            const inputs = discoverManagedSshLocalInputs({
+                platform: process.platform,
+                homeDirectory: os.homedir(),
+                environmentPath: process.env.PATH || process.env.Path || '',
+                windowsDirectory: process.env.WINDIR,
+                remoteSshPath: remoteSsh.get('path'),
+                remoteSshConfigFile: remoteSsh.get('configFile'),
+            });
+            return new ManagedSshConsentCoordinator(
+                inputs.activeConfigPath,
+                inputs.executable,
+                managedSshConsent,
+            );
+        },
+    }, managedRemoteSessionToken);
     const instanceId = crypto.randomBytes(16).toString('hex');
     const store = new LocalStore(bridgeRoot, instanceId, bridgeProcessId);
     const productionStore = new ProductionAttentionStore(path.join(bridgeRoot, 'production-attention', 'v1'), bridgeProcessId);
@@ -383,6 +419,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             };
         },
     );
+    const managedRemoteHandshakeDisposable = vscode.commands.registerCommand(
+        MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND,
+        (raw: unknown) => {
+            const request = parseManagedRemoteBridgeHandshakeRequest(raw);
+            if (!request) { throw new Error('Invalid Managed Remote bridge handshake.'); }
+            return {
+                protocolVersion: MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
+                requestId: request.requestId,
+                challenge: request.challenge,
+                sessionToken: managedRemoteSessionToken,
+                capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+            };
+        },
+    );
+    const managedRemoteExecuteDisposable = vscode.commands.registerCommand(
+        MANAGED_REMOTE_BRIDGE_EXECUTE_COMMAND,
+        (raw: unknown) => managedRemoteController.execute(raw),
+    );
     const statusDisposable = vscode.commands.registerCommand(BRIDGE_STATUS, async () => {
         const scan = await store.scan(Date.now());
         return {
@@ -443,6 +497,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openWorkspaceRequestAttentionFocusDisposable,
         openWorkspaceNavigateDisposable,
         savedProjectNavigateDisposable,
+        managedRemoteHandshakeDisposable,
+        managedRemoteExecuteDisposable,
         statusDisposable,
         watcherDisposable,
         clearDisposable,

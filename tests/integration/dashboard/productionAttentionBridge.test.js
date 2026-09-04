@@ -70,8 +70,23 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             '_agentPivotAttention.bridge.acknowledge',
             '_agentPivotOpenWorkspaces.bridge.navigate',
             '_agentPivotProjects.bridge.navigate',
+            '_agentPivotManagedRemote.bridge.handshake',
+            '_agentPivotManagedRemote.bridge.execute',
         ];
         for (const command of requiredCommands) assert.equal(typeof registered.get(command), 'function');
+
+        const managedHandshake = await registered.get('_agentPivotManagedRemote.bridge.handshake')({
+            protocolVersion: 1,
+            requestId: 'managed-request-1',
+            challenge: 'managed-challenge-1',
+        });
+        assert.equal(managedHandshake.challenge, 'managed-challenge-1');
+        assert.match(managedHandshake.sessionToken, /^[a-f0-9]{64}$/);
+        assert.deepEqual(managedHandshake.capabilities, [
+            'managedSshConfigV1',
+            'manualIncludeConsentV1',
+            'openSshValidationV1',
+        ]);
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');
         await openWorkspacePublish({

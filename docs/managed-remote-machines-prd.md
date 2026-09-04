@@ -1,6 +1,6 @@
 # Managed Remote Machines PRD
 
-> Status: M1 catalog foundation implemented behind a disabled path; owner acceptance pending
+> Status: M1 accepted; M2 local materializer implemented behind a disabled path, owner acceptance pending
 >
 > Date: 2026-09-04
 > Related: [Remote Machines Projects PRD](./remote-machines-projects-prd.md)
@@ -13,10 +13,11 @@ Projects and Dev Container environments reference the Machine by stable ID rathe
 than inferring identity from an SSH alias embedded in a URI.
 
 After one computer-level consent, Agent Pivot materializes this catalog into an
-isolated generated SSH config and adds one managed `Include` to the config used by
-Remote - SSH. This generated file is a rebuildable local cache, not a second source
-of truth. Passwords, keys, passphrases, and tokens are never stored or synchronized;
-Remote - SSH continues to prompt when authentication is needed.
+isolated generated SSH config. The user adds one exact managed `Include` to the
+config used by Remote - SSH; Agent Pivot validates it but never rewrites the
+user-owned config. The generated file is a rebuildable local cache, not a second
+source of truth. Passwords, keys, passphrases, and tokens are never stored or
+synchronized; Remote - SSH continues to prompt when authentication is needed.
 
 The intended end state has one Agent Pivot connection model. Existing alias-based
 Projects are migrated once and then open through stable Agent Pivot aliases. The
@@ -45,7 +46,7 @@ to connect is local and implicit.
    identity and endpoint metadata. Generated SSH config is disposable.
 2. **No per-Machine binding.** A Machine contains enough non-secret information to
    connect on any enabled computer. Each VS Code installation asks once before
-   Agent Pivot first edits that computer's SSH config.
+   enabling the local generated projection.
 3. **Authentication stays with SSH.** Agent Pivot never accepts or persists a
    password, private key, passphrase, certificate, or token.
 4. **Identity is stable.** Renaming a Machine or changing its endpoint does not
@@ -136,13 +137,13 @@ catalog is visible but SSH files stay untouched. A client-level banner offers
 
 - the active SSH config path and SSH executable;
 - the exact Include block;
-- generated-directory and backup paths;
+- generated-directory and generated-file backup paths;
 - that later synchronized Machine changes update the generated file automatically;
 - `Enable` and `Cancel`.
 
-If the platform cannot safely exchange the user-owned config without an external
-editor race, Enable uses a one-time `Copy Include` + `Open Config` step and validates
-after the user saves. It never performs a best-effort overwrite.
+Enable always uses a one-time `Copy Include` + `Open Config` step and validates
+after the user saves. Agent Pivot never writes or atomically replaces the
+user-owned active SSH config.
 
 Consent is local to that installation and canonical active-config path, and applies
 to all Managed Machines. Changing the active config path requires a new preflight.
@@ -154,8 +155,8 @@ generated directory; it never changes the catalog or another SSH block. Checksum
 ownership mismatch fails closed with Open Config/Show Details. Cancel is
 byte-identical. An interrupted disable resumes or restores the prior enabled state;
 after success all managed Open actions explain that local connections are disabled
-and offer Enable. Platforms without safe atomic exchange use the same one-time
-manual edit and read-only validation for removal.
+and offer Enable. Removal uses the same one-time manual edit and read-only
+validation.
 
 ### 7.3 Open a Machine
 
@@ -415,16 +416,16 @@ them after activation; they remain inert rollback material.
 - Names never participate in alias or identity generation.
 - Host/user are synchronized by product requirement but redacted from diagnostics
   and telemetry by default.
-- Generated files contain `DO NOT EDIT`, catalog revision, and checksum, but no
+- Generated files contain `DO NOT EDIT` and a connection checksum, but no
   credentials.
-- The one-time preflight creates a backup before the first existing-config edit and
-  exposes its path.
+- The one-time preflight exposes the exact Include and generated-file backup path;
+  no backup of the active config is needed because Agent Pivot never writes it.
 
 ## 13. Acceptance criteria
 
 - [ ] Add an empty Machine with required user and port `22` or a custom port; it is
   stored in User settings and appears on a second computer after Settings Sync.
-- [ ] Each computer/config-path pair asks once before editing SSH config; Cancel
+- [ ] Each computer/config-path pair asks once before enabling managed SSH; Cancel
   leaves SSH files byte-identical and the catalog visible.
 - [ ] No credential or key path/content appears in synced storage, logs,
   diagnostics, or telemetry.

@@ -7155,6 +7155,102 @@
     ]
   },
   {
+    "id": "MANAGED-REMOTE-SSH-PROJECTION-001",
+    "domain": "project",
+    "title": "Managed SSH aliases and generated records are stable, credential-free, and unchanged by Project-only metadata edits",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshProjection.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/sshConfigProjection.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-POLICY-001",
+    "domain": "persistence",
+    "title": "SSH config scanning is bounded and fails closed on dynamic Includes, cycles, Match exec, unsafe files, and modified ownership markers",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshPolicy.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshConfigPolicy.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-FILES-001",
+    "domain": "persistence",
+    "title": "Per-config locked owned-file transactions stage revisions before activation and never overwrite or recursively delete user files",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshOwnedFiles.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshOwnedFiles.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-CONSENT-001",
+    "domain": "persistence",
+    "title": "Enable and Disable use local generation-checked consent, byte-identical previews, manual Include commits, and resumable recovery",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshConsent.test.js",
+      "tests/platform/windows/managedRemoteSshMaterializer.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+      "extensions/attention-ui-bridge/src/managedSshConsentStore.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-DISCOVERY-001",
+    "domain": "project",
+    "title": "The UI Bridge resolves the exact local OpenSSH executable and canonical active config from Remote SSH settings",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshDiscovery.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshDiscovery.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-VALIDATION-001",
+    "domain": "open-project",
+    "title": "The exact local OpenSSH executable validates isolated and aggregate aliases without a shell and rejects endpoint or route drift",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshValidator.test.js",
+      "tests/platform/linux/managedRemoteSshValidator.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshValidator.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-BRIDGE-001",
+    "domain": "open-project",
+    "title": "Managed Remote UI Bridge requests are capability-gated, session-correlated, identity-only, and re-read the current catalog revision",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteBridgeProtocol.test.js",
+      "tests/contract/projects/managedRemoteBridgeController.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeProtocol.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
     "id": "WORKTREE-SNAPSHOT-001",
     "domain": "session",
     "title": "Worktree snapshots refresh automatically with single-flight generation safety and flow coherently through session hydration and presentation",

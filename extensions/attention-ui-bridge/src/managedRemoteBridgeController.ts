@@ -1,0 +1,162 @@
+'use strict';
+
+import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
+import {
+    ManagedRemoteBridgeRequest,
+    ManagedRemoteBridgeResponse,
+    MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
+    parseManagedRemoteBridgeRequest,
+} from '../../../src/projects/managedRemote/bridgeProtocol';
+import { ManagedRevisionSlot } from '../../../src/projects/managedRemote/types';
+import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
+
+export interface ManagedRemoteBridgeCatalogReader {
+    readManagedCatalogEnvelope(): unknown;
+}
+
+export interface ManagedRemoteBridgeCoordinatorFactory {
+    create(): Promise<ManagedSshConsentCoordinator>;
+}
+
+function response(
+    requestId: string,
+    status: ManagedRemoteBridgeResponse['status'],
+    value: unknown,
+): ManagedRemoteBridgeResponse {
+    return status === 'ok'
+        ? { protocolVersion: MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION, requestId, status, value }
+        : {
+            protocolVersion: MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
+            requestId,
+            status,
+            message: value instanceof Error ? value.message : String(value),
+        };
+}
+
+function activeSlot(value: unknown): ManagedRevisionSlot | null {
+    return readManagedActiveRevisionSlot(value);
+}
+
+function sanitizeLocalResult(value: unknown): unknown {
+    if (Array.isArray(value)) { return value.map(sanitizeLocalResult); }
+    if (!value || typeof value !== 'object') { return value; }
+    const result: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if ([
+            'candidateConfigContent',
+            'currentConfigContent',
+            'dependencyFingerprint',
+            'projection',
+        ].includes(key)) {
+            continue;
+        }
+        result[key] = sanitizeLocalResult(child);
+    }
+    return result;
+}
+
+export class ManagedRemoteBridgeController {
+    constructor(
+        private readonly catalog: ManagedRemoteBridgeCatalogReader,
+        private readonly coordinators: ManagedRemoteBridgeCoordinatorFactory,
+        private readonly sessionToken: string,
+    ) {
+    }
+
+    async execute(raw: unknown): Promise<ManagedRemoteBridgeResponse> {
+        const request = parseManagedRemoteBridgeRequest(raw);
+        if (!request) {
+            return response('invalid-request', 'failed', 'Invalid Managed Remote bridge request.');
+        }
+        if (request.sessionToken !== this.sessionToken) {
+            return response(request.requestId, 'failed', 'Managed Remote bridge session expired.');
+        }
+        try {
+            const coordinator = await this.coordinators.create();
+            if (request.operation === 'getStatus') {
+                const state = coordinator.getState();
+                return state.status === 'recoveryRequired'
+                    ? response(request.requestId, 'recoveryRequired', state.recoveryReason || 'Recovery required.')
+                    : response(request.requestId, 'ok', state);
+            }
+            if (request.operation === 'preflightDisable') {
+                return response(
+                    request.requestId,
+                    'ok',
+                    sanitizeLocalResult(coordinator.preflightDisable()),
+                );
+            }
+            if (request.operation === 'beginDisable') {
+                return response(
+                    request.requestId,
+                    'ok',
+                    sanitizeLocalResult(await coordinator.beginDisable()),
+                );
+            }
+            if (request.operation === 'confirmDisable') {
+                return response(request.requestId, 'ok', await coordinator.confirmDisable());
+            }
+            if (request.operation === 'cancelTransition') {
+                return response(
+                    request.requestId,
+                    'ok',
+                    await coordinator.cancelPendingTransition(),
+                );
+            }
+            if (request.operation === 'recover') {
+                const slot = request.expectedRevisionId
+                    ? this.readExpectedSlot(request) : undefined;
+                return response(
+                    request.requestId,
+                    'ok',
+                    sanitizeLocalResult(await coordinator.recover(slot)),
+                );
+            }
+            const slot = this.readExpectedSlot(request);
+            if (request.operation === 'preflightEnable') {
+                return response(
+                    request.requestId,
+                    'ok',
+                    sanitizeLocalResult(await coordinator.preflightEnable(slot)),
+                );
+            }
+            if (request.operation === 'beginEnable') {
+                return response(
+                    request.requestId,
+                    'ok',
+                    sanitizeLocalResult(await coordinator.beginEnable(slot)),
+                );
+            }
+            if (request.operation === 'confirmEnable') {
+                return response(request.requestId, 'ok', await coordinator.confirmEnable(slot));
+            }
+            if (request.operation === 'reconcile') {
+                return response(request.requestId, 'ok', await coordinator.reconcile(slot));
+            }
+            throw new Error('Unsupported Managed Remote bridge operation.');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (/catalog revision|active Managed Remote catalog/i.test(message)) {
+                return response(request.requestId, 'catalogOutOfDate', error);
+            }
+            if (/not enabled on this computer/i.test(message)) {
+                return response(request.requestId, 'clientNotEnabled', error);
+            }
+            if (/recovery/i.test(message)) {
+                return response(request.requestId, 'recoveryRequired', error);
+            }
+            return response(request.requestId, 'failed', error);
+        }
+    }
+
+    private readExpectedSlot(request: ManagedRemoteBridgeRequest): ManagedRevisionSlot {
+        const slot = activeSlot(this.catalog.readManagedCatalogEnvelope());
+        if (!slot) {
+            throw new Error('There is no unambiguous active Managed Remote catalog.');
+        }
+        if (slot.revisionId !== request.expectedRevisionId) {
+            throw new Error('Managed Remote catalog revision is out of date.');
+        }
+        return slot;
+    }
+}

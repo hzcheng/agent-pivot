@@ -474,14 +474,14 @@ export function materializeManagedRemoteCatalog(
     const projects: ManagedRemoteProject[] = [];
     for (const machineId of machineIds) {
         for (const environmentId of layout.environmentIdsByMachine[machineId] || []) {
-            environments.push(cloneManagedValue(environmentsById.get(environmentId)));
+            environments.push(cloneManagedValue(environmentsById.get(environmentId)!));
             for (const projectId of layout.projectIdsByEnvironment[environmentId] || []) {
-                projects.push(cloneManagedValue(projectsById.get(projectId)));
+                projects.push(cloneManagedValue(projectsById.get(projectId)!));
             }
         }
     }
     return {
-        machines: machineIds.map(id => cloneManagedValue(machinesById.get(id))),
+        machines: machineIds.map(id => cloneManagedValue(machinesById.get(id)!)),
         environments,
         projects,
         layout,

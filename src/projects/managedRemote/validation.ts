@@ -170,16 +170,20 @@ export function isManagedLayout(value: unknown): value is ManagedRemoteLayout {
         || !Array.isArray(value.favoriteProjectIds)) {
         return false;
     }
-    return value.machineIds.every(isSafeId)
-        && value.favoriteProjectIds.every(isSafeId)
-        && Object.keys(value.environmentIdsByMachine).every(machineId =>
+    const machineIds = value.machineIds;
+    const favoriteProjectIds = value.favoriteProjectIds;
+    const environmentIdsByMachine = value.environmentIdsByMachine;
+    const projectIdsByEnvironment = value.projectIdsByEnvironment;
+    return machineIds.every(isSafeId)
+        && favoriteProjectIds.every(isSafeId)
+        && Object.keys(environmentIdsByMachine).every(machineId =>
             isSafeId(machineId)
-            && Array.isArray(value.environmentIdsByMachine[machineId])
-            && (value.environmentIdsByMachine[machineId] as unknown[]).every(isSafeId))
-        && Object.keys(value.projectIdsByEnvironment).every(environmentId =>
+            && Array.isArray(environmentIdsByMachine[machineId])
+            && (environmentIdsByMachine[machineId] as unknown[]).every(isSafeId))
+        && Object.keys(projectIdsByEnvironment).every(environmentId =>
             isSafeId(environmentId)
-            && Array.isArray(value.projectIdsByEnvironment[environmentId])
-            && (value.projectIdsByEnvironment[environmentId] as unknown[]).every(isSafeId));
+            && Array.isArray(projectIdsByEnvironment[environmentId])
+            && (projectIdsByEnvironment[environmentId] as unknown[]).every(isSafeId));
 }
 
 export function parseManagedRemoteCatalog(value: unknown): ManagedRemoteCatalogV1 | null {

@@ -739,8 +739,11 @@
         "src/projects/projectRemovalController.ts",
         "src/projects/projectTags.ts",
         "src/projects/managedRemote/catalogService.ts",
+        "src/projects/managedRemote/bridgeProtocol.ts",
+        "src/projects/managedRemote/envelope.ts",
         "src/projects/managedRemote/legacyCompatibilityGuard.ts",
         "src/projects/managedRemote/migrationPlan.ts",
+        "src/projects/managedRemote/sshConfigProjection.ts",
         "src/projects/managedRemote/store.ts",
         "src/projects/managedRemote/types.ts",
         "src/projects/remoteProjectResolver.ts",
@@ -769,10 +772,12 @@
             "src/projects/projectCatalogSync.ts",
             "src/projects/projectTags.ts",
             "src/projects/managedRemote/causal.ts",
+            "src/projects/managedRemote/bridgeProtocol.ts",
             "src/projects/managedRemote/devContainerCodec.ts",
             "src/projects/managedRemote/envelope.ts",
             "src/projects/managedRemote/merge.ts",
             "src/projects/managedRemote/payload.ts",
+            "src/projects/managedRemote/sshConfigProjection.ts",
             "src/projects/managedRemote/types.ts",
             "src/projects/managedRemote/validation.ts"
           ]
@@ -936,6 +941,12 @@
             "extensions/attention-ui-bridge/src/localStore.ts",
             "extensions/attention-ui-bridge/src/bridgeStorageRoot.ts",
             "extensions/attention-ui-bridge/src/productionAttentionStore.ts",
+            "extensions/attention-ui-bridge/src/managedFileLock.ts",
+            "extensions/attention-ui-bridge/src/managedSshConfigPolicy.ts",
+            "extensions/attention-ui-bridge/src/managedSshConsentStore.ts",
+            "extensions/attention-ui-bridge/src/managedSshDiscovery.ts",
+            "extensions/attention-ui-bridge/src/managedSshOwnedFiles.ts",
+            "extensions/attention-ui-bridge/src/managedSshValidator.ts",
             "extensions/attention-ui-bridge/src/openWorkspace*Store.ts"
           ]
         },

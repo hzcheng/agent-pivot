@@ -744,6 +744,7 @@
         "src/projects/managedRemote/legacyCompatibilityGuard.ts",
         "src/projects/managedRemote/managementController.ts",
         "src/projects/managedRemote/managementProtocol.ts",
+        "src/projects/managedRemote/managementStore.ts",
         "src/projects/managedRemote/migrationPlan.ts",
         "src/projects/managedRemote/sshConfigProjection.ts",
         "src/projects/managedRemote/store.ts",

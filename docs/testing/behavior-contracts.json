@@ -7117,6 +7117,20 @@
     ]
   },
   {
+    "id": "MANAGED-REMOTE-MANAGEMENT-002",
+    "domain": "persistence",
+    "title": "Managed Machine and Project mutations create revision-checked preview catalogs without activating managed authority",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteManagementStore.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/managementStore.ts",
+      "src/projects/managedRemote/store.ts"
+    ]
+  },
+  {
     "id": "MANAGED-REMOTE-MIGRATION-001",
     "domain": "project",
     "title": "Migration classifies explicit SSH targets, local-only records, and unresolved aliases without dropping V1 identity or Group tags",

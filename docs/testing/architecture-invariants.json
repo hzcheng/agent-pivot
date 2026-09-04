@@ -353,7 +353,8 @@
         "symbol": "ManagedCatalogCoordinator"
       },
       "writers": [
-        "src/projects/managedRemote/store.ts"
+        "src/projects/managedRemote/store.ts",
+        "src/projects/managedRemote/managementStore.ts"
       ],
       "linearizationPoint": "The coordinator publishes a causally joined envelope after first persisting its writer-local staged candidate.",
       "enforcement": [
@@ -361,14 +362,16 @@
         "behavior"
       ],
       "behaviorOwners": [
-        "tests/contract/projects/managedRemoteEnvelope.test.js"
+        "tests/contract/projects/managedRemoteEnvelope.test.js",
+        "tests/contract/projects/managedRemoteManagementStore.test.js"
       ],
       "guardOwners": [
         "tests/unit/architecture/singleWriters.test.js"
       ],
       "evidence": [
         "src/projects/managedRemote/store.ts",
-        "src/projects/managedRemote/catalogService.ts"
+        "src/projects/managedRemote/catalogService.ts",
+        "src/projects/managedRemote/managementStore.ts"
       ],
       "stateFamily": {
         "storePath": "src/projects/managedRemote/store.ts",

@@ -145,7 +145,10 @@ export class ManagedCatalogCoordinator {
         });
     }
 
-    activateStagedCatalog(stageId: string): Promise<ManagedRevisionSlot> {
+    activateStagedCatalog(
+        stageId: string,
+        lifecycle: 'preview' | 'active' = 'active',
+    ): Promise<ManagedRevisionSlot> {
         return this.enqueue(async () => {
             const reconciled = await this.reconcileNow();
             if (reconciled.recoveryRequired) {
@@ -170,7 +173,7 @@ export class ManagedCatalogCoordinator {
                 this.actorId,
                 (envelope, version) => {
                     envelope.authority = createVersionedCandidates({
-                        lifecycle: 'active',
+                        lifecycle,
                         active: slots[0],
                         ...(previous ? { previous } : {}),
                     }, version);

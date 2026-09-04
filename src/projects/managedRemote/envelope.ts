@@ -495,8 +495,13 @@ export function mergeActiveAuthorityCandidates(
     const active = envelope.authority.candidates
         .map(candidate => candidate.value)
         .filter((authority): authority is ManagedAuthorityState & { active: ManagedRevisionSlot } =>
-            authority.lifecycle === 'active' && Boolean(authority.active));
+            (authority.lifecycle === 'active' || authority.lifecycle === 'preview')
+            && Boolean(authority.active));
     if (active.length < 2) {
+        return envelope;
+    }
+    const lifecycles = new Set(active.map(authority => authority.lifecycle));
+    if (lifecycles.size !== 1) {
         return envelope;
     }
     const document = active.slice(1).reduce(
@@ -509,7 +514,7 @@ export function mergeActiveAuthorityCandidates(
         ...envelope,
         causalContext: joinVersionVectors(envelope.causalContext, vectorIncludingVersion(version)),
         authority: createVersionedCandidates({
-            lifecycle: 'active',
+            lifecycle: active[0].lifecycle,
             active: slot,
             previous: active[0].active,
         }, version),

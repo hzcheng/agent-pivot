@@ -10,6 +10,7 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'openSshValidationV1',
     'localSshTerminalV1',
     'managedNavigationV1',
+    'legacySshInspectionV1',
 ] as const;
 
 export type ManagedRemoteBridgeOperation =
@@ -27,7 +28,8 @@ export type ManagedRemoteBridgeOperation =
     | 'copyLocalSshCommand'
     | 'openManagedMachine'
     | 'openManagedProject'
-    | 'openManagedEnvironment';
+    | 'openManagedEnvironment'
+    | 'inspectLegacySshTarget';
 
 export interface ManagedRemoteBridgeHandshakeRequest {
     protocolVersion: 1;
@@ -50,6 +52,7 @@ export interface ManagedRemoteBridgeRequest {
     operation: ManagedRemoteBridgeOperation;
     expectedRevisionId?: string;
     targetId?: string;
+    legacySshTarget?: string;
 }
 
 export type ManagedRemoteBridgeResponse =
@@ -101,7 +104,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         || !hasExactKeys(
             value,
             ['protocolVersion', 'requestId', 'sessionToken', 'operation'],
-            ['expectedRevisionId', 'targetId'],
+            ['expectedRevisionId', 'targetId', 'legacySshTarget'],
         )
         || value.protocolVersion !== MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION
         || !isCorrelationValue(value.requestId)
@@ -122,6 +125,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             'openManagedMachine',
             'openManagedProject',
             'openManagedEnvironment',
+            'inspectLegacySshTarget',
         ].includes(value.operation as string)
         || (value.expectedRevisionId !== undefined
             && (typeof value.expectedRevisionId !== 'string'
@@ -150,6 +154,14 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value.targetId);
     if ((requiresTarget && !validTarget)
         || (!requiresTarget && value.targetId !== undefined)) {
+        return null;
+    }
+    const requiresLegacyTarget = value.operation === 'inspectLegacySshTarget';
+    const validLegacyTarget = typeof value.legacySshTarget === 'string'
+        && value.legacySshTarget.length <= 256
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(value.legacySshTarget);
+    if ((requiresLegacyTarget && !validLegacyTarget)
+        || (!requiresLegacyTarget && value.legacySshTarget !== undefined)) {
         return null;
     }
     return value as unknown as ManagedRemoteBridgeRequest;

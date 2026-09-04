@@ -33,6 +33,51 @@ export interface ManagedMigrationEndpoint {
     port: number;
 }
 
+export interface ManagedLegacySshInspection {
+    status: 'needsInput' | 'unsupported';
+    reason: string;
+    endpoint?: ManagedMigrationEndpoint;
+}
+
+export function parseManagedLegacySshInspection(
+    value: unknown,
+): ManagedLegacySshInspection | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return null; }
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (!keys.every(key => ['status', 'reason', 'endpoint'].includes(key))
+        || !['needsInput', 'unsupported'].includes(String(record.status))
+        || typeof record.reason !== 'string'
+        || !record.reason
+        || record.reason.length > 512) {
+        return null;
+    }
+    if (record.endpoint === undefined) {
+        return record.status === 'unsupported' || record.status === 'needsInput'
+            ? record as unknown as ManagedLegacySshInspection : null;
+    }
+    if (record.status !== 'needsInput'
+        || !record.endpoint
+        || typeof record.endpoint !== 'object'
+        || Array.isArray(record.endpoint)) {
+        return null;
+    }
+    const endpoint = record.endpoint as Record<string, unknown>;
+    if (Object.keys(endpoint).sort().join(',') !== 'host,port,user') { return null; }
+    const machine: ManagedSshMachine = {
+        id: 'legacy-inspection-validation',
+        name: 'Legacy inspection validation',
+        connection: {
+            kind: 'ssh',
+            host: endpoint.host as string,
+            user: endpoint.user as string,
+            port: endpoint.port as number,
+        },
+    };
+    return isManagedMachine(machine)
+        ? record as unknown as ManagedLegacySshInspection : null;
+}
+
 export interface ManagedProjectMigrationRecord {
     projectId: string;
     classification: ManagedMigrationClassification;

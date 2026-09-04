@@ -56,13 +56,24 @@ export class ManagedRemoteBridgeClient {
         expectedRevisionId?: string,
         targetId?: string,
     ): Promise<unknown> {
-        return this.executeAttempt(operation, expectedRevisionId, targetId, true);
+        return this.executeAttempt(operation, expectedRevisionId, targetId, undefined, true);
+    }
+
+    inspectLegacySshTarget(target: string): Promise<unknown> {
+        return this.executeAttempt(
+            'inspectLegacySshTarget',
+            undefined,
+            undefined,
+            target,
+            true,
+        );
     }
 
     private async executeAttempt(
         operation: ManagedRemoteBridgeOperation,
         expectedRevisionId: string | undefined,
         targetId: string | undefined,
+        legacySshTarget: string | undefined,
         retryExpiredSession: boolean,
     ): Promise<unknown> {
         const requestId = correlation('managed-remote');
@@ -75,6 +86,7 @@ export class ManagedRemoteBridgeClient {
                 operation,
                 ...(expectedRevisionId ? { expectedRevisionId } : {}),
                 ...(targetId ? { targetId } : {}),
+                ...(legacySshTarget ? { legacySshTarget } : {}),
             },
         );
         if (!isRecord(response)
@@ -98,7 +110,7 @@ export class ManagedRemoteBridgeClient {
                 && /session expired/iu.test(response.message)) {
                 this.session = undefined;
                 return this.executeAttempt(
-                    operation, expectedRevisionId, targetId, false,
+                    operation, expectedRevisionId, targetId, legacySshTarget, false,
                 );
             }
             throw new ManagedRemoteBridgeClientError(

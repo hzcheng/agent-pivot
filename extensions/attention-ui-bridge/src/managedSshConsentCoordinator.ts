@@ -126,6 +126,10 @@ export class ManagedSshConsentCoordinator {
         return this.executable;
     }
 
+    getActiveConfigPath(): string {
+        return this.activeConfigPath;
+    }
+
     preflightEnable(slot: ManagedRevisionSlot): Promise<ManagedSshEnablePreflight> {
         return this.enqueue(() => this.preflightEnableNow(slot));
     }

@@ -65,6 +65,27 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
         targetId: 'project:one',
     };
     assert.deepEqual(parseManagedRemoteBridgeRequest(project), project);
+
+    const inspection = {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'inspectLegacySshTarget',
+        legacySshTarget: 'build-alias',
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(inspection), inspection);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...inspection,
+        legacySshTarget: '-F',
+    }), null);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...inspection,
+        legacySshTarget: 'build alias',
+    }), null);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...inspection,
+        expectedRevisionId: `revision:${'a'.repeat(64)}`,
+    }), null);
 });
 
 test('MANAGED-REMOTE-BRIDGE-001 correlates the strict capability handshake', () => {

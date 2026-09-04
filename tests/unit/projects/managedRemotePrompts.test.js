@@ -142,3 +142,39 @@ test('MANAGED-REMOTE-MIGRATION-003 reviews unresolved aliases without moving cli
     assert.equal(result.records[1].classification, 'clientLocal');
     assert.match(ui.picks.at(-1).items[0].description, /1 managed · 1 kept on this computer/u);
 });
+
+test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 reviews detected alias details without copying authentication', async () => {
+    const ui = new ScriptedWizardUi([
+        { action: 'accept', value: 'detected' },
+        { action: 'accept', value: true },
+    ]);
+    const inspected = [];
+    const plan = {
+        schemaVersion: 1,
+        planId: `migration:${'a'.repeat(64)}`,
+        sourceChecksum: 'a'.repeat(64),
+        records: [{
+            projectId: 'remote', classification: 'needsInput',
+            reason: 'Alias requires details.', outerSshAuthority: 'build',
+            originalProject: { id: 'remote', name: 'API', path: 'vscode-remote://ssh-remote%2Bbuild/work/api' },
+            remotePath: '/work/api', tags: [],
+        }],
+    };
+    const result = await new ManagedRemotePromptController(ui, async target => {
+        inspected.push(target);
+        return {
+            status: 'needsInput',
+            reason: 'Plain connection details were detected.',
+            endpoint: { host: 'build.example.com', user: 'dev', port: 2207 },
+        };
+    }).reviewMigration(plan);
+
+    assert.deepEqual(inspected, ['build']);
+    assert.equal(ui.inputs.length, 0);
+    assert.equal(ui.picks[0].items[0].label, 'Use detected details');
+    assert.match(ui.picks[0].items[0].detail, /Passwords, keys, and advanced SSH behavior are not copied/u);
+    assert.equal(result.records[0].classification, 'ready');
+    assert.deepEqual(result.records[0].endpoint, {
+        host: 'build.example.com', user: 'dev', port: 2207,
+    });
+});

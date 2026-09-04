@@ -34,6 +34,11 @@ export interface ManagedRemoteBridgeLocalActions {
     writeClipboard(value: string): Promise<void> | Thenable<void>;
     openRemoteWindow(remoteAuthority: string): Promise<void> | Thenable<void>;
     openRemoteFolder(uri: string): Promise<void> | Thenable<void>;
+    inspectLegacySshTarget(
+        executable: string,
+        activeConfigPath: string,
+        target: string,
+    ): Promise<unknown>;
 }
 
 export function formatManagedSshCommand(
@@ -121,6 +126,20 @@ export class ManagedRemoteBridgeController {
         }
         try {
             const coordinator = await this.coordinators.create();
+            if (request.operation === 'inspectLegacySshTarget') {
+                if (!this.localActions || !request.legacySshTarget) {
+                    throw new Error('Legacy SSH inspection is unavailable.');
+                }
+                return response(
+                    request.requestId,
+                    'ok',
+                    await this.localActions.inspectLegacySshTarget(
+                        coordinator.getExecutable(),
+                        coordinator.getActiveConfigPath(),
+                        request.legacySshTarget,
+                    ),
+                );
+            }
             if (request.operation === 'getStatus') {
                 const state = coordinator.getState();
                 return state.status === 'recoveryRequired'

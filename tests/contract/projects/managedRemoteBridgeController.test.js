@@ -161,6 +161,48 @@ test('MANAGED-REMOTE-BRIDGE-001 can recover local disable without catalog author
     assert.equal(reads, 0);
 });
 
+test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 inspects only a validated alias in the UI host', async () => {
+    let reads = 0;
+    const calls = [];
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { reads += 1; return null; },
+    }, {
+        async create() {
+            return {
+                getExecutable() { return '/usr/bin/ssh'; },
+                getActiveConfigPath() { return '/home/local/.ssh/config'; },
+            };
+        },
+    }, 'session-12345678', {
+        platform: 'linux',
+        openTerminal() {},
+        async writeClipboard() {},
+        async openRemoteWindow() {},
+        async openRemoteFolder() {},
+        async inspectLegacySshTarget(executable, configPath, target) {
+            calls.push({ executable, configPath, target });
+            return {
+                status: 'needsInput',
+                reason: 'Review detected details.',
+                endpoint: { host: 'build.example.com', user: 'dev', port: 2207 },
+            };
+        },
+    });
+    const result = await controller.execute({
+        ...request('inspectLegacySshTarget'),
+        legacySshTarget: 'build-alias',
+    });
+
+    assert.equal(result.status, 'ok');
+    assert.equal(reads, 0);
+    assert.deepEqual(calls, [{
+        executable: '/usr/bin/ssh',
+        configPath: '/home/local/.ssh/config',
+        target: 'build-alias',
+    }]);
+    assert.equal(result.value.endpoint.port, 2207);
+});
+
 test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies only the stable alias from the local UI host', async () => {
     const { envelope, slot } = activeEnvelope();
     const terminals = [];

@@ -88,6 +88,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             'openSshValidationV1',
             'localSshTerminalV1',
             'managedNavigationV1',
+            'legacySshInspectionV1',
         ]);
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');

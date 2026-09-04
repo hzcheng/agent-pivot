@@ -1003,6 +1003,7 @@ async function initializeDashboard(
         },
         prompts: new ManagedRemotePromptController(
             new VscodeManagedRemoteWizardUi(vscode.window),
+            target => managedRemoteBridgeClient.inspectLegacySshTarget(target),
         ),
         refreshAuthoritative: async (_requestId, _operation, snapshot) => {
             managedRemoteSnapshot = snapshot;

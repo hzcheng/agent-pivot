@@ -12,8 +12,10 @@ import type { ManagedRemoteManagementPrompts } from './managementController';
 import { cloneManagedValue } from './causal';
 import {
     excludeManagedMigrationRecord,
+    ManagedLegacySshInspection,
     ManagedProjectMigrationRecord,
     ManagedRemoteMigrationPlanV1,
+    parseManagedLegacySshInspection,
     resolveManagedMigrationWithConnection,
 } from './migrationPlan';
 import type {
@@ -105,7 +107,10 @@ interface MigrationConnectionDraft extends MachineDraft {
 }
 
 export class ManagedRemotePromptController implements ManagedRemoteManagementPrompts {
-    constructor(private readonly ui: ManagedRemoteWizardUi) {
+    constructor(
+        private readonly ui: ManagedRemoteWizardUi,
+        private readonly inspectLegacySshTarget?: (target: string) => Promise<unknown>,
+    ) {
     }
 
     addMachine(): Promise<AddManagedMachineInput | undefined> {
@@ -332,9 +337,33 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
                 || value.record.classification === 'unsupported')
             .map(value => value.index);
         let cursor = 0;
+        const inspections = new Map<string, Promise<ManagedLegacySshInspection | null>>();
         while (cursor < reviewIndexes.length) {
             const index = reviewIndexes[cursor];
-            const record = plan.records[index];
+            let record = plan.records[index];
+            if (record.classification === 'needsInput'
+                && record.outerSshAuthority
+                && !record.endpoint
+                && this.inspectLegacySshTarget) {
+                const target = record.outerSshAuthority;
+                let inspection = inspections.get(target);
+                if (!inspection) {
+                    inspection = this.inspectLegacySshTarget(target)
+                        .then(parseManagedLegacySshInspection)
+                        .catch(() => null);
+                    inspections.set(target, inspection);
+                }
+                const inspected = await inspection;
+                if (inspected) {
+                    record = {
+                        ...record,
+                        classification: inspected.status,
+                        reason: inspected.reason,
+                        ...(inspected.endpoint ? { endpoint: inspected.endpoint } : {}),
+                    };
+                    plan.records[index] = record;
+                }
+            }
             const canEnterDetails = record.classification === 'needsInput';
             const choice = await this.ui.pick({
                 title: `Migration Review — ${record.originalProject.name}`,
@@ -342,6 +371,12 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
                 totalSteps: reviewIndexes.length + 1,
                 canGoBack: cursor > 0,
                 items: [
+                    ...(canEnterDetails && record.endpoint ? [{
+                        label: 'Use detected details',
+                        description: `${record.endpoint.user}@${record.endpoint.host}:${record.endpoint.port}`,
+                        detail: 'Review result from this computer. Passwords, keys, and advanced SSH behavior are not copied.',
+                        value: 'detected' as const,
+                    }] : []),
                     ...(canEnterDetails ? [{
                         label: 'Enter connection details',
                         description: record.outerSshAuthority || record.originalProject.path,
@@ -363,6 +398,19 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
             }
             if (choice.value === 'exclude') {
                 plan.records[index] = excludeManagedMigrationRecord(record);
+                cursor += 1;
+                continue;
+            }
+            if (choice.value === 'detected' && record.endpoint && record.remotePath) {
+                plan.records[index] = resolveManagedMigrationWithConnection(
+                    record,
+                    record.proposedMachineName
+                        || record.originalProject.machineDisplayName
+                        || record.outerSshAuthority
+                        || record.originalProject.name,
+                    record.endpoint,
+                    record.remotePath,
+                );
                 cursor += 1;
                 continue;
             }

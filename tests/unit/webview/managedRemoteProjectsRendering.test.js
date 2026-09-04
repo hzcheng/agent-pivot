@@ -20,6 +20,7 @@ function model() {
         lifecycle: 'preview',
         clientState: 'preview',
         clientMessage: 'Managed Remote preview.',
+        migrationPrepared: false,
         projectCount: 1,
         tags: ['Backend'],
         favorites: [project],
@@ -40,6 +41,7 @@ function model() {
 test('MANAGED-REMOTE-MANAGEMENT-003 renders complete management actions and no Move Project action', () => {
     const html = renderManagedRemoteProjectsPanel(model());
     assert.match(html, /data-managed-operation="addMachine"/);
+    assert.match(html, /data-managed-operation="beginMigration"/);
     assert.match(html, /data-managed-operation="addProject"/);
     assert.match(html, /data-managed-operation="editMachine"/);
     assert.match(html, /data-managed-operation="removeMachine"/);
@@ -55,4 +57,39 @@ test('MANAGED-REMOTE-MANAGEMENT-003 keeps unavailable Favorite identity and reas
     assert.match(html, /<fieldset[^>]+data-machine-tag-popover/);
     assert.match(html, /Match all selected tags/);
     assert.match(html, /machine-project-color/);
+});
+
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 replaces Review with local enable after migration preparation', () => {
+    const value = model();
+    value.migrationPrepared = true;
+    const html = renderManagedRemoteProjectsPanel(value);
+    assert.match(html, /data-managed-client-action="enable"/u);
+    assert.doesNotMatch(html, /data-managed-operation="beginMigration"/u);
+});
+
+test('MANAGED-REMOTE-LOCAL-PROJECTION-001 keeps client-local Projects beside the active managed catalog', () => {
+    const localProject = {
+        id: 'local-project', environmentId: 'local-host', machineId: 'local-machine',
+        machineName: 'Local', environmentName: 'Host', name: 'Notes',
+        description: null, path: '/work/notes', tags: ['personal'], favorite: false,
+        color: '#00ff00', searchText: 'notes personal local host',
+    };
+    const html = renderManagedRemoteProjectsPanel(model(), {
+        projectCount: 1,
+        tags: ['personal'],
+        favorites: [],
+        machines: [{
+            id: 'local-machine', defaultName: 'Local', displayName: 'Local',
+            renamed: false, hostOpenable: true, hostProjectId: 'local-project',
+            environments: [{
+                id: 'local-host', machineId: 'local-machine', kind: 'host',
+                displayName: 'Host', projects: [localProject],
+            }],
+        }],
+    });
+
+    assert.match(html, /2 projects on 2 machines/u);
+    assert.match(html, /data-action="open-machine-project"/u);
+    assert.match(html, /data-managed-client-action="openProject"/u);
+    assert.match(html, /value="personal"/u);
 });

@@ -47,6 +47,7 @@ export interface ManagedRemoteProjectsViewModel {
     lifecycle: ManagedRemoteManagementSnapshot['lifecycle'];
     clientState: ManagedRemoteClientUiState;
     clientMessage: string;
+    migrationPrepared: boolean;
     projectCount: number;
     tags: string[];
     favorites: ManagedRemoteProjectRowViewModel[];
@@ -194,7 +195,10 @@ export function buildManagedRemoteProjectsViewModel(
         revisionId: snapshot.revisionId,
         lifecycle: snapshot.lifecycle,
         clientState,
-        clientMessage: clientMessage(clientState),
+        clientMessage: clientState === 'preview' && snapshot.migrationPlanId
+            ? 'Migration preview is ready. Existing Projects remain active until you enable it on this computer.'
+            : clientMessage(clientState),
+        migrationPrepared: Boolean(snapshot.migrationPlanId),
         projectCount: snapshot.catalog.projects.length,
         tags: Array.from(tags.values()).sort((left, right) => left.localeCompare(right)),
         favorites,

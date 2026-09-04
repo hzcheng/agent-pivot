@@ -90,5 +90,6 @@ test('MANAGED-REMOTE-MANAGEMENT-003 exposes the managed Machine entry without re
     assert.match(html, /data-managed-remote-projects/);
     assert.match(html, /data-managed-revision-id=""/);
     assert.match(html, /data-managed-operation="addMachine"/);
+    assert.match(html, /data-managed-operation="beginMigration"/);
     assert.match(html, /data-action="open-machine-project"/);
 });

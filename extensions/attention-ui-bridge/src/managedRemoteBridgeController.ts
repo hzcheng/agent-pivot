@@ -1,6 +1,9 @@
 'use strict';
 
-import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
+import {
+    readManagedActiveRevisionSlot,
+    readManagedCurrentRevisionSlot,
+} from '../../../src/projects/managedRemote/envelope';
 import {
     ManagedRemoteBridgeRequest,
     ManagedRemoteBridgeResponse,
@@ -10,6 +13,7 @@ import {
 import { ManagedRevisionSlot } from '../../../src/projects/managedRemote/types';
 import { materializeManagedRemoteCatalog } from '../../../src/projects/managedRemote/merge';
 import { managedSshAlias } from '../../../src/projects/managedRemote/sshConfigProjection';
+import { rebuildManagedDevContainerProjectUri } from '../../../src/projects/managedRemote/devContainerCodec';
 import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
 
 export interface ManagedRemoteBridgeCatalogReader {
@@ -28,6 +32,8 @@ export interface ManagedRemoteBridgeLocalActions {
         shellArgs: string[];
     }): Promise<void> | void;
     writeClipboard(value: string): Promise<void> | Thenable<void>;
+    openRemoteWindow(remoteAuthority: string): Promise<void> | Thenable<void>;
+    openRemoteFolder(uri: string): Promise<void> | Thenable<void>;
 }
 
 export function formatManagedSshCommand(
@@ -80,6 +86,20 @@ function sanitizeLocalResult(value: unknown): unknown {
         result[key] = sanitizeLocalResult(child);
     }
     return result;
+}
+
+function sshRemoteAuthority(alias: string): string {
+    return `ssh-remote+${alias}`;
+}
+
+function remoteUri(authority: string, remotePath: string): string {
+    return `vscode-remote://${encodeURIComponent(authority)}${remotePath}`;
+}
+
+function authorityFromRemoteUri(uri: string): string {
+    const prefix = 'vscode-remote://';
+    const remainder = uri.slice(prefix.length);
+    return decodeURIComponent(remainder.slice(0, remainder.indexOf('/')));
 }
 
 export class ManagedRemoteBridgeController {
@@ -140,7 +160,84 @@ export class ManagedRemoteBridgeController {
                     sanitizeLocalResult(await coordinator.recover(slot)),
                 );
             }
-            const slot = this.readExpectedSlot(request);
+            const slot = this.readExpectedSlot(
+                request,
+                request.operation === 'preflightEnable'
+                    || request.operation === 'beginEnable'
+                    || request.operation === 'confirmEnable',
+            );
+            if (request.operation === 'openManagedMachine'
+                || request.operation === 'openManagedProject'
+                || request.operation === 'openManagedEnvironment') {
+                if (!this.localActions || !request.targetId) {
+                    throw new Error('Managed Remote navigation is unavailable.');
+                }
+                const view = materializeManagedRemoteCatalog(slot.document);
+                let machine = request.operation === 'openManagedMachine'
+                    ? view.machines.find(value => value.id === request.targetId)
+                    : undefined;
+                let environment = request.operation === 'openManagedEnvironment'
+                    ? view.environments.find(value => value.id === request.targetId)
+                    : undefined;
+                const project = request.operation === 'openManagedProject'
+                    ? view.projects.find(value => value.id === request.targetId)
+                    : undefined;
+                if (project) {
+                    environment = view.environments.find(value =>
+                        value.id === project.environmentId);
+                }
+                if (environment) {
+                    machine = view.machines.find(value => value.id === environment?.machineId);
+                }
+                if (!machine
+                    || (request.operation === 'openManagedProject' && (!project || !environment))
+                    || (request.operation === 'openManagedEnvironment' && !environment)) {
+                    throw new Error('Managed Remote navigation target no longer exists.');
+                }
+                const blockedIds = new Set<string>();
+                for (const conflict of view.conflicts) {
+                    blockedIds.add(conflict.entityId);
+                    for (const relatedId of conflict.relatedEntityIds || []) {
+                        blockedIds.add(relatedId);
+                    }
+                }
+                if (blockedIds.has(machine.id)
+                    || (environment && blockedIds.has(environment.id))
+                    || (project && blockedIds.has(project.id))) {
+                    throw new Error('Managed Remote navigation target has an unresolved conflict.');
+                }
+                await coordinator.reconcile(slot);
+                const alias = managedSshAlias(machine.id);
+                if (request.operation === 'openManagedMachine') {
+                    await this.localActions.openRemoteWindow(sshRemoteAuthority(alias));
+                } else if (environment?.kind === 'devContainer') {
+                    const uri = rebuildManagedDevContainerProjectUri(
+                        environment.devContainerAnchor!,
+                        alias,
+                        project?.remotePath || '/',
+                    );
+                    if (!uri) {
+                        throw new Error('Managed Dev Container authority could not be rebuilt.');
+                    }
+                    if (project) {
+                        await this.localActions.openRemoteFolder(uri);
+                    } else {
+                        await this.localActions.openRemoteWindow(authorityFromRemoteUri(uri));
+                    }
+                } else if (project) {
+                    await this.localActions.openRemoteFolder(remoteUri(
+                        sshRemoteAuthority(alias),
+                        project.remotePath,
+                    ));
+                } else {
+                    throw new Error('Only Dev Container Environments open independently.');
+                }
+                return response(request.requestId, 'ok', {
+                    targetId: request.targetId,
+                    machineId: machine.id,
+                    alias,
+                });
+            }
             if (request.operation === 'openLocalSshTerminal'
                 || request.operation === 'copyLocalSshCommand') {
                 if (!this.localActions || !request.targetId) {
@@ -209,8 +306,13 @@ export class ManagedRemoteBridgeController {
         }
     }
 
-    private readExpectedSlot(request: ManagedRemoteBridgeRequest): ManagedRevisionSlot {
-        const slot = activeSlot(this.catalog.readManagedCatalogEnvelope());
+    private readExpectedSlot(
+        request: ManagedRemoteBridgeRequest,
+        allowPreview = false,
+    ): ManagedRevisionSlot {
+        const raw = this.catalog.readManagedCatalogEnvelope();
+        const slot = allowPreview
+            ? readManagedCurrentRevisionSlot(raw) : activeSlot(raw);
         if (!slot) {
             throw new Error('There is no unambiguous active Managed Remote catalog.');
         }

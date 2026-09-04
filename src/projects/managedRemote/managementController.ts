@@ -6,6 +6,7 @@ import type {
     EditManagedMachineInput,
     EditManagedProjectInput,
 } from './catalogService';
+import type { ManagedRemoteMigrationPlanV1 } from './migrationPlan';
 import {
     createManagedRemoteManagementSettlement,
     ManagedRemoteManagementOperation,
@@ -23,6 +24,7 @@ import type {
 export interface ManagedRemoteManagementSnapshot {
     revisionId: string | null;
     lifecycle: 'disabled' | 'preview' | 'active' | 'rolledBack';
+    migrationPlanId?: string;
     catalog: MaterializedManagedRemoteCatalog;
     machineConflictCandidates: Record<string, ManagedSshMachine[]>;
 }
@@ -36,7 +38,8 @@ export interface ManagedRemoteManagementStore {
     editProject(expectedRevisionId: string | null, projectId: string, input: EditManagedProjectInput): Promise<ManagedRemoteManagementSnapshot>;
     removeProject(expectedRevisionId: string | null, projectId: string): Promise<ManagedRemoteManagementSnapshot>;
     resolveMachineConflict(expectedRevisionId: string | null, machineId: string, selected: ManagedSshMachine): Promise<ManagedRemoteManagementSnapshot>;
-    beginMigration(expectedRevisionId: string | null): Promise<ManagedRemoteManagementSnapshot>;
+    prepareMigration(): ManagedRemoteMigrationPlanV1;
+    beginMigration(expectedRevisionId: string | null, plan: ManagedRemoteMigrationPlanV1): Promise<ManagedRemoteManagementSnapshot>;
 }
 
 export interface ManagedRemoteManagementPrompts {
@@ -52,6 +55,7 @@ export interface ManagedRemoteManagementPrompts {
     confirmRemoveProject(project: ManagedRemoteProject): Promise<boolean>;
     resolveMachineConflict(machineId: string, candidates: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
     confirmBeginMigration(): Promise<boolean>;
+    reviewMigration(plan: ManagedRemoteMigrationPlanV1): Promise<ManagedRemoteMigrationPlanV1 | undefined>;
 }
 
 export interface ManagedRemoteManagementControllerOptions {
@@ -161,8 +165,12 @@ export class ManagedRemoteManagementController {
                 ? this.options.store.addMachine(snapshot.revisionId, input) : null;
         }
         if (operation === 'beginMigration') {
-            return await this.options.prompts.confirmBeginMigration()
-                ? this.options.store.beginMigration(snapshot.revisionId) : null;
+            if (!await this.options.prompts.confirmBeginMigration()) { return null; }
+            const plan = await this.options.prompts.reviewMigration(
+                this.options.store.prepareMigration(),
+            );
+            return plan
+                ? this.options.store.beginMigration(snapshot.revisionId, plan) : null;
         }
         if (operation === 'addProject') {
             const machine = targetId

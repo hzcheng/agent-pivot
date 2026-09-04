@@ -11,13 +11,19 @@ const {
     ManagedRemoteBridgeController,
 } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedRemoteBridgeController');
 
-function activeEnvelope() {
+function activeEnvelope(lifecycle = 'active') {
     const catalog = ManagedRemoteCatalogService.create('bridge', prefix => `${prefix}:one`);
     catalog.addMachine({ name: 'Build', host: 'build.example.com', user: 'dev', port: 22 });
+    catalog.addProject({
+        id: 'project:one',
+        environmentId: 'host:machine:one',
+        name: 'API',
+        remotePath: '/work/api',
+    });
     const slot = createManagedRevisionSlot(catalog.getDocument());
     const envelope = createEmptyManagedCatalogEnvelope('envelope');
     const version = createCausalVersion(envelope.causalContext, 'envelope');
-    envelope.authority = createVersionedCandidates({ lifecycle: 'active', active: slot }, version);
+    envelope.authority = createVersionedCandidates({ lifecycle, active: slot }, version);
     envelope.causalContext = joinVersionVectors(envelope.causalContext, vectorIncludingVersion(version));
     return { envelope, slot };
 }
@@ -107,6 +113,34 @@ test('MANAGED-REMOTE-BRIDGE-001 never returns local SSH config bytes to a worksp
     assert.equal('projection' in result.value, false);
 });
 
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 allows enable preflight for preview but not runtime reconcile', async () => {
+    const { envelope, slot } = activeEnvelope('preview');
+    let preflights = 0;
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { return envelope; },
+    }, {
+        async create() {
+            return {
+                async preflightEnable() {
+                    preflights += 1;
+                    return {
+                        activeConfigPath: '/home/local/.ssh/config',
+                        generatedConfigPath: '/home/local/.agent-pivot/ssh/config',
+                        backupPath: '/home/local/.ssh/config.bak',
+                        editMode: 'automatic',
+                    };
+                },
+                async reconcile() { throw new Error('must not reconcile preview'); },
+            };
+        },
+    }, 'session-12345678');
+    const preflight = await controller.execute(request('preflightEnable', slot.revisionId));
+    const reconcile = await controller.execute(request('reconcile', slot.revisionId));
+    assert.equal(preflight.status, 'ok');
+    assert.equal(preflights, 1);
+    assert.equal(reconcile.status, 'catalogOutOfDate');
+});
+
 test('MANAGED-REMOTE-BRIDGE-001 can recover local disable without catalog authority', async () => {
     let reads = 0;
     const controller = new ManagedRemoteBridgeController({
@@ -167,4 +201,37 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies only the stable alias from
         '/usr/local/bin/ssh', terminals[0].shellArgs[0], 'linux',
     ));
     assert.doesNotMatch(copied[0], /build\.example\.com|dev@/u);
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 resolves Machine and Project identities inside the UI host', async () => {
+    const { envelope, slot } = activeEnvelope();
+    const windows = [];
+    const folders = [];
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { return envelope; },
+    }, {
+        async create() {
+            return { async reconcile() { return {}; } };
+        },
+    }, 'session-12345678', {
+        platform: 'linux',
+        openTerminal() {},
+        async writeClipboard() {},
+        async openRemoteWindow(authority) { windows.push(authority); },
+        async openRemoteFolder(uri) { folders.push(uri); },
+    });
+    const machine = await controller.execute({
+        ...request('openManagedMachine', slot.revisionId),
+        targetId: 'machine:one',
+    });
+    const project = await controller.execute({
+        ...request('openManagedProject', slot.revisionId),
+        targetId: 'project:one',
+    });
+
+    assert.equal(machine.status, 'ok');
+    assert.equal(project.status, 'ok');
+    assert.match(windows[0], /^ssh-remote\+agent-pivot-[a-f0-9]{32}$/u);
+    assert.match(folders[0], /^vscode-remote:\/\/ssh-remote%2Bagent-pivot-[a-f0-9]{32}\/work\/api$/u);
+    assert.doesNotMatch(`${windows[0]} ${folders[0]}`, /build\.example\.com|dev@/u);
 });

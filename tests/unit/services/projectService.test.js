@@ -129,7 +129,7 @@ test('MACHINE-PROJECTS-RENAME-001 inherits a Machine alias on add and clears it 
     assert.equal(service.getProject('project-api').machineDisplayName, 'Build Box');
 });
 
-test('MACHINE-PROJECTS-LOCAL-STORE-001 separates Local Projects when Settings Sync is disabled', async () => {
+test('MACHINE-PROJECTS-LOCAL-STORE-001 MANAGED-REMOTE-LOCAL-PROJECTION-001 separates Local Projects when Settings Sync is disabled', async () => {
     const groups = [{
         id: 'group-a', groupName: 'A', projects: [{
             id: 'local', name: 'Local', path: '/work/local', color: '#112233',
@@ -148,4 +148,8 @@ test('MACHINE-PROJECTS-LOCAL-STORE-001 separates Local Projects when Settings Sy
         ['local'],
     );
     assert.deepEqual(service.getProjectsFlat().map(project => project.id), ['remote', 'local']);
+    assert.deepEqual(
+        service.getRemoteGroupsForManagedMigration()[0].projects.map(project => project.id),
+        ['remote'],
+    );
 });

@@ -8,10 +8,14 @@ const {
     rebuildManagedDevContainerProjectUri,
 } = require('../../../out/projects/managedRemote/devContainerCodec');
 const {
+    buildManagedCatalogFromMigrationPlan,
     buildManagedRemoteMigrationPlan,
+    excludeManagedMigrationRecord,
     parseDirectManagedSshTarget,
+    resolveManagedMigrationWithConnection,
     resolveWslMigrationAsManagedMachine,
 } = require('../../../out/projects/managedRemote/migrationPlan');
+const { materializeManagedRemoteCatalog } = require('../../../out/projects/managedRemote/merge');
 
 function project(id, path, extra = {}) {
     return { id, name: id, path, ...extra };
@@ -67,6 +71,82 @@ test('MANAGED-REMOTE-MIGRATION-002 converts local WSL only after explicit SSH de
     assert.equal(converted.endpoint.port, 22022);
     assert.match(converted.reason, /rehearsal/i);
     assert.equal(parseDirectManagedSshTarget('dev@build.example.com:22022').port, 22022);
+});
+
+test('MANAGED-REMOTE-MIGRATION-001 builds a lossless remote catalog and excludes local records', () => {
+    const plan = buildManagedRemoteMigrationPlan([{
+        id: 'g', groupName: 'Backend', projects: [
+            project('api', 'vscode-remote://ssh-remote%2Bdev%40build.example.com%3A2207/srv/api', {
+                description: 'API service', tags: ['prod'], color: '#ff0000',
+                favorite: true, favoriteOrder: 3,
+            }),
+            project('worker', 'vscode-remote://ssh-remote%2Bdev%40build.example.com%3A2207/srv/worker', {
+                favorite: true, favoriteOrder: 1,
+            }),
+            project('local', '/Users/dev/local'),
+        ],
+    }]);
+    const catalog = materializeManagedRemoteCatalog(
+        buildManagedCatalogFromMigrationPlan(plan, 'migration-actor'),
+    );
+
+    assert.equal(catalog.machines.length, 1);
+    assert.equal(catalog.environments.length, 1);
+    assert.deepEqual(catalog.projects.map(value => value.id), ['api', 'worker']);
+    assert.deepEqual(catalog.projects[0], {
+        id: 'api',
+        environmentId: catalog.environments[0].id,
+        name: 'api',
+        description: 'API service',
+        remotePath: '/srv/api',
+        tags: ['prod', 'Backend'],
+        color: '#ff0000',
+        favorite: true,
+    });
+    assert.deepEqual(catalog.layout.favoriteProjectIds, ['worker', 'api']);
+    assert.equal(catalog.projects.some(value => value.id === 'local'), false);
+});
+
+test('MANAGED-REMOTE-MIGRATION-001 keeps a fixed Host beside a migrated Dev Container', () => {
+    const payload = Buffer.from(JSON.stringify({
+        hostPath: '/srv/api', localDocker: false,
+        configFile: { path: '/srv/api/.devcontainer/devcontainer.json' },
+    }), 'utf8').toString('hex');
+    const plan = buildManagedRemoteMigrationPlan([{
+        id: 'g', groupName: '', projects: [project(
+            'container',
+            `vscode-remote://${encodeURIComponent(`dev-container+${payload}@ssh-remote+build`)}/workspaces/api`,
+        )],
+    }]);
+    plan.records[0] = resolveManagedMigrationWithConnection(
+        plan.records[0],
+        'Build',
+        { host: 'build.example.com', user: 'dev', port: 2222 },
+    );
+    const catalog = materializeManagedRemoteCatalog(
+        buildManagedCatalogFromMigrationPlan(plan, 'migration-actor'),
+    );
+
+    assert.deepEqual(catalog.environments.map(value => value.kind), ['host', 'devContainer']);
+    assert.equal(catalog.projects[0].environmentId, catalog.environments[1].id);
+    assert.equal(catalog.environments[1].devContainerAnchor.sourceKind, 'config');
+});
+
+test('MANAGED-REMOTE-MIGRATION-001 requires review or explicit exclusion before conversion', () => {
+    const plan = buildManagedRemoteMigrationPlan([{
+        id: 'g', groupName: '', projects: [
+            project('alias', 'vscode-remote://ssh-remote%2Bbuild/work/api'),
+        ],
+    }]);
+    assert.throws(
+        () => buildManagedCatalogFromMigrationPlan(plan, 'migration-actor'),
+        /still requires migration review/u,
+    );
+    plan.records[0] = excludeManagedMigrationRecord(plan.records[0]);
+    const catalog = materializeManagedRemoteCatalog(
+        buildManagedCatalogFromMigrationPlan(plan, 'migration-actor'),
+    );
+    assert.equal(catalog.projects.length, 0);
 });
 
 test('MANAGED-REMOTE-DEV-CONTAINER-001 round-trips a current nested SSH authority', () => {

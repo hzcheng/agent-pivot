@@ -9,6 +9,7 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'automaticIncludeConsentV1',
     'openSshValidationV1',
     'localSshTerminalV1',
+    'managedNavigationV1',
 ] as const;
 
 export type ManagedRemoteBridgeOperation =
@@ -23,7 +24,10 @@ export type ManagedRemoteBridgeOperation =
     | 'cancelTransition'
     | 'recover'
     | 'openLocalSshTerminal'
-    | 'copyLocalSshCommand';
+    | 'copyLocalSshCommand'
+    | 'openManagedMachine'
+    | 'openManagedProject'
+    | 'openManagedEnvironment';
 
 export interface ManagedRemoteBridgeHandshakeRequest {
     protocolVersion: 1;
@@ -115,6 +119,9 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             'recover',
             'openLocalSshTerminal',
             'copyLocalSshCommand',
+            'openManagedMachine',
+            'openManagedProject',
+            'openManagedEnvironment',
         ].includes(value.operation as string)
         || (value.expectedRevisionId !== undefined
             && (typeof value.expectedRevisionId !== 'string'
@@ -124,6 +131,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
     const requiresRevision = [
         'preflightEnable', 'beginEnable', 'confirmEnable', 'reconcile',
         'openLocalSshTerminal', 'copyLocalSshCommand',
+        'openManagedMachine', 'openManagedProject', 'openManagedEnvironment',
     ].includes(value.operation as string);
     if (requiresRevision && typeof value.expectedRevisionId !== 'string') {
         return null;
@@ -134,7 +142,10 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         return null;
     }
     const requiresTarget = value.operation === 'openLocalSshTerminal'
-        || value.operation === 'copyLocalSshCommand';
+        || value.operation === 'copyLocalSshCommand'
+        || value.operation === 'openManagedMachine'
+        || value.operation === 'openManagedProject'
+        || value.operation === 'openManagedEnvironment';
     const validTarget = typeof value.targetId === 'string'
         && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value.targetId);
     if ((requiresTarget && !validTarget)

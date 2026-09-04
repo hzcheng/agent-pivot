@@ -1,6 +1,7 @@
 'use strict';
 
 import type * as vscode from 'vscode';
+import type { Group } from '../../models';
 
 import {
     ManagedRemoteManagementController,
@@ -22,6 +23,7 @@ export interface ManagedRemoteManagementCapability {
     snapshot: ManagedRemoteManagementSnapshot;
     controller: ManagedRemoteManagementController;
     reconcile(): Promise<ManagedRemoteManagementSnapshot>;
+    activateMigration(expectedRevisionId: string): Promise<ManagedRemoteManagementSnapshot>;
 }
 
 export function createDisabledManagedRemoteSnapshot(
@@ -45,6 +47,11 @@ export async function createManagedRemoteManagementCapability(options: {
     writerIdentityMemento: ManagedRemoteMementoLike;
     localReplicaKey: string;
     catalogActorId: string;
+    migrationSource: {
+        getGroups(): Group[];
+        getProjectData(): unknown;
+        getProjectSyncData(): unknown;
+    };
     prompts: ManagedRemoteManagementPrompts;
     refreshAuthoritative(
         requestId: string,
@@ -68,6 +75,8 @@ export async function createManagedRemoteManagementCapability(options: {
     const store = new ManagedRemoteCatalogManagementStore(
         coordinator,
         options.catalogActorId,
+        undefined,
+        options.migrationSource,
     );
     return {
         snapshot: await store.getSnapshot(),
@@ -78,5 +87,6 @@ export async function createManagedRemoteManagementCapability(options: {
             postSettlement: options.postSettlement,
         }),
         reconcile: () => store.getSnapshot(),
+        activateMigration: expectedRevisionId => store.activateMigration(expectedRevisionId),
     };
 }

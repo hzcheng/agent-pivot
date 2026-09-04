@@ -55,6 +55,12 @@ function fixture(overrides = {}) {
     const settlements = [];
     const current = overrides.snapshot || snapshot();
     const changed = { ...current, revisionId: nextRevisionId };
+    const migrationPlan = {
+        schemaVersion: 1,
+        planId: `migration:${'c'.repeat(64)}`,
+        sourceChecksum: 'c'.repeat(64),
+        records: [],
+    };
     const store = {
         async getSnapshot() { return current; },
         async addMachine(expected, input) { calls.push(['addMachine', expected, input]); return changed; },
@@ -64,7 +70,8 @@ function fixture(overrides = {}) {
         async editProject(expected, id, input) { calls.push(['editProject', expected, id, input]); return changed; },
         async removeProject(expected, id) { calls.push(['removeProject', expected, id]); return changed; },
         async resolveMachineConflict(expected, id, selected) { calls.push(['resolve', expected, id, selected]); return changed; },
-        async beginMigration(expected) { calls.push(['beginMigration', expected]); return changed; },
+        prepareMigration() { calls.push(['prepareMigration']); return migrationPlan; },
+        async beginMigration(expected, plan) { calls.push(['beginMigration', expected, plan]); return changed; },
         ...overrides.store,
     };
     const prompts = {
@@ -77,6 +84,7 @@ function fixture(overrides = {}) {
         async confirmRemoveProject() { return true; },
         async resolveMachineConflict(_id, candidates) { return candidates[0]; },
         async confirmBeginMigration() { return true; },
+        async reviewMigration(plan) { calls.push(['reviewMigration', plan]); return plan; },
         ...overrides.prompts,
     };
     const controller = new ManagedRemoteManagementController({
@@ -194,4 +202,14 @@ test('MANAGED-REMOTE-MANAGEMENT-001 resolves a conflict from raw causal candidat
     assert.deepEqual(selected, [['build.example.com', 'other.example.com']]);
     assert.equal(calls[0][0], 'resolve');
     assert.equal(calls[0][3].connection.host, 'other.example.com');
+});
+
+test('MANAGED-REMOTE-MIGRATION-003 reviews a frozen plan before committing preview authority', async () => {
+    const { controller, calls } = fixture();
+    await controller.handle(request('beginMigration'));
+    assert.deepEqual(calls.slice(0, 3).map(call => call[0]), [
+        'prepareMigration', 'reviewMigration', 'beginMigration',
+    ]);
+    assert.equal(calls[2][1], revisionId);
+    assert.equal(calls[2][2].planId, `migration:${'c'.repeat(64)}`);
 });

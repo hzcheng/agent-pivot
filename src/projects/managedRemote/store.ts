@@ -11,6 +11,7 @@ import {
 } from './causal';
 import {
     createEmptyManagedCatalogEnvelope,
+    createChecksummedLegacySnapshot,
     createManagedRevisionSlot,
     joinManagedCatalogEnvelopes,
     mergeActiveAuthorityCandidates,
@@ -23,6 +24,7 @@ import {
     ManagedAuthorityState,
     ManagedCatalogEnvelopeV1,
     ManagedCatalogWriterReplicaV1,
+    ManagedMigrationJournal,
     ManagedRemoteCatalogV1,
     ManagedRevisionSlot,
 } from './types';
@@ -200,6 +202,113 @@ export class ManagedCatalogCoordinator {
                 },
             );
             await this.publishCandidate(candidate);
+        });
+    }
+
+    prepareMigration(input: {
+        planId: string;
+        frozenLegacy: { projectData: unknown; projectSyncData: unknown };
+        document: ManagedRemoteCatalogV1;
+    }): Promise<ManagedRevisionSlot> {
+        return this.enqueue(async () => {
+            const reconciled = await this.reconcileNow();
+            if (reconciled.recoveryRequired) {
+                throw new Error('Managed catalog recovery is required before migration.');
+            }
+            const authorities = distinctCandidateValues(reconciled.envelope.authority);
+            if (authorities.length !== 1 || authorities[0].lifecycle === 'active') {
+                throw new Error('Managed Remote migration cannot replace active authority.');
+            }
+            const candidateSlot = createManagedRevisionSlot(input.document);
+            if (materializeManagedRemoteCatalog(candidateSlot.document).conflicts.length) {
+                throw new Error('Managed migration candidate has unresolved catalog conflicts.');
+            }
+            const frozenLegacy = createChecksummedLegacySnapshot(
+                input.frozenLegacy.projectData === undefined
+                    ? null : input.frozenLegacy.projectData,
+                input.frozenLegacy.projectSyncData === undefined
+                    ? null : input.frozenLegacy.projectSyncData,
+            );
+            const journal: ManagedMigrationJournal = {
+                planId: input.planId,
+                phase: 'prepared',
+                frozenLegacy,
+                candidate: candidateSlot,
+            };
+            const previous = authorities[0].active;
+            const envelope = withEnvelopeMutation(
+                reconciled.envelope,
+                this.actorId,
+                (value, version) => {
+                    value.migrationPlans[input.planId] = createVersionedCandidates(
+                        journal,
+                        version,
+                    );
+                    value.authority = createVersionedCandidates({
+                        lifecycle: 'preview',
+                        active: candidateSlot,
+                        ...(previous ? { previous } : {}),
+                        migrationPlanId: input.planId,
+                    }, version);
+                },
+            );
+            await this.publishCandidate(envelope);
+            return cloneManagedValue(candidateSlot);
+        });
+    }
+
+    activatePreparedMigration(
+        planId: string,
+        expectedRevisionId: string,
+    ): Promise<ManagedRevisionSlot> {
+        return this.enqueue(async () => {
+            const reconciled = await this.reconcileNow();
+            if (reconciled.recoveryRequired) {
+                throw new Error('Managed catalog recovery is required before activation.');
+            }
+            const authorities = distinctCandidateValues(reconciled.envelope.authority);
+            if (authorities.length !== 1
+                || authorities[0].lifecycle !== 'preview'
+                || authorities[0].migrationPlanId !== planId
+                || authorities[0].active?.revisionId !== expectedRevisionId) {
+                throw new Error('Managed migration preview changed before activation.');
+            }
+            const planValues = reconciled.envelope.migrationPlans[planId]
+                ? distinctCandidateValues(reconciled.envelope.migrationPlans[planId]) : [];
+            const journals = planValues.filter(
+                (value): value is ManagedMigrationJournal => value !== null,
+            );
+            if (journals.length !== 1
+                || journals[0].candidate.revisionId !== expectedRevisionId) {
+                throw new Error('Managed migration journal is missing or conflicted.');
+            }
+            const slot = cloneManagedValue(authorities[0].active);
+            if (materializeManagedRemoteCatalog(slot.document).conflicts.length) {
+                throw new Error('Managed migration candidate has unresolved catalog conflicts.');
+            }
+            const completed: ManagedMigrationJournal = {
+                ...cloneManagedValue(journals[0]),
+                phase: 'complete',
+            };
+            const envelope = withEnvelopeMutation(
+                reconciled.envelope,
+                this.actorId,
+                (value, version) => {
+                    value.migrationPlans[planId] = createVersionedCandidates(
+                        completed,
+                        version,
+                    );
+                    value.authority = createVersionedCandidates({
+                        lifecycle: 'active',
+                        active: slot,
+                        ...(authorities[0].previous
+                            ? { previous: authorities[0].previous } : {}),
+                        migrationPlanId: planId,
+                    }, version);
+                },
+            );
+            await this.publishCandidate(envelope);
+            return slot;
         });
     }
 

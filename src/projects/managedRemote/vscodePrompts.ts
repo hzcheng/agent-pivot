@@ -9,6 +9,13 @@ import type {
     EditManagedProjectInput,
 } from './catalogService';
 import type { ManagedRemoteManagementPrompts } from './managementController';
+import { cloneManagedValue } from './causal';
+import {
+    excludeManagedMigrationRecord,
+    ManagedProjectMigrationRecord,
+    ManagedRemoteMigrationPlanV1,
+    resolveManagedMigrationWithConnection,
+} from './migrationPlan';
 import type {
     ManagedEnvironment,
     ManagedRemoteProject,
@@ -91,6 +98,10 @@ interface MachineDraft {
     host: string;
     user: string;
     port: string;
+}
+
+interface MigrationConnectionDraft extends MachineDraft {
+    remotePath: string;
 }
 
 export class ManagedRemotePromptController implements ManagedRemoteManagementPrompts {
@@ -309,6 +320,161 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
             'Review existing Projects and build a Managed Remote migration preview?',
             'Review Migration',
         );
+    }
+
+    async reviewMigration(
+        planValue: ManagedRemoteMigrationPlanV1,
+    ): Promise<ManagedRemoteMigrationPlanV1 | undefined> {
+        const plan = cloneManagedValue(planValue);
+        const reviewIndexes = plan.records
+            .map((record, index) => ({ record, index }))
+            .filter(value => value.record.classification === 'needsInput'
+                || value.record.classification === 'unsupported')
+            .map(value => value.index);
+        let cursor = 0;
+        while (cursor < reviewIndexes.length) {
+            const index = reviewIndexes[cursor];
+            const record = plan.records[index];
+            const canEnterDetails = record.classification === 'needsInput';
+            const choice = await this.ui.pick({
+                title: `Migration Review — ${record.originalProject.name}`,
+                step: cursor + 1,
+                totalSteps: reviewIndexes.length + 1,
+                canGoBack: cursor > 0,
+                items: [
+                    ...(canEnterDetails ? [{
+                        label: 'Enter connection details',
+                        description: record.outerSshAuthority || record.originalProject.path,
+                        detail: 'Host, user, port, and path are synchronized; passwords and keys are not saved.',
+                        value: 'details' as const,
+                    }] : []),
+                    {
+                        label: 'Remove from Agent Pivot',
+                        description: 'Does not delete files or change your existing SSH config.',
+                        detail: record.reason,
+                        value: 'exclude' as const,
+                    },
+                ],
+            });
+            if (choice.action === 'cancel') { return undefined; }
+            if (choice.action === 'back') {
+                cursor = Math.max(0, cursor - 1);
+                continue;
+            }
+            if (choice.value === 'exclude') {
+                plan.records[index] = excludeManagedMigrationRecord(record);
+                cursor += 1;
+                continue;
+            }
+            const resolved = await this.migrationConnectionWizard(record);
+            if (!resolved) { return undefined; }
+            plan.records[index] = resolved;
+            cursor += 1;
+        }
+        const managedCount = plan.records.filter(record =>
+            record.classification === 'ready').length;
+        const localCount = plan.records.filter(record =>
+            record.classification === 'clientLocal').length;
+        const excludedCount = plan.records.filter(record =>
+            record.classification === 'excluded').length;
+        const review = await this.ui.pick({
+            title: 'Migration Review — Preview',
+            step: reviewIndexes.length + 1,
+            totalSteps: reviewIndexes.length + 1,
+            canGoBack: reviewIndexes.length > 0,
+            items: [{
+                label: 'Build Managed Remote Preview',
+                description: `${managedCount} managed · ${localCount} kept on this computer · ${excludedCount} removed`,
+                detail: 'Remote connection details sync to your VS Code installations. Existing SSH blocks are not changed or removed.',
+                value: true,
+            }],
+        });
+        if (review.action !== 'accept') { return undefined; }
+        return plan;
+    }
+
+    private async migrationConnectionWizard(
+        record: ManagedProjectMigrationRecord,
+    ): Promise<ManagedProjectMigrationRecord | undefined> {
+        const draft: MigrationConnectionDraft = {
+            name: record.proposedMachineName
+                || record.originalProject.machineDisplayName
+                || record.outerSshAuthority
+                || record.originalProject.name,
+            host: record.endpoint?.host || '',
+            user: record.endpoint?.user || '',
+            port: String(record.endpoint?.port || 22),
+            remotePath: record.remotePath || '',
+        };
+        const fields = [
+            { key: 'name', prompt: 'Managed Machine name', validate: (value: string) => validText(value, 'Machine name') },
+            { key: 'host', prompt: 'DNS name or IP address', validate: (value: string) => validText(value, 'Host') },
+            { key: 'user', prompt: 'SSH user', validate: (value: string) => validText(value, 'User') },
+            { key: 'port', prompt: 'SSH port', validate: validPort },
+            { key: 'remotePath', prompt: 'Absolute path on the remote Environment', validate: validRemotePath },
+        ] as const;
+        let step = 0;
+        while (step < fields.length + 1) {
+            if (step < fields.length) {
+                const field = fields[step];
+                const result = await this.ui.input({
+                    title: `Migration — ${record.originalProject.name}`,
+                    step: step + 1,
+                    totalSteps: fields.length + 1,
+                    prompt: field.prompt,
+                    value: draft[field.key],
+                    validate: field.validate,
+                });
+                if (result.action === 'cancel') { return undefined; }
+                if (result.action === 'back') {
+                    if (step === 0) { return undefined; }
+                    step -= 1;
+                    continue;
+                }
+                draft[field.key] = result.value;
+                step += 1;
+                continue;
+            }
+            const machine: ManagedSshMachine = {
+                id: 'migration-validation',
+                name: clean(draft.name),
+                connection: {
+                    kind: 'ssh',
+                    host: clean(draft.host),
+                    user: clean(draft.user),
+                    port: Number(clean(draft.port)),
+                },
+            };
+            if (!isManagedMachine(machine) || validRemotePath(draft.remotePath)) {
+                step = 0;
+                continue;
+            }
+            const review = await this.ui.pick({
+                title: `Review Migration — ${record.originalProject.name}`,
+                step: fields.length + 1,
+                totalSteps: fields.length + 1,
+                canGoBack: true,
+                items: [{
+                    label: 'Use this connection',
+                    description: machineSummary(machine),
+                    detail: `${machine.name} › ${clean(draft.remotePath)} · Saved to all synced computers`,
+                    value: true,
+                }],
+            });
+            if (review.action === 'cancel') { return undefined; }
+            if (review.action === 'back') { step -= 1; continue; }
+            return resolveManagedMigrationWithConnection(
+                record,
+                machine.name,
+                {
+                    host: machine.connection.host,
+                    user: machine.connection.user,
+                    port: machine.connection.port,
+                },
+                clean(draft.remotePath),
+            );
+        }
+        return undefined;
     }
 
     private async machineWizard(

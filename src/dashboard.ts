@@ -20,6 +20,8 @@ import {
 } from './projects/managedRemote/composition';
 import { ManagedRemoteBridgeClient } from './projects/managedRemote/bridgeClient';
 import { ManagedRemoteLocalSshCommandController } from './projects/managedRemote/localSshCommandController';
+import { ManagedRemoteClientActionController } from './projects/managedRemote/clientActionController';
+import type { ManagedRemoteClientUiState } from './projects/managedRemote/viewModel';
 import {
     ManagedRemotePromptController,
     VscodeManagedRemoteWizardUi,
@@ -35,6 +37,7 @@ import {
     MANAGED_REMOTE_CATALOG_DATA_KEY,
     MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
     OPEN_TAB_LAST_FOCUSED_NAVIGATION_AT_MS_KEY,
+    PROJECT_SYNC_DATA_KEY,
     USER_CANCELED,
     RelevantExtensions,
     REOPEN_KEY,
@@ -982,7 +985,9 @@ async function initializeDashboard(
     let managedRemoteSnapshot = createDisabledManagedRemoteSnapshot(
         managedRemoteCatalogActorId,
     );
+    let managedRemoteClientState: ManagedRemoteClientUiState = 'preview';
     let managedRemoteCapability: ManagedRemoteManagementCapability | undefined;
+    const managedRemoteBridgeClient = new ManagedRemoteBridgeClient(vscode.commands);
     const managedRemoteCapabilityPromise = createManagedRemoteManagementCapability({
         configuration: promptConfiguration,
         catalogSettingKey: MANAGED_REMOTE_CATALOG_DATA_KEY,
@@ -991,12 +996,22 @@ async function initializeDashboard(
         writerIdentityMemento: context.workspaceState,
         localReplicaKey: MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
         catalogActorId: managedRemoteCatalogActorId,
+        migrationSource: {
+            getGroups: () => projectService.getRemoteGroupsForManagedMigration(),
+            getProjectData: () => promptConfiguration.get('projectData'),
+            getProjectSyncData: () => promptConfiguration.get(PROJECT_SYNC_DATA_KEY),
+        },
         prompts: new ManagedRemotePromptController(
             new VscodeManagedRemoteWizardUi(vscode.window),
         ),
         refreshAuthoritative: async (_requestId, _operation, snapshot) => {
             managedRemoteSnapshot = snapshot;
+            managedRemoteClientState = snapshot.lifecycle === 'active'
+                ? 'applying' : 'preview';
             await projectsPanelController?.postUpdated('replace');
+            if (snapshot.lifecycle === 'active' && snapshot.revisionId) {
+                await managedRemoteClientActions.syncCatalog(snapshot.revisionId);
+            }
         },
         postSettlement: async settlement => {
             await provider.postMessage(settlement);
@@ -1005,6 +1020,9 @@ async function initializeDashboard(
     void managedRemoteCapabilityPromise.then(async capability => {
         managedRemoteCapability = capability;
         managedRemoteSnapshot = capability.snapshot;
+        managedRemoteClientState = await managedRemoteClientActions.readState(
+            managedRemoteSnapshot,
+        );
         if (managedRemoteSnapshot.lifecycle !== 'disabled') {
             await projectsPanelController?.postUpdated('replace');
         }
@@ -1019,7 +1037,34 @@ async function initializeDashboard(
             return managedRemoteSnapshot;
         },
         showQuickPick: (items, options) => vscode.window.showQuickPick(items, options),
-        bridge: new ManagedRemoteBridgeClient(vscode.commands),
+        bridge: managedRemoteBridgeClient,
+        showInformationMessage: message => vscode.window.showInformationMessage(message),
+        showErrorMessage: message => vscode.window.showErrorMessage(message),
+    });
+    const managedRemoteClientActions = new ManagedRemoteClientActionController({
+        getSnapshot: async () => {
+            const capability = managedRemoteCapability
+                || await managedRemoteCapabilityPromise;
+            managedRemoteSnapshot = await capability.reconcile();
+            return managedRemoteSnapshot;
+        },
+        activateMigration: async expectedRevisionId => {
+            const capability = managedRemoteCapability
+                || await managedRemoteCapabilityPromise;
+            managedRemoteSnapshot = await capability.activateMigration(expectedRevisionId);
+            return managedRemoteSnapshot;
+        },
+        bridge: managedRemoteBridgeClient,
+        confirmEnable: async summary => vscode.window.showWarningMessage(
+            `Enable Managed SSH connections on this computer? Agent Pivot will add its owned Include to ${summary.activeConfigPath}, generate ${summary.generatedConfigPath}, and keep a backup at ${summary.backupPath}.`,
+            { modal: true },
+            'Enable on This Computer',
+        ).then(value => value === 'Enable on This Computer'),
+        refresh: async (snapshot, state) => {
+            managedRemoteSnapshot = snapshot;
+            managedRemoteClientState = state;
+            await projectsPanelController?.postUpdated('replace');
+        },
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showErrorMessage: message => vscode.window.showErrorMessage(message),
     });
@@ -2698,30 +2743,66 @@ async function initializeDashboard(
             'managed-remote-client-action': async message => {
                 if (!message || typeof message !== 'object') { return; }
                 const value = message as Record<string, unknown>;
-                const keys = Object.keys(value).sort().join('\n');
-                if (keys !== [
-                    'action', 'expectedRevisionId', 'requestId', 'targetId', 'type', 'version',
-                ].sort().join('\n')
+                const action = String(value.action);
+                const requiresTarget = [
+                    'sshTerminal', 'copySsh', 'openMachine', 'openProject', 'openEnvironment',
+                ].includes(action);
+                const expectedKeys = [
+                    'action', 'expectedRevisionId', 'requestId', 'type', 'version',
+                    ...(requiresTarget ? ['targetId'] : []),
+                ].sort().join('\n');
+                if (Object.keys(value).sort().join('\n') !== expectedKeys
                     || value.version !== 1
                     || typeof value.requestId !== 'string'
                     || value.requestId.length < 16
                     || value.requestId.length > 256
-                    || !['sshTerminal', 'copySsh'].includes(String(value.action))
-                    || typeof value.targetId !== 'string'
-                    || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value.targetId)
+                    || ![
+                        'enable', 'recover', 'regenerate', 'sshTerminal', 'copySsh',
+                        'openMachine', 'openProject', 'openEnvironment',
+                    ]
+                        .includes(action)
+                    || (requiresTarget && (typeof value.targetId !== 'string'
+                        || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value.targetId)))
                     || (value.expectedRevisionId !== null
                         && (typeof value.expectedRevisionId !== 'string'
                             || !/^revision:[a-f0-9]{64}$/u.test(value.expectedRevisionId)))) {
                     return;
                 }
-                if (value.action === 'sshTerminal') {
+                if (action === 'enable') {
+                    await managedRemoteClientActions.enable(
+                        value.expectedRevisionId as string | null,
+                    );
+                } else if (action === 'recover') {
+                    await managedRemoteClientActions.recover(
+                        value.expectedRevisionId as string | null,
+                    );
+                } else if (action === 'regenerate') {
+                    await managedRemoteClientActions.regenerate(
+                        value.expectedRevisionId as string | null,
+                    );
+                } else if (action === 'openMachine') {
+                    await managedRemoteClientActions.openMachine(
+                        value.targetId as string,
+                        value.expectedRevisionId as string | null,
+                    );
+                } else if (action === 'openProject') {
+                    await managedRemoteClientActions.openProject(
+                        value.targetId as string,
+                        value.expectedRevisionId as string | null,
+                    );
+                } else if (action === 'openEnvironment') {
+                    await managedRemoteClientActions.openEnvironment(
+                        value.targetId as string,
+                        value.expectedRevisionId as string | null,
+                    );
+                } else if (action === 'sshTerminal') {
                     await managedRemoteLocalSshController.sshToMachine(
-                        value.targetId,
+                        value.targetId as string,
                         value.expectedRevisionId as string | null,
                     );
                 } else {
                     await managedRemoteLocalSshController.copySshCommand(
-                        value.targetId,
+                        value.targetId as string,
                         value.expectedRevisionId as string | null,
                     );
                 }
@@ -3532,7 +3613,13 @@ async function initializeDashboard(
         }
         if (managedRemoteSnapshot.lifecycle !== 'disabled') {
             return renderManagedRemoteProjectsPanel(
-                buildManagedRemoteProjectsViewModel(managedRemoteSnapshot),
+                buildManagedRemoteProjectsViewModel(
+                    managedRemoteSnapshot,
+                    managedRemoteClientState,
+                ),
+                buildMachineProjectsViewModel(
+                    projectService.getLocalGroupsForDisplay(),
+                ),
             );
         }
         return renderMachineProjectsPanel(
@@ -3610,6 +3697,9 @@ async function initializeDashboard(
             const capability = managedRemoteCapability
                 || await managedRemoteCapabilityPromise;
             managedRemoteSnapshot = await capability.reconcile();
+            managedRemoteClientState = await managedRemoteClientActions.readState(
+                managedRemoteSnapshot,
+            );
         },
         consumeProjectCatalogWriteEcho: change =>
             projectService.consumeProjectCatalogWriteEcho(change),

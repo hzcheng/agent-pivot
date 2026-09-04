@@ -32,6 +32,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {
+    const actual = Object.keys(value).sort();
+    const expected = keys.slice().sort();
+    return actual.length === expected.length
+        && actual.every((key, index) => key === expected[index]);
+}
+
 function supportsCapabilities(value: unknown): boolean {
     return Array.isArray(value)
         && MANAGED_REMOTE_BRIDGE_CAPABILITIES.every(capability =>
@@ -46,7 +53,7 @@ export class ManagedRemoteBridgeClient {
 
     async execute(
         operation: ManagedRemoteBridgeOperation,
-        expectedRevisionId: string,
+        expectedRevisionId?: string,
         targetId?: string,
     ): Promise<unknown> {
         return this.executeAttempt(operation, expectedRevisionId, targetId, true);
@@ -54,7 +61,7 @@ export class ManagedRemoteBridgeClient {
 
     private async executeAttempt(
         operation: ManagedRemoteBridgeOperation,
-        expectedRevisionId: string,
+        expectedRevisionId: string | undefined,
         targetId: string | undefined,
         retryExpiredSession: boolean,
     ): Promise<unknown> {
@@ -66,7 +73,7 @@ export class ManagedRemoteBridgeClient {
                 requestId,
                 sessionToken: await this.getSession(),
                 operation,
-                expectedRevisionId,
+                ...(expectedRevisionId ? { expectedRevisionId } : {}),
                 ...(targetId ? { targetId } : {}),
             },
         );
@@ -75,6 +82,13 @@ export class ManagedRemoteBridgeClient {
             || response.requestId !== requestId
             || !['ok', 'catalogOutOfDate', 'clientNotEnabled', 'recoveryRequired', 'failed']
                 .includes(String(response.status))) {
+            throw new Error('Agent Pivot UI Bridge returned an invalid Managed Remote response.');
+        }
+        const responseKeys = response.status === 'ok'
+            ? ['protocolVersion', 'requestId', 'status', 'value']
+            : ['protocolVersion', 'requestId', 'status', 'message'];
+        if (!hasExactKeys(response, responseKeys)
+            || (response.status !== 'ok' && typeof response.message !== 'string')) {
             throw new Error('Agent Pivot UI Bridge returned an invalid Managed Remote response.');
         }
         if (response.status !== 'ok') {
@@ -123,6 +137,9 @@ export class ManagedRemoteBridgeClient {
             throw new Error('Install or update the Agent Pivot UI Bridge to use Managed Remote commands.');
         }
         if (!isRecord(response)
+            || !hasExactKeys(response, [
+                'protocolVersion', 'requestId', 'challenge', 'sessionToken', 'capabilities',
+            ])
             || response.protocolVersion !== MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION
             || response.requestId !== requestId
             || response.challenge !== challenge

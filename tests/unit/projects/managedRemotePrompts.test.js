@@ -105,3 +105,40 @@ test('MANAGED-REMOTE-MANAGEMENT-004 Project wizard keeps placement fixed and rev
     });
     assert.equal(ui.picks.filter(pick => pick.step === 7).length, 2);
 });
+
+test('MANAGED-REMOTE-MIGRATION-003 reviews unresolved aliases without moving client-local Projects', async () => {
+    const ui = new ScriptedWizardUi([
+        { action: 'accept', value: 'details' },
+        { action: 'accept', value: 'Build' },
+        { action: 'accept', value: 'build.example.com' },
+        { action: 'accept', value: 'dev' },
+        { action: 'accept', value: '2207' },
+        { action: 'accept', value: '/work/api' },
+        { action: 'accept', value: true },
+        { action: 'accept', value: true },
+    ]);
+    const plan = {
+        schemaVersion: 1,
+        planId: `migration:${'a'.repeat(64)}`,
+        sourceChecksum: 'a'.repeat(64),
+        records: [{
+            projectId: 'remote', classification: 'needsInput',
+            reason: 'Alias requires details.', outerSshAuthority: 'build',
+            originalProject: { id: 'remote', name: 'API', path: 'vscode-remote://ssh-remote%2Bbuild/work/api' },
+            remotePath: '/work/api', tags: [],
+        }, {
+            projectId: 'local', classification: 'clientLocal',
+            reason: 'Local.',
+            originalProject: { id: 'local', name: 'Local', path: '/work/local' },
+            tags: [],
+        }],
+    };
+    const result = await new ManagedRemotePromptController(ui).reviewMigration(plan);
+
+    assert.equal(result.records[0].classification, 'ready');
+    assert.deepEqual(result.records[0].endpoint, {
+        host: 'build.example.com', user: 'dev', port: 2207,
+    });
+    assert.equal(result.records[1].classification, 'clientLocal');
+    assert.match(ui.picks.at(-1).items[0].description, /1 managed · 1 kept on this computer/u);
+});

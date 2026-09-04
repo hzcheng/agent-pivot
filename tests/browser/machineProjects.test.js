@@ -57,7 +57,7 @@ function markup(includeFavorite = true, machineOverrides = {}, managedRemoteRevi
     }, managedRemoteRevisionId);
 }
 
-function managedMarkup(clientState = 'preview') {
+function managedMarkup(clientState = 'preview', migrationPrepared = false) {
     const ready = clientState === 'ready';
     const managedProject = {
         id: 'project:managed', environmentId: 'environment:managed-host',
@@ -71,6 +71,7 @@ function managedMarkup(clientState = 'preview') {
         revisionId: `revision:${'a'.repeat(64)}`,
         lifecycle: ready ? 'active' : 'preview', clientState,
         clientMessage: ready ? 'Managed connections are ready on this computer.' : 'Managed Remote preview.', projectCount: 1,
+        migrationPrepared,
         tags: ['backend'], favorites: [managedProject],
         machines: [{
             id: 'machine:managed', name: 'Build', endpoint: 'dev@build.example.com:22022',
@@ -385,6 +386,32 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 sends a strict row-menu SSH identity intent
     assert.equal(message.action, 'copySsh');
     assert.equal(message.targetId, 'machine:managed');
     assert.equal(message.expectedRevisionId, `revision:${'a'.repeat(64)}`);
+});
+
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 sends a revisioned enable intent without connection fields', async t => {
+    const page = await openPage(t, 360, managedMarkup('preview', true));
+    await page.getByRole('button', { name: 'Enable on This Computer' }).click();
+
+    const message = await page.evaluate(() => window.messages.at(-1));
+    assert.deepEqual(Object.keys(message).sort(), [
+        'action', 'expectedRevisionId', 'requestId', 'type', 'version',
+    ]);
+    assert.equal(message.type, 'managed-remote-client-action');
+    assert.equal(message.action, 'enable');
+    assert.equal(message.expectedRevisionId, `revision:${'a'.repeat(64)}`);
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 sends Project identity instead of a remote URI', async t => {
+    const page = await openPage(t, 360, managedMarkup('ready'));
+    await page.locator('[data-managed-project-row]:not(.machine-favorite-row) .machine-project-primary').click();
+
+    const message = await page.evaluate(() => window.messages.at(-1));
+    assert.deepEqual(Object.keys(message).sort(), [
+        'action', 'expectedRevisionId', 'requestId', 'targetId', 'type', 'version',
+    ]);
+    assert.equal(message.action, 'openProject');
+    assert.equal(message.targetId, 'project:managed');
+    assert.equal('uri' in message, false);
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-003 stays within 260px with endpoint-qualified rows', async t => {

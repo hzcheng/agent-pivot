@@ -134,6 +134,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             terminal.show();
         },
         writeClipboard: value => vscode.env.clipboard.writeText(value),
+        openRemoteWindow: remoteAuthority => vscode.commands.executeCommand(
+            'vscode.newWindow',
+            { remoteAuthority, reuseWindow: false },
+        ),
+        openRemoteFolder: uri => vscode.commands.executeCommand(
+            'vscode.openFolder',
+            vscode.Uri.parse(uri),
+            { forceNewWindow: true },
+        ),
     });
     const instanceId = crypto.randomBytes(16).toString('hex');
     const store = new LocalStore(bridgeRoot, instanceId, bridgeProcessId);

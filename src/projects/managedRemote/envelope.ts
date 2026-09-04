@@ -398,6 +398,16 @@ export function readManagedActiveRevisionSlot(value: unknown): ManagedRevisionSl
         ? cloneManagedValue(authorities[0].active) : null;
 }
 
+export function readManagedCurrentRevisionSlot(value: unknown): ManagedRevisionSlot | null {
+    const parsed = parseManagedCatalogEnvelope(value);
+    if (!parsed || parsed.issues.length) { return null; }
+    const authorities = distinctCandidateValues(parsed.envelope.authority);
+    return authorities.length === 1
+        && (authorities[0].lifecycle === 'preview' || authorities[0].lifecycle === 'active')
+        && authorities[0].active
+        ? cloneManagedValue(authorities[0].active) : null;
+}
+
 function joinMaps<T>(
     left: Record<string, VersionedCandidates<T | null>>,
     right: Record<string, VersionedCandidates<T | null>>,

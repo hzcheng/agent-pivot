@@ -6,6 +6,11 @@ import type {
     ManagedRemoteProjectRowViewModel,
     ManagedRemoteProjectsViewModel,
 } from '../projects/managedRemote/viewModel';
+import type { MachineProjectsViewModel } from '../projects/machineProjectsViewModel';
+import {
+    renderMachineProjectsMachine,
+    renderMachineProjectsProject,
+} from './webviewMachineProjectsContent';
 import * as Icons from '../webviewIcons';
 import { escapeAttribute } from '../webviewHtmlEscape';
 import { sanitizeCssColor } from './webviewCssSanitize';
@@ -16,7 +21,11 @@ function operationAttributes(operation: string, targetId?: string): string {
 }
 
 function renderClientBanner(model: ManagedRemoteProjectsViewModel): string {
-    const action = model.clientState === 'enableRequired'
+    const action = model.clientState === 'preview'
+            ? model.migrationPrepared
+                ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="enable">Enable on This Computer</button>'
+                : `<button type="button" class="managed-remote-banner-action" ${operationAttributes('beginMigration')}>Review Migration</button>`
+            : model.clientState === 'enableRequired'
             ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="enable">Enable on This Computer</button>'
             : model.clientState === 'attention'
                 ? '<button type="button" class="managed-remote-banner-action" data-managed-client-action="recover">Retry</button>'
@@ -88,7 +97,7 @@ function renderMachine(machine: ManagedRemoteMachineViewModel): string {
                     <button type="button" role="menuitem" tabindex="-1" ${operationAttributes('addProject', machine.id)}>Add Project…</button>
                     <button type="button" role="menuitem" tabindex="-1" ${operationAttributes('editMachine', machine.id)}>Edit Machine…</button>
                     ${machine.conflict ? `<button type="button" role="menuitem" tabindex="-1" ${operationAttributes('resolveMachineConflict', machine.id)}>Review Connection Conflict…</button>` : ''}
-                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="regenerate" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Regenerate SSH Config</button>
+                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="regenerate"${machine.openable ? '' : ' disabled'}>Regenerate SSH Config</button>
                     <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="sshTerminal" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Open SSH Terminal…</button>
                     <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="copySsh" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Copy SSH Command</button>
                     <button type="button" role="menuitem" tabindex="-1" class="danger" ${operationAttributes('removeMachine', machine.id)}>Remove Machine…</button>
@@ -100,16 +109,27 @@ function renderMachine(machine: ManagedRemoteMachineViewModel): string {
     </li>`;
 }
 
-export function renderManagedRemoteProjectsPanel(model: ManagedRemoteProjectsViewModel): string {
+export function renderManagedRemoteProjectsPanel(
+    model: ManagedRemoteProjectsViewModel,
+    localModel: MachineProjectsViewModel = {
+        projectCount: 0, tags: [], favorites: [], machines: [],
+    },
+): string {
     const revision = model.revisionId || '';
-    return `<section class="machine-projects managed-remote-projects" data-machine-projects data-managed-remote-projects data-managed-revision-id="${escapeAttribute(revision)}" data-managed-lifecycle="${escapeAttribute(model.lifecycle)}" data-machine-project-count="${model.projectCount}">
+    const projectCount = model.projectCount + localModel.projectCount;
+    const machineCount = model.machines.length + localModel.machines.length;
+    const tags = Array.from(new Map([...model.tags, ...localModel.tags]
+        .map(tag => [tag.toLocaleLowerCase(), tag])).values())
+        .sort((left, right) => left.localeCompare(right));
+    const favoriteCount = model.favorites.length + localModel.favorites.length;
+    return `<section class="machine-projects managed-remote-projects" data-machine-projects data-managed-remote-projects data-managed-revision-id="${escapeAttribute(revision)}" data-managed-lifecycle="${escapeAttribute(model.lifecycle)}" data-machine-project-count="${projectCount}">
         ${renderClientBanner(model)}
         <div class="machine-projects-toolbar">
-            <div class="machine-projects-summary" data-machine-projects-summary role="status" aria-live="polite">${model.projectCount} project${model.projectCount === 1 ? '' : 's'} on ${model.machines.length} machine${model.machines.length === 1 ? '' : 's'}</div>
-            <div class="machine-projects-toolbar-actions">${renderTagControls(model.tags)}<button type="button" class="machine-toolbar-button" ${operationAttributes('addMachine')} aria-label="Add Machine" title="Add Machine">${Icons.add}<span class="managed-toolbar-label">Machine</span></button><button type="button" class="machine-toolbar-button" ${operationAttributes('addProject')} aria-label="Add Project" title="Add Project">${Icons.add}<span class="managed-toolbar-label">Project</span></button></div>
+            <div class="machine-projects-summary" data-machine-projects-summary role="status" aria-live="polite">${projectCount} project${projectCount === 1 ? '' : 's'} on ${machineCount} machine${machineCount === 1 ? '' : 's'}</div>
+            <div class="machine-projects-toolbar-actions">${renderTagControls(tags)}<button type="button" class="machine-toolbar-button" ${operationAttributes('addMachine')} aria-label="Add Machine" title="Add Machine">${Icons.add}<span class="managed-toolbar-label">Machine</span></button><button type="button" class="machine-toolbar-button" ${operationAttributes('addProject')} aria-label="Add Project" title="Add Project">${Icons.add}<span class="managed-toolbar-label">Project</span></button></div>
         </div>
-        ${model.favorites.length ? `<section class="machine-favorites" data-machine-favorites><h2 class="machine-section-heading"><button type="button" class="machine-disclosure" data-machine-disclosure="favorites" aria-expanded="true" aria-controls="managed-machine-favorites-list" aria-label="Collapse Favorites"><span class="machine-chevron" aria-hidden="true">${Icons.collapse}</span><span>FAVORITES</span><span class="machine-count">${model.favorites.length}</span></button></h2><ul id="managed-machine-favorites-list" class="machine-favorite-list">${model.favorites.map(project => renderProject(project, true)).join('\n')}</ul></section>` : ''}
-        <section class="machine-projects-directory" aria-labelledby="managed-machine-projects-directory-title"><h2 id="managed-machine-projects-directory-title" class="machine-projects-visually-hidden">Machines</h2>${model.machines.length ? `<ul class="machine-projects-machines">${model.machines.map(renderMachine).join('\n')}</ul>` : '<p class="managed-remote-empty">No managed Machines yet. Add a Machine to begin.</p>'}</section>
+        ${favoriteCount ? `<section class="machine-favorites" data-machine-favorites><h2 class="machine-section-heading"><button type="button" class="machine-disclosure" data-machine-disclosure="favorites" aria-expanded="true" aria-controls="managed-machine-favorites-list" aria-label="Collapse Favorites"><span class="machine-chevron" aria-hidden="true">${Icons.collapse}</span><span>FAVORITES</span><span class="machine-count">${favoriteCount}</span></button></h2><ul id="managed-machine-favorites-list" class="machine-favorite-list">${localModel.favorites.map(project => renderMachineProjectsProject(project, true)).join('\n')}${model.favorites.map(project => renderProject(project, true)).join('\n')}</ul></section>` : ''}
+        <section class="machine-projects-directory" aria-labelledby="managed-machine-projects-directory-title"><h2 id="managed-machine-projects-directory-title" class="machine-projects-visually-hidden">Machines</h2>${machineCount ? `<ul class="machine-projects-machines">${localModel.machines.map(renderMachineProjectsMachine).join('\n')}${model.machines.map(renderMachine).join('\n')}</ul>` : '<p class="managed-remote-empty">No Projects or managed Machines yet.</p>'}</section>
         <div class="machine-projects-announcer machine-projects-visually-hidden" data-machine-projects-announcer aria-live="polite"></div>
     </section>`;
 }

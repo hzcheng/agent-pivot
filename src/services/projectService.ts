@@ -95,6 +95,26 @@ export default class ProjectService extends BaseService {
         return projects;
     }
 
+    /**
+     * Managed Remote migration reads only the currently selected legacy
+     * authority. Computer-local paths are never allowed into its synchronized
+     * source fingerprint, even if an interrupted older migration left one in
+     * that store.
+     */
+    getRemoteGroupsForManagedMigration(): Group[] {
+        const selected = this.useSettingsStorage()
+            ? this.catalogSyncService.getGroups()
+            : this.getProjectsFromGlobalState();
+        return filterProjectGroups(
+            selected,
+            project => !isLocalMachineProjectPath(project.path),
+        );
+    }
+
+    getLocalGroupsForDisplay(): Group[] {
+        return cloneGroups(this.getLocalProjects());
+    }
+
     getProject(projectId: string): Project {
         var [project] = this.getProjectAndGroup(projectId);
         return project;

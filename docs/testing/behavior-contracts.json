@@ -7181,6 +7181,56 @@
     ]
   },
   {
+    "id": "MANAGED-REMOTE-CLIENT-ENABLE-001",
+    "domain": "project",
+    "title": "A reviewed preview shows local SSH file targets before consent, enables through the UI host, and only then activates Managed Remote authority",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteClientActionController.test.js",
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/clientActionController.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/projects/managedRemote/store.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-NAVIGATION-001",
+    "domain": "project",
+    "title": "Active Machine, Project, and Dev Container rows send stable identities and the local UI host rebuilds navigation from the authoritative managed catalog",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteClientActionController.test.js",
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/clientActionController.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-LOCAL-PROJECTION-001",
+    "domain": "project",
+    "title": "Client-local Projects remain visible and use legacy local actions beside the synchronized managed catalog without entering migration fingerprints",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/webview/managedRemoteProjectsRendering.test.js",
+      "tests/unit/services/projectService.test.js"
+    ],
+    "evidence": [
+      "src/services/projectService.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts"
+    ]
+  },
+  {
     "id": "MANAGED-REMOTE-MIGRATION-001",
     "domain": "project",
     "title": "Migration classifies explicit SSH targets, local-only records, and unresolved aliases without dropping V1 identity or Group tags",
@@ -7204,6 +7254,23 @@
     ],
     "evidence": [
       "src/projects/managedRemote/migrationPlan.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-MIGRATION-003",
+    "domain": "project",
+    "title": "Migration reviews unresolved aliases, preserves local-only records, freezes legacy authority, and commits a preview candidate before activation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteManagementStore.test.js",
+      "tests/contract/projects/managedRemoteManagementController.test.js",
+      "tests/unit/projects/managedRemotePrompts.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/migrationPlan.ts",
+      "src/projects/managedRemote/managementStore.ts",
+      "src/projects/managedRemote/vscodePrompts.ts"
     ]
   },
   {

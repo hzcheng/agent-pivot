@@ -1,5 +1,7 @@
 'use strict';
 
+import type { Group } from '../../models';
+
 import {
     AddManagedMachineInput,
     AddManagedProjectInput,
@@ -9,6 +11,11 @@ import {
 } from './catalogService';
 import { distinctCandidateValues } from './causal';
 import { createEmptyManagedRemoteCatalog, materializeManagedRemoteCatalog } from './merge';
+import {
+    buildManagedCatalogFromMigrationPlan,
+    buildManagedRemoteMigrationPlan,
+    ManagedRemoteMigrationPlanV1,
+} from './migrationPlan';
 import {
     ManagedRemoteManagementSnapshot,
     ManagedRemoteManagementStore,
@@ -45,6 +52,11 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         private readonly coordinator: ManagedCatalogCoordinator,
         private readonly catalogActorId: string,
         private readonly createId?: (prefix: string) => string,
+        private readonly migrationSource?: {
+            getGroups(): Group[];
+            getProjectData(): unknown;
+            getProjectSyncData(): unknown;
+        },
     ) {
     }
 
@@ -110,8 +122,66 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         });
     }
 
-    async beginMigration(_expectedRevisionId: string | null): Promise<ManagedRemoteManagementSnapshot> {
-        throw new Error('Managed Remote migration review is not ready yet.');
+    prepareMigration(): ManagedRemoteMigrationPlanV1 {
+        if (!this.migrationSource) {
+            throw new Error('Managed Remote migration source is unavailable.');
+        }
+        return buildManagedRemoteMigrationPlan(this.migrationSource.getGroups());
+    }
+
+    async beginMigration(
+        expectedRevisionId: string | null,
+        plan: ManagedRemoteMigrationPlanV1,
+    ): Promise<ManagedRemoteManagementSnapshot> {
+        if (!this.migrationSource) {
+            throw new Error('Managed Remote migration source is unavailable.');
+        }
+        const reconciled = await this.coordinator.reconcile();
+        const authority = authorityState(reconciled);
+        const actualRevisionId = authority.active?.revisionId || null;
+        if (actualRevisionId !== expectedRevisionId) {
+            throw new Error('The Managed Remote catalog changed. Refresh and try again.');
+        }
+        const current = authority.active
+            ? materializeManagedRemoteCatalog(authority.active.document) : null;
+        if (current && (current.machines.length || current.environments.length
+            || current.projects.length)) {
+            throw new Error(
+                'Remove manually added preview entries before reviewing legacy migration.',
+            );
+        }
+        const currentPlan = buildManagedRemoteMigrationPlan(this.migrationSource.getGroups());
+        if (currentPlan.planId !== plan.planId
+            || currentPlan.sourceChecksum !== plan.sourceChecksum) {
+            throw new Error('Existing Projects changed during migration review. Start again.');
+        }
+        const document = buildManagedCatalogFromMigrationPlan(plan, this.catalogActorId);
+        await this.coordinator.prepareMigration({
+            planId: plan.planId,
+            frozenLegacy: {
+                projectData: this.migrationSource.getProjectData(),
+                projectSyncData: this.migrationSource.getProjectSyncData(),
+            },
+            document,
+        });
+        return this.snapshot(await this.coordinator.reconcile());
+    }
+
+    async activateMigration(
+        expectedRevisionId: string,
+    ): Promise<ManagedRemoteManagementSnapshot> {
+        const reconciled = await this.coordinator.reconcile();
+        const authority = authorityState(reconciled);
+        if (authority.lifecycle !== 'preview'
+            || !authority.migrationPlanId
+            || authority.active?.revisionId !== expectedRevisionId) {
+            throw new Error('Managed migration preview changed before activation.');
+        }
+        await this.coordinator.activatePreparedMigration(
+            authority.migrationPlanId,
+            expectedRevisionId,
+        );
+        return this.snapshot(await this.coordinator.reconcile());
     }
 
     private async mutate(
@@ -150,6 +220,8 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         return {
             revisionId: authority.active?.revisionId || null,
             lifecycle: authority.lifecycle,
+            ...(authority.migrationPlanId
+                ? { migrationPlanId: authority.migrationPlanId } : {}),
             catalog: materializeManagedRemoteCatalog(document),
             machineConflictCandidates: machineConflictCandidates(document),
         };

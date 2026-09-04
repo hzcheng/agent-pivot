@@ -59,6 +59,12 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
         ...request,
         targetId: 'machine:one',
     }), null);
+    const project = {
+        ...request,
+        operation: 'openManagedProject',
+        targetId: 'project:one',
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(project), project);
 });
 
 test('MANAGED-REMOTE-BRIDGE-001 correlates the strict capability handshake', () => {

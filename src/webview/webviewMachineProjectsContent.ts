@@ -20,11 +20,14 @@ export function renderMachineProjectsPanel(
     const addManagedMachine = managedRemoteRevisionId === undefined
         ? ''
         : `<button type="button" class="machine-toolbar-button" data-managed-operation="addMachine" aria-label="Add Managed Machine" title="Add Managed Machine">${Icons.add}<span class="managed-toolbar-label">Machine</span></button>`;
+    const reviewManagedMigration = managedRemoteRevisionId === undefined
+        ? ''
+        : `<button type="button" class="machine-toolbar-button" data-managed-operation="beginMigration" aria-label="Review Managed Remote migration" title="Review Managed Remote migration">${Icons.remote}<span class="managed-toolbar-label">Migrate</span></button>`;
     if (!model.machines.length) {
         return `<section class="machine-projects machine-projects-empty" data-machine-projects${managedAttributes} data-machine-project-count="0">
             <div class="machine-projects-toolbar">
                 <span class="machine-projects-summary">0 projects</span>
-                <div class="machine-projects-toolbar-actions">${addManagedMachine}<button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button></div>
+                <div class="machine-projects-toolbar-actions">${reviewManagedMigration}${addManagedMachine}<button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button></div>
             </div>
             <p>No projects have been added yet.</p>
         </section>`;
@@ -36,6 +39,7 @@ export function renderMachineProjectsPanel(
             </div>
             <div class="machine-projects-toolbar-actions">
                 ${renderTagControls(model.tags)}
+                ${reviewManagedMigration}
                 ${addManagedMachine}
                 <button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button>
             </div>
@@ -44,7 +48,7 @@ export function renderMachineProjectsPanel(
         <section class="machine-projects-directory" aria-labelledby="machine-projects-directory-title">
             <h2 id="machine-projects-directory-title" class="machine-projects-visually-hidden">Machines</h2>
             <ul class="machine-projects-machines">
-                ${model.machines.map(renderMachine).join('\n')}
+                ${model.machines.map(renderMachineProjectsMachine).join('\n')}
             </ul>
         </section>
         <div class="machine-projects-announcer machine-projects-visually-hidden" data-machine-projects-announcer aria-live="polite"></div>
@@ -83,12 +87,12 @@ function renderFavorites(projects: MachineProjectRowViewModel[]): string {
             </button>
         </h2>
         <ul id="machine-favorites-list" class="machine-favorite-list">
-            ${projects.map(project => renderProject(project, true)).join('\n')}
+            ${projects.map(project => renderMachineProjectsProject(project, true)).join('\n')}
         </ul>
     </section>`;
 }
 
-function renderMachine(machine: MachineRowViewModel): string {
+export function renderMachineProjectsMachine(machine: MachineRowViewModel): string {
     const childrenId = `machine-children-${machine.id}`;
     const machineTitle = machine.renamed
         ? `${machine.displayName} — connection: ${machine.defaultName}`
@@ -134,12 +138,12 @@ function renderEnvironment(
             </button>
         </div>
         <ul id="${childrenId}" class="machine-project-list">
-            ${environment.projects.map(project => renderProject(project, false)).join('\n')}
+            ${environment.projects.map(project => renderMachineProjectsProject(project, false)).join('\n')}
         </ul>
     </li>`;
 }
 
-function renderProject(project: MachineProjectRowViewModel, favorite: boolean): string {
+export function renderMachineProjectsProject(project: MachineProjectRowViewModel, favorite: boolean): string {
     const identityName = favorite
         ? `Favorite shortcut to ${project.name}, on ${project.machineName}, ${project.environmentName}`
         : `Open ${project.name} on ${project.machineName}, ${project.environmentName}`;

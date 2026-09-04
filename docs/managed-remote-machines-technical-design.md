@@ -432,7 +432,10 @@ unavailable. A crash before that commit leaves either
 an unreferenced generated file or a recoverable exchange: missing active restores
 the displaced original, while active plus exchange preserves the active bytes and
 archives the displaced original before revalidation. Normal reconcile never
-rewrites the user-owned active config when its exact marker is intact.
+rewrites the user-owned active config when its exact marker is intact. Startup
+treats `recoveryRequired` as an automatic recovery request: it compares the desired
+projection with Agent Pivot-owned `current.conf` and atomically replaces stale owned
+bytes without requiring Retry.
 Existing-Include reconcile validates before swapping `current.conf`, so unvalidated
 bytes are never active. Cancel before confirmation leaves the active config
 byte-identical.

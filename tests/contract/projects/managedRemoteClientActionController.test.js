@@ -180,6 +180,36 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 automatically re-enables a previously dis
     ]);
 });
 
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 automatically repairs an owned stale projection', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return active; },
+        bridge: {
+            async execute(operation, expected) {
+                calls.push(['bridge', operation, expected]);
+                return operation === 'getStatus'
+                    ? { status: 'recoveryRequired', generation: 4 }
+                    : { status: 'enabled', generation: 5 };
+            },
+        },
+        async confirmEnable() { throw new Error('must not confirm'); },
+        async confirmDisable() { return false; },
+        async refresh(value, state) { calls.push(['refresh', value.lifecycle, state]); },
+        async showInformationMessage() { throw new Error('must not announce startup repair'); },
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    await controller.enableAutomatically(revisionId);
+
+    assert.deepEqual(calls, [
+        ['bridge', 'getStatus', undefined],
+        ['refresh', 'active', 'applying'],
+        ['bridge', 'recover', revisionId],
+        ['refresh', 'active', 'ready'],
+    ]);
+});
+
 test('MANAGED-REMOTE-CLIENT-ENABLE-001 maps local consent status without mutating the catalog', async () => {
     const active = snapshot('active');
     const controller = new ManagedRemoteClientActionController({

@@ -93,6 +93,10 @@ export class ManagedRemoteClientActionController {
                     await this.enableNow(expectedRevisionId, false);
                     return;
                 }
+                if (status === 'recoveryRequired') {
+                    await this.reconcileNow('recover', expectedRevisionId, false);
+                    return;
+                }
                 await this.options.refresh(snapshot, stateFromStatus(status));
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);

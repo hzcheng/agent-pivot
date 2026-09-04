@@ -142,9 +142,10 @@ attention. Normal use requires no SSH config editing. Later synchronized Machine
 changes automatically rebuild the generated file.
 
 There is no normal Disable action in this personal always-on model. If the local
-projection is absent, startup recreates it automatically. Checksum or ownership
-mismatch still fails closed with Retry, Open Config, and Show Details so Agent Pivot
-never overwrites unrelated SSH bytes.
+projection is absent, stale, or from an older Agent Pivot format, startup rewrites
+the Agent Pivot-owned `current.conf` automatically. Ownership or marker mismatch in
+the user-owned active SSH config still fails closed so Agent Pivot never overwrites
+unrelated SSH bytes.
 
 ### 7.3 Open a Machine
 

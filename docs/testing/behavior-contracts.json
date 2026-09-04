@@ -7102,6 +7102,21 @@
     ]
   },
   {
+    "id": "MANAGED-REMOTE-MANAGEMENT-001",
+    "domain": "project",
+    "title": "Managed Machine and Project mutations use strict identity-only requests and settle only after authoritative refresh",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteManagementProtocol.test.js",
+      "tests/contract/projects/managedRemoteManagementController.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/managementProtocol.ts",
+      "src/projects/managedRemote/managementController.ts"
+    ]
+  },
+  {
     "id": "MANAGED-REMOTE-MIGRATION-001",
     "domain": "project",
     "title": "Migration classifies explicit SSH targets, local-only records, and unresolved aliases without dropping V1 identity or Group tags",

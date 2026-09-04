@@ -12,8 +12,11 @@ import {
 } from "../constants";
 import type { ProjectCatalogMutationOptions } from '../projects/projectCatalogSync';
 import {
+    createLocalMachineScopeId,
     getMachineDisplayNameForPath,
     getMachineViewId,
+    isLocalMachineProjectPath,
+    normalizeLocalMachineScope,
 } from '../projects/machineProjectsViewModel';
 import BaseService from './baseService';
 import ColorService from './colorService';
@@ -25,6 +28,8 @@ import {
 
 export interface ProjectServiceSyncOptions {
     createActorId?: () => string;
+    /** VS Code computer identity; only its one-way derived scope is persisted. */
+    localMachineId?: string;
     onDiagnostic?: (event: Record<string, unknown>) => void;
     onConflict?: (projectIds: string[]) => void;
 }
@@ -33,6 +38,7 @@ export default class ProjectService extends BaseService {
 
     colorService: ColorService;
     private readonly catalogSyncService: ProjectCatalogSyncService;
+    private readonly localMachineScope: string | null;
 
     constructor(
         context: vscode.ExtensionContext,
@@ -41,6 +47,7 @@ export default class ProjectService extends BaseService {
     ) {
         super(context);
         this.colorService = colorService;
+        this.localMachineScope = createLocalMachineScopeId(syncOptions.localMachineId);
         this.catalogSyncService = new ProjectCatalogSyncService({
             getSyncData: () => this.getConfig<unknown>(PROJECT_SYNC_DATA_KEY),
             updateSyncData: value => this.configurationSection.update(
@@ -115,6 +122,10 @@ export default class ProjectService extends BaseService {
         return [null, null];
     }
 
+    getLocalMachineScope(): string | null {
+        return this.localMachineScope;
+    }
+
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ ADD ~~~~~~~~~~~~~~~~~~~~~~~~~
     async addGroup(groupName: string, projects: Project[] = null): Promise<Group> {
         var groups = this.getGroups();
@@ -149,7 +160,12 @@ export default class ProjectService extends BaseService {
             }
         }
 
-        const machineDisplayName = getMachineDisplayNameForPath(groups, project.path);
+        this.applyLocalMachineScope(project);
+        const machineDisplayName = getMachineDisplayNameForPath(
+            groups,
+            project.path,
+            this.localMachineScope,
+        );
         if (machineDisplayName && !project.machineDisplayName) {
             project.machineDisplayName = machineDisplayName;
         }
@@ -190,14 +206,19 @@ export default class ProjectService extends BaseService {
             let project = group.projects.find(p => p.id === projectId);
             if (project != null) {
                 const updatedPath = updatedProject.path || project.path;
+                const nextProject = { ...updatedProject, path: updatedPath } as Project;
+                this.applyLocalMachineScope(nextProject, project);
+                if (!isLocalMachineProjectPath(updatedPath)) {
+                    delete project.localMachineScope;
+                }
                 if (getMachineViewId(project.path) !== getMachineViewId(updatedPath)
                     && !Object.prototype.hasOwnProperty.call(
-                        updatedProject,
+                        nextProject,
                         'machineDisplayName'
                     )) {
                     delete project.machineDisplayName;
                 }
-                Object.assign(project, updatedProject, { id: projectId });
+                Object.assign(project, nextProject, { id: projectId });
                 break;
             }
         }
@@ -303,11 +324,12 @@ export default class ProjectService extends BaseService {
         });
     }
 
-    reconcileProjectCatalog(): Promise<void> {
+    async reconcileProjectCatalog(): Promise<void> {
         if (!this.useSettingsStorage()) {
-            return Promise.resolve();
+            return;
         }
-        return this.catalogSyncService.reconcile().then(() => undefined);
+        await this.catalogSyncService.reconcile();
+        await this.scopeLegacyLocalProjects();
     }
 
     consumeProjectCatalogWriteEcho(change: ProjectCatalogConfigurationChange): boolean {
@@ -418,6 +440,7 @@ export default class ProjectService extends BaseService {
         if (this.useSettingsStorage()) {
             await this.catalogSyncService.reconcile();
         }
+        await this.scopeLegacyLocalProjects();
     }
 
     async migrateDataIfNeeded() {
@@ -450,7 +473,8 @@ export default class ProjectService extends BaseService {
             await this.catalogSyncService.reconcile();
         }
 
-        return toMigrate;
+        const scopedLocalProjects = await this.scopeLegacyLocalProjects();
+        return scopedLocalProjects || toMigrate;
     }
 
     // ~~~~~~~~~~~~~~~~~~~~~~~~~ HELPERS ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -464,7 +488,55 @@ export default class ProjectService extends BaseService {
                 g.id = Group.getRandomId();
             }
         }
+        this.applyMissingLocalMachineScopes(groups);
 
         return groups;
+    }
+
+    private applyLocalMachineScope(project: Project, previous?: Project): void {
+        if (!isLocalMachineProjectPath(project.path)) {
+            delete project.localMachineScope;
+            return;
+        }
+        const previousScope = normalizeLocalMachineScope(previous?.localMachineScope);
+        if (previousScope) {
+            project.localMachineScope = previousScope;
+        } else if (this.localMachineScope) {
+            project.localMachineScope = this.localMachineScope;
+        } else {
+            delete project.localMachineScope;
+        }
+    }
+
+    private async scopeLegacyLocalProjects(): Promise<boolean> {
+        if (!this.localMachineScope) { return false; }
+        const groups = this.getGroups(true);
+        const changed = this.applyMissingLocalMachineScopes(groups);
+        if (changed) {
+            await this.saveGroups(groups);
+        }
+        return changed;
+    }
+
+    private applyMissingLocalMachineScopes(groups: Group[]): boolean {
+        if (!this.localMachineScope) { return false; }
+        let changed = false;
+        for (const group of groups) {
+            for (const project of group.projects || []) {
+                if (isLocalMachineProjectPath(project.path)) {
+                    if (!normalizeLocalMachineScope(project.localMachineScope)) {
+                        project.localMachineScope = this.localMachineScope;
+                        changed = true;
+                    }
+                } else if (Object.prototype.hasOwnProperty.call(
+                    project,
+                    'localMachineScope',
+                )) {
+                    delete project.localMachineScope;
+                    changed = true;
+                }
+            }
+        }
+        return changed;
     }
 }

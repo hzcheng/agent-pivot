@@ -138,7 +138,7 @@ export function createProjectMessageHandlers(
             const target = resolveMachineHostTarget(projectService.getGroups(), {
                 machineId: e.machineId,
                 projectId: e.projectId,
-            });
+            }, projectService.getLocalMachineScope());
             if (!target) {
                 showWarningMessage('The Machine connection could not be derived from its Projects.');
                 return;

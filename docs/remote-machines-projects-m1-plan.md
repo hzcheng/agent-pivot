@@ -6,7 +6,7 @@
 
 - 保留：现有 Project 存储、同步、Favorite、打开控制器和 saved-project navigation。
 - 新增：URI 派生视图模型、Machine/Environment HTML、同步的 Machine 显示名称、
-  tag AND 过滤、折叠交互。
+  Local Project 的物理机器作用域、tag AND 过滤、折叠交互。
 - 删除：V2 catalog、CRDT、迁移/降级、Connection Profile、Setup/Assign/Preview、
   新增 UI Bridge Project commands。
 - 回退：保留 `agentPivot.remoteMachineProjects.enabled` 开关。
@@ -47,6 +47,8 @@ UI Bridge 不属于新增依赖。它只继续承担仓库原有的 saved-projec
 - 把 Group 名加入展示 tag；
 - 点击 Host 时从最新 Project 重新校验目标。
 - Machine 显示名称作为现有 Project 的可选字段同步，不改变派生 ID 或 URI。
+- Local 路径和本地容器写入单向派生的计算机作用域；视图只投影当前机器的 Local
+  Project，完整同步目录仍由 ProjectService 保存。
 
 ### 3. Webview
 

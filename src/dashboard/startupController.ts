@@ -72,7 +72,7 @@ export class DashboardStartupController {
         await this.options.refreshDashboard();
         this.assertActive();
         this.options.publishOpenWorkspace();
-        this.options.showInformationMessage('Migrated Agent Pivot projects after changing settings.');
+        this.options.showInformationMessage('Updated Agent Pivot project storage.');
 
         if (openStewardAfterMigrate) {
             this.options.showAgentPivot();

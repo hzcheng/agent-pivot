@@ -25,7 +25,11 @@ function makeGlobalState(initial = {}) {
     };
 }
 
-function makeProjectService(globalState, colorService = { addRecentColor: async () => undefined }) {
+function makeProjectService(
+    globalState,
+    colorService = { addRecentColor: async () => undefined },
+    localMachineId,
+) {
     const vscode = createFakeVscode({
         workspace: {
             getConfiguration: () => ({
@@ -42,7 +46,8 @@ function makeProjectService(globalState, colorService = { addRecentColor: async 
     ).default;
     return new ProjectService(
         { globalState },
-        colorService
+        colorService,
+        { localMachineId },
     );
 }
 
@@ -123,4 +128,52 @@ test('MACHINE-PROJECTS-RENAME-001 inherits a Machine alias on add and clears it 
     });
     assert.equal(service.getProject('project-worker').machineDisplayName, undefined);
     assert.equal(service.getProject('project-api').machineDisplayName, 'Build Box');
+});
+
+test('MACHINE-PROJECTS-LOCAL-SCOPE-001 scopes legacy and new Local Projects without touching remotes', async () => {
+    const localContainerAnchor = Buffer.from(JSON.stringify({
+        hostPath: '/work/container',
+        localDocker: true,
+    }), 'utf8').toString('hex');
+    const groups = [{
+        id: 'group-a', groupName: 'A', projects: [{
+            id: 'legacy-local', name: 'Local', path: '/work/local', color: '#112233',
+        }, {
+            id: 'local-container', name: 'Local container',
+            path: `vscode-remote://dev-container%2B${localContainerAnchor}/workspaces/app`,
+            color: '#182838',
+        }, {
+            id: 'remote', name: 'Remote',
+            path: 'vscode-remote://ssh-remote%2Bdevbox/work/remote', color: '#223344',
+        }],
+    }];
+    const service = makeProjectService(
+        makeGlobalState({ projects: groups }),
+        undefined,
+        'computer-a',
+    );
+
+    assert.equal(await service.migrateDataIfNeeded(), true);
+    const scope = service.getLocalMachineScope();
+    assert.match(scope, /^local-machine-[a-f0-9]{16}$/);
+    assert.equal(service.getProject('legacy-local').localMachineScope, scope);
+    assert.equal(service.getProject('local-container').localMachineScope, scope);
+    assert.equal(service.getProject('remote').localMachineScope, undefined);
+
+    await service.addProject({
+        id: 'new-local', name: 'New local', path: '/work/new', color: '#334455',
+    }, 'group-a');
+    assert.equal(service.getProject('new-local').localMachineScope, scope);
+
+    await service.updateProject('new-local', {
+        id: 'ignored', name: 'Now remote',
+        path: 'vscode-remote://ssh-remote%2Bdevbox/work/new', color: '#334455',
+        localMachineScope: scope,
+    });
+    assert.equal(service.getProject('new-local').localMachineScope, undefined);
+
+    await service.updateProject('remote', {
+        id: 'ignored', name: 'Now local', path: '/work/remote', color: '#223344',
+    });
+    assert.equal(service.getProject('remote').localMachineScope, scope);
 });

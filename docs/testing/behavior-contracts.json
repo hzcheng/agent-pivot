@@ -6898,6 +6898,24 @@
     ]
   },
   {
+    "id": "MACHINE-PROJECTS-LOCAL-SCOPE-001",
+    "domain": "project",
+    "title": "Synchronized Local Projects are visible only on their owning physical computer while every remote Project remains cross-computer visible",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/machineProjectsViewModel.test.js",
+      "tests/unit/services/projectService.test.js",
+      "tests/contract/persistence/projectCatalogSync.test.js"
+    ],
+    "evidence": [
+      "src/models.ts",
+      "src/services/projectService.ts",
+      "src/projects/machineProjectsViewModel.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
     "id": "MACHINE-PROJECTS-RENAME-001",
     "domain": "project",
     "title": "A Machine display name can be renamed and reset through its actions menu, synchronizes through existing Project records, and never changes derived identity or connection URIs",

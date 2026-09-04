@@ -299,6 +299,52 @@ test('MACHINE-PROJECTS-RENAME-001 preserves Machine display names through the sy
     );
 });
 
+test('MACHINE-PROJECTS-LOCAL-SCOPE-001 keeps synchronized Local Projects on their owning computers', () => {
+    const {
+        applyProjectCatalogSnapshot,
+        materializeProjectCatalog,
+        mergeProjectCatalogDocuments,
+        migrateLegacyProjectCatalog,
+    } = loadProjectCatalogSyncModel();
+    const {
+        buildMachineProjectsViewModel,
+        createLocalMachineScopeId,
+    } = require('../../../out/projects/machineProjectsViewModel');
+    const scopeA = createLocalMachineScopeId('computer-a');
+    const scopeB = createLocalMachineScopeId('computer-b');
+    const initial = makeCatalogGroups();
+    initial[0].projects[0].localMachineScope = scopeA;
+    initial[0].projects.push({
+        id: 'project-remote',
+        name: 'Remote',
+        path: 'vscode-remote://ssh-remote%2Bdevbox/work/remote',
+        color: '#445566',
+    });
+    const base = migrateLegacyProjectCatalog(initial, 'actor-a');
+    const clientBGroups = clone(initial);
+    clientBGroups[0].projects.push({
+        id: 'project-local-b',
+        name: 'Local B',
+        path: '/work/local-b',
+        color: '#778899',
+        localMachineScope: scopeB,
+    });
+    const mergedGroups = materializeProjectCatalog(mergeProjectCatalogDocuments(
+        base,
+        applyProjectCatalogSnapshot(base, clientBGroups, 'actor-b'),
+    ).document);
+    const idsFor = scope => buildMachineProjectsViewModel(
+        mergedGroups,
+        scope,
+    ).machines.flatMap(machine => machine.environments)
+        .flatMap(environment => environment.projects)
+        .map(project => project.id)
+        .sort();
+
+    assert.deepEqual(idsFor(scopeA), ['project-existing', 'project-remote']);
+    assert.deepEqual(idsFor(scopeB), ['project-local-b', 'project-remote']);
+});
+
 test('PROJECT-CATALOG-SYNC-CONFLICT-001 model keeps a concurrent live update and reports recovery', () => {
     const {
         applyProjectCatalogSnapshot,

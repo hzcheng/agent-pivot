@@ -6,6 +6,7 @@ const test = require('node:test');
 const { createCausalVersion, createVersionedCandidates, joinVersionVectors, vectorIncludingVersion } = require('../../../out/projects/managedRemote/causal');
 const { ManagedRemoteCatalogService } = require('../../../out/projects/managedRemote/catalogService');
 const { createEmptyManagedCatalogEnvelope, createManagedRevisionSlot } = require('../../../out/projects/managedRemote/envelope');
+const { managedSshAliasSuffix } = require('../../../out/projects/managedRemote/sshConfigProjection');
 const {
     formatManagedSshCommand,
     ManagedRemoteBridgeController,
@@ -279,7 +280,11 @@ test('MANAGED-REMOTE-NAVIGATION-001 resolves Machine and Project identities insi
     assert.equal(machine.status, 'ok');
     assert.equal(project.status, 'ok');
     assert.deepEqual(ensured, [slot.revisionId, slot.revisionId]);
-    assert.equal(windows[0], 'ssh-remote+build');
-    assert.equal(folders[0], 'vscode-remote://ssh-remote%2Bbuild/work/api');
+    const alias = `build-${managedSshAliasSuffix('machine:one')}`;
+    assert.equal(windows[0], `ssh-remote+${alias}`);
+    assert.equal(
+        folders[0],
+        `vscode-remote://${encodeURIComponent(`ssh-remote+${alias}`)}/work/api`,
+    );
     assert.doesNotMatch(`${windows[0]} ${folders[0]}`, /build\.example\.com|dev@/u);
 });

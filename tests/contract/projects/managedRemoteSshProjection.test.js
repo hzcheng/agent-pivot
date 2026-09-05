@@ -9,6 +9,7 @@ const {
     buildManagedSshProjection,
     isManagedSshAliasForMachine,
     managedSshAlias,
+    managedSshAliasSuffix,
     renderManagedSshConfig,
     renderManagedSshIncludeBlock,
 } = require('../../../out/projects/managedRemote/sshConfigProjection');
@@ -28,7 +29,7 @@ test('MANAGED-REMOTE-SSH-PROJECTION-001 renders stable aliases and custom ports 
     const rendered = renderManagedSshConfig(projection);
 
     assert.equal(projection.entries[0].alias, managedSshAlias(machine.id, machine.name));
-    assert.equal(projection.entries[0].alias, 'build');
+    assert.equal(projection.entries[0].alias, `build-${managedSshAliasSuffix(machine.id)}`);
     assert.match(rendered, /HostName build\.example\.com/);
     assert.match(rendered, /Port 22022/);
     assert.match(rendered, /ProxyJump none/);
@@ -61,30 +62,51 @@ test('MANAGED-REMOTE-SSH-PROJECTION-001 ignores metadata-only edits in the conne
 });
 
 test('MANAGED-REMOTE-SSH-PROJECTION-001 makes aliases readable, unique, and safe', () => {
-    assert.equal(managedSshAlias('machine:one', 'RedDev Main'), 'reddev-main');
+    assert.equal(
+        managedSshAlias('machine:one', 'RedDev Main'),
+        `reddev-main-${managedSshAliasSuffix('machine:one')}`,
+    );
     assert.equal(
         managedSshAlias('machine:two', '小红书开发机', 'reddev.example.com'),
-        '小红书开发机',
+        `小红书开发机-${managedSshAliasSuffix('machine:two')}`,
     );
     assert.equal(
         managedSshAlias('machine:three', '🚀', 'reddev.example.com'),
-        'reddev.example.com',
+        `reddev.example.com-${managedSshAliasSuffix('machine:three')}`,
     );
     assert.ok(managedSshAlias('machine:one', 'A'.repeat(200)).length <= 63);
+
+    // The identity suffix, not the display name, is what addresses a Machine:
+    // renaming must not orphan an already-projected alias, and two Machines
+    // sharing a name must never collapse onto one alias.
     assert.equal(isManagedSshAliasForMachine(
         managedSshAlias('machine:one', 'Old Name'), 'machine:one', 'Old Name'), true);
+    assert.equal(isManagedSshAliasForMachine(
+        managedSshAlias('machine:one', 'Old Name'), 'machine:one', 'New Name'), true);
     assert.equal(isManagedSshAliasForMachine(
         'old-name-9707c5df', 'machine:one', 'New Name'), true);
     assert.equal(isManagedSshAliasForMachine(
         managedSshAlias('machine:two', 'Other Name'), 'machine:one', 'New Name'), false);
+    assert.notEqual(
+        managedSshAlias('machine:one', 'Same Name'),
+        managedSshAlias('machine:two', 'Same Name'),
+    );
 });
 
-test('MANAGED-REMOTE-SSH-PROJECTION-001 rejects names that collapse to one SSH alias', () => {
+test('MANAGED-REMOTE-SSH-PROJECTION-001 allows same-named Machines to coexist as distinct hosts', () => {
     const service = catalog();
     service.addMachine({ name: 'Red Dev', host: 'one.example.com', user: 'dev' });
-    assert.throws(() => service.addMachine({
+    const second = service.addMachine({
         name: 'red-dev', host: 'two.example.com', user: 'dev',
-    }), /unique SSH aliases/u);
+    });
+    const projection = buildManagedSshProjection(
+        createManagedRevisionSlot(service.getDocument()),
+    );
+    const aliases = projection.entries.map(entry => entry.alias);
+    assert.equal(new Set(aliases).size, 2);
+    assert.ok(aliases.includes(
+        `red-dev-${managedSshAliasSuffix(second.id)}`,
+    ));
 });
 
 test('MANAGED-REMOTE-SSH-PROJECTION-001 quotes only representable Include paths', () => {

@@ -47,12 +47,24 @@ export function managedSshAliasName(machineName: string, connectionHost: string 
         || 'machine';
 }
 
+/**
+ * Stable suffix bound to the Machine identity. The readable segment alone
+ * cannot address a Machine: renaming would silently invalidate the SSH
+ * config entry, the remote authority, and every saved Project URI beneath
+ * it, and two Machines sharing a display name would collapse onto one
+ * alias.
+ */
+export function managedSshAliasSuffix(machineId: string): string {
+    return hash(machineId).slice(0, 4);
+}
+
 export function managedSshAlias(
-    _machineId: string,
+    machineId: string,
     machineName: string = 'machine',
     connectionHost: string = '',
 ): string {
-    const alias = managedSshAliasName(machineName, connectionHost);
+    const readable = managedSshAliasName(machineName, connectionHost);
+    const alias = `${readable}-${managedSshAliasSuffix(machineId)}`;
     if (!isManagedSshAlias(alias)) {
         throw new Error('Managed SSH alias generation failed.');
     }
@@ -67,7 +79,13 @@ export function isManagedSshAliasForMachine(
 ): boolean {
     if (!isManagedSshAlias(alias)) { return false; }
     const digest = hash(machineId);
-    return alias === managedSshAlias(machineId, machineName, connectionHost)
+    // Canonical form: readable segment + stable machineId suffix. Renaming a
+    // Machine changes only the readable segment, so recognition is anchored on
+    // the suffix rather than on the current name.
+    if (alias.endsWith(`-${digest.slice(0, 4)}`)) { return true; }
+    // Already-persisted forms, accepted so existing saved Projects keep
+    // resolving: the name-only alias and the two earlier hash layouts.
+    return alias === managedSshAliasName(machineName, connectionHost)
         || alias === `agent-pivot-${digest.slice(0, 32)}`
         || alias.endsWith(`-${digest.slice(0, 8)}`);
 }

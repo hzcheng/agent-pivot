@@ -27,7 +27,6 @@ import {
     VersionedCandidates,
 } from './types';
 import { parseManagedRemoteCatalog } from './validation';
-import { managedSshAliasName } from './sshConfigProjection';
 
 export interface AddManagedMachineInput {
     name: string;
@@ -400,20 +399,16 @@ export class ManagedRemoteCatalogService {
 
     private assertUniqueMachineName(
         name: string,
-        connectionHost: string,
+        _connectionHost: string,
         exceptMachineId?: string,
     ): void {
         const key = typeof name === 'string' ? name.trim().toLowerCase() : '';
-        const aliasKey = managedSshAliasName(name, connectionHost)
-            .toLocaleLowerCase('en-US');
         const duplicate = Object.entries(this.document.machines).some(([machineId, register]) =>
             machineId !== exceptMachineId
             && nonNullValues(register).some(machine =>
-                machine.name.trim().toLowerCase() === key
-                || managedSshAliasName(machine.name, machine.connection.host)
-                    .toLocaleLowerCase('en-US') === aliasKey));
+                machine.name.trim().toLowerCase() === key));
         if (duplicate) {
-            throw new Error('Managed Machine names must produce unique SSH aliases.');
+            throw new Error('Managed Machine names must be unique.');
         }
     }
 

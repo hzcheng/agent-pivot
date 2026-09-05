@@ -21,7 +21,25 @@ function extractBlock(source, selector, occurrence = 0) {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const matches = [...source.matchAll(new RegExp(`^\\s*${escaped}\\s*\\{`, 'gm'))];
     assert.ok(matches[occurrence], `missing ${selector}`);
-    const start = matches[occurrence].index;
+    return blockAt(source, matches[occurrence].index, selector);
+}
+
+/**
+ * Select the block that actually owns `contains`. Indexing by occurrence
+ * silently retargets when an unrelated block with the same at-rule is added
+ * earlier in the stylesheet.
+ */
+function extractBlockContaining(source, selector, contains) {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matches = [...source.matchAll(new RegExp(`^\\s*${escaped}\\s*\\{`, 'gm'))];
+    for (const match of matches) {
+        const block = blockAt(source, match.index, selector);
+        if (block.includes(contains)) { return block; }
+    }
+    assert.fail(`missing ${selector} containing ${contains}`);
+}
+
+function blockAt(source, start, selector) {
     const opening = source.indexOf('{', start);
     let depth = 0;
     for (let index = opening; index < source.length; index += 1) {
@@ -105,7 +123,9 @@ function validatePromptCompactCardStyles(source) {
     assertDeclarations(ruleForSelector(compiled, '.prompt-item[data-prompt-default=true]'), id,
         ['border-color: var(--vscode-focusBorder)']);
 
-    const noHover = extractBlock(source, '@media (hover: none)');
+    const noHover = extractBlockContaining(
+        source, '@media (hover: none)', '.prompt-management-actions',
+    );
     assert.ok(noHover.includes('.prompt-management-actions'), `${id} missing no-hover actions`);
     assert.ok(noHover.includes('opacity: .72'), `${id} missing no-hover action emphasis`);
     assert.ok(noHover.includes('padding-right: 132px'), `${id} no-hover title must reserve five actions`);

@@ -6,6 +6,9 @@ const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
+const {
+    MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+} = require('../../../out/projects/managedRemote/bridgeProtocol');
 
 test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
     const root = makeTempDirectory(t, 'production-attention-bridge-');
@@ -19,15 +22,18 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
         window: {
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
         },
-        workspace: { workspaceFolders: [{
-            name: 'sensitive',
-            uri: {
-                scheme: 'vscode-remote',
-                authority: 'ssh-remote+sensitive-host',
-                path: '/home/sensitive-user/private-project',
-                toString: () => 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
-            },
-        }] },
+        workspace: {
+            getConfiguration: () => ({ get: () => undefined }),
+            workspaceFolders: [{
+                name: 'sensitive',
+                uri: {
+                    scheme: 'vscode-remote',
+                    authority: 'ssh-remote+sensitive-host',
+                    path: '/home/sensitive-user/private-project',
+                    toString: () => 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
+                },
+            }],
+        },
         commands: {
             registerCommand: (command, callback) => {
                 registered.set(command, callback);
@@ -82,14 +88,12 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
         });
         assert.equal(managedHandshake.challenge, 'managed-challenge-1');
         assert.match(managedHandshake.sessionToken, /^[a-f0-9]{64}$/);
-        assert.deepEqual(managedHandshake.capabilities, [
-            'managedSshConfigV1',
-            'automaticIncludeConsentV1',
-            'openSshValidationV1',
-            'localSshTerminalV1',
-            'managedNavigationV1',
-            'legacySshInspectionV1',
-        ]);
+        // Assert against the shared constant: a hand-copied list silently goes
+        // stale when a capability is added, which disables this whole test.
+        assert.deepEqual(
+            managedHandshake.capabilities,
+            [...MANAGED_REMOTE_BRIDGE_CAPABILITIES],
+        );
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');
         await openWorkspacePublish({
@@ -301,15 +305,18 @@ test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes t
         window: {
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
         },
-        workspace: { workspaceFolders: [{
-            name: 'sensitive',
-            uri: {
-                scheme: 'vscode-remote',
-                authority: 'ssh-remote+sensitive-host',
-                path: '/home/sensitive-user/private-project',
-                toString: () => 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
-            },
-        }] },
+        workspace: {
+            getConfiguration: () => ({ get: () => undefined }),
+            workspaceFolders: [{
+                name: 'sensitive',
+                uri: {
+                    scheme: 'vscode-remote',
+                    authority: 'ssh-remote+sensitive-host',
+                    path: '/home/sensitive-user/private-project',
+                    toString: () => 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
+                },
+            }],
+        },
         commands: {
             registerCommand: (command, callback) => {
                 registered.set(command, callback);

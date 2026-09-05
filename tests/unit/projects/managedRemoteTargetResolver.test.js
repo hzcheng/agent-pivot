@@ -8,6 +8,12 @@ const {
     managedSshArguments,
     resolveManagedProjectTarget,
 } = require('../../../out/projects/managedRemote/targetResolver');
+const {
+    isManagedSshAliasForMachine,
+    managedSshAliasSuffix,
+} = require('../../../out/projects/managedRemote/sshConfigProjection');
+
+const SUFFIX = managedSshAliasSuffix('machine:one');
 
 function catalog() {
     return {
@@ -35,7 +41,10 @@ test('MANAGED-REMOTE-ACTIONS-001 resolves one validated Project relationship and
     assert.equal(target.machine.id, 'machine:one');
     assert.equal(target.environment.id, 'host:machine:one');
     assert.equal(target.project.id, 'project:one');
-    assert.equal(target.remoteUri, 'vscode-remote://ssh-remote%2Bbuild/work/api');
+    assert.equal(
+        target.remoteUri,
+        `vscode-remote://ssh-remote%2Bbuild-${SUFFIX}/work/api`,
+    );
 });
 
 test('MANAGED-REMOTE-ACTIONS-001 rebuilds a Dev Container Project for a readable Unicode Machine alias', () => {
@@ -58,11 +67,11 @@ test('MANAGED-REMOTE-ACTIONS-001 rebuilds a Dev Container Project for a readable
     current.projects[0].environmentId = 'environment:container';
 
     const target = resolveManagedProjectTarget(current, 'project:one');
-    assert.equal(target.alias, '小红书开发机');
+    assert.equal(target.alias, `小红书开发机-${SUFFIX}`);
     assert.equal(
         target.remoteUri,
         `vscode-remote://${encodeURIComponent(
-            `dev-container+${payload}@ssh-remote+小红书开发机`
+            `dev-container+${payload}@ssh-remote+小红书开发机-${SUFFIX}`
         )}/work/api`,
     );
 });
@@ -88,4 +97,30 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 formats a config-independent non-22 IPv6 co
         formatManagedSshCommand(machine),
         'ssh -p 2207 -l "dev" "2001:db8::1"',
     );
+});
+
+test('MANAGED-REMOTE-ACTIONS-001 keeps a Project resolvable after the Machine is renamed', () => {
+    const before = resolveManagedProjectTarget(catalog(), 'project:one');
+    const renamed = catalog();
+    renamed.machines[0].name = 'Build Renamed';
+    const after = resolveManagedProjectTarget(renamed, 'project:one');
+
+    // The readable segment tracks the new name, but the identity suffix is
+    // unchanged, so the Machine stays addressable across a rename.
+    assert.equal(before.alias, `build-${SUFFIX}`);
+    assert.equal(after.alias, `build-renamed-${SUFFIX}`);
+    assert.ok(before.alias.endsWith(`-${SUFFIX}`));
+    assert.ok(after.alias.endsWith(`-${SUFFIX}`));
+    assert.ok(isManagedSshAliasForMachine(before.alias, 'machine:one', 'Build Renamed', ''));
+});
+
+test('MANAGED-REMOTE-ACTIONS-001 gives two identically named Machines distinct aliases', () => {
+    const first = catalog();
+    const second = catalog();
+    second.machines[0].id = 'machine:two';
+    second.environments[0].machineId = 'machine:two';
+
+    const firstAlias = resolveManagedProjectTarget(first, 'project:one').alias;
+    const secondAlias = resolveManagedProjectTarget(second, 'project:one').alias;
+    assert.notEqual(firstAlias, secondAlias);
 });

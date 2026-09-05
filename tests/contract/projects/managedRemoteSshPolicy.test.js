@@ -88,6 +88,9 @@ test('MANAGED-REMOTE-SSH-POLICY-001 rejects a group-writable config on POSIX', t
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     const config = path.join(root, 'config');
     fs.writeFileSync(config, 'Host safe\n', { mode: 0o620 });
+    // The creation mode is filtered by the process umask (commonly 0o022,
+    // which strips group write), so set the bit explicitly after creation.
+    fs.chmodSync(config, 0o620);
     assert.throws(
         () => new NodeManagedSshConfigFileSystem().readSecureFile(config),
         /unsafe permissions/,

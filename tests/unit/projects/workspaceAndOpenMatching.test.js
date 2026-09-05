@@ -573,3 +573,138 @@ test('MANAGED-REMOTE-NAVIGATION-001 does not attribute a hand-written alias to a
         FakeUri.parse('vscode-remote://ssh-remote%2Breddev/work/api'),
     ), null);
 });
+
+test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Dev Container launched from a devcontainer config file', () => {
+    // Inside a Dev Container the workspace scheme is file:, so the Environment is
+    // resolved from LOCAL_WORKSPACE_FOLDER (the launch folder on the outer host).
+    // A container launched from a .devcontainer.json records a 'config' anchor
+    // holding the file path, not the folder, so matching the folder directly
+    // rejects it and the open Project keeps offering Save.
+    const machine = {
+        id: 'machine:one', name: '小红书开发机',
+        connection: {
+            kind: 'ssh', host: 'reddev.xiaohongshu.com', user: 'hzcheng', port: 22022,
+        },
+    };
+    const remotePath = '/home/hzcheng/projects/repos/workspaces/ai-tour.code-workspace';
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [machine],
+            environments: [{
+                id: 'environment:container', machineId: machine.id,
+                kind: 'devContainer', name: 'Dev Container',
+                devContainerAnchor: {
+                    version: 1,
+                    originalAuthority: 'dev-container+7b22@ssh-remote+reddev',
+                    sourceKind: 'config',
+                    sourceLocator: '/home/deploy/DevBox/devbox/.devcontainer.json',
+                },
+            }],
+            projects: [{
+                id: 'project:one', environmentId: 'environment:container',
+                name: 'ai-tour', remotePath,
+            }],
+            layout: {
+                machineIds: [], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+    const context = {
+        remoteName: 'dev-container',
+        devContainerHostWorkspaceFolder: '/home/deploy/DevBox/devbox',
+    };
+
+    const environment = matcher.findManagedEnvironmentForWorkspace(
+        snapshot, FakeUri.file(remotePath), context,
+    );
+    assert.ok(environment, 'a config anchor must resolve from its containing folder');
+    assert.equal(environment.id, 'environment:container');
+
+    const match = matcher.findManagedProjectForOpenProject(
+        snapshot, FakeUri.file(remotePath), context,
+    );
+    assert.ok(match, 'the saved Project must be recognised, not offered for Save');
+    assert.equal(match.project.id, 'project:one');
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 recognizes a config anchor inside a .devcontainer directory', () => {
+    const machine = {
+        id: 'machine:one', name: 'Box',
+        connection: { kind: 'ssh', host: 'box.example.com', user: 'dev', port: 22 },
+    };
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [machine],
+            environments: [{
+                id: 'environment:container', machineId: machine.id,
+                kind: 'devContainer', name: 'Dev Container',
+                devContainerAnchor: {
+                    version: 1,
+                    originalAuthority: 'dev-container+7b22@ssh-remote+box',
+                    sourceKind: 'config',
+                    sourceLocator: '/work/app/.devcontainer/devcontainer.json',
+                },
+            }],
+            projects: [],
+            layout: {
+                machineIds: [], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+
+    assert.ok(matcher.findManagedEnvironmentForWorkspace(
+        snapshot, FakeUri.file('/work/app'),
+        {
+            remoteName: 'dev-container',
+            devContainerHostWorkspaceFolder: '/work/app',
+        },
+    ), 'a .devcontainer/devcontainer.json anchor must resolve from the project folder');
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 does not match a config anchor from an unrelated folder', () => {
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [{
+                id: 'machine:one', name: 'Box',
+                connection: { kind: 'ssh', host: 'box.example.com', user: 'dev', port: 22 },
+            }],
+            environments: [{
+                id: 'environment:container', machineId: 'machine:one',
+                kind: 'devContainer', name: 'Dev Container',
+                devContainerAnchor: {
+                    version: 1,
+                    originalAuthority: 'dev-container+7b22@ssh-remote+box',
+                    sourceKind: 'config',
+                    sourceLocator: '/work/app/.devcontainer.json',
+                },
+            }],
+            projects: [],
+            layout: {
+                machineIds: [], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+
+    assert.equal(matcher.findManagedEnvironmentForWorkspace(
+        snapshot, FakeUri.file('/work/other'),
+        {
+            remoteName: 'dev-container',
+            devContainerHostWorkspaceFolder: '/work/other',
+        },
+    ), null);
+});

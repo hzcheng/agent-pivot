@@ -78,6 +78,34 @@ function environmentMatchesRemoteAuthority(
 }
 
 /**
+ * Whether a Dev Container anchor was launched from this host workspace folder.
+ *
+ * `LOCAL_WORKSPACE_FOLDER` is the folder on the outer host that the container
+ * was launched from. A `workspace` anchor records that folder directly, while a
+ * `config` anchor records the `.devcontainer.json` inside it, so the config case
+ * is matched against the file's containing directory.
+ */
+function anchorMatchesHostWorkspace(
+    anchor: ManagedEnvironment['devContainerAnchor'],
+    normalizedHostWorkspace: string,
+): boolean {
+    if (!anchor) { return false; }
+    const locator = normalizePosixPath(anchor.sourceLocator);
+    if (anchor.sourceKind === 'workspace') {
+        return locator === normalizedHostWorkspace;
+    }
+    if (anchor.sourceKind !== 'config') { return false; }
+    const separator = locator.lastIndexOf('/');
+    const directory = separator > 0 ? locator.slice(0, separator) : '/';
+    if (directory === normalizedHostWorkspace) { return true; }
+    // A .devcontainer.json may sit one level down in a .devcontainer directory.
+    const parentSeparator = directory.lastIndexOf('/');
+    return parentSeparator > 0
+        && directory.slice(parentSeparator + 1) === '.devcontainer'
+        && directory.slice(0, parentSeparator) === normalizedHostWorkspace;
+}
+
+/**
  * Resolve the current remote Environment only from its authority. Paths are
  * intentionally ignored because the same path can exist on unrelated hosts.
  */
@@ -122,9 +150,9 @@ export function findManagedEnvironmentForWorkspace(
             const normalizedHostWorkspace = normalizePosixPath(hostWorkspace);
             matches = snapshot.catalog.environments.filter(environment =>
                 environment.kind === 'devContainer'
-                && environment.devContainerAnchor?.sourceKind === 'workspace'
-                && normalizePosixPath(environment.devContainerAnchor.sourceLocator)
-                    === normalizedHostWorkspace);
+                && anchorMatchesHostWorkspace(
+                    environment.devContainerAnchor, normalizedHostWorkspace,
+                ));
         }
     }
     return matches.length === 1 ? matches[0] : null;

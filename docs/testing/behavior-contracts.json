@@ -7392,7 +7392,7 @@
   {
     "id": "MANAGED-REMOTE-SSH-VALIDATION-001",
     "domain": "open-project",
-    "title": "The exact local OpenSSH executable validates isolated and aggregate aliases without a shell and rejects endpoint or route drift",
+    "title": "The exact local OpenSSH executable validates the effective candidate configuration without a shell and rejects endpoint or route drift",
     "priority": "P0",
     "status": "automated",
     "owners": [

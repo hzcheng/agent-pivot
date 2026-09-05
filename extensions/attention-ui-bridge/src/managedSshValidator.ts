@@ -19,7 +19,6 @@ export interface ManagedSshCommandRunner {
 
 export interface ManagedSshValidationInput {
     executable: string;
-    generatedConfigPath: string;
     aggregateConfigContent: string;
     entries: ManagedSshProjectionEntry[];
 }
@@ -131,19 +130,11 @@ export class ManagedSshProjectionValidator implements ManagedSshProjectionValida
         try {
             fs.writeFileSync(aggregatePath, input.aggregateConfigContent, { mode: 0o600 });
             await Promise.all(input.entries.map(async entry => {
-                const [isolated, aggregate] = await Promise.all([
-                    this.runner.run(
-                        input.executable,
-                        ['-F', input.generatedConfigPath, '-G', entry.alias],
-                        this.timeoutMs,
-                    ),
-                    this.runner.run(
-                        input.executable,
-                        ['-F', aggregatePath, '-G', entry.alias],
-                        this.timeoutMs,
-                    ),
-                ]);
-                assertEffectiveTarget(entry, isolated, 'isolated');
+                const aggregate = await this.runner.run(
+                    input.executable,
+                    ['-F', aggregatePath, '-G', entry.alias],
+                    this.timeoutMs,
+                );
                 assertEffectiveTarget(entry, aggregate, 'aggregate');
             }));
         } finally {

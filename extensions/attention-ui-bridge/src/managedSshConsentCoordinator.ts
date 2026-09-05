@@ -656,7 +656,6 @@ export class ManagedSshConsentCoordinator {
         );
         await this.validator.validate({
             executable: this.executable,
-            generatedConfigPath: staged.revisionPath,
             aggregateConfigContent: aggregate,
             entries: projection.entries,
         });
@@ -699,7 +698,6 @@ export class ManagedSshConsentCoordinator {
         }
         await this.validator.validate({
             executable: this.executable,
-            generatedConfigPath: paths.current,
             aggregateConfigContent: active.content,
             entries: projection.entries,
         });

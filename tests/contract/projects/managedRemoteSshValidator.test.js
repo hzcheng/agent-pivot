@@ -34,7 +34,6 @@ class FakeRunner {
 function input() {
     return {
         executable: '/usr/bin/ssh',
-        generatedConfigPath: '/tmp/current.conf',
         aggregateConfigContent: 'Include "/tmp/current.conf"\n',
         entries: [{
             machineId: 'machine:one', alias: 'agent-pivot-one', name: 'Build',
@@ -43,19 +42,17 @@ function input() {
     };
 }
 
-test('MANAGED-REMOTE-SSH-VALIDATION-001 probes OpenSSH and validates isolated plus aggregate targets', async () => {
+test('MANAGED-REMOTE-SSH-VALIDATION-001 probes OpenSSH and validates the effective aggregate target', async () => {
     const runner = new FakeRunner([
         { exitCode: 0, stdout: '', stderr: 'OpenSSH_9.6' },
-        { exitCode: 0, stdout: output(), stderr: '' },
         { exitCode: 0, stdout: output(), stderr: '' },
     ]);
     await new ManagedSshProjectionValidator(runner).validate(input());
     assert.deepEqual(runner.calls.map(call => call.args), [
         ['-V'],
-        ['-F', '/tmp/current.conf', '-G', 'agent-pivot-one'],
-        ['-F', runner.calls[2].args[1], '-G', 'agent-pivot-one'],
+        ['-F', runner.calls[1].args[1], '-G', 'agent-pivot-one'],
     ]);
-    assert.notEqual(runner.calls[2].args[1], '/tmp/current.conf');
+    assert.notEqual(runner.calls[1].args[1], '/tmp/current.conf');
 });
 
 test('MANAGED-REMOTE-SSH-VALIDATION-001 rejects inherited routes and endpoint drift', async () => {

@@ -29,7 +29,6 @@ test('MANAGED-REMOTE-SSH-VALIDATION-001 validates the installed Linux OpenSSH -F
 
     await new ManagedSshProjectionValidator().validate({
         executable: '/usr/bin/ssh',
-        generatedConfigPath: generated,
         aggregateConfigContent: `Include "${generated}"\nHost *\n  Port 22\n`,
         entries: [{
             machineId: 'machine:fixture',

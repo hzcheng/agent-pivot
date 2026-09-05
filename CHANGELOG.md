@@ -4,6 +4,12 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Fixed
+
+- Validate Managed Remote SSH aliases against the complete configuration used
+  by Remote - SSH, avoiding false standalone-config failures while preserving
+  endpoint and unsafe-route checks.
+
 ## [1.4.0] - 2026-08-30
 
 ### Fixed

@@ -3040,15 +3040,28 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
     });
 
     await createStartup(fixtureService, fixtureAdapter).startUp();
-    assert.strictEqual(JSON.stringify(fixtureConfigurationValues.projectData), fixtureBytes,
-        'production startup migration must preserve the fixture serialized JSON exactly');
+    assert.strictEqual(JSON.stringify(fixtureService.getGroups(true)), fixtureBytes,
+        'production startup migration must preserve the combined fixture exactly');
     assert.strictEqual(JSON.stringify(fixtureState.get('projects')), fixtureBytes,
         'production startup migration must leave the source fixture bytes unchanged');
+    const splitSettingsBytes = JSON.stringify(fixtureConfigurationValues.projectData);
+    assert.deepStrictEqual(
+        fixtureConfigurationValues.projectData.flatMap(group => group.projects)
+            .map(project => project.id),
+        ['member-remote'],
+        'production startup migration must leave only Remote Projects in synchronized settings',
+    );
+    assert.deepStrictEqual(
+        fixtureState.get('localProjects.v1').flatMap(group => group.projects)
+            .map(project => project.id),
+        ['member-app', 'member-lib'],
+        'production startup migration must retain Local Projects in client-local storage',
+    );
     fixtureService.getGroups(true);
     fixtureService.getProjectsFlat();
     fixtureService.getProjectAndGroup('member-app');
-    assert.strictEqual(JSON.stringify(fixtureConfigurationValues.projectData), fixtureBytes,
-        'ordinary production ProjectService reads must not rewrite persisted fixture bytes');
+    assert.strictEqual(JSON.stringify(fixtureConfigurationValues.projectData), splitSettingsBytes,
+        'ordinary production ProjectService reads must not rewrite split synchronized bytes');
 
     await fixturePendingStore.write(
         fixtureWorkspace.scopeIdentity,
@@ -3056,7 +3069,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         40_000 + PENDING_WORKSPACE_SAVE_TTL_MS,
     );
     await createStartup(fixtureService, fixtureAdapter).startUp();
-    const fixtureAfterSave = fixtureConfigurationValues.projectData;
+    const fixtureAfterSave = fixtureService.getGroups(true);
     const preservedFixturePrefix = fixtureAfterSave.map((group, groupIndex) => ({
         ...group,
         projects: group.projects.slice(0, fixtureGroups[groupIndex].projects.length),
@@ -3142,9 +3155,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         });
         const before = JSON.stringify(existing);
         await startup.startUp();
-        const storedGroups = target === 'settings'
-            ? configurationValues.projectData
-            : globalState.get('projects');
+        const storedGroups = service.getGroups(true);
         assert.strictEqual(JSON.stringify(storedGroups[0].projects.slice(0, 1)),
             JSON.stringify(existing[0].projects.slice(0, 1)),
             `${target} migration must preserve the old member project`);
@@ -3770,7 +3781,12 @@ async function runCoordinatorWiringChecks() {
                     toString: () => 'vscode-remote://dev-container%2Btarget%40ssh-remote%2Bhome-book/workspaces/AiToEarn',
                 },
             }],
+            getConfiguration: () => ({
+                get: (_key, fallback) => fallback,
+                update: async () => undefined,
+            }),
         },
+        ConfigurationTarget: { Global: 'global' },
         commands: {
             registerCommand: (command, callback) => {
                 registeredCommands.set(command, callback);
@@ -3797,6 +3813,7 @@ async function runCoordinatorWiringChecks() {
     const context = {
         globalStoragePath: tempRoot,
         globalStorageUri: { scheme: 'file' },
+        globalState: createMemoryMemento(),
         subscriptions: [],
     };
     try {

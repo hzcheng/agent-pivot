@@ -11,6 +11,10 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   endpoint and unsafe-route checks.
 - Open Dev Container Projects whose readable Managed Machine alias contains
   Unicode characters.
+- Keep saved Projects reachable after a Managed Machine is renamed, and allow
+  two Machines with the same display name to coexist, by anchoring the SSH
+  alias to the Machine identity instead of deriving it from the name alone.
+  Previously projected aliases are still recognised.
 
 ## [1.4.0] - 2026-08-30
 

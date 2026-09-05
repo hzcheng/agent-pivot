@@ -319,6 +319,36 @@ test('MANAGED-REMOTE-NAVIGATION-001 does not queue a current-machine Project ope
     await Promise.all([startup, opening]);
 });
 
+test('MANAGED-REMOTE-NAVIGATION-001 opens from the rendered revision without waiting for catalog reconciliation', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    let releaseSnapshot;
+    const pendingSnapshot = new Promise(resolve => { releaseSnapshot = resolve; });
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return pendingSnapshot; },
+        getCurrentSnapshot() { return active; },
+        async openProjectFromCurrentMachine(value, projectId) {
+            calls.push(['direct', value.revisionId, projectId]);
+            return true;
+        },
+        bridge: { async execute() { throw new Error('must not use bridge'); } },
+        async confirmEnable() { return false; },
+        async refresh() {},
+        async showInformationMessage() {},
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    const opening = controller.openProject('project:one', revisionId);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(calls, [
+        ['direct', revisionId, 'project:one'],
+    ]);
+
+    releaseSnapshot(active);
+    await opening;
+});
+
 test('MANAGED-REMOTE-NAVIGATION-001 uses the UI Bridge only when the Project is outside the current Environment', async () => {
     const calls = [];
     const active = snapshot('active');

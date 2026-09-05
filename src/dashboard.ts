@@ -1068,6 +1068,7 @@ async function initializeDashboard(
             managedRemoteSnapshot = await capability.reconcile();
             return managedRemoteSnapshot;
         },
+        getCurrentSnapshot: () => managedRemoteSnapshot,
         openProjectFromCurrentMachine: async (snapshot, projectId) => {
             const projectUri = managedProjectUriFromCurrentMachine(
                 snapshot,
@@ -1077,12 +1078,29 @@ async function initializeDashboard(
                     vscode.workspace.workspaceFolders,
                 ),
             );
-            if (!projectUri) { return false; }
+            if (!projectUri) {
+                logDashboardDiagnostic({
+                    event: 'managed-remote-project-navigation-route',
+                    projectId,
+                    route: 'ui-bridge',
+                });
+                return false;
+            }
+            logDashboardDiagnostic({
+                event: 'managed-remote-project-navigation-route',
+                projectId,
+                route: 'current-machine',
+            });
             await vscode.commands.executeCommand(
                 'vscode.openFolder',
                 projectUri,
                 { forceNewWindow: true },
             );
+            logDashboardDiagnostic({
+                event: 'managed-remote-project-navigation-dispatched',
+                projectId,
+                route: 'current-machine',
+            });
             return true;
         },
         bridge: managedRemoteBridgeClient,
@@ -2819,10 +2837,18 @@ async function initializeDashboard(
                         value.expectedRevisionId as string | null,
                     );
                 } else if (action === 'openProject') {
+                    logDashboardDiagnostic({
+                        event: 'managed-remote-project-navigation-received',
+                        projectId: value.targetId,
+                    });
                     await managedRemoteClientActions.openProject(
                         value.targetId as string,
                         value.expectedRevisionId as string | null,
                     );
+                    logDashboardDiagnostic({
+                        event: 'managed-remote-project-navigation-settled',
+                        projectId: value.targetId,
+                    });
                 } else if (action === 'openEnvironment') {
                     await managedRemoteClientActions.openEnvironment(
                         value.targetId as string,

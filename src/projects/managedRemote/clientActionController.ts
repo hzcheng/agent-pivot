@@ -16,6 +16,7 @@ interface ManagedEnablePreflightSummary {
 
 export interface ManagedRemoteClientActionControllerOptions {
     getSnapshot(): Promise<ManagedRemoteManagementSnapshot>;
+    getCurrentSnapshot?(): ManagedRemoteManagementSnapshot;
     openProjectFromCurrentMachine?(
         snapshot: ManagedRemoteManagementSnapshot,
         projectId: string,
@@ -215,7 +216,16 @@ export class ManagedRemoteClientActionController {
     private async requireCurrentSnapshot(
         expectedRevisionId: string | null,
     ): Promise<ManagedRemoteManagementSnapshot> {
-        const snapshot = await this.options.getSnapshot();
+        return this.validateCurrentSnapshot(
+            await this.options.getSnapshot(),
+            expectedRevisionId,
+        );
+    }
+
+    private validateCurrentSnapshot(
+        snapshot: ManagedRemoteManagementSnapshot,
+        expectedRevisionId: string | null,
+    ): ManagedRemoteManagementSnapshot {
         if (!snapshot.revisionId || snapshot.revisionId !== expectedRevisionId) {
             throw new Error('The Managed Remote catalog changed. Refresh and try again.');
         }
@@ -291,7 +301,12 @@ export class ManagedRemoteClientActionController {
     ): Promise<void> {
         if (this.options.openProjectFromCurrentMachine) {
             try {
-                const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
+                const snapshot = this.options.getCurrentSnapshot
+                    ? this.validateCurrentSnapshot(
+                        this.options.getCurrentSnapshot(),
+                        expectedRevisionId,
+                    )
+                    : await this.requireCurrentSnapshot(expectedRevisionId);
                 if (await this.options.openProjectFromCurrentMachine(snapshot, targetId)) {
                     return;
                 }

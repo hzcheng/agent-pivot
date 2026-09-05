@@ -9533,6 +9533,13 @@ function createMachineProjectsUi() {
                 ? event.target.closest('[data-machine-project-row]')
                 : null;
             if (row && panel.contains(row)) {
+                var managedOpen = row.querySelector(
+                    ':scope > .machine-row-line > [data-managed-client-action="openProject"]'
+                );
+                if (managedOpen) {
+                    postManagedClientAction(managedOpen);
+                    return;
+                }
                 postProjectOpen(
                     row,
                     event.ctrlKey || event.metaKey

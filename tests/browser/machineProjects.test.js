@@ -412,6 +412,18 @@ test('MANAGED-REMOTE-NAVIGATION-001 sends Project identity instead of a remote U
     assert.equal('uri' in message, false);
 });
 
+test('MANAGED-REMOTE-NAVIGATION-001 opens the whole managed Project row through the identity protocol', async t => {
+    const page = await openPage(t, 360, managedMarkup('ready'));
+    await page.locator(
+        '[data-managed-project-row]:not(.machine-favorite-row)'
+    ).evaluate(row => row.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    const message = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(message.type, 'managed-remote-client-action');
+    assert.equal(message.action, 'openProject');
+    assert.equal(message.targetId, 'project:managed');
+});
+
 test('MANAGED-REMOTE-NAVIGATION-001 lets an attention-state Project retry navigation', async t => {
     const page = await openPage(t, 360, managedMarkup('attention'));
     const project = page.locator(

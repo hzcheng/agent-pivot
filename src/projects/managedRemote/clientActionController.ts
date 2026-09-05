@@ -128,7 +128,7 @@ export class ManagedRemoteClientActionController {
     }
 
     openProject(targetId: string, expectedRevisionId: string | null): Promise<void> {
-        return this.navigate('openManagedProject', targetId, expectedRevisionId);
+        return this.openProjectNow(targetId, expectedRevisionId);
     }
 
     openEnvironment(targetId: string, expectedRevisionId: string | null): Promise<void> {
@@ -229,11 +229,13 @@ export class ManagedRemoteClientActionController {
         operation: 'openManagedMachine' | 'openManagedProject' | 'openManagedEnvironment',
         targetId: string,
         expectedRevisionId: string | null,
+        tryCurrentMachine = true,
     ): Promise<void> {
         return this.enqueue(async () => {
             try {
                 const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
-                if (operation === 'openManagedProject'
+                if (tryCurrentMachine
+                    && operation === 'openManagedProject'
                     && this.options.openProjectFromCurrentMachine
                     && await this.options.openProjectFromCurrentMachine(snapshot, targetId)) {
                     return;
@@ -281,6 +283,30 @@ export class ManagedRemoteClientActionController {
                 await this.options.showErrorMessage(`Agent Pivot: ${message}`);
             }
         });
+    }
+
+    private async openProjectNow(
+        targetId: string,
+        expectedRevisionId: string | null,
+    ): Promise<void> {
+        if (this.options.openProjectFromCurrentMachine) {
+            try {
+                const snapshot = await this.requireCurrentSnapshot(expectedRevisionId);
+                if (await this.options.openProjectFromCurrentMachine(snapshot, targetId)) {
+                    return;
+                }
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                await this.options.showErrorMessage(`Agent Pivot: ${message}`);
+                return;
+            }
+        }
+        await this.navigate(
+            'openManagedProject',
+            targetId,
+            expectedRevisionId,
+            false,
+        );
     }
 
     private enqueue<T>(operation: () => Promise<T>): Promise<T> {

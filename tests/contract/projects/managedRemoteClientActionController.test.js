@@ -281,6 +281,44 @@ test('MANAGED-REMOTE-NAVIGATION-001 opens a Project directly inside the current 
     ]);
 });
 
+test('MANAGED-REMOTE-NAVIGATION-001 does not queue a current-machine Project open behind local SSH projection startup', async () => {
+    const calls = [];
+    const active = snapshot('active');
+    let releaseStatus;
+    const pendingStatus = new Promise(resolve => { releaseStatus = resolve; });
+    const controller = new ManagedRemoteClientActionController({
+        async getSnapshot() { return active; },
+        async openProjectFromCurrentMachine(value, projectId) {
+            calls.push(['direct', value.revisionId, projectId]);
+            return true;
+        },
+        bridge: {
+            async execute(operation) {
+                calls.push(['bridge', operation]);
+                if (operation === 'getStatus') { return pendingStatus; }
+                return { status: 'enabled' };
+            },
+        },
+        async confirmEnable() { return false; },
+        async refresh() {},
+        async showInformationMessage() {},
+        async showErrorMessage(message) { calls.push(['error', message]); },
+    });
+
+    const startup = controller.enableAutomatically(revisionId);
+    await new Promise(resolve => setImmediate(resolve));
+    const opening = controller.openProject('project:one', revisionId);
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepEqual(calls, [
+        ['bridge', 'getStatus'],
+        ['direct', revisionId, 'project:one'],
+    ]);
+
+    releaseStatus({ status: 'enabled' });
+    await Promise.all([startup, opening]);
+});
+
 test('MANAGED-REMOTE-NAVIGATION-001 uses the UI Bridge only when the Project is outside the current Environment', async () => {
     const calls = [];
     const active = snapshot('active');

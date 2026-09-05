@@ -5,9 +5,6 @@ const test = require('node:test');
 
 const { ManagedRemoteBridgeClient } = require('../../../out/projects/managedRemote/bridgeClient');
 const {
-    ManagedRemoteLocalSshCommandController,
-} = require('../../../out/projects/managedRemote/localSshCommandController');
-const {
     MANAGED_REMOTE_BRIDGE_CAPABILITIES,
     MANAGED_REMOTE_BRIDGE_EXECUTE_COMMAND,
     MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND,
@@ -50,39 +47,51 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 bridge client sends only revision and Machi
     assert.equal('host' in calls[1][1], false);
 });
 
-test('MANAGED-REMOTE-SSH-COMMAND-001 picker disambiguates endpoints and invokes the local bridge', async () => {
-    const calls = [];
-    const messages = [];
-    const machine = {
-        id: 'machine:one', name: 'Build',
-        connection: { kind: 'ssh', host: '2001:db8::1', user: 'dev', port: 2207 },
+test('MANAGED-REMOTE-ACTIONS-001 bridge client bounds a stalled local action', async () => {
+    const commands = {
+        executeCommand(command, request) {
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return Promise.resolve({
+                    protocolVersion: 1,
+                    requestId: request.requestId,
+                    challenge: request.challenge,
+                    sessionToken: 'session-12345678',
+                    capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                });
+            }
+            return new Promise(() => {});
+        },
     };
-    const controller = new ManagedRemoteLocalSshCommandController({
-        async getSnapshot() {
+    await assert.rejects(
+        new ManagedRemoteBridgeClient(commands, 5).execute(
+            'openManagedMachine',
+            `revision:${'a'.repeat(64)}`,
+            'machine:one',
+        ),
+        /timed out/i,
+    );
+});
+
+test('MANAGED-REMOTE-ACTIONS-001 rejects a Bridge without the projection-v2 capability', async () => {
+    const commands = {
+        async executeCommand(_command, request) {
             return {
-                revisionId: `revision:${'b'.repeat(64)}`,
-                lifecycle: 'active',
-                catalog: {
-                    machines: [machine], environments: [], projects: [], conflicts: [],
-                    layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
-                },
-                machineConflictCandidates: {},
+                protocolVersion: 1,
+                requestId: request.requestId,
+                challenge: request.challenge,
+                sessionToken: 'session-12345678',
+                capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES.filter(
+                    value => value !== 'managedActionProjectionV2',
+                ),
             };
         },
-        async showQuickPick(items) {
-            assert.equal(items[0].description, 'dev@[2001:db8::1]:2207');
-            return items[0];
-        },
-        bridge: {
-            async execute(...args) { calls.push(args); },
-        },
-        async showInformationMessage(message) { messages.push(message); },
-        async showErrorMessage(message) { messages.push(message); },
-    });
-    await controller.copySshCommand();
-
-    assert.deepEqual(calls, [[
-        'copyLocalSshCommand', `revision:${'b'.repeat(64)}`, 'machine:one',
-    ]]);
-    assert.deepEqual(messages, ['Copied SSH command for Build.']);
+    };
+    await assert.rejects(
+        new ManagedRemoteBridgeClient(commands).execute(
+            'openManagedMachine',
+            `revision:${'a'.repeat(64)}`,
+            'machine:one',
+        ),
+        /Update the Agent Pivot UI Bridge/,
+    );
 });

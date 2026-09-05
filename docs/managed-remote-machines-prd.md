@@ -273,17 +273,13 @@ are `Add Machine`. Project creation remains contextual to a Machine row (or the 
 tab for the current workspace), so the toolbar never shows a global Add Project
 action. These controls remain available at 260 px.
 
-Client-wide status is a persistent banner above filters and never appears as a
-Machine property:
-
-- `Applying SSH config…`;
-- `SSH config needs attention` with Retry, Show Details, and Open Config;
-- `Remote - SSH required` with Install and Retry;
-- `Migration needs connection details`.
-
-Match count is separate and filtering never hides an error. During Applying, one
-Open action queues behind the current reconcile; it does not start another write.
-Machine-specific conflicts and repairs remain on affected rows.
+Local SSH projection is transparent infrastructure and never appears as a persistent
+Project-tab product state. Current-Environment Project Open and Copy SSH Command do
+not wait for it. Machine and cross-Machine Project Open perform a bounded readiness
+check; a stale projection schedules one coalesced background repair and either opens
+with the verified alias or returns one action-specific error. No user action queues
+behind an unbounded reconcile. Machine-specific catalog conflicts remain on affected
+rows, and filtering never hides them.
 
 Reuse the accepted native nested-list interaction model: no `tree`/`treegrid` roles,
 one primary Tab stop per visible row, Enter/Space for Machine/Environment disclosure,

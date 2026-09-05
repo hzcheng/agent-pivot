@@ -7165,17 +7165,20 @@
   {
     "id": "MANAGED-REMOTE-SSH-COMMAND-001",
     "domain": "project",
-    "title": "Command Palette SSH actions select endpoint-qualified Machines and delegate identity-only terminal or clipboard effects to the local UI host",
+    "title": "SSH actions use endpoint-qualified Machines, direct local clipboard commands, and identity-only UI-host terminals without projection blocking",
     "priority": "P0",
     "status": "automated",
     "owners": [
       "tests/contract/projects/managedRemoteLocalSshCommand.test.js",
+      "tests/contract/projects/managedRemoteActionController.test.js",
+      "tests/unit/projects/managedRemoteTargetResolver.test.js",
       "tests/contract/projects/managedRemoteBridgeController.test.js",
       "tests/browser/machineProjects.test.js"
     ],
     "evidence": [
       "src/projects/managedRemote/bridgeClient.ts",
-      "src/projects/managedRemote/localSshCommandController.ts",
+      "src/projects/managedRemote/actionController.ts",
+      "src/projects/managedRemote/targetResolver.ts",
       "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
       "src/dashboard/commandRegistration.ts"
     ]
@@ -7183,16 +7186,17 @@
   {
     "id": "MANAGED-REMOTE-CLIENT-ENABLE-001",
     "domain": "project",
-    "title": "An active managed catalog automatically materializes local SSH aliases through the UI host without changing catalog authority",
+    "title": "An active catalog materializes SSH aliases in a latest-wins background worker without exposing client setup state in the Project UI",
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/projects/managedRemoteClientActionController.test.js",
+      "tests/unit/projects/managedSshProjectionWorker.test.js",
       "tests/contract/projects/managedRemoteBridgeController.test.js",
       "tests/browser/machineProjects.test.js"
     ],
     "evidence": [
-      "src/projects/managedRemote/clientActionController.ts",
+      "src/projects/managedRemote/actionController.ts",
+      "extensions/attention-ui-bridge/src/managedSshProjectionWorker.ts",
       "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
       "src/webview/webviewManagedRemoteProjectsContent.ts"
     ]
@@ -7204,16 +7208,19 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/projects/managedRemoteClientActionController.test.js",
+      "tests/contract/projects/managedRemoteActionController.test.js",
       "tests/contract/projects/managedRemoteBridgeController.test.js",
       "tests/unit/projects/workspaceAndOpenMatching.test.js",
+      "tests/unit/projects/managedRemotePlatform.test.js",
       "tests/browser/machineProjects.test.js"
     ],
     "evidence": [
-      "src/projects/managedRemote/clientActionController.ts",
+      "src/projects/managedRemote/actionController.ts",
+      "src/projects/managedRemote/targetResolver.ts",
       "src/projects/openProjectMatcher.ts",
       "src/dashboard.ts",
       "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "extensions/attention-ui-bridge/src/managedRemotePlatform.ts",
       "src/webview/webviewManagedRemoteProjectsContent.ts"
     ]
   },

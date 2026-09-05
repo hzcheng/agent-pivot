@@ -11,6 +11,7 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'localSshTerminalV1',
     'managedNavigationV1',
     'legacySshInspectionV1',
+    'managedActionProjectionV2',
 ] as const;
 
 export type ManagedRemoteBridgeOperation =

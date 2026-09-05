@@ -8,14 +8,6 @@ import {
     ManagedSshMachine,
 } from './types';
 
-export type ManagedRemoteClientUiState =
-    | 'preview'
-    | 'enableRequired'
-    | 'applying'
-    | 'ready'
-    | 'attention'
-    | 'remoteSshMissing';
-
 export interface ManagedRemoteProjectRowViewModel extends ManagedRemoteProject {
     machineId: string;
     machineName: string;
@@ -45,8 +37,6 @@ export interface ManagedRemoteMachineViewModel extends ManagedSshMachine {
 export interface ManagedRemoteProjectsViewModel {
     revisionId: string | null;
     lifecycle: ManagedRemoteManagementSnapshot['lifecycle'];
-    clientState: ManagedRemoteClientUiState;
-    clientMessage: string;
     projectCount: number;
     tags: string[];
     favorites: ManagedRemoteProjectRowViewModel[];
@@ -73,19 +63,6 @@ function endpoint(machine: ManagedSshMachine): string {
     return `${machine.connection.user}@${host}:${machine.connection.port}`;
 }
 
-function clientMessage(state: ManagedRemoteClientUiState): string {
-    if (state === 'preview') {
-        return 'The Managed Machine catalog is unavailable.';
-    }
-    if (state === 'enableRequired') {
-        return 'Enable managed connections on this computer before opening remote Projects.';
-    }
-    if (state === 'applying') { return 'Applying the managed SSH configuration…'; }
-    if (state === 'attention') { return 'The SSH configuration needs attention.'; }
-    if (state === 'remoteSshMissing') { return 'Remote - SSH is required.'; }
-    return 'Managed connections are ready on this computer.';
-}
-
 function unavailableReason(
     active: boolean,
     conflicted: boolean,
@@ -106,10 +83,7 @@ function hasConflict(
 
 export function buildManagedRemoteProjectsViewModel(
     snapshot: ManagedRemoteManagementSnapshot,
-    requestedClientState?: ManagedRemoteClientUiState,
 ): ManagedRemoteProjectsViewModel {
-    const clientState = requestedClientState
-        || (snapshot.lifecycle === 'active' ? 'enableRequired' : 'preview');
     const active = snapshot.lifecycle === 'active';
     const tags = new Map<string, string>();
     const projectRows = new Map<string, ManagedRemoteProjectRowViewModel>();
@@ -194,8 +168,6 @@ export function buildManagedRemoteProjectsViewModel(
     return {
         revisionId: snapshot.revisionId,
         lifecycle: snapshot.lifecycle,
-        clientState,
-        clientMessage: clientMessage(clientState),
         projectCount: snapshot.catalog.projects.length,
         tags: Array.from(tags.values()).sort((left, right) => left.localeCompare(right)),
         favorites,

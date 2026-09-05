@@ -112,7 +112,7 @@ function assertEffectiveTarget(
 export class ManagedSshProjectionValidator implements ManagedSshProjectionValidationService {
     constructor(
         private readonly runner: ManagedSshCommandRunner = new NodeManagedSshCommandRunner(),
-        private readonly timeoutMs = 10_000,
+        private readonly timeoutMs = 3_000,
     ) {
     }
 
@@ -130,20 +130,22 @@ export class ManagedSshProjectionValidator implements ManagedSshProjectionValida
         const aggregatePath = path.join(temporaryRoot, 'config');
         try {
             fs.writeFileSync(aggregatePath, input.aggregateConfigContent, { mode: 0o600 });
-            for (const entry of input.entries) {
-                const isolated = await this.runner.run(
-                    input.executable,
-                    ['-F', input.generatedConfigPath, '-G', entry.alias],
-                    this.timeoutMs,
-                );
+            await Promise.all(input.entries.map(async entry => {
+                const [isolated, aggregate] = await Promise.all([
+                    this.runner.run(
+                        input.executable,
+                        ['-F', input.generatedConfigPath, '-G', entry.alias],
+                        this.timeoutMs,
+                    ),
+                    this.runner.run(
+                        input.executable,
+                        ['-F', aggregatePath, '-G', entry.alias],
+                        this.timeoutMs,
+                    ),
+                ]);
                 assertEffectiveTarget(entry, isolated, 'isolated');
-                const aggregate = await this.runner.run(
-                    input.executable,
-                    ['-F', aggregatePath, '-G', entry.alias],
-                    this.timeoutMs,
-                );
                 assertEffectiveTarget(entry, aggregate, 'aggregate');
-            }
+            }));
         } finally {
             try { fs.unlinkSync(aggregatePath); } catch (error) {
                 if ((error as NodeJS.ErrnoException).code !== 'ENOENT') { throw error; }

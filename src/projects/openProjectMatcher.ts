@@ -160,58 +160,28 @@ export function managedProjectUriFromCurrentMachine(
     return null;
 }
 
-export function managedProjectUriForNavigation(
-    snapshot: ManagedRemoteManagementSnapshot,
-    projectId: string,
-    workspaceUris: readonly vscode.Uri[],
-    context: ManagedCurrentRemoteContext = {},
-): vscode.Uri {
-    const currentMachineUri = managedProjectUriFromCurrentMachine(
-        snapshot,
-        projectId,
-        workspaceUris,
-        context,
-    );
-    if (currentMachineUri) { return currentMachineUri; }
-    const project = snapshot.catalog.projects.find(value => value.id === projectId);
-    if (!project) { throw new Error('Managed Project no longer exists.'); }
-    const environment = snapshot.catalog.environments.find(value =>
-        value.id === project.environmentId);
-    if (!environment) { throw new Error('Managed Project Environment no longer exists.'); }
-    const machine = environmentMachine(snapshot, environment);
-    if (!machine) { throw new Error('Managed Project Machine no longer exists.'); }
-    const alias = managedSshAlias(machine.id, machine.name, machine.connection.host);
-    if (environment.kind === 'host') {
-        return vscode.Uri.parse(
-            `vscode-remote://${encodeRemoteAuthority(`ssh-remote+${alias}`)}${project.remotePath}`,
-        );
-    }
-    const rebuilt = rebuildManagedDevContainerProjectUri(
-        environment.devContainerAnchor!,
-        alias,
-        project.remotePath,
-    );
-    if (!rebuilt) {
-        throw new Error('Managed Dev Container authority could not be rebuilt.');
-    }
-    return vscode.Uri.parse(rebuilt);
-}
-
 export function findManagedProjectForOpenProject(
     snapshot: ManagedRemoteManagementSnapshot,
     uri: vscode.Uri,
+    context: ManagedCurrentRemoteContext = {},
 ): ManagedOpenProjectMatch | null {
-    if (snapshot.lifecycle !== 'active' || !uri || uri.scheme !== 'vscode-remote') {
+    if (snapshot.lifecycle !== 'active' || !uri) {
         return null;
     }
     const remotePath = normalizePosixPath(uri.path || uri.fsPath);
+    const currentEnvironment = findManagedEnvironmentForWorkspace(
+        snapshot,
+        uri,
+        context,
+    );
+    if (!currentEnvironment) { return null; }
     for (const project of snapshot.catalog.projects) {
         if (normalizePosixPath(project.remotePath) !== remotePath) { continue; }
         const environment = snapshot.catalog.environments.find(candidate =>
             candidate.id === project.environmentId);
         const machine = environment && environmentMachine(snapshot, environment);
         if (!environment || !machine) { continue; }
-        if (environmentMatchesRemoteAuthority(snapshot, environment, uri)) {
+        if (environment.id === currentEnvironment.id) {
             return { project, environment, machine };
         }
     }

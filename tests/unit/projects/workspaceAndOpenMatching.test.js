@@ -346,54 +346,16 @@ test('MANAGED-REMOTE-NAVIGATION-001 identifies a remote Extension Host file URI 
         ).toString(),
         'file:///workspaces/target',
     );
-});
-
-test('MANAGED-REMOTE-NAVIGATION-001 builds a managed Project URI without invoking the UI Bridge', () => {
-    const originalAuthority = `dev-container+${Buffer.from(JSON.stringify({
-        hostPath: '/home/dev/DevBox/workspace',
-    })).toString('hex')}@ssh-remote+legacy-reddev`;
-    const snapshot = {
-        revisionId: `revision:${'a'.repeat(64)}`,
-        lifecycle: 'active',
-        catalog: {
-            machines: [{
-                id: 'machine:reddev', name: 'Red Dev',
-                connection: { kind: 'ssh', host: '10.0.0.8', user: 'dev', port: 22022 },
-            }],
-            environments: [{
-                id: 'environment:host', machineId: 'machine:reddev',
-                kind: 'host', name: 'Host',
-            }, {
-                id: 'environment:container', machineId: 'machine:reddev',
-                kind: 'devContainer', name: 'Container',
-                devContainerAnchor: {
-                    version: 1, originalAuthority,
-                    sourceKind: 'workspace', sourceLocator: '/home/dev/DevBox/workspace',
-                },
-            }],
-            projects: [{
-                id: 'project:host', environmentId: 'environment:host',
-                name: 'Host', remotePath: '/srv/host',
-            }, {
-                id: 'project:container', environmentId: 'environment:container',
-                name: 'Container', remotePath: '/workspaces/container',
-            }],
-            layout: {
-                machineIds: ['machine:reddev'], environmentIdsByMachine: {},
-                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+    assert.equal(
+        matcher.findManagedProjectForOpenProject(
+            snapshot,
+            FakeUri.file('/workspaces/target'),
+            {
+                remoteName: 'dev-container',
+                devContainerHostWorkspaceFolder: '/home/dev/DevBox/workspace',
             },
-            conflicts: [],
-        },
-        machineConflictCandidates: {},
-    };
-
-    assert.match(
-        matcher.managedProjectUriForNavigation(snapshot, 'project:host', [], {}).toString(),
-        /^vscode-remote:\/\/ssh-remote%2Bred-dev\/srv\/host$/u,
-    );
-    assert.match(
-        matcher.managedProjectUriForNavigation(snapshot, 'project:container', [], {}).toString(),
-        /^vscode-remote:\/\/dev-container%2B.+%40ssh-remote%2Bred-dev\/workspaces\/container$/u,
+        ).project.id,
+        'project:target',
     );
 });
 

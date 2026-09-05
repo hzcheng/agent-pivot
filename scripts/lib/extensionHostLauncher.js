@@ -57,6 +57,9 @@ function createExtensionPackagePlan(repositoryRoot) {
             packageRoot: repositoryRoot,
             runtimeFiles: [
                 'dist/dashboard.js',
+                'media/webviewDashboardBundle.js',
+                'media/webviewMachineProjectsScripts.js',
+                'media/styles.css',
                 'media/conversationViewerScripts.js',
                 'media/conversationMermaidScripts.js',
             ],

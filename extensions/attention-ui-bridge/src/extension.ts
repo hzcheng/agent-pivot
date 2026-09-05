@@ -58,6 +58,9 @@ import { ManagedLegacySshInspector } from './managedLegacySshInspector';
 import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
 import { ManagedSshConsentFileStore } from './managedSshConsentStore';
 import { discoverManagedSshLocalInputs } from './managedSshDiscovery';
+import { ManagedSshProjectionWorker } from './managedSshProjectionWorker';
+import { buildManagedSshProjection } from '../../../src/projects/managedRemote/sshConfigProjection';
+import { managedRemoteLinuxPlatformUpdate } from './managedRemotePlatform';
 
 const BRIDGE_CHALLENGE = '_agentPivotAttentionSpike.bridge.challenge';
 const WORKSPACE_CHALLENGE = '_agentPivotAttentionSpike.workspace.challenge';
@@ -108,27 +111,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const managedRemoteSessionToken = crypto.randomBytes(32).toString('hex');
     const managedSshConsent = new ManagedSshConsentFileStore(bridgeRoot);
     const managedLegacySshInspector = new ManagedLegacySshInspector({});
+    const managedSshInputs = discoverManagedSshLocalInputs({
+        platform: process.platform,
+        homeDirectory: os.homedir(),
+        environmentPath: process.env.PATH || process.env.Path || '',
+        windowsDirectory: process.env.WINDIR,
+        remoteSshPath: vscode.workspace.getConfiguration('remote.SSH').get('path'),
+        remoteSshConfigFile: vscode.workspace.getConfiguration('remote.SSH').get('configFile'),
+    });
+    const managedSshCoordinator = Promise.resolve(new ManagedSshConsentCoordinator(
+        managedSshInputs.activeConfigPath,
+        managedSshInputs.executable,
+        managedSshConsent,
+    ));
+    const managedSshProjection = new ManagedSshProjectionWorker({
+        getCoordinator: () => managedSshCoordinator,
+        reportError: error => outputChannel.appendLine(
+            `[ManagedRemote] ${error.message}`,
+        ),
+        finalize: async slot => {
+            const aliasesKey = 'managedRemoteLinuxAliasesV1';
+            const previous = context.globalState.get<string[]>(aliasesKey, []);
+            const aliases = buildManagedSshProjection(slot).entries.map(entry => entry.alias);
+            const configuration = vscode.workspace.getConfiguration('remote.SSH');
+            const update = managedRemoteLinuxPlatformUpdate(
+                configuration.get<Record<string, string>>('remotePlatform') || {},
+                previous,
+                aliases,
+            );
+            if (update.changed) {
+                await configuration.update(
+                    'remotePlatform', update.value, vscode.ConfigurationTarget.Global,
+                );
+            }
+            if (previous.join('\n') !== update.aliases.join('\n')) {
+                await context.globalState.update(aliasesKey, update.aliases);
+            }
+        },
+    });
     const managedRemoteController = new ManagedRemoteBridgeController({
         readManagedCatalogEnvelope: () => vscode.workspace
             .getConfiguration('agentPivot')
             .get('managedRemoteCatalogData'),
     }, {
-        create: async () => {
-            const remoteSsh = vscode.workspace.getConfiguration('remote.SSH');
-            const inputs = discoverManagedSshLocalInputs({
-                platform: process.platform,
-                homeDirectory: os.homedir(),
-                environmentPath: process.env.PATH || process.env.Path || '',
-                windowsDirectory: process.env.WINDIR,
-                remoteSshPath: remoteSsh.get('path'),
-                remoteSshConfigFile: remoteSsh.get('configFile'),
-            });
-            return new ManagedSshConsentCoordinator(
-                inputs.activeConfigPath,
-                inputs.executable,
-                managedSshConsent,
-            );
-        },
+        create: () => managedSshCoordinator,
     }, managedRemoteSessionToken, {
         platform: process.platform,
         openTerminal: options => {
@@ -147,7 +173,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
         inspectLegacySshTarget: (executable, activeConfigPath, target) =>
             managedLegacySshInspector.inspect(executable, activeConfigPath, target),
-    });
+    }, managedSshProjection);
     const instanceId = crypto.randomBytes(16).toString('hex');
     const store = new LocalStore(bridgeRoot, instanceId, bridgeProcessId);
     const productionStore = new ProductionAttentionStore(path.join(bridgeRoot, 'production-attention', 'v1'), bridgeProcessId);

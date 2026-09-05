@@ -143,6 +143,9 @@ function makeSyntheticRepository(t) {
             packageRoot: syntheticRoot,
             runtimeFiles: {
                 'dist/dashboard.js': 'main-bytes',
+                'media/webviewDashboardBundle.js': 'dashboard-webview-bytes',
+                'media/webviewMachineProjectsScripts.js': 'machine-projects-bytes',
+                'media/styles.css': 'style-bytes',
                 'media/conversationViewerScripts.js': 'viewer-bytes',
                 'media/conversationMermaidScripts.js': 'mermaid-bytes',
             },

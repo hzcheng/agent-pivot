@@ -130,6 +130,30 @@ export class ManagedSshConsentCoordinator {
         return this.activeConfigPath;
     }
 
+    isProjectionReady(slot: ManagedRevisionSlot): boolean {
+        const projection = buildManagedSshProjection(slot);
+        const record = this.getState();
+        if (record.status !== 'enabled'
+            || record.connectionDigest !== projection.connectionDigest
+            || !record.currentChecksum) {
+            return false;
+        }
+        const current = this.owned.readCurrent();
+        const manifest = this.owned.readManifest();
+        if (!current
+            || current.checksum !== record.currentChecksum
+            || !manifest
+            || manifest.connectionDigest !== projection.connectionDigest
+            || manifest.currentChecksum !== current.checksum) {
+            return false;
+        }
+        const active = this.configFiles.readSecureFile(this.activeConfigPath);
+        return analyzeManagedInclude(
+            active.content,
+            this.owned.getPaths().current,
+        ) === 'exact';
+    }
+
     preflightEnable(slot: ManagedRevisionSlot): Promise<ManagedSshEnablePreflight> {
         return this.enqueue(() => this.preflightEnableNow(slot));
     }
@@ -195,6 +219,9 @@ export class ManagedSshConsentCoordinator {
     reconcile(slot: ManagedRevisionSlot): Promise<ManagedSshConsentRecordV1> {
         return this.enqueue(async () => {
             this.activeConfigEditor.recoverInterruptedExchange();
+            if (this.isProjectionReady(slot)) {
+                return this.getState();
+            }
             let current = this.readStoredState();
             const preflight = await this.preflightEnableNow(slot);
             current = this.consent.compareAndSet(current.generation, {

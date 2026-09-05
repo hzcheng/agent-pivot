@@ -203,7 +203,7 @@ test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 inspects only a validated alia
     assert.equal(result.value.endpoint.port, 2207);
 });
 
-test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies only the stable alias from the local UI host', async () => {
+test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies the endpoint without projection', async () => {
     const { envelope, slot } = activeEnvelope();
     const terminals = [];
     const copied = [];
@@ -234,26 +234,28 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies only the stable alias from
 
     assert.equal(terminal.status, 'ok');
     assert.equal(copy.status, 'ok');
-    assert.equal(reconciles, 2);
+    assert.equal(reconciles, 0);
     assert.equal(terminals[0].name, 'SSH: Build');
     assert.equal(terminals[0].shellPath, '/usr/local/bin/ssh');
-    assert.equal(terminals[0].shellArgs.length, 1);
-    assert.equal(terminals[0].shellArgs[0], 'build');
+    assert.deepEqual(terminals[0].shellArgs, [
+        '-p', '22', '-l', 'dev', 'build.example.com',
+    ]);
     assert.equal(copied[0], formatManagedSshCommand(
-        '/usr/local/bin/ssh', terminals[0].shellArgs[0], 'linux',
+        '/usr/local/bin/ssh', terminals[0].shellArgs, 'linux',
     ));
-    assert.doesNotMatch(copied[0], /build\.example\.com|dev@/u);
+    assert.match(copied[0], /build\.example\.com/u);
 });
 
 test('MANAGED-REMOTE-NAVIGATION-001 resolves Machine and Project identities inside the UI host', async () => {
     const { envelope, slot } = activeEnvelope();
     const windows = [];
     const folders = [];
+    const ensured = [];
     const controller = new ManagedRemoteBridgeController({
         readManagedCatalogEnvelope() { return envelope; },
     }, {
         async create() {
-            return { async reconcile() { return {}; } };
+            return { async reconcile() { throw new Error('action must not reconcile'); } };
         },
     }, 'session-12345678', {
         platform: 'linux',
@@ -261,6 +263,9 @@ test('MANAGED-REMOTE-NAVIGATION-001 resolves Machine and Project identities insi
         async writeClipboard() {},
         async openRemoteWindow(authority) { windows.push(authority); },
         async openRemoteFolder(uri) { folders.push(uri); },
+    }, {
+        schedule() {},
+        async ensureReady(value) { ensured.push(value.revisionId); },
     });
     const machine = await controller.execute({
         ...request('openManagedMachine', slot.revisionId),
@@ -273,6 +278,7 @@ test('MANAGED-REMOTE-NAVIGATION-001 resolves Machine and Project identities insi
 
     assert.equal(machine.status, 'ok');
     assert.equal(project.status, 'ok');
+    assert.deepEqual(ensured, [slot.revisionId, slot.revisionId]);
     assert.equal(windows[0], 'ssh-remote+build');
     assert.equal(folders[0], 'vscode-remote://ssh-remote%2Bbuild/work/api');
     assert.doesNotMatch(`${windows[0]} ${folders[0]}`, /build\.example\.com|dev@/u);

@@ -100,6 +100,6 @@ test('MANAGED-REMOTE-SSH-VALIDATION-001 never executes through a shell', async (
         /not a supported OpenSSH/,
     );
     assert.deepEqual(runner.calls[0], {
-        executable: '/path with spaces/ssh', args: ['-V'], timeoutMs: 10000,
+        executable: '/path with spaces/ssh', args: ['-V'], timeoutMs: 3000,
     });
 });

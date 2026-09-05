@@ -396,7 +396,7 @@ The lock path derives from the canonical active-config path, so different VS Cod
 Profiles sharing one config also share one lock. The lock coordinates Agent Pivot
 processes. It is not presented as protection from an external editor.
 
-Every Enable, Reconcile, and Open statically checks the bounded active-config Include
+Every background materialization statically checks the bounded active-config Include
 graph. File identities and checksums form a dependency fingerprint stored in local
 state. Dynamic Includes, `Match exec`, cycles, unsafe links, or route directives that
 cannot be neutralized make managed navigation unavailable. A change to any dependency
@@ -472,12 +472,17 @@ itself and never accepts host, user, port, generated config bytes, or a Project 
 from the remote workspace Extension Host.
 
 For open/reconcile, UI Bridge rereads `managedRemoteCatalogData` locally and requires
-the expected active revision. Mismatch returns `catalogOutOfDate`; the main service
-reconciles and retries once. The caller never supplies host/user/port/full URI, so it
-cannot forward stale endpoint values.
+the expected active revision. Mismatch returns `catalogOutOfDate`. The caller never
+supplies host/user/port/full URI, so it cannot forward stale endpoint values. Open
+uses a fast connection-digest/current-checksum/Include readiness check. When stale,
+it waits only for the bounded latest-wins projection worker; it never invokes a full
+reconcile in the action handler or joins an unbounded user-action queue.
 
-Reuse the existing main/UI Bridge challenge and issue a short-lived per-session
-capability for correlation/replay rejection. VS Code Commands API does not provide a
+Reuse the existing main/UI Bridge challenge and require the
+`managedActionProjectionV2` runtime capability before exposing the new action path;
+an older Bridge fails fast with an update error instead of running the previous
+action-triggered reconcile behavior. Issue a short-lived per-session capability for
+correlation/replay rejection. VS Code Commands API does not provide a
 strong caller identity: all installed extensions in the same Extension Host are in
 the trusted computing base. The security boundary is therefore validation plus the
 local state, not a claim that a token defeats a malicious installed extension. The
@@ -494,7 +499,7 @@ Current-Machine Project navigation remains available by reusing its live authori
 ### 9.1 Machine and Host Project
 
 For a different Machine, UI Bridge resolves the unconflicted Machine from the exact
-catalog revision, reconciles its alias, and opens:
+catalog revision, verifies the alias projection is ready, and opens:
 
 ```text
 vscode-remote://ssh-remote+<encoded-managed-alias>/
@@ -544,25 +549,26 @@ endpoint from its parent.
 ### 9.4 Local SSH terminal command
 
 The main extension contributes `Agent Pivot: SSH to Machine…` and `Agent Pivot:
-Copy SSH Command…`. It reads the current managed view, offers an endpoint-qualified
-Machine QuickPick, and sends only Machine ID plus expected revision to UI Bridge.
+Copy SSH Command…`. It reads the current managed view and offers an endpoint-qualified
+Machine QuickPick. Copy writes a complete config-independent command such as
+`ssh -p 22022 -l "alice" "host.example.com"` through the VS Code clipboard API and
+never waits for SSH projection.
 
-UI Bridge repeats the same catalog/conflict/local-state/dependency checks as Machine
-Open. For terminal launch it calls `vscode.window.createTerminal` from the local
-`extensionKind: ["ui"]` host with:
+For terminal launch the main extension sends only Machine ID plus expected revision
+to UI Bridge. UI Bridge rereads the exact catalog revision, rejects conflicts, and
+calls `vscode.window.createTerminal` from the local `extensionKind: ["ui"]` host with:
 
 ```ts
 {
   name: `SSH: ${machine.name}`,
   shellPath: resolvedRemoteSshExecutable,
-  shellArgs: [stableManagedAlias],
+  shellArgs: ['-p', String(port), '-l', user, host],
 }
 ```
 
 It shows the terminal and leaves it interactive, so the SSH client owns password
-prompts. It never builds or passes a shell command string. The copy command instead
-writes a platform-quoted equivalent to the local clipboard and labels the target
-shell; it contains only executable path and safe generated alias.
+prompts. Terminal and Copy are independent of `current.conf`; Machine/remote-window
+navigation alone needs the generated alias.
 
 Although VS Code documents UI extensions as running locally, M2 must prove the
 terminal process location in Local, SSH, WSL, and Dev Container windows with a local
@@ -746,18 +752,16 @@ src/projects/managedRemote/
   catalogService.ts
   legacyCompatibilityGuard.ts
   migrationPlan.ts
-  controller.ts
+  actionController.ts
+  targetResolver.ts
 
 src/projects/managedRemoteProtocol.ts
 
-extensions/attention-ui-bridge/src/managedRemote/
-  catalogReader.ts
-  consentStore.ts
-  sshConfigMaterializer.ts
-  sshEffectiveConfig.ts
-  migrationInspector.ts
-  navigation.ts
-  localSshTerminal.ts
+extensions/attention-ui-bridge/src/
+  managedRemoteBridgeController.ts
+  managedSshConsentCoordinator.ts
+  managedSshProjectionWorker.ts
+  managedRemotePlatform.ts
 ```
 
 Existing renderers consume one shared view model. Current URI derivation stays
@@ -812,14 +816,15 @@ rollback window.
 
 ### 15.4 UI/accessibility
 
-- one-time client preflight, journaled Disable, recovery, and byte-identical Cancel;
+- transparent background materialization, latest-wins coalescing, bounded foreground
+  readiness, and recovery without Project-tab setup controls;
 - Add/Edit Machine global-impact copy and custom ports;
 - Machine-context Add Project, Open-tab current-workspace Save, saved-workspace
   recognition, and rejection of Machine/Environment changes during Edit;
 - Command Palette local SSH terminal/copy actions, endpoint-qualified picker, and a
   process-location matrix across Local/SSH/WSL/Dev Container windows;
 - Dev Container Open/repair/remove and missing extension;
-- persistent client banner not hidden by filters;
+- action-specific projection failure without a persistent client banner;
 - current native-list keyboard contract, Shift+F10 parity, stable-ID focus fallback,
   complete unavailable accessible names, live-region results;
 - 260 px/wide layout, tag AND semantics, Favorites uniqueness, colors, Local/WSL.

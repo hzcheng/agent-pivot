@@ -48,7 +48,10 @@ function supportsCapabilities(value: unknown): boolean {
 export class ManagedRemoteBridgeClient {
     private session?: Promise<string>;
 
-    constructor(private readonly commands: ManagedRemoteBridgeCommandExecutor) {
+    constructor(
+        private readonly commands: ManagedRemoteBridgeCommandExecutor,
+        private readonly timeoutMs = 15_000,
+    ) {
     }
 
     async execute(
@@ -77,7 +80,7 @@ export class ManagedRemoteBridgeClient {
         retryExpiredSession: boolean,
     ): Promise<unknown> {
         const requestId = correlation('managed-remote');
-        const response = await this.commands.executeCommand<unknown>(
+        const response = await this.withDeadline(this.commands.executeCommand<unknown>(
             MANAGED_REMOTE_BRIDGE_EXECUTE_COMMAND,
             {
                 protocolVersion: MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
@@ -88,7 +91,7 @@ export class ManagedRemoteBridgeClient {
                 ...(targetId ? { targetId } : {}),
                 ...(legacySshTarget ? { legacySshTarget } : {}),
             },
-        );
+        ));
         if (!isRecord(response)
             || response.protocolVersion !== MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION
             || response.requestId !== requestId
@@ -137,14 +140,14 @@ export class ManagedRemoteBridgeClient {
         const challenge = correlation('managed-challenge');
         let response: unknown;
         try {
-            response = await this.commands.executeCommand<unknown>(
+            response = await this.withDeadline(this.commands.executeCommand<unknown>(
                 MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND,
                 {
                     protocolVersion: MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
                     requestId,
                     challenge,
                 },
-            );
+            ));
         } catch (_error) {
             throw new Error('Install or update the Agent Pivot UI Bridge to use Managed Remote commands.');
         }
@@ -161,5 +164,17 @@ export class ManagedRemoteBridgeClient {
             throw new Error('Update the Agent Pivot UI Bridge to use Managed Remote commands.');
         }
         return response.sessionToken;
+    }
+
+    private withDeadline<T>(operation: Thenable<T | undefined>): Promise<T | undefined> {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error(
+                'Agent Pivot UI Bridge timed out. Try the action again.',
+            )), this.timeoutMs);
+            Promise.resolve(operation).then(
+                value => { clearTimeout(timer); resolve(value); },
+                error => { clearTimeout(timer); reject(error); },
+            );
+        });
     }
 }

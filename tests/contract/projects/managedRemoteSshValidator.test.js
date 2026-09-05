@@ -100,3 +100,50 @@ test('MANAGED-REMOTE-SSH-VALIDATION-001 never executes through a shell', async (
         executable: '/path with spaces/ssh', args: ['-V'], timeoutMs: 3000,
     });
 });
+
+test('MANAGED-REMOTE-SSH-VALIDATION-001 surfaces the OpenSSH diagnostic on a failed exit', async () => {
+    const runner = new FakeRunner([
+        { exitCode: 0, stdout: 'OpenSSH_9.6', stderr: '' },
+        {
+            exitCode: 255,
+            stdout: '',
+            stderr: 'Pseudo-terminal will not be allocated because stdin is not a terminal.\n'
+                + '/home/dev/.ssh/config line 12: Bad configuration option: knownhostscommand\n',
+        },
+    ]);
+
+    // Without the file, line, and directive from stderr the failure is
+    // unactionable: the user cannot tell which config line is at fault.
+    await assert.rejects(
+        new ManagedSshProjectionValidator(runner).validate(input()),
+        error => {
+            assert.match(error.message, /validation failed for machine:one/u);
+            assert.match(error.message, /OpenSSH exited 255/u);
+            assert.match(error.message, /line 12: Bad configuration option: knownhostscommand/u);
+            assert.doesNotMatch(error.message, /Pseudo-terminal/u);
+            return true;
+        },
+    );
+});
+
+test('MANAGED-REMOTE-SSH-VALIDATION-001 reports which effective value was unsafe', async () => {
+    const runner = new FakeRunner([
+        { exitCode: 0, stdout: 'OpenSSH_9.6', stderr: '' },
+        { exitCode: 0, stdout: output({ port: '22' }), stderr: '' },
+    ]);
+    await assert.rejects(
+        new ManagedSshProjectionValidator(runner).validate(input()),
+        /unsafe target for machine:one \(port\)/u,
+    );
+});
+
+test('MANAGED-REMOTE-SSH-VALIDATION-001 names a failing exit with no diagnostic text', async () => {
+    const runner = new FakeRunner([
+        { exitCode: 0, stdout: 'OpenSSH_9.6', stderr: '' },
+        { exitCode: 1, stdout: '', stderr: '' },
+    ]);
+    await assert.rejects(
+        new ManagedSshProjectionValidator(runner).validate(input()),
+        /OpenSSH exited 1 without a diagnostic/u,
+    );
+});

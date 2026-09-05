@@ -88,23 +88,47 @@ function hasUnsafeInheritedBehavior(config: Map<string, string>): boolean {
         || !isDisabledRoute(config.get('hostkeyalias'));
 }
 
+/**
+ * OpenSSH reports the offending file, line, and directive on stderr. Dropping
+ * it leaves an unactionable failure, so the first stderr line and the exit
+ * code are carried into the message. Only OpenSSH's own diagnostic text is
+ * included; the config content itself is never echoed.
+ */
+function diagnosticSuffix(result: ManagedSshCommandResult): string {
+    const detail = `${result.stderr}`
+        .split(/\r?\n/u)
+        .map(line => line.trim())
+        .filter(line => line && !/^Pseudo-terminal/u.test(line))[0];
+    return detail
+        ? ` OpenSSH exited ${result.exitCode}: ${detail.slice(0, 300)}`
+        : ` OpenSSH exited ${result.exitCode} without a diagnostic.`;
+}
+
 function assertEffectiveTarget(
     entry: ManagedSshProjectionEntry,
     result: ManagedSshCommandResult,
     phase: string,
 ): void {
     if (result.exitCode !== 0) {
-        throw new Error(`OpenSSH ${phase} validation failed for ${entry.machineId}.`);
+        throw new Error(
+            `OpenSSH ${phase} validation failed for ${entry.machineId}.`
+            + diagnosticSuffix(result),
+        );
     }
     const config = parseEffectiveConfig(result.stdout);
-    if (!hostEquals(config.get('hostname'), entry.host)
-        || config.get('user') !== entry.user
-        || config.get('port') !== String(entry.port)
-        || !isDisabledRoute(config.get('proxyjump'))
-        || !isDisabledRoute(config.get('proxycommand'))
-        || config.get('permitlocalcommand') !== 'no'
-        || hasUnsafeInheritedBehavior(config)) {
-        throw new Error(`OpenSSH ${phase} resolved an unsafe target for ${entry.machineId}.`);
+    const mismatch = !hostEquals(config.get('hostname'), entry.host) ? 'hostname'
+        : config.get('user') !== entry.user ? 'user'
+            : config.get('port') !== String(entry.port) ? 'port'
+                : !isDisabledRoute(config.get('proxyjump')) ? 'proxyjump'
+                    : !isDisabledRoute(config.get('proxycommand')) ? 'proxycommand'
+                        : config.get('permitlocalcommand') !== 'no' ? 'permitlocalcommand'
+                            : hasUnsafeInheritedBehavior(config) ? 'inherited-behavior'
+                                : '';
+    if (mismatch) {
+        throw new Error(
+            `OpenSSH ${phase} resolved an unsafe target for ${entry.machineId}`
+            + ` (${mismatch}).`,
+        );
     }
 }
 

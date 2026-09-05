@@ -57,3 +57,48 @@ test('MANAGED-REMOTE-PROJECTION-001 gives foreground navigation a finite deadlin
     });
     await assert.rejects(worker.ensureReady(slot('c')), /timed out/i);
 });
+
+test('MANAGED-REMOTE-PROJECTION-001 navigates when the alias resolves despite a failed audit', async () => {
+    const reported = [];
+    const coordinator = {
+        // The OpenSSH audit of the user's own config fails, but Remote - SSH
+        // can already resolve the projected alias.
+        isProjectionReady() { return false; },
+        isProjectionResolvable() { return true; },
+        reconcile() {
+            return Promise.reject(new Error(
+                'OpenSSH aggregate validation failed for machine:one. OpenSSH exited 255: bad config',
+            ));
+        },
+    };
+    const worker = new ManagedSshProjectionWorker({
+        async getCoordinator() { return coordinator; },
+        reportError(error) { reported.push(error.message); },
+        timeoutMs: 5_000,
+    });
+
+    await worker.ensureReady(slot('d'));
+
+    assert.equal(reported.length, 1);
+    assert.match(reported[0], /aggregate validation failed/u);
+});
+
+test('MANAGED-REMOTE-PROJECTION-001 still fails when the alias cannot be resolved', async () => {
+    const coordinator = {
+        isProjectionReady() { return false; },
+        isProjectionResolvable() { return false; },
+        reconcile() {
+            return Promise.reject(new Error('OpenSSH aggregate validation failed for machine:one.'));
+        },
+    };
+    const worker = new ManagedSshProjectionWorker({
+        async getCoordinator() { return coordinator; },
+        reportError() {},
+        timeoutMs: 5_000,
+    });
+
+    await assert.rejects(
+        worker.ensureReady(slot('e')),
+        /aggregate validation failed/u,
+    );
+});

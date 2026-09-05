@@ -36,10 +36,28 @@ export class ManagedSshProjectionWorker {
         }
         this.schedule(slot);
         const running = this.running as Promise<void>;
-        await this.withDeadline(running);
-        if (!coordinator.isProjectionReady(slot)) {
+        try {
+            await this.withDeadline(running);
+        } catch (error) {
+            // Reconcile also audits the user's pre-existing SSH configuration.
+            // A failed audit must not veto navigation when Remote - SSH can
+            // already resolve the alias. run() has already reported the
+            // failure, so swallow it here rather than reporting it twice.
+            if (!this.isResolvable(coordinator, slot)) { throw error; }
+            return;
+        }
+        if (!coordinator.isProjectionReady(slot)
+            && !this.isResolvable(coordinator, slot)) {
             throw new Error('Managed SSH configuration is not ready. Try the action again.');
         }
+    }
+
+    private isResolvable(
+        coordinator: ManagedSshConsentCoordinator,
+        slot: ManagedRevisionSlot,
+    ): boolean {
+        return typeof coordinator.isProjectionResolvable === 'function'
+            && coordinator.isProjectionResolvable(slot);
     }
 
     private start(): void {

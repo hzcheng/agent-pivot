@@ -77,6 +77,10 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+function escapeRegExpLiteral(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
 export function assertManagedSshMaterializerPlatform(platform: NodeJS.Platform): void {
     if (platform === 'win32') {
         throw new Error(
@@ -152,6 +156,36 @@ export class ManagedSshConsentCoordinator {
             active.content,
             this.owned.getPaths().current,
         ) === 'exact';
+    }
+
+    /**
+     * Whether Remote - SSH can already resolve this revision's aliases.
+     *
+     * Remote - SSH only needs the alias present in the projected `current.conf`
+     * and reachable through the Include block. That is strictly weaker than
+     * `isProjectionReady`, which additionally requires the OpenSSH safety
+     * audit of the user's whole config to have succeeded. Navigation must not
+     * be vetoed by an audit of pre-existing configuration the user did not
+     * change, so the two questions are kept separate.
+     */
+    isProjectionResolvable(slot: ManagedRevisionSlot): boolean {
+        try {
+            const projection = buildManagedSshProjection(slot);
+            const current = this.owned.readCurrent();
+            if (!current) { return false; }
+            const active = this.configFiles.readSecureFile(this.activeConfigPath);
+            if (analyzeManagedInclude(
+                active.content,
+                this.owned.getPaths().current,
+            ) !== 'exact') {
+                return false;
+            }
+            return projection.entries.every(entry =>
+                new RegExp(`^Host ${escapeRegExpLiteral(entry.alias)}$`, 'mu')
+                    .test(current.content));
+        } catch (_error) {
+            return false;
+        }
     }
 
     preflightEnable(slot: ManagedRevisionSlot): Promise<ManagedSshEnablePreflight> {

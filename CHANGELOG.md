@@ -15,6 +15,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   two Machines with the same display name to coexist, by anchoring the SSH
   alias to the Machine identity instead of deriving it from the name alone.
   Previously projected aliases are still recognised.
+- Open Managed Machines and Projects when Remote - SSH can already resolve the
+  projected alias, even if the OpenSSH audit of the surrounding user SSH
+  configuration fails. The audit still gates writing the configuration.
+- Report the OpenSSH exit code and diagnostic, and the specific effective
+  value that was rejected, when Managed SSH validation fails.
 
 ## [1.4.0] - 2026-08-30
 

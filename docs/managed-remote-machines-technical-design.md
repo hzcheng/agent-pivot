@@ -423,25 +423,24 @@ Reconcile performs:
    hard-link the candidate into the now-empty active path; `EEXIST` means an external
    editor won and Agent Pivot never overwrites its bytes;
 7. archive the exact displaced file as the local active-config backup; if automatic
-   publication cannot complete safely, return `Copy Include` + `Open Config` as the
-   manual fallback;
+   publication cannot complete safely, fail the local action without adding a
+   Project-tab setup mode or treating local files as catalog authority;
 8. re-read the active config and every dependency, reject a changed fingerprint,
    validate the actual aggregate read-only, and commit local state.
 
-First enable publishes and verifies `current.conf` before updating the active config,
-then adds the exact owned Include automatically. A manual edit is only a fallback
-when the no-overwrite exchange detects an external writer or a safe primitive is
-unavailable. A crash before that commit leaves either
+First materialization publishes and verifies `current.conf` before updating the
+active config, then adds the exact owned Include automatically. A crash before that
+commit leaves either
 an unreferenced generated file or a recoverable exchange: missing active restores
 the displaced original, while active plus exchange preserves the active bytes and
 archives the displaced original before revalidation. Normal reconcile never
 rewrites the user-owned active config when its exact marker is intact. Startup
 treats `recoveryRequired` as an automatic recovery request: it compares the desired
-projection with Agent Pivot-owned `current.conf` and atomically replaces stale owned
-bytes without requiring Retry.
+projection with Agent Pivot-owned `current.conf` and atomically replaces stale,
+malformed, or previous-format owned bytes without requiring Retry.
 Existing-Include reconcile validates before swapping `current.conf`, so unvalidated
-bytes are never active. Cancel before confirmation leaves the active config
-byte-identical.
+bytes are never active. The Project tab exposes no Enable, Disable, Retry, Rebind,
+or Regenerate control for this local projection.
 
 POSIX owned-file writes require private directories/files, current-user ownership,
 one link, and no symlink; atomic replacement rechecks an existing target before
@@ -465,14 +464,12 @@ type ManagedRemoteIntent =
   | { type: 'openMachine'; machineId: string; expectedRevisionId: string; requestId: string }
   | { type: 'openProject'; projectId: string; expectedRevisionId: string; requestId: string }
   | { type: 'openLocalSshTerminal'; machineId: string; expectedRevisionId: string; requestId: string }
-  | { type: 'copyLocalSshCommand'; machineId: string; expectedRevisionId: string; requestId: string }
-  | { type: 'inspectLegacySsh'; snapshotFingerprint: string; authorities: string[]; requestId: string };
+  | { type: 'copyLocalSshCommand'; machineId: string; expectedRevisionId: string; requestId: string };
 ```
 
-Identity-only applies to open/reconcile. Migration sends no business mutation to UI
-Bridge, but may send the frozen V1 fingerprint and authorities required for local
-inspection. UI Bridge returns only local resolution facts and source checksums; the
-main service constructs and commits catalog candidates.
+Every runtime request is identity-only. UI Bridge reads the synchronized catalog
+itself and never accepts host, user, port, generated config bytes, or a Project URI
+from the remote workspace Extension Host.
 
 For open/reconcile, UI Bridge rereads `managedRemoteCatalogData` locally and requires
 the expected active revision. Mismatch returns `catalogOutOfDate`; the main service
@@ -488,9 +485,9 @@ threat model explicitly excludes a malicious extension already able
 to read User settings and invoke VS Code commands.
 
 Responses are discriminated unions with protocol version and request ID. Progress
-is non-terminal. Missing/old Bridge capability disables cross-Machine navigation
-with `Update UI Bridge`; current-Machine Project navigation remains available and
-does not silently consume legacy Project storage.
+is non-terminal. A missing local runtime makes cross-Machine navigation fail with a
+normal action error; it never adds a persistent setup state to the Project tab.
+Current-Machine Project navigation remains available by reusing its live authority.
 
 ## 9. Navigation
 
@@ -576,8 +573,8 @@ interactive command is blocked on that combination rather than accidentally runn
 ## 10. Mutation and failure ordering
 
 - **Add/Edit:** validate and commit catalog, refresh UI, then request local reconcile.
-  A local failure keeps synced data and raises the client banner; it never rolls
-  back using a stale local snapshot.
+  A local failure keeps synced data and reports the failed action; it never rolls
+  back using a stale local snapshot or changes the Project-tab information model.
 - **Open:** current-Machine Projects fail closed unless the live remote authority
   identifies exactly one managed Environment; cross-Machine opens fail closed until
   UI Bridge sees the expected unconflicted revision and a verified local projection.

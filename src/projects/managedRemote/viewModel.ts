@@ -87,12 +87,12 @@ function clientMessage(state: ManagedRemoteClientUiState): string {
 }
 
 function unavailableReason(
-    state: ManagedRemoteClientUiState,
+    active: boolean,
     conflicted: boolean,
 ): string | undefined {
     if (conflicted) { return 'Connection conflict — Review'; }
-    if (state === 'ready') { return undefined; }
-    return clientMessage(state);
+    if (!active) { return 'The Managed Machine catalog is unavailable.'; }
+    return undefined;
 }
 
 function hasConflict(
@@ -110,6 +110,7 @@ export function buildManagedRemoteProjectsViewModel(
 ): ManagedRemoteProjectsViewModel {
     const clientState = requestedClientState
         || (snapshot.lifecycle === 'active' ? 'enableRequired' : 'preview');
+    const active = snapshot.lifecycle === 'active';
     const tags = new Map<string, string>();
     const projectRows = new Map<string, ManagedRemoteProjectRowViewModel>();
     const machines = inLayoutOrder(
@@ -136,7 +137,7 @@ export function buildManagedRemoteProjectsViewModel(
                     snapshot.catalog.conflicts, 'project', project.id,
                 );
                 const reason = unavailableReason(
-                    clientState,
+                    active,
                     machineConflict || environmentConflict || projectConflict,
                 );
                 for (const tag of project.tags || []) {
@@ -165,7 +166,7 @@ export function buildManagedRemoteProjectsViewModel(
                 return row;
             });
             const reason = unavailableReason(
-                clientState,
+                active,
                 machineConflict || environmentConflict,
             );
             return {
@@ -176,7 +177,7 @@ export function buildManagedRemoteProjectsViewModel(
                 conflict: environmentConflict,
             };
         });
-        const reason = unavailableReason(clientState, machineConflict);
+        const reason = unavailableReason(active, machineConflict);
         return {
             ...machine,
             endpoint: machineEndpoint,

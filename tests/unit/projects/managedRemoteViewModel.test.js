@@ -54,3 +54,16 @@ test('MANAGED-REMOTE-MANAGEMENT-003 exposes conflict recovery instead of an open
     assert.match(model.machines[0].unavailableReason, /Conflict/i);
     assert.equal(model.machines[0].environments[0].projects[0].openable, false);
 });
+
+test('MANAGED-REMOTE-NAVIGATION-001 keeps active catalog actions independent from local SSH projection state', () => {
+    const current = snapshot();
+    current.lifecycle = 'active';
+
+    for (const clientState of [
+        'enableRequired', 'applying', 'attention', 'remoteSshMissing',
+    ]) {
+        const model = buildManagedRemoteProjectsViewModel(current, clientState);
+        assert.equal(model.machines[0].openable, true);
+        assert.equal(model.machines[0].environments[0].projects[0].openable, true);
+    }
+});

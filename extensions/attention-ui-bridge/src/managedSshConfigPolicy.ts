@@ -38,6 +38,7 @@ export interface ManagedSshConfigPolicyOptions {
     maxFiles?: number;
     maxBytes?: number;
     virtualFiles?: Map<string, string>;
+    ignoredIncludePaths?: Set<string>;
 }
 
 export interface ManagedSshConfigFileSystem {
@@ -253,6 +254,8 @@ export function scanManagedSshConfigGraph(
     const issues: string[] = [];
     const visited = new Set<string>();
     const visiting = new Set<string>();
+    const ignoredIncludePaths = new Set(Array.from(options.ignoredIncludePaths || [])
+        .map(value => canonicalLexicalPath(value, options.platform)));
     let totalBytes = 0;
 
     const visit = (filePath: string, depth: number): void => {
@@ -331,6 +334,12 @@ export function scanManagedSshConfigGraph(
             for (const included of directive.arguments) {
                 if (!isAbsoluteLiteral(included, options.platform)) {
                     issues.push(`dynamic-include:${filePath}:${lineNumber + 1}`);
+                    continue;
+                }
+                if (ignoredIncludePaths.has(canonicalLexicalPath(
+                    included,
+                    options.platform,
+                ))) {
                     continue;
                 }
                 visit(included, depth + 1);

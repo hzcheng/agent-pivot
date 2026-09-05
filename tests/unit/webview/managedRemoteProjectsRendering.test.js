@@ -68,6 +68,24 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 keeps an unavailable catalog free of a lo
     assert.doesNotMatch(html, /beginMigration|>Migrate</u);
 });
 
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 keeps local SSH projection state out of the Project product surface', () => {
+    for (const clientState of [
+        'preview', 'enableRequired', 'applying', 'attention', 'remoteSshMissing',
+    ]) {
+        const current = model();
+        current.lifecycle = 'active';
+        current.clientState = clientState;
+        current.clientMessage = 'The SSH configuration needs attention.';
+        const html = renderManagedRemoteProjectsPanel(current);
+
+        assert.doesNotMatch(html, /data-managed-client-banner/u);
+        assert.doesNotMatch(
+            html,
+            /Enable on This Computer|Retry|Install Remote - SSH|Regenerate SSH Config/u,
+        );
+    }
+});
+
 test('ready managed catalog does not render a redundant status banner or disable action', () => {
     const ready = model();
     ready.lifecycle = 'active';

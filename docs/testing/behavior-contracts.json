@@ -7357,7 +7357,7 @@
   {
     "id": "MANAGED-REMOTE-SSH-CONSENT-001",
     "domain": "persistence",
-    "title": "Enable and Disable use local generation-checked consent, automatic no-overwrite Include commits with manual fallback, and resumable recovery",
+    "title": "The local UI host automatically maintains the owned SSH Include and rebuilds malformed current.conf bytes from synchronized catalog authority",
     "priority": "P0",
     "status": "automated",
     "owners": [

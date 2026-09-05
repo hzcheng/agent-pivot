@@ -152,8 +152,9 @@ unrelated SSH bytes.
 - Machine main-row activation only expands/collapses.
 - Its right-side Open starts a new Remote - SSH window for Host.
 - Remote - SSH prompts for authentication as normal.
-- The row menu contains `Add Project…`, `Edit Machine…`, `Regenerate SSH Config`,
-  `Open SSH Terminal…`, `Copy SSH Command`, and `Remove Machine…`.
+- The row menu contains `Add Project…`, `Edit Machine…`, `Open SSH Terminal…`,
+  `Copy SSH Command`, and `Remove Machine…`. Local SSH projection maintenance has
+  no product control in this menu.
 
 ### 7.4 SSH from the Command Palette
 
@@ -166,9 +167,9 @@ input.
 
 `Agent Pivot: Copy SSH Command…` uses the same picker and copies the equivalent
 local command, normally `ssh <readable-machine-name>`. It
-contains no password or other credential. Both commands require this computer to be enabled and the exact
-catalog revision/config projection to be ready; otherwise they show the same
-Enable/Retry/conflict recovery as Machine Open.
+contains no password or other credential. Both commands resolve the exact current
+catalog revision in the local runtime, repair the generated projection when needed,
+and then execute. Catalog conflicts still fail closed.
 
 ### 7.5 Add or edit a Project
 

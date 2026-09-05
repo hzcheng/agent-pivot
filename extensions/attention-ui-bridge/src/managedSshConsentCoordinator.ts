@@ -194,16 +194,9 @@ export class ManagedSshConsentCoordinator {
 
     reconcile(slot: ManagedRevisionSlot): Promise<ManagedSshConsentRecordV1> {
         return this.enqueue(async () => {
+            this.activeConfigEditor.recoverInterruptedExchange();
             let current = this.readStoredState();
-            if (current.status !== 'enabled') {
-                throw new Error('Managed SSH connections are not enabled on this computer.');
-            }
             const preflight = await this.preflightEnableNow(slot);
-            if (preflight.includeState !== 'exact') {
-                const error = new Error('The Agent Pivot Include is missing from the active SSH config.');
-                this.markRecovery(current, error);
-                throw error;
-            }
             current = this.consent.compareAndSet(current.generation, {
                 ...current,
                 executable: this.executable,
@@ -222,20 +215,24 @@ export class ManagedSshConsentCoordinator {
                     slot,
                     preflight.projection,
                     preflight.dependencyFingerprint,
-                    current.currentChecksum,
+                    undefined,
                 );
                 current = this.consent.compareAndSet(current.generation, {
                     ...current,
                     journal: {
                         operation: 'reconcile',
-                        phase: 'activating',
+                        phase: 'awaitingInclude',
                         revisionId: slot.revisionId,
                         connectionDigest: preflight.projection.connectionDigest,
                         currentChecksum: installed.currentChecksum,
                         dependencyDigest: preflight.dependencyFingerprint.digest,
                     },
                 });
-                return await this.completeEnableNow(slot, current);
+                const result = await this.tryAutomaticEnable(slot, current, preflight);
+                if (result.status !== 'enabled') {
+                    throw new Error('The active SSH config could not be updated automatically.');
+                }
+                return result.record;
             } catch (error) {
                 this.markRecovery(current, error);
                 throw error;
@@ -582,9 +579,7 @@ export class ManagedSshConsentCoordinator {
         if (includeState === 'malformed') {
             throw new Error('The active SSH config contains a modified or duplicate Agent Pivot marker.');
         }
-        const scan = scanManagedSshConfigGraph(this.activeConfigPath, this.configFiles, {
-            platform: process.platform,
-        });
+        const scan = this.scanActiveConfigDependencies();
         if (scan.issues.length || !scan.fingerprint) {
             throw new Error(`The active SSH config is unsafe: ${scan.issues.join(', ')}`);
         }
@@ -638,9 +633,7 @@ export class ManagedSshConsentCoordinator {
             aggregateConfigContent: aggregate,
             entries: projection.entries,
         });
-        const afterScan = scanManagedSshConfigGraph(this.activeConfigPath, this.configFiles, {
-            platform: process.platform,
-        });
+        const afterScan = this.scanActiveConfigDependencies();
         if (!afterScan.fingerprint || afterScan.fingerprint.digest !== fingerprint.digest) {
             throw new Error('The active SSH config changed while Agent Pivot was validating it.');
         }
@@ -661,9 +654,7 @@ export class ManagedSshConsentCoordinator {
         if (analyzeManagedInclude(active.content, paths.current) !== 'exact') {
             throw new Error('Add the exact Agent Pivot Include block before continuing.');
         }
-        const scan = scanManagedSshConfigGraph(this.activeConfigPath, this.configFiles, {
-            platform: process.platform,
-        });
+        const scan = this.scanActiveConfigDependencies();
         if (scan.issues.length || !scan.fingerprint) {
             throw new Error(`The enabled SSH config is unsafe: ${scan.issues.join(', ')}`);
         }
@@ -685,9 +676,7 @@ export class ManagedSshConsentCoordinator {
             aggregateConfigContent: active.content,
             entries: projection.entries,
         });
-        const verifiedScan = scanManagedSshConfigGraph(this.activeConfigPath, this.configFiles, {
-            platform: process.platform,
-        });
+        const verifiedScan = this.scanActiveConfigDependencies();
         if (!verifiedScan.fingerprint
             || verifiedScan.fingerprint.digest !== scan.fingerprint.digest
             || analyzeManagedInclude(
@@ -724,5 +713,12 @@ export class ManagedSshConsentCoordinator {
 
     private readStoredState(): ManagedSshConsentRecordV1 {
         return this.consent.read(this.activeConfigPath, this.executable);
+    }
+
+    private scanActiveConfigDependencies() {
+        return scanManagedSshConfigGraph(this.activeConfigPath, this.configFiles, {
+            platform: process.platform,
+            ignoredIncludePaths: new Set([this.owned.getPaths().current]),
+        });
     }
 }

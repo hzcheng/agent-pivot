@@ -127,6 +127,21 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 reconciles owned config only when connectio
     assert.equal(state.activeRevisionId, slot.revisionId);
 });
 
+test('MANAGED-REMOTE-SSH-CONSENT-001 rebuilds a malformed owned current.conf from catalog authority', async t => {
+    const { config, coordinator, catalog } = fixture(t);
+    const slot = createManagedRevisionSlot(catalog.getDocument());
+    await coordinator.beginEnable(slot);
+    const currentPath = path.join(path.dirname(config), 'agent-pivot', 'current.conf');
+    const expected = fs.readFileSync(currentPath, 'utf8');
+
+    fs.writeFileSync(currentPath, 'Host "unterminated\n', { mode: 0o600 });
+    const state = await coordinator.reconcile(slot);
+
+    assert.equal(fs.readFileSync(currentPath, 'utf8'), expected);
+    assert.equal(state.status, 'enabled');
+    assert.equal(state.activeRevisionId, slot.revisionId);
+});
+
 test('MANAGED-REMOTE-SSH-CONSENT-001 disables automatically after a read-only preview', async t => {
     const { config, coordinator, catalog } = fixture(t);
     const slot = createManagedRevisionSlot(catalog.getDocument());

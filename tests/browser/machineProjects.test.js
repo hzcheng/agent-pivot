@@ -59,13 +59,14 @@ function markup(includeFavorite = true, machineOverrides = {}, managedRemoteRevi
 
 function managedMarkup(clientState = 'preview') {
     const ready = clientState === 'ready';
+    const active = clientState !== 'preview';
     const managedProject = {
         id: 'project:managed', environmentId: 'environment:managed-host',
         machineId: 'machine:managed', machineName: 'Build',
         machineEndpoint: 'dev@build.example.com:22022', environmentName: 'Host',
         name: 'Managed API', remotePath: '/work/api', tags: ['backend'], favorite: true,
-        color: '#c586c0', searchText: 'managed api backend build host', openable: ready,
-        ...(ready ? {} : { unavailableReason: 'Managed Remote preview.' }),
+        color: '#c586c0', searchText: 'managed api backend build host', openable: active,
+        ...(active ? {} : { unavailableReason: 'Managed Remote preview.' }),
     };
     return renderManagedRemoteProjectsPanel({
         revisionId: `revision:${'a'.repeat(64)}`,
@@ -75,8 +76,8 @@ function managedMarkup(clientState = 'preview') {
         machines: [{
             id: 'machine:managed', name: 'Build', endpoint: 'dev@build.example.com:22022',
             connection: { kind: 'ssh', host: 'build.example.com', user: 'dev', port: 22022 },
-            projectCount: 1, openable: ready,
-            ...(ready ? {} : { unavailableReason: 'Managed Remote preview.' }),
+            projectCount: 1, openable: active,
+            ...(active ? {} : { unavailableReason: 'Managed Remote preview.' }),
             conflict: false,
             environments: [{
                 id: 'environment:managed-host', machineId: 'machine:managed', kind: 'host',
@@ -388,17 +389,14 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 sends a strict row-menu SSH identity intent
     assert.equal(message.expectedRevisionId, `revision:${'a'.repeat(64)}`);
 });
 
-test('MANAGED-REMOTE-CLIENT-ENABLE-001 lets an explicitly disabled client send a revisioned re-enable intent', async t => {
-    const page = await openPage(t, 360, managedMarkup('enableRequired', true));
-    await page.getByRole('button', { name: 'Enable on This Computer' }).click();
+test('MANAGED-REMOTE-CLIENT-ENABLE-001 keeps local SSH projection controls out of the Project tab', async t => {
+    const page = await openPage(t, 360, managedMarkup('enableRequired'));
 
-    const message = await page.evaluate(() => window.messages.at(-1));
-    assert.deepEqual(Object.keys(message).sort(), [
-        'action', 'expectedRevisionId', 'requestId', 'type', 'version',
-    ]);
-    assert.equal(message.type, 'managed-remote-client-action');
-    assert.equal(message.action, 'enable');
-    assert.equal(message.expectedRevisionId, `revision:${'a'.repeat(64)}`);
+    assert.equal(await page.locator('[data-managed-client-banner]').count(), 0);
+    assert.equal(await page.getByText(/Enable on This Computer|Retry|Install Remote - SSH/u).count(), 0);
+    assert.equal(await page.locator(
+        '[data-managed-project-row]:not(.machine-favorite-row) .machine-project-primary'
+    ).isEnabled(), true);
 });
 
 test('MANAGED-REMOTE-NAVIGATION-001 sends Project identity instead of a remote URI', async t => {
@@ -426,6 +424,22 @@ test('MANAGED-REMOTE-NAVIGATION-001 lets an attention-state Project retry naviga
     const message = await page.evaluate(() => window.messages.at(-1));
     assert.equal(message.action, 'openProject');
     assert.equal(message.targetId, 'project:managed');
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 keeps Project identity actions available while local SSH projection self-repairs', async t => {
+    for (const state of ['enableRequired', 'applying', 'remoteSshMissing']) {
+        const page = await openPage(t, 360, managedMarkup(state));
+        const project = page.locator(
+            '[data-managed-project-row]:not(.machine-favorite-row) .machine-project-primary'
+        );
+
+        assert.equal(await project.isEnabled(), true, `${state} Project must remain actionable`);
+        await project.click();
+
+        const message = await page.evaluate(() => window.messages.at(-1));
+        assert.equal(message.action, 'openProject');
+        assert.equal(message.targetId, 'project:managed');
+    }
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-003 stays within 260px with endpoint-qualified rows', async t => {

@@ -330,3 +330,16 @@ export function getProjectPathPart(projectPath: string): string {
 export function uriToProjectPath(uri: vscode.Uri): string {
     return uri.scheme === "file" ? uri.fsPath.trim() : uri.toString().trim();
 }
+
+/**
+ * The absolute path a saved Managed Project should record for this window.
+ *
+ * Kept beside the matcher that compares it so the value written on save and the
+ * value compared on lookup are normalized by the same code. Returns null when
+ * the window has no absolute path to record.
+ */
+export function managedRemotePathForWorkspace(uri: vscode.Uri): string | null {
+    if (!uri) { return null; }
+    const remotePath = normalizePosixPath(uri.path || uri.fsPath);
+    return remotePath.startsWith('/') ? remotePath : null;
+}

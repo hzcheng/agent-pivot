@@ -117,6 +117,22 @@ export class ManagedRemoteManagementController {
     constructor(private readonly options: ManagedRemoteManagementControllerOptions) {
     }
 
+    /**
+     * Add a Project directly, without the wizard.
+     *
+     * Saving the open window already determines the Environment and the path, so
+     * prompting for them would only invite a typo that stops the Project from
+     * being recognised as saved.
+     */
+    async addProjectDirectly(
+        input: AddManagedProjectInput,
+    ): Promise<ManagedRemoteManagementSnapshot> {
+        const current = await this.options.store.getSnapshot();
+        const result = await this.options.store.addProject(current.revisionId, input);
+        await this.options.refreshAuthoritative('save-workspace', 'addProject', result);
+        return result;
+    }
+
     async handle(raw: unknown): Promise<void> {
         const correlation = readManagedRemoteManagementCorrelation(raw);
         if (!correlation) { return; }

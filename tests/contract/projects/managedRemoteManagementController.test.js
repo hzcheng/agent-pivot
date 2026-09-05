@@ -201,3 +201,53 @@ test('MANAGED-REMOTE-MANAGEMENT-001 resolves a conflict from raw causal candidat
     assert.equal(calls[0][0], 'resolve');
     assert.equal(calls[0][3].connection.host, 'other.example.com');
 });
+
+test('MANAGED-REMOTE-MANAGEMENT-001 saves the open window without prompting', async () => {
+    const { controller, calls } = fixture({
+        prompts: {
+            async addProject() {
+                throw new Error('saving the open window must not prompt');
+            },
+            async chooseMachineForProject() {
+                throw new Error('saving the open window must not prompt');
+            },
+        },
+    });
+
+    // The Environment and the path are already determined by the open window, so
+    // prompting could only introduce a mismatch that stops the Project from
+    // being recognised as saved.
+    const result = await controller.addProjectDirectly({
+        environmentId: 'environment:host:machine:one',
+        name: 'task-541ab4',
+        remotePath: '/work/task-541ab4',
+    });
+
+    assert.equal(result.revisionId, nextRevisionId);
+    assert.deepEqual(calls, [
+        ['addProject', revisionId, {
+            environmentId: 'environment:host:machine:one',
+            name: 'task-541ab4',
+            remotePath: '/work/task-541ab4',
+        }],
+        ['refresh', 'save-workspace', 'addProject', nextRevisionId],
+    ]);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-001 surfaces a rejected direct save to the caller', async () => {
+    const { controller } = fixture({
+        store: {
+            async addProject() { throw new Error('catalog revision is out of date'); },
+        },
+    });
+
+    // The Save button must not silently report success when the write failed.
+    await assert.rejects(
+        controller.addProjectDirectly({
+            environmentId: 'environment:host:machine:one',
+            name: 'API',
+            remotePath: '/work/api',
+        }),
+        /out of date/u,
+    );
+});

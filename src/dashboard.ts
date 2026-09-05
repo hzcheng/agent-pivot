@@ -226,7 +226,9 @@ import {
     parsePathAsUri,
 } from './projects/openProjectService';
 import {
+    findManagedEnvironmentForWorkspace,
     findManagedProjectForOpenProject,
+    managedRemotePathForWorkspace,
     findSavedProjectForOpenProject,
     managedProjectUriFromCurrentMachine,
 } from './projects/openProjectMatcher';
@@ -242,6 +244,7 @@ import { GroupCommandController } from './projects/groupCommandController';
 import { queryGroupName } from './projects/groupPrompts';
 import { ProjectManualEditController } from './projects/projectManualEditController';
 import { ProjectMutationController } from './projects/projectMutationController';
+import type { ProjectDetailsForSave } from './projects/remoteProjectResolver';
 import { ProjectOpenController } from './projects/projectOpenController';
 import { ProjectOrderController } from './projects/projectOrderController';
 import { ProjectPromptController } from './projects/projectPromptController';
@@ -1243,7 +1246,10 @@ async function initializeDashboard(
         pendingStore: new PendingWorkspaceSaveStore(context.globalState),
         getProjectDetailsForSave: navigationUri =>
             currentProjectDetailsResolver.getProjectDetailsForSave(vscode.Uri.parse(navigationUri)),
-        saveWorkspaceProject: details => projectMutationController.saveWorkspaceProject(details),
+        saveWorkspaceProject: async details => {
+            if (details && await saveWorkspaceIntoManagedCatalog(details)) { return; }
+            await projectMutationController.saveWorkspaceProject(details);
+        },
         executeSaveWorkspaceAs: () => Promise.resolve(
             vscode.commands.executeCommand('workbench.action.saveWorkspaceAs')
         ),
@@ -4236,6 +4242,44 @@ async function initializeDashboard(
         return openWorkspaceDashboardController.getCards(projection);
     }
 
+    /**
+     * Save the open window into the Managed Remote catalog when it belongs to a
+     * managed Environment.
+     *
+     * The catalog is the authority the Project tab renders and the saved-project
+     * check reads, and it is the store that synchronizes across machines. Saving
+     * into the legacy store instead left the Project invisible in the tab, still
+     * offering Save, and absent from the user's other machines.
+     *
+     * Returns false when the window is not managed, so the legacy path still
+     * handles local and unmanaged remote folders.
+     */
+    async function saveWorkspaceIntoManagedCatalog(
+        details: ProjectDetailsForSave,
+    ): Promise<boolean> {
+        if (managedRemoteSnapshot.lifecycle !== 'active') { return false; }
+        const workspaceUri = vscode.Uri.parse(details.path);
+        const context = {
+            remoteName: vscode.env.remoteName,
+            devContainerHostWorkspaceFolder: process.env.LOCAL_WORKSPACE_FOLDER,
+        };
+        const environment = findManagedEnvironmentForWorkspace(
+            managedRemoteSnapshot,
+            workspaceUri,
+            context,
+        );
+        if (!environment) { return false; }
+        const remotePath = managedRemotePathForWorkspace(workspaceUri);
+        if (!remotePath) { return false; }
+        const capability = managedRemoteCapability || await managedRemoteCapabilityPromise;
+        await capability.controller.addProjectDirectly({
+            environmentId: environment.id,
+            name: remotePath.split('/').filter(Boolean).pop() || remotePath,
+            remotePath,
+        });
+        return true;
+    }
+
     function getSavedProjectForCurrentWorkspace(): Project | null {
         return getSavedProjectForWorkspace(getCurrentOpenWorkspace());
     }
@@ -4274,7 +4318,14 @@ async function initializeDashboard(
                 workspaceUri,
                 vscode.env.remoteName,
             );
-        } catch (_error) {
+        } catch (error) {
+            // Reporting "not saved" on a thrown lookup is indistinguishable from
+            // a genuinely unsaved workspace, so record why before falling back.
+            logDashboardDiagnostic({
+                event: 'saved-project-lookup-failed',
+                navigationUri: workspace.navigationUri,
+                message: error instanceof Error ? error.message : String(error),
+            });
             return null;
         }
     }

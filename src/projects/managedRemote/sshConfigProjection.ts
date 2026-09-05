@@ -82,23 +82,37 @@ export function managedSshAlias(
     return alias;
 }
 
+/**
+ * Whether `alias` was projected for this Machine.
+ *
+ * Recognition is anchored on the identity suffix rather than the readable
+ * segment, so a renamed Machine still claims the alias already written to the
+ * user's SSH config. The 4-hex suffix carries only 16 bits, so this is not a
+ * unique key: callers must resolve a tie by requiring exactly one claimant.
+ */
 export function isManagedSshAliasForMachine(
     alias: string,
     machineId: string,
-    machineName: string = '',
-    connectionHost: string = '',
 ): boolean {
     if (!isManagedSshAlias(alias)) { return false; }
     const digest = hash(machineId);
-    // Canonical form: readable segment + stable machineId suffix. Renaming a
-    // Machine changes only the readable segment, so recognition is anchored on
-    // the suffix rather than on the current name.
-    if (alias.endsWith(`-${digest.slice(0, 4)}`)) { return true; }
-    // Already-persisted forms, accepted so existing saved Projects keep
-    // resolving: the name-only alias and the two earlier hash layouts.
-    return alias === managedSshAliasName(machineName, connectionHost)
-        || alias === `agent-pivot-${digest.slice(0, 32)}`
-        || alias.endsWith(`-${digest.slice(0, 8)}`);
+    return alias.endsWith(`-${digest.slice(0, 4)}`)
+        || alias.endsWith(`-${digest.slice(0, 8)}`)
+        || alias === `agent-pivot-${digest.slice(0, 32)}`;
+}
+
+/**
+ * Whether an alias was projected for this Machine under a naming scheme that
+ * predates the identity suffix. Such an alias carries no Machine identity, so
+ * it can only be attributed when exactly one Machine claims it.
+ */
+export function isLegacyNameOnlyAliasForMachine(
+    alias: string,
+    machineName: string = '',
+    connectionHost: string = '',
+): boolean {
+    return isManagedSshAlias(alias)
+        && alias === managedSshAliasName(machineName, connectionHost);
 }
 
 export function buildManagedSshProjection(slot: ManagedRevisionSlot): ManagedSshProjection {

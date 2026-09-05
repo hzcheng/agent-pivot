@@ -24,6 +24,11 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   Machine named in a non-Latin script resolves instead of failing with
   "hostname contains invalid characters". Such a name now takes its readable
   segment from the connection host.
+- Recognise an opened Project as already saved when its Machine shares a
+  display name or connection host with another Machine. Alias recognition is
+  now bound to the Machine identity, so a shared name no longer makes the open
+  window ambiguous and no longer shows Save for a Project that is already
+  stored.
 
 ## [1.4.0] - 2026-08-30
 

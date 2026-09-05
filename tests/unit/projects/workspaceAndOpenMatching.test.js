@@ -397,3 +397,103 @@ test('PROJECT-WORKSPACE-HELPER-001 delegates workspace navigation to the current
     assert.equal(service.getWorkspaceUri(workspaceFile, folders), workspaceFile);
     assert.deepEqual(service.getWorkspaceUris(null, folders), [folders[0].uri]);
 });
+
+function twoMachinesOnOneHost() {
+    // A dev box registered twice: the host itself and its Dev Container. Both
+    // share a connection host, so a name-derived alias cannot tell them apart.
+    const host = 'reddev.example.com';
+    const first = {
+        id: 'machine:one', name: '小红书开发机',
+        connection: { kind: 'ssh', host, user: 'dev', port: 22022 },
+    };
+    const second = {
+        id: 'machine:two', name: '小红书开发机备用',
+        connection: { kind: 'ssh', host, user: 'dev', port: 22022 },
+    };
+    return {
+        first,
+        second,
+        snapshot: {
+            revisionId: `revision:${'a'.repeat(64)}`,
+            lifecycle: 'active',
+            catalog: {
+                machines: [first, second],
+                environments: [
+                    { id: 'environment:one', machineId: first.id, kind: 'host', name: 'Host' },
+                    { id: 'environment:two', machineId: second.id, kind: 'host', name: 'Host' },
+                ],
+                projects: [{
+                    id: 'project:one', environmentId: 'environment:one',
+                    name: 'API', remotePath: '/work/api',
+                }],
+                layout: {
+                    machineIds: [], environmentIdsByMachine: {},
+                    projectIdsByEnvironment: {}, favoriteProjectIds: [],
+                },
+                conflicts: [],
+            },
+            machineConflictCandidates: {},
+        },
+    };
+}
+
+test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Machine sharing a connection host with a sibling', () => {
+    const { first, snapshot } = twoMachinesOnOneHost();
+    // The identity suffix distinguishes the two Machines, so the opened window
+    // must resolve to exactly the Machine whose alias it carries.
+    const alias = managedSshAlias(first.id, first.name, first.connection.host);
+    const environment = matcher.findManagedEnvironmentForWorkspace(
+        snapshot,
+        FakeUri.parse(`vscode-remote://${encodeURIComponent(`ssh-remote+${alias}`)}/work/api`),
+    );
+
+    assert.ok(environment, 'the opened Project must be recognised as saved');
+    assert.equal(environment.id, 'environment:one');
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 stays ambiguous for a legacy alias two Machines both claim', () => {
+    const { snapshot } = twoMachinesOnOneHost();
+    // A pre-suffix alias derived from the shared connection host carries no
+    // Machine identity, so attributing it to either Machine would be a guess.
+    const environment = matcher.findManagedEnvironmentForWorkspace(
+        snapshot,
+        FakeUri.parse('vscode-remote://ssh-remote%2Breddev.example.com/work/api'),
+    );
+
+    assert.equal(environment, null);
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 resolves a legacy alias exactly one Machine claims', () => {
+    const { first, snapshot } = twoMachinesOnOneHost();
+    // Give the sibling a distinct connection host so only one Machine can claim
+    // the legacy name-only alias; it must then still resolve.
+    snapshot.catalog.machines[1] = {
+        ...snapshot.catalog.machines[1],
+        connection: { ...snapshot.catalog.machines[1].connection, host: 'other.example.com' },
+    };
+    const legacy = require('../../../out/projects/managedRemote/sshConfigProjection')
+        .managedSshAliasName(first.name, first.connection.host);
+    const environment = matcher.findManagedEnvironmentForWorkspace(
+        snapshot,
+        FakeUri.parse(`vscode-remote://${encodeURIComponent(`ssh-remote+${legacy}`)}/work/api`),
+    );
+
+    assert.ok(environment, 'a uniquely claimed legacy alias must still resolve');
+    assert.equal(environment.id, 'environment:one');
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Machine after it is renamed', () => {
+    const { first, snapshot } = twoMachinesOnOneHost();
+    // The alias already written to the SSH config keeps the old readable
+    // segment; recognition is anchored on the identity suffix, so renaming the
+    // Machine must not orphan its open window.
+    const projected = managedSshAlias(first.id, first.name, first.connection.host);
+    snapshot.catalog.machines[0] = { ...first, name: 'Renamed Box' };
+    const environment = matcher.findManagedEnvironmentForWorkspace(
+        snapshot,
+        FakeUri.parse(`vscode-remote://${encodeURIComponent(`ssh-remote+${projected}`)}/work/api`),
+    );
+
+    assert.ok(environment, 'a renamed Machine must still claim its projected alias');
+    assert.equal(environment.id, 'environment:one');
+});

@@ -229,7 +229,7 @@ import {
 import {
     findManagedProjectForOpenProject,
     findSavedProjectForOpenProject,
-    managedProjectUriFromCurrentMachine,
+    managedProjectUriForNavigation,
 } from './projects/openProjectMatcher';
 import {
     getWorkspacePath as resolveWorkspacePath,
@@ -1070,26 +1070,23 @@ async function initializeDashboard(
         },
         getCurrentSnapshot: () => managedRemoteSnapshot,
         openProjectFromCurrentMachine: async (snapshot, projectId) => {
-            const projectUri = managedProjectUriFromCurrentMachine(
+            const projectUri = managedProjectUriForNavigation(
                 snapshot,
                 projectId,
                 getWorkspaceUris(
                     vscode.workspace.workspaceFile,
                     vscode.workspace.workspaceFolders,
                 ),
+                {
+                    remoteName: vscode.env.remoteName,
+                    devContainerHostWorkspaceFolder:
+                        process.env.LOCAL_WORKSPACE_FOLDER,
+                },
             );
-            if (!projectUri) {
-                logDashboardDiagnostic({
-                    event: 'managed-remote-project-navigation-route',
-                    projectId,
-                    route: 'ui-bridge',
-                });
-                return false;
-            }
             logDashboardDiagnostic({
                 event: 'managed-remote-project-navigation-route',
                 projectId,
-                route: 'current-machine',
+                route: 'workspace-host',
             });
             await vscode.commands.executeCommand(
                 'vscode.openFolder',
@@ -1099,7 +1096,7 @@ async function initializeDashboard(
             logDashboardDiagnostic({
                 event: 'managed-remote-project-navigation-dispatched',
                 projectId,
-                route: 'current-machine',
+                route: 'workspace-host',
             });
             return true;
         },

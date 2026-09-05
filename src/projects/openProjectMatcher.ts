@@ -16,6 +16,7 @@ import {
 } from './managedRemote/devContainerCodec';
 import {
     isManagedSshAliasForMachine,
+    managedSshAlias,
 } from './managedRemote/sshConfigProjection';
 import {
     encodeRemoteAuthority,
@@ -27,6 +28,11 @@ export interface ManagedOpenProjectMatch {
     project: ManagedRemoteProject;
     environment: ManagedEnvironment;
     machine: ManagedSshMachine;
+}
+
+export interface ManagedCurrentRemoteContext {
+    remoteName?: string;
+    devContainerHostWorkspaceFolder?: string;
 }
 
 function environmentMachine(
@@ -78,12 +84,26 @@ function environmentMatchesRemoteAuthority(
 export function findManagedEnvironmentForWorkspace(
     snapshot: ManagedRemoteManagementSnapshot,
     uri: vscode.Uri,
+    context: ManagedCurrentRemoteContext = {},
 ): ManagedEnvironment | null {
-    if (snapshot.lifecycle !== 'active' || !uri || uri.scheme !== 'vscode-remote') {
+    if (snapshot.lifecycle !== 'active' || !uri) {
         return null;
     }
-    const matches = snapshot.catalog.environments.filter(environment =>
-        environmentMatchesRemoteAuthority(snapshot, environment, uri));
+    let matches: ManagedEnvironment[] = [];
+    if (uri.scheme === 'vscode-remote') {
+        matches = snapshot.catalog.environments.filter(environment =>
+            environmentMatchesRemoteAuthority(snapshot, environment, uri));
+    } else if (uri.scheme === 'file' && context.remoteName === 'dev-container') {
+        const hostWorkspace = context.devContainerHostWorkspaceFolder;
+        if (hostWorkspace) {
+            const normalizedHostWorkspace = normalizePosixPath(hostWorkspace);
+            matches = snapshot.catalog.environments.filter(environment =>
+                environment.kind === 'devContainer'
+                && environment.devContainerAnchor?.sourceKind === 'workspace'
+                && normalizePosixPath(environment.devContainerAnchor.sourceLocator)
+                    === normalizedHostWorkspace);
+        }
+    }
     return matches.length === 1 ? matches[0] : null;
 }
 
@@ -99,6 +119,7 @@ export function managedProjectUriFromCurrentMachine(
     snapshot: ManagedRemoteManagementSnapshot,
     projectId: string,
     workspaceUris: readonly vscode.Uri[],
+    context: ManagedCurrentRemoteContext = {},
 ): vscode.Uri | null {
     const project = snapshot.catalog.projects.find(value => value.id === projectId);
     if (!project) { throw new Error('Managed Project no longer exists.'); }
@@ -106,7 +127,11 @@ export function managedProjectUriFromCurrentMachine(
         environment.id === project.environmentId);
     if (!targetEnvironment) { throw new Error('Managed Project Environment no longer exists.'); }
     for (const currentUri of workspaceUris || []) {
-        const currentEnvironment = findManagedEnvironmentForWorkspace(snapshot, currentUri);
+        const currentEnvironment = findManagedEnvironmentForWorkspace(
+            snapshot,
+            currentUri,
+            context,
+        );
         if (!currentEnvironment
             || currentEnvironment.machineId !== targetEnvironment.machineId) {
             continue;
@@ -133,6 +158,43 @@ export function managedProjectUriFromCurrentMachine(
         if (rebuilt) { return vscode.Uri.parse(rebuilt); }
     }
     return null;
+}
+
+export function managedProjectUriForNavigation(
+    snapshot: ManagedRemoteManagementSnapshot,
+    projectId: string,
+    workspaceUris: readonly vscode.Uri[],
+    context: ManagedCurrentRemoteContext = {},
+): vscode.Uri {
+    const currentMachineUri = managedProjectUriFromCurrentMachine(
+        snapshot,
+        projectId,
+        workspaceUris,
+        context,
+    );
+    if (currentMachineUri) { return currentMachineUri; }
+    const project = snapshot.catalog.projects.find(value => value.id === projectId);
+    if (!project) { throw new Error('Managed Project no longer exists.'); }
+    const environment = snapshot.catalog.environments.find(value =>
+        value.id === project.environmentId);
+    if (!environment) { throw new Error('Managed Project Environment no longer exists.'); }
+    const machine = environmentMachine(snapshot, environment);
+    if (!machine) { throw new Error('Managed Project Machine no longer exists.'); }
+    const alias = managedSshAlias(machine.id, machine.name, machine.connection.host);
+    if (environment.kind === 'host') {
+        return vscode.Uri.parse(
+            `vscode-remote://${encodeRemoteAuthority(`ssh-remote+${alias}`)}${project.remotePath}`,
+        );
+    }
+    const rebuilt = rebuildManagedDevContainerProjectUri(
+        environment.devContainerAnchor!,
+        alias,
+        project.remotePath,
+    );
+    if (!rebuilt) {
+        throw new Error('Managed Dev Container authority could not be rebuilt.');
+    }
+    return vscode.Uri.parse(rebuilt);
 }
 
 export function findManagedProjectForOpenProject(

@@ -301,6 +301,102 @@ test('MANAGED-REMOTE-NAVIGATION-001 identifies the current Dev Container Environ
     );
 });
 
+test('MANAGED-REMOTE-NAVIGATION-001 identifies a remote Extension Host file URI from its Dev Container workspace anchor', () => {
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [{
+                id: 'machine:reddev', name: 'RedDev',
+                connection: { kind: 'ssh', host: '10.0.0.8', user: 'dev', port: 22022 },
+            }],
+            environments: [{
+                id: 'environment:container', machineId: 'machine:reddev',
+                kind: 'devContainer', name: 'Container',
+                devContainerAnchor: {
+                    version: 1,
+                    originalAuthority: 'dev-container+fixture@ssh-remote+legacy-reddev',
+                    sourceKind: 'workspace',
+                    sourceLocator: '/home/dev/DevBox/workspace',
+                },
+            }],
+            projects: [{
+                id: 'project:target', environmentId: 'environment:container',
+                name: 'Target', remotePath: '/workspaces/target',
+            }],
+            layout: {
+                machineIds: ['machine:reddev'], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+    const currentUri = FakeUri.file('/workspaces/current');
+
+    assert.equal(
+        matcher.managedProjectUriFromCurrentMachine(
+            snapshot,
+            'project:target',
+            [currentUri],
+            {
+                remoteName: 'dev-container',
+                devContainerHostWorkspaceFolder: '/home/dev/DevBox/workspace',
+            },
+        ).toString(),
+        'file:///workspaces/target',
+    );
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 builds a managed Project URI without invoking the UI Bridge', () => {
+    const originalAuthority = `dev-container+${Buffer.from(JSON.stringify({
+        hostPath: '/home/dev/DevBox/workspace',
+    })).toString('hex')}@ssh-remote+legacy-reddev`;
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [{
+                id: 'machine:reddev', name: 'Red Dev',
+                connection: { kind: 'ssh', host: '10.0.0.8', user: 'dev', port: 22022 },
+            }],
+            environments: [{
+                id: 'environment:host', machineId: 'machine:reddev',
+                kind: 'host', name: 'Host',
+            }, {
+                id: 'environment:container', machineId: 'machine:reddev',
+                kind: 'devContainer', name: 'Container',
+                devContainerAnchor: {
+                    version: 1, originalAuthority,
+                    sourceKind: 'workspace', sourceLocator: '/home/dev/DevBox/workspace',
+                },
+            }],
+            projects: [{
+                id: 'project:host', environmentId: 'environment:host',
+                name: 'Host', remotePath: '/srv/host',
+            }, {
+                id: 'project:container', environmentId: 'environment:container',
+                name: 'Container', remotePath: '/workspaces/container',
+            }],
+            layout: {
+                machineIds: ['machine:reddev'], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+
+    assert.match(
+        matcher.managedProjectUriForNavigation(snapshot, 'project:host', [], {}).toString(),
+        /^vscode-remote:\/\/ssh-remote%2Bred-dev\/srv\/host$/u,
+    );
+    assert.match(
+        matcher.managedProjectUriForNavigation(snapshot, 'project:container', [], {}).toString(),
+        /^vscode-remote:\/\/dev-container%2B.+%40ssh-remote%2Bred-dev\/workspaces\/container$/u,
+    );
+});
+
 test('MANAGED-REMOTE-NAVIGATION-001 does not guess an Environment from an ambiguous remote path', () => {
     const snapshot = {
         revisionId: `revision:${'a'.repeat(64)}`,

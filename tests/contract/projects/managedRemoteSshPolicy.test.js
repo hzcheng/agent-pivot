@@ -96,3 +96,25 @@ test('MANAGED-REMOTE-SSH-POLICY-001 rejects a group-writable config on POSIX', t
         /unsafe permissions/,
     );
 });
+
+test('MANAGED-REMOTE-SSH-POLICY-001 scopes the managed Include above every Host block', () => {
+    const generated = '/home/dev/.ssh/agent-pivot/current.conf';
+    const block = renderManagedSshIncludeBlock(generated);
+    // OpenSSH evaluates an Include in the scope of the preceding Host block, so
+    // appending it would apply the managed hosts only while connecting to that
+    // host and leave every managed alias unresolvable everywhere else.
+    const source = 'Host code.example.com\n    StrictHostKeyChecking no\n';
+    const inserted = insertManagedInclude(source, block, generated);
+
+    assert.ok(inserted.startsWith(block));
+    assert.ok(inserted.indexOf('Include') < inserted.indexOf('Host code.example.com'));
+});
+
+test('MANAGED-REMOTE-SSH-POLICY-001 scopes the managed Include above a leading Match block', () => {
+    const generated = '/home/dev/.ssh/agent-pivot/current.conf';
+    const block = renderManagedSshIncludeBlock(generated);
+    const source = 'Match host build.example.com\n    User dev\n';
+    const inserted = insertManagedInclude(source, block, generated);
+
+    assert.ok(inserted.indexOf('Include') < inserted.indexOf('Match host'));
+});

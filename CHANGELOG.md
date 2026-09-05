@@ -20,6 +20,10 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   configuration fails. The audit still gates writing the configuration.
 - Report the OpenSSH exit code and diagnostic, and the specific effective
   value that was rejected, when Managed SSH validation fails.
+- Keep generated SSH aliases within the ASCII host names OpenSSH accepts, so a
+  Machine named in a non-Latin script resolves instead of failing with
+  "hostname contains invalid characters". Such a name now takes its readable
+  segment from the connection host.
 
 ## [1.4.0] - 2026-08-30
 

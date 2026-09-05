@@ -10,6 +10,7 @@ const {
 } = require('../../../out/projects/managedRemote/targetResolver');
 const {
     isManagedSshAliasForMachine,
+    managedSshAlias,
     managedSshAliasSuffix,
 } = require('../../../out/projects/managedRemote/sshConfigProjection');
 
@@ -47,7 +48,7 @@ test('MANAGED-REMOTE-ACTIONS-001 resolves one validated Project relationship and
     );
 });
 
-test('MANAGED-REMOTE-ACTIONS-001 rebuilds a Dev Container Project for a readable Unicode Machine alias', () => {
+test('MANAGED-REMOTE-ACTIONS-001 rebuilds a Dev Container Project for a non-ASCII Machine name', () => {
     const current = catalog();
     const payload = Buffer.from(JSON.stringify({
         hostPath: '/work/container',
@@ -67,11 +68,16 @@ test('MANAGED-REMOTE-ACTIONS-001 rebuilds a Dev Container Project for a readable
     current.projects[0].environmentId = 'environment:container';
 
     const target = resolveManagedProjectTarget(current, 'project:one');
-    assert.equal(target.alias, `小红书开发机-${SUFFIX}`);
+    // A fully CJK name leaves nothing readable behind, so the alias falls back
+    // to the connection host. OpenSSH resolves an alias with valid_domain()
+    // and rejects any non-ASCII byte, so the alias must stay ASCII.
+    const alias = managedSshAlias('machine:one', '小红书开发机', '2001:db8::1');
+    assert.equal(target.alias, alias);
+    assert.match(alias, /^[A-Za-z0-9][A-Za-z0-9._-]*$/u);
     assert.equal(
         target.remoteUri,
         `vscode-remote://${encodeURIComponent(
-            `dev-container+${payload}@ssh-remote+小红书开发机-${SUFFIX}`
+            `dev-container+${payload}@ssh-remote+${alias}`
         )}/work/api`,
     );
 });

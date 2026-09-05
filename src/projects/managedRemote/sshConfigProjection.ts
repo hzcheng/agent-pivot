@@ -22,7 +22,13 @@ export interface ManagedSshProjection {
     unavailableMachineIds: string[];
 }
 
-const SAFE_ALIAS = /^[\p{L}\p{N}][\p{L}\p{N}.-]{0,62}$/u;
+/**
+ * An alias is used as an OpenSSH host name, including as the argument to
+ * `ssh -G`. OpenSSH validates that with valid_domain(), which rejects any
+ * byte outside [A-Za-z0-9._-], so the alias must stay ASCII no matter how
+ * readable the Machine name is.
+ */
+const SAFE_ALIAS = /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/u;
 
 export function isManagedSshAlias(value: unknown): value is string {
     return typeof value === 'string' && SAFE_ALIAS.test(value);
@@ -34,14 +40,19 @@ function hash(value: string): string {
 
 function readableAliasSegment(value: string): string {
     const normalized = (value || '')
-        .normalize('NFKC')
+        .normalize('NFKD')
+        // Drop combining marks so accented Latin transliterates rather than
+        // being replaced wholesale: "Café" -> "cafe", not "caf-".
+        .replace(/\p{M}+/gu, '')
         .toLocaleLowerCase('en-US')
-        .replace(/[^\p{L}\p{N}.]+/gu, '-')
+        .replace(/[^A-Za-z0-9.]+/gu, '-')
         .replace(/^[.-]+|[.-]+$/gu, '');
     return Array.from(normalized).slice(0, 54).join('').replace(/[.-]+$/gu, '');
 }
 
 export function managedSshAliasName(machineName: string, connectionHost: string = ''): string {
+    // A fully non-ASCII name (for example a CJK name) leaves nothing readable
+    // behind, so fall back to the connection host before the generic label.
     return readableAliasSegment(machineName)
         || readableAliasSegment(connectionHost)
         || 'machine';

@@ -161,13 +161,22 @@ test('MANAGED-REMOTE-DEV-CONTAINER-001 round-trips a current nested SSH authorit
     assert.equal(parsed.outerSshAuthority, 'old-alias');
     assert.equal(parsed.anchor.sourceKind, 'config');
 
-    const rebuilt = rebuildManagedDevContainerProjectUri(
+    // OpenSSH resolves an alias with valid_domain() and rejects any non-ASCII
+    // byte, so the codec must refuse to build an authority around one rather
+    // than emitting a URI that Remote - SSH cannot open.
+    assert.equal(rebuildManagedDevContainerProjectUri(
         parsed.anchor,
         '小红书开发机',
         parsed.remotePath,
+    ), null);
+
+    const rebuilt = rebuildManagedDevContainerProjectUri(
+        parsed.anchor,
+        'reddev.example.com-9707',
+        parsed.remotePath,
     );
     const reparsed = parseManagedDevContainerProjectUri(rebuilt);
-    assert.equal(reparsed.outerSshAuthority, '小红书开发机');
+    assert.equal(reparsed.outerSshAuthority, 'reddev.example.com-9707');
     assert.equal(reparsed.anchor.sourceLocator, parsed.anchor.sourceLocator);
     assert.equal(reparsed.remotePath, '/workspaces/api');
     assert.equal(parseManagedDevContainerProjectUri(

@@ -68,13 +68,21 @@ test('MANAGED-REMOTE-SSH-PROJECTION-001 makes aliases readable, unique, and safe
     );
     assert.equal(
         managedSshAlias('machine:two', '小红书开发机', 'reddev.example.com'),
-        `小红书开发机-${managedSshAliasSuffix('machine:two')}`,
+        `reddev.example.com-${managedSshAliasSuffix('machine:two')}`,
     );
     assert.equal(
         managedSshAlias('machine:three', '🚀', 'reddev.example.com'),
         `reddev.example.com-${managedSshAliasSuffix('machine:three')}`,
     );
     assert.ok(managedSshAlias('machine:one', 'A'.repeat(200)).length <= 63);
+
+    // OpenSSH resolves an alias with valid_domain(), which rejects any byte
+    // outside [A-Za-z0-9._-]. A non-ASCII alias makes `ssh -G` fail with
+    // "hostname contains invalid characters", so no name may produce one.
+    for (const name of ['小红书开发机', 'Café Dev', '🚀 Rocket', 'Ω', 'офис']) {
+        const alias = managedSshAlias('machine:one', name, 'fallback.example.com');
+        assert.match(alias, /^[A-Za-z0-9][A-Za-z0-9._-]*$/u, `alias for ${name}`);
+    }
 
     // The identity suffix, not the display name, is what addresses a Machine:
     // renaming must not orphan an already-projected alias, and two Machines

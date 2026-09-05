@@ -26,7 +26,10 @@ const {
 
 const MACHINE_NAME = '小红书开发机';
 const MACHINE_ID = 'machine:one';
-const ALIAS = `${MACHINE_NAME}-${managedSshAliasSuffix(MACHINE_ID)}`;
+// The Machine name is fully CJK, so nothing readable survives: OpenSSH
+// validates an alias with valid_domain() and rejects any non-ASCII byte, so
+// the alias falls back to the connection host.
+const ALIAS = `reddev.example.com-${managedSshAliasSuffix(MACHINE_ID)}`;
 const CONTAINER_PAYLOAD = Buffer.from(JSON.stringify({
     hostPath: '/work/container',
     localDocker: false,
@@ -149,9 +152,11 @@ test('MANAGED-REMOTE-ACTIONS-001 opens a Machine for a non-ASCII name on a custo
     assert.equal(result.status, 'ok');
     assert.equal(result.value.alias, ALIAS);
     assert.deepEqual(effects.windows, [`ssh-remote+${ALIAS}`]);
-    // The authority addresses the alias only: the endpoint stays in the SSH
-    // config projection so credentials never reach a window authority.
-    assert.doesNotMatch(effects.windows[0], /reddev\.example\.com|dev@|22022/u);
+    // OpenSSH resolves the alias with valid_domain(), so the authority must be
+    // pure ASCII or `ssh -G` fails with "hostname contains invalid characters".
+    assert.match(effects.windows[0], /^[\x20-\x7E]+$/u);
+    // Credentials never reach a window authority.
+    assert.doesNotMatch(effects.windows[0], /dev@|22022/u);
 });
 
 test('MANAGED-REMOTE-ACTIONS-001 opens a Host Project under a non-ASCII Machine', async () => {

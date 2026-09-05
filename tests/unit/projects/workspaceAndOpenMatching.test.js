@@ -497,3 +497,79 @@ test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Machine after it is renamed', (
     assert.ok(environment, 'a renamed Machine must still claim its projected alias');
     assert.equal(environment.id, 'environment:one');
 });
+
+test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Machine adopted from a hand-written SSH host alias', () => {
+    // A Machine migrated from ~/.ssh/config keeps the Host alias the user chose,
+    // which is neither the projected form nor derivable from the Machine name.
+    const machine = {
+        id: 'machine:one', name: '小红书开发机',
+        connection: {
+            kind: 'ssh', host: 'reddev.xiaohongshu.com', user: 'hzcheng', port: 22022,
+        },
+    };
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [machine],
+            environments: [{
+                id: 'environment:host', machineId: machine.id, kind: 'host', name: 'Host',
+            }],
+            projects: [{
+                id: 'project:one', environmentId: 'environment:host',
+                name: 'ai-tour',
+                remotePath: '/home/hzcheng/projects/repos/workspaces/ai-tour.code-workspace',
+            }],
+            layout: {
+                machineIds: [], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+
+    const environment = matcher.findManagedEnvironmentForWorkspace(
+        snapshot,
+        FakeUri.parse('vscode-remote://ssh-remote%2Breddev/home/hzcheng/projects/repos/workspaces/ai-tour.code-workspace'),
+    );
+    assert.ok(environment, 'the original Host alias must still resolve');
+    assert.equal(environment.id, 'environment:host');
+
+    // A multi-root .code-workspace file is addressed by its file path, so the
+    // saved Project must be recognised from that path and not only from folders.
+    const match = matcher.findManagedProjectForOpenProject(
+        snapshot,
+        FakeUri.parse('vscode-remote://ssh-remote%2Breddev/home/hzcheng/projects/repos/workspaces/ai-tour.code-workspace'),
+    );
+    assert.ok(match, 'the saved multi-root workspace must be recognised as saved');
+    assert.equal(match.project.id, 'project:one');
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 does not attribute a hand-written alias to an unrelated Machine', () => {
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [{
+                id: 'machine:other', name: 'Other Box',
+                connection: { kind: 'ssh', host: 'other.example.com', user: 'dev', port: 22 },
+            }],
+            environments: [{
+                id: 'environment:other', machineId: 'machine:other', kind: 'host', name: 'Host',
+            }],
+            projects: [],
+            layout: {
+                machineIds: [], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+
+    assert.equal(matcher.findManagedEnvironmentForWorkspace(
+        snapshot,
+        FakeUri.parse('vscode-remote://ssh-remote%2Breddev/work/api'),
+    ), null);
+});

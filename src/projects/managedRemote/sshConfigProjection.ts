@@ -102,17 +102,35 @@ export function isManagedSshAliasForMachine(
 }
 
 /**
- * Whether an alias was projected for this Machine under a naming scheme that
- * predates the identity suffix. Such an alias carries no Machine identity, so
- * it can only be attributed when exactly one Machine claims it.
+ * Whether an alias plausibly addressed this Machine before Agent Pivot managed
+ * it. Such an alias carries no Machine identity, so it can only be attributed
+ * when exactly one Machine claims it.
+ *
+ * A Machine adopted from a hand-written `~/.ssh/config` keeps whatever Host
+ * alias the user chose (`reddev`), which is neither the projected form nor
+ * derivable from the Machine name. The endpoint is the only recorded evidence,
+ * so the connection host and its first DNS label are accepted too.
  */
 export function isLegacyNameOnlyAliasForMachine(
     alias: string,
     machineName: string = '',
     connectionHost: string = '',
 ): boolean {
-    return isManagedSshAlias(alias)
-        && alias === managedSshAliasName(machineName, connectionHost);
+    if (!isManagedSshAlias(alias)) { return false; }
+    const candidates = new Set<string>([
+        managedSshAliasName(machineName, connectionHost),
+    ]);
+    const host = readableAliasSegment(connectionHost);
+    if (host) {
+        candidates.add(host);
+        // `reddev` for `reddev.xiaohongshu.com`: a short Host alias for a fully
+        // qualified endpoint is the common hand-written shape.
+        const label = host.split('.')[0];
+        if (label) { candidates.add(label); }
+    }
+    const name = readableAliasSegment(machineName);
+    if (name) { candidates.add(name); }
+    return candidates.has(alias.toLocaleLowerCase('en-US'));
 }
 
 export function buildManagedSshProjection(slot: ManagedRevisionSlot): ManagedSshProjection {

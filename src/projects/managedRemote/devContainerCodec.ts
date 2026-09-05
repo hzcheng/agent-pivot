@@ -1,6 +1,7 @@
 'use strict';
 
 import { DevContainerLaunchAnchorV1 } from './types';
+import { isManagedSshAlias } from './sshConfigProjection';
 
 export interface ParsedManagedDevContainerProject {
     anchor: DevContainerLaunchAnchorV1;
@@ -73,7 +74,7 @@ export function parseManagedDevContainerProjectUri(
     }
     const encodedPayload = nested.slice(0, separator);
     const outerSshAuthority = nested.slice(separator + '@ssh-remote+'.length);
-    if (!outerSshAuthority || !/^[A-Za-z0-9._:-]+$/.test(outerSshAuthority)) {
+    if (!isManagedSshAlias(outerSshAuthority)) {
         return null;
     }
     const payload = decodeHexObject(encodedPayload);
@@ -102,7 +103,7 @@ export function rebuildManagedDevContainerProjectUri(
         || anchor.version !== 1
         || typeof anchor.originalAuthority !== 'string'
         || !anchor.originalAuthority.startsWith('dev-container+')
-        || !/^[A-Za-z0-9._:-]+$/.test(managedAlias)
+        || !isManagedSshAlias(managedAlias)
         || typeof remotePath !== 'string'
         || !remotePath.startsWith('/')) {
         return null;

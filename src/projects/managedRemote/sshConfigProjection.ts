@@ -24,6 +24,10 @@ export interface ManagedSshProjection {
 
 const SAFE_ALIAS = /^[\p{L}\p{N}][\p{L}\p{N}.-]{0,62}$/u;
 
+export function isManagedSshAlias(value: unknown): value is string {
+    return typeof value === 'string' && SAFE_ALIAS.test(value);
+}
+
 function hash(value: string): string {
     return createHash('sha256').update(value, 'utf8').digest('hex');
 }
@@ -49,7 +53,7 @@ export function managedSshAlias(
     connectionHost: string = '',
 ): string {
     const alias = managedSshAliasName(machineName, connectionHost);
-    if (!SAFE_ALIAS.test(alias)) {
+    if (!isManagedSshAlias(alias)) {
         throw new Error('Managed SSH alias generation failed.');
     }
     return alias;
@@ -61,7 +65,7 @@ export function isManagedSshAliasForMachine(
     machineName: string = '',
     connectionHost: string = '',
 ): boolean {
-    if (!SAFE_ALIAS.test(alias)) { return false; }
+    if (!isManagedSshAlias(alias)) { return false; }
     const digest = hash(machineId);
     return alias === managedSshAlias(machineId, machineName, connectionHost)
         || alias === `agent-pivot-${digest.slice(0, 32)}`

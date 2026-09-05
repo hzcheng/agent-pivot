@@ -38,6 +38,35 @@ test('MANAGED-REMOTE-ACTIONS-001 resolves one validated Project relationship and
     assert.equal(target.remoteUri, 'vscode-remote://ssh-remote%2Bbuild/work/api');
 });
 
+test('MANAGED-REMOTE-ACTIONS-001 rebuilds a Dev Container Project for a readable Unicode Machine alias', () => {
+    const current = catalog();
+    const payload = Buffer.from(JSON.stringify({
+        hostPath: '/work/container',
+        localDocker: false,
+    }), 'utf8').toString('hex');
+    current.machines[0].name = '小红书开发机';
+    current.environments[0] = {
+        id: 'environment:container', machineId: 'machine:one',
+        kind: 'devContainer', name: 'Dev Container',
+        devContainerAnchor: {
+            version: 1,
+            originalAuthority: `dev-container+${payload}@ssh-remote+legacy`,
+            sourceKind: 'workspace',
+            sourceLocator: '/work/container',
+        },
+    };
+    current.projects[0].environmentId = 'environment:container';
+
+    const target = resolveManagedProjectTarget(current, 'project:one');
+    assert.equal(target.alias, '小红书开发机');
+    assert.equal(
+        target.remoteUri,
+        `vscode-remote://${encodeURIComponent(
+            `dev-container+${payload}@ssh-remote+小红书开发机`
+        )}/work/api`,
+    );
+});
+
 test('MANAGED-REMOTE-ACTIONS-001 propagates related conflicts into target resolution', () => {
     const current = catalog();
     current.conflicts.push({

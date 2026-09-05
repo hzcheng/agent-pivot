@@ -9,6 +9,8 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 - Validate Managed Remote SSH aliases against the complete configuration used
   by Remote - SSH, avoiding false standalone-config failures while preserving
   endpoint and unsafe-route checks.
+- Open Dev Container Projects whose readable Managed Machine alias contains
+  Unicode characters.
 
 ## [1.4.0] - 2026-08-30
 

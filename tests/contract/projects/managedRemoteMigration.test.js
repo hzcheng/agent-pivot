@@ -163,11 +163,11 @@ test('MANAGED-REMOTE-DEV-CONTAINER-001 round-trips a current nested SSH authorit
 
     const rebuilt = rebuildManagedDevContainerProjectUri(
         parsed.anchor,
-        'agent-pivot-machine-id',
+        '小红书开发机',
         parsed.remotePath,
     );
     const reparsed = parseManagedDevContainerProjectUri(rebuilt);
-    assert.equal(reparsed.outerSshAuthority, 'agent-pivot-machine-id');
+    assert.equal(reparsed.outerSshAuthority, '小红书开发机');
     assert.equal(reparsed.anchor.sourceLocator, parsed.anchor.sourceLocator);
     assert.equal(reparsed.remotePath, '/workspaces/api');
     assert.equal(parseManagedDevContainerProjectUri(

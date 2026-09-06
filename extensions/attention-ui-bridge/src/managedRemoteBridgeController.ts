@@ -703,11 +703,12 @@ export class ManagedRemoteBridgeController {
         try {
             const source = await this.resolveFileTransferSource(slot, request.source, request.entryIds);
             const destination = await this.resolveFileTransferDestination(slot, request.destination);
+            const targetName = this.resolveFileTransferTargetName(source.entries, request.targetName);
             for (const entry of source.entries) {
                 if (active.cancelled) { throw new Error('File copy was cancelled.'); }
                 const destinationPath = destination.kind === 'local'
-                    ? path.join(destination.path, path.basename(entry.path))
-                    : remoteChildPath(destination.path, path.basename(entry.path));
+                    ? path.join(destination.path, targetName || path.basename(entry.path))
+                    : remoteChildPath(destination.path, targetName || path.basename(entry.path));
                 const collisionKind = destination.kind === 'local'
                     ? await localPathKind(destinationPath)
                     : await remotePathKind(
@@ -766,6 +767,7 @@ export class ManagedRemoteBridgeController {
     ): Promise<FileTransferPreflightResult> {
         const source = await this.resolveFileTransferSource(slot, request.source, request.entryIds);
         const destination = await this.resolveFileTransferDestination(slot, request.destination);
+        const targetName = this.resolveFileTransferTargetName(source.entries, request.targetName);
         const existingFileNames: string[] = [];
         const existingDirectoryNames: string[] = [];
         let knownBytes = 0;
@@ -787,8 +789,8 @@ export class ManagedRemoteBridgeController {
                 unknownSizeItems += 1;
             }
             const destinationPath = destination.kind === 'local'
-                ? path.join(destination.path, path.basename(entry.path))
-                : remoteChildPath(destination.path, path.basename(entry.path));
+                ? path.join(destination.path, targetName || path.basename(entry.path))
+                : remoteChildPath(destination.path, targetName || path.basename(entry.path));
             const existingKind = destination.kind === 'local'
                 ? await localPathKind(destinationPath)
                 : await remotePathKind(coordinator.getExecutable(), destination.alias, destinationPath);
@@ -813,6 +815,15 @@ export class ManagedRemoteBridgeController {
         active.cancelled = true;
         active.process?.kill();
         return { cancelled: true };
+    }
+
+    private resolveFileTransferTargetName(entries: FileTransferEntry[], targetName: string | undefined): string | undefined {
+        if (targetName === undefined) { return undefined; }
+        if (entries.length !== 1 || entries[0].kind !== 'file'
+            || !/^(?!\.\.?$)[^\\/\0\r\n]{1,255}$/u.test(targetName)) {
+            throw new Error('A destination name is available only for one regular file.');
+        }
+        return targetName;
     }
 
     private async resolveFileTransferSource(

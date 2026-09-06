@@ -107,6 +107,9 @@ export function getFileTransferContent(
             <p data-file-transfer-review-size></p>
             <p class="file-transfer-review-preflight" data-file-transfer-review-preflight role="status">Checking the selected targets…</p>
             <ul class="file-transfer-review-items" data-file-transfer-review-items></ul>
+            <label class="file-transfer-target-name" data-file-transfer-target-name hidden>Destination name
+                <input type="text" data-file-transfer-target-name-input maxlength="255">
+            </label>
             <label class="file-transfer-conflict-policy">If a target already exists
                 <select data-file-transfer-conflict-policy>
                     <option value="fail">Stop and show the conflict</option>

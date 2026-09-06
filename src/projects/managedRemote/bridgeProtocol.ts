@@ -58,6 +58,7 @@ export interface FileTransferCopyRequest {
     destination: FileTransferEndpointReference;
     entryIds: string[];
     conflictPolicy: 'fail' | 'skip' | 'replace';
+    targetName?: string;
 }
 
 /** A non-mutating review of a copy plan, identified only by opaque handles. */
@@ -66,6 +67,7 @@ export interface FileTransferPreflightRequest {
     source: FileTransferEndpointReference;
     destination: FileTransferEndpointReference;
     entryIds: string[];
+    targetName?: string;
 }
 
 export interface FileTransferPreflightResult {
@@ -274,7 +276,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
 
 function validFileTransferPreflightRequest(value: unknown): value is FileTransferPreflightRequest {
     return isRecord(value)
-        && hasExactKeys(value, ['kind', 'source', 'destination', 'entryIds'])
+        && hasExactKeys(value, ['kind', 'source', 'destination', 'entryIds'], ['targetName'])
         && value.kind === 'preflight'
         && validFileTransferEndpointReference(value.source)
         && validFileTransferEndpointReference(value.destination)
@@ -282,12 +284,13 @@ function validFileTransferPreflightRequest(value: unknown): value is FileTransfe
         && value.entryIds.length > 0
         && value.entryIds.length <= 100
         && value.entryIds.every(validFileTransferHandle)
-        && new Set(value.entryIds).size === value.entryIds.length;
+        && new Set(value.entryIds).size === value.entryIds.length
+        && validFileTransferTargetName(value.targetName);
 }
 
 function validFileTransferCopyRequest(value: unknown): value is FileTransferCopyRequest {
     return isRecord(value)
-        && hasExactKeys(value, ['kind', 'taskId', 'source', 'destination', 'entryIds', 'conflictPolicy'])
+        && hasExactKeys(value, ['kind', 'taskId', 'source', 'destination', 'entryIds', 'conflictPolicy'], ['targetName'])
         && value.kind === 'copy'
         && isCorrelationValue(value.taskId)
         && ['fail', 'skip', 'replace'].includes(value.conflictPolicy as string)
@@ -297,7 +300,15 @@ function validFileTransferCopyRequest(value: unknown): value is FileTransferCopy
         && value.entryIds.length > 0
         && value.entryIds.length <= 100
         && value.entryIds.every(validFileTransferHandle)
-        && new Set(value.entryIds).size === value.entryIds.length;
+        && new Set(value.entryIds).size === value.entryIds.length
+        && validFileTransferTargetName(value.targetName);
+}
+
+function validFileTransferTargetName(value: unknown): boolean {
+    return value === undefined || (typeof value === 'string'
+        && value.length > 0 && value.length <= 255
+        && value !== '.' && value !== '..'
+        && !/[\\/\0\r\n]/u.test(value));
 }
 
 function validFileTransferCancelRequest(value: unknown): value is FileTransferCancelRequest {

@@ -2781,6 +2781,7 @@ async function initializeDashboard(
                 destination: task.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
                 entryIds: task.entryIds as string[],
                 conflictPolicy: task.conflictPolicy as 'fail' | 'skip' | 'replace',
+                ...(typeof task.targetName === 'string' ? { targetName: task.targetName } : {}),
             },
         )).then(
             async result => {
@@ -3042,6 +3043,7 @@ async function initializeDashboard(
                             source: message.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
                             destination: message.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
                             entryIds: message.entryIds as string[],
+                            ...(typeof message.targetName === 'string' ? { targetName: message.targetName } : {}),
                         },
                     );
                     await provider.postMessage(fileTransferPreflightSettlement(message, result));
@@ -4735,12 +4737,20 @@ function isFileTransferCopyRequest(value: Record<string, unknown>): boolean {
         || !['fail', 'skip', 'replace'].includes(String(value.conflictPolicy))
         || !isFileTransferEndpointReference(value.source)
         || !isFileTransferEndpointReference(value.destination)
-        || Object.keys(value).sort().join('\n') !== [
-            'conflictPolicy', 'destination', 'entryIds', 'requestId', 'source', 'type', 'version',
-        ].join('\n')) {
+        || !isFileTransferTargetName(value.targetName)
+        || !Object.keys(value).every(key => [
+            'conflictPolicy', 'destination', 'entryIds', 'requestId', 'source', 'targetName', 'type', 'version',
+        ].includes(key))
+        || !['conflictPolicy', 'destination', 'entryIds', 'requestId', 'source', 'type', 'version']
+            .every(key => Object.prototype.hasOwnProperty.call(value, key))) {
         return false;
     }
     return true;
+}
+
+function isFileTransferTargetName(value: unknown): boolean {
+    return value === undefined || (typeof value === 'string'
+        && /^(?!\.\.?$)[^\\/\0\r\n]{1,255}$/u.test(value));
 }
 
 function isFileTransferPreflightRequest(value: Record<string, unknown>): boolean {
@@ -4755,9 +4765,12 @@ function isFileTransferPreflightRequest(value: Record<string, unknown>): boolean
         || new Set(value.entryIds).size !== value.entryIds.length
         || !isFileTransferEndpointReference(value.source)
         || !isFileTransferEndpointReference(value.destination)
-        || Object.keys(value).sort().join('\n') !== [
-            'destination', 'entryIds', 'requestId', 'source', 'type', 'version',
-        ].join('\n')) {
+        || !isFileTransferTargetName(value.targetName)
+        || !Object.keys(value).every(key => [
+            'destination', 'entryIds', 'requestId', 'source', 'targetName', 'type', 'version',
+        ].includes(key))
+        || !['destination', 'entryIds', 'requestId', 'source', 'type', 'version']
+            .every(key => Object.prototype.hasOwnProperty.call(value, key))) {
         return false;
     }
     return true;

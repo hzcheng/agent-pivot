@@ -673,6 +673,8 @@ function initDashboard(options) {
         var reviewPreflight = panel.querySelector('[data-file-transfer-review-preflight]');
         var reviewNote = panel.querySelector('[data-file-transfer-review-note]');
         var reviewItems = panel.querySelector('[data-file-transfer-review-items]');
+        var targetNameField = panel.querySelector('[data-file-transfer-target-name]');
+        var targetNameInput = panel.querySelector('[data-file-transfer-target-name-input]');
         var conflictPolicy = panel.querySelector('[data-file-transfer-conflict-policy]');
         var reviewCancel = panel.querySelector('[data-file-transfer-review-cancel]');
         var startCopy = panel.querySelector('[data-file-transfer-start-copy]');
@@ -1199,6 +1201,7 @@ function initDashboard(options) {
                 source: plan.source,
                 destination: plan.destination,
                 entryIds: plan.entryIds.slice(),
+                ...(plan.targetName ? { targetName: plan.targetName } : {}),
             });
         }
 
@@ -1239,6 +1242,9 @@ function initDashboard(options) {
             var destination = selectorFor(destinationSide);
             if (!source || !destination || !source.value || !destination.value) return;
             var entries = selectedEntryDetails(sourceSide);
+            var canRename = entries.length === 1 && entries[0].kind === 'file';
+            if (targetNameField) targetNameField.hidden = !canRename;
+            if (targetNameInput) targetNameInput.value = canRename ? entries[0].name : '';
             var knownBytes = entries.reduce(function (total, entry) {
                 return total + (Number.isSafeInteger(entry.size) ? entry.size : 0);
             }, 0);
@@ -1264,6 +1270,7 @@ function initDashboard(options) {
                 source: endpointReference(sourceSide),
                 destination: endpointReference(destinationSide),
                 entryIds: Array.from(selectedEntries[sourceSide]),
+                ...(canRename && targetNameInput ? { targetName: targetNameInput.value } : {}),
             };
             if (!reviewedCopyPlan.source || !reviewedCopyPlan.destination) {
                 closeReview();
@@ -1287,6 +1294,7 @@ function initDashboard(options) {
                 destination: reviewedCopyPlan.destination,
                 entryIds: reviewedCopyPlan.entryIds.slice(),
                 conflictPolicy: conflictPolicy ? conflictPolicy.value : 'fail',
+                ...(reviewedCopyPlan.targetName ? { targetName: reviewedCopyPlan.targetName } : {}),
             });
         }
 
@@ -1415,6 +1423,11 @@ function initDashboard(options) {
         if (reviewCancel) reviewCancel.addEventListener('click', closeReview);
         if (startCopy) startCopy.addEventListener('click', startReviewedCopy);
         if (conflictPolicy) conflictPolicy.addEventListener('change', updateReviewStartAvailability);
+        if (targetNameInput) targetNameInput.addEventListener('change', function () {
+            if (!reviewedCopyPlan || !targetNameInput.value) return;
+            reviewedCopyPlan.targetName = targetNameInput.value;
+            requestCopyPreflight(reviewedCopyPlan);
+        });
         if (retry) retry.addEventListener('click', retryFailedCopy);
         if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
         ['left', 'right'].forEach(function (side) {

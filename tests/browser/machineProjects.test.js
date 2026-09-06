@@ -542,6 +542,90 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus af
         .evaluate(node => document.activeElement === node), true);
 });
 
+test('MANAGED-REMOTE-MANAGEMENT-003 edits a favorite Project inline and preserves its draft', async t => {
+    const page = await openPage(t, 360, managedMarkup('ready'));
+    const favoriteRow = page.locator('.machine-favorite-row[data-machine-project-id="project:managed"]');
+    const directoryRow = page.locator('[data-managed-project-row]:not(.machine-favorite-row)');
+    const favoriteForm = favoriteRow.locator('[data-managed-project-form]');
+    const directoryForm = directoryRow.locator('[data-managed-project-form]');
+
+    await favoriteRow.locator('[data-action="toggle-machine-project-menu"]').click();
+    await favoriteRow.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    assert.equal(await favoriteForm.isVisible(), true);
+    assert.equal(await directoryForm.isHidden(), true,
+        'editing a Favorite must open the inline form next to that Favorite');
+    assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'Managed API');
+    assert.equal(await favoriteForm.locator('input[name="remotePath"]').inputValue(), '/work/api');
+    assert.equal(await favoriteForm.locator('textarea[name="description"]').inputValue(), '');
+    assert.equal(await favoriteForm.locator('input[name="tags"]').inputValue(), 'backend');
+
+    await favoriteForm.locator('input[name="name"]').fill('Discarded draft');
+    await favoriteForm.getByRole('button', { name: 'Cancel' }).click();
+    assert.equal(await favoriteForm.isHidden(), true);
+    assert.equal(await favoriteRow.locator('.machine-project-primary')
+        .evaluate(node => document.activeElement === node), true);
+
+    await favoriteRow.locator('[data-action="toggle-machine-project-menu"]').click();
+    await favoriteRow.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'Managed API',
+        'Cancel must discard an unsaved Project draft');
+    await favoriteForm.locator('input[name="remotePath"]').fill('relative/path');
+    await favoriteForm.evaluate(node => { node.noValidate = true; node.requestSubmit(); });
+    assert.equal(await favoriteForm.locator('[data-managed-project-form-error]').textContent(),
+        'Enter an absolute Project path.');
+    assert.equal(await favoriteForm.locator('input[name="remotePath"]').getAttribute('aria-invalid'), 'true');
+
+    await favoriteForm.locator('input[name="name"]').fill('Managed API 2');
+    await favoriteForm.locator('input[name="remotePath"]').fill('/work/api-2');
+    await favoriteForm.locator('textarea[name="description"]').fill('Deployment API');
+    await favoriteForm.locator('input[name="tags"]').fill('backend, #api');
+    await favoriteForm.locator('input[name="color"]').fill('#ef4444');
+    await page.evaluate(html => {
+        const panel = document.getElementById('panel');
+        const state = captureProjectsPanelState(panel);
+        panel.innerHTML = html;
+        window.machineUi.mount(panel);
+        restoreProjectsFocus(panel, state.focus);
+        window.machineUi.restoreManagedMachineFormState(state.managedMachineForm);
+    }, managedMarkup('ready'));
+    assert.equal(await favoriteForm.isVisible(), true,
+        'an authoritative replacement must retain the Favorite Project form');
+    assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'Managed API 2');
+    assert.equal(await favoriteForm.locator('textarea[name="description"]').inputValue(), 'Deployment API');
+
+    await favoriteForm.evaluate(node => node.requestSubmit());
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.operation, 'editProject');
+    assert.equal(request.targetId, 'project:managed');
+    assert.deepEqual(request.input, {
+        name: 'Managed API 2', remotePath: '/work/api-2', description: 'Deployment API',
+        tags: 'backend, #api', color: '#ef4444',
+    });
+    assert.equal(await favoriteForm.locator('button[type="submit"]').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await favoriteForm.isVisible(), true, 'Escape must not hide a pending Project edit');
+
+    await page.evaluate(html => {
+        const panel = document.getElementById('panel');
+        const state = captureProjectsPanelState(panel);
+        panel.innerHTML = html;
+        window.machineUi.mount(panel);
+        restoreProjectsFocus(panel, state.focus);
+        window.machineUi.restoreManagedMachineFormState(state.managedMachineForm);
+    }, managedMarkup('ready'));
+    assert.equal(await favoriteForm.isVisible(), true,
+        'a pending Project edit must stay visible through an authoritative replacement');
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'managed-remote-settlement', version: 1, requestId,
+            operation: 'editProject', status: 'applied',
+        } }));
+    }, request.requestId);
+    assert.equal(await favoriteForm.isHidden(), true);
+    assert.equal(await favoriteRow.locator('.machine-project-primary')
+        .evaluate(node => document.activeElement === node), true);
+});
+
 test('MANAGED-REMOTE-MANAGEMENT-003 reports an edit-specific fallback error', async t => {
     const page = await openPage(t, 360, managedMarkup());
     await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');

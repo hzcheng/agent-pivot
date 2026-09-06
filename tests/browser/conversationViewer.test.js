@@ -1054,9 +1054,13 @@ test('CONVERSATION-QUESTION-NAVIGATION-001 applies a true-first selection outsid
         await page.locator('[data-interaction-id="input-1"]').isVisible(),
         true
     );
-    const applied = (await postedMessages(page)).at(-1);
-    assert.equal(applied.type, 'conversation-viewer-applied');
-    assert.equal(applied.requestId, 2);
+    const applied = (await postedMessages(page)).find(message =>
+        message.type === 'conversation-viewer-applied'
+        && message.requestId === 2
+        && message.htmlSignature === 'first-question-outside-outline'
+    );
+    assert.ok(applied, 'the correlated navigation publication is acknowledged');
+    assert.equal(applied.subscriptionGeneration, 2);
 });
 
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 acknowledges a hidden retained Viewer without waiting for animation frames', async t => {

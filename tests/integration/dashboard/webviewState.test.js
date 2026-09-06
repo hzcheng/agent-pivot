@@ -533,6 +533,15 @@ test('FILE-TRANSFER-UI-010 filters hidden entries and sorts each endpoint indepe
     assert.match(dashboardSource, /sortFileTransferEntries\(visibleEntries, fileTransferSort\[side\]\)/);
 });
 
+test('FILE-TRANSFER-UI-012 requires a correlated preflight before starting a copy', () => {
+    assert.match(dashboardSource, /validateFileTransferCopyPreflight/);
+    assert.match(dashboardSource, /file-transfer-preflight-copy/);
+    assert.match(dashboardSource, /file-transfer-copy-preflighted/);
+    assert.match(dashboardSource, /Checking source access and target collisions/);
+    assert.match(dashboardSource, /Existing folders and non-files cannot be safely replaced/);
+    assert.match(dashboardSource, /pendingPreflightRequestId/);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

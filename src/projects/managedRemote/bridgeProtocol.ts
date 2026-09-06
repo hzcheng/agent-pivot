@@ -14,6 +14,7 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'localSshEndpointV1',
     'fileTransferLocalBrowseV1',
     'fileTransferRemoteBrowseV1',
+    'fileTransferPreflightV1',
     'fileTransferCopyV1',
     'fileTransferCancelV1',
 ] as const;
@@ -31,6 +32,7 @@ export type ManagedRemoteBridgeOperation =
     | 'selectFileTransferLocalRoot'
     | 'listFileTransferLocalDirectory'
     | 'listFileTransferRemoteDirectory'
+    | 'preflightFileTransfer'
     | 'copyFileTransferEntries'
     | 'cancelFileTransferCopy';
 
@@ -56,6 +58,22 @@ export interface FileTransferCopyRequest {
     destination: FileTransferEndpointReference;
     entryIds: string[];
     conflictPolicy: 'fail' | 'skip' | 'replace';
+}
+
+/** A non-mutating review of a copy plan, identified only by opaque handles. */
+export interface FileTransferPreflightRequest {
+    kind: 'preflight';
+    source: FileTransferEndpointReference;
+    destination: FileTransferEndpointReference;
+    entryIds: string[];
+}
+
+export interface FileTransferPreflightResult {
+    totalItems: number;
+    knownBytes: number;
+    unknownSizeItems: number;
+    existingFileNames: string[];
+    existingDirectoryNames: string[];
 }
 
 export interface FileTransferCopyResult {
@@ -112,6 +130,7 @@ export interface ManagedRemoteBridgeRequest {
     legacySshTarget?: string;
     fileTransfer?: FileTransferLocalRootRequest
         | FileTransferRemoteDirectoryRequest
+        | FileTransferPreflightRequest
         | FileTransferCopyRequest
         | FileTransferCancelRequest;
 }
@@ -183,6 +202,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             'selectFileTransferLocalRoot',
             'listFileTransferLocalDirectory',
             'listFileTransferRemoteDirectory',
+            'preflightFileTransfer',
             'copyFileTransferEntries',
             'cancelFileTransferCopy',
         ].includes(value.operation as string)
@@ -196,6 +216,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         'openLocalSshTerminal', 'copyLocalSshCommand',
         'openManagedMachine', 'openManagedProject', 'openManagedEnvironment',
         'listFileTransferRemoteDirectory',
+        'preflightFileTransfer',
         'copyFileTransferEntries',
     ].includes(value.operation as string);
     if (requiresRevision && typeof value.expectedRevisionId !== 'string') {
@@ -229,6 +250,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
     }
     const requiresFileTransfer = value.operation === 'listFileTransferLocalDirectory'
         || value.operation === 'listFileTransferRemoteDirectory'
+        || value.operation === 'preflightFileTransfer'
         || value.operation === 'copyFileTransferEntries'
         || value.operation === 'cancelFileTransferCopy';
     if (value.operation === 'selectFileTransferLocalRoot') {
@@ -238,6 +260,8 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             ? validFileTransferLocalRootRequest(value.fileTransfer)
             : value.operation === 'listFileTransferRemoteDirectory'
                 ? validFileTransferRemoteDirectoryRequest(value.fileTransfer)
+                : value.operation === 'preflightFileTransfer'
+                    ? validFileTransferPreflightRequest(value.fileTransfer)
                 : value.operation === 'copyFileTransferEntries'
                     ? validFileTransferCopyRequest(value.fileTransfer)
                     : validFileTransferCancelRequest(value.fileTransfer);
@@ -246,6 +270,19 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         return null;
     }
     return value as unknown as ManagedRemoteBridgeRequest;
+}
+
+function validFileTransferPreflightRequest(value: unknown): value is FileTransferPreflightRequest {
+    return isRecord(value)
+        && hasExactKeys(value, ['kind', 'source', 'destination', 'entryIds'])
+        && value.kind === 'preflight'
+        && validFileTransferEndpointReference(value.source)
+        && validFileTransferEndpointReference(value.destination)
+        && Array.isArray(value.entryIds)
+        && value.entryIds.length > 0
+        && value.entryIds.length <= 100
+        && value.entryIds.every(validFileTransferHandle)
+        && new Set(value.entryIds).size === value.entryIds.length;
 }
 
 function validFileTransferCopyRequest(value: unknown): value is FileTransferCopyRequest {

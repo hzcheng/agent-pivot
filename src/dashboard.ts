@@ -3024,6 +3024,32 @@ async function initializeDashboard(
                 });
                 runNextFileTransferTask();
             },
+            'file-transfer-preflight-copy': async message => {
+                if (!isFileTransferPreflightRequest(message)) {
+                    return;
+                }
+                if (managedRemoteSnapshot.lifecycle !== 'active'
+                    || !managedRemoteSnapshot.revisionId) {
+                    await provider.postMessage(fileTransferPreflightFailure(message,
+                        'Managed Machines are unavailable. Refresh and try again.'));
+                    return;
+                }
+                try {
+                    const result = await managedRemoteBridgeClient.preflightFileTransfer(
+                        managedRemoteSnapshot.revisionId,
+                        {
+                            kind: 'preflight',
+                            source: message.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                            destination: message.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                            entryIds: message.entryIds as string[],
+                        },
+                    );
+                    await provider.postMessage(fileTransferPreflightSettlement(message, result));
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    await provider.postMessage(fileTransferPreflightFailure(message, rawMessage.slice(0, 320)));
+                }
+            },
             'file-transfer-request-history': async message => {
                 if (!isFileTransferHistoryRequest(message)) {
                     return;
@@ -4717,6 +4743,26 @@ function isFileTransferCopyRequest(value: Record<string, unknown>): boolean {
     return true;
 }
 
+function isFileTransferPreflightRequest(value: Record<string, unknown>): boolean {
+    if (value.type !== 'file-transfer-preflight-copy'
+        || value.version !== 1
+        || typeof value.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        || !Array.isArray(value.entryIds)
+        || value.entryIds.length < 1
+        || value.entryIds.length > 100
+        || !value.entryIds.every(entry => typeof entry === 'string' && /^[a-f0-9]{32}$/u.test(entry))
+        || new Set(value.entryIds).size !== value.entryIds.length
+        || !isFileTransferEndpointReference(value.source)
+        || !isFileTransferEndpointReference(value.destination)
+        || Object.keys(value).sort().join('\n') !== [
+            'destination', 'entryIds', 'requestId', 'source', 'type', 'version',
+        ].join('\n')) {
+        return false;
+    }
+    return true;
+}
+
 function isFileTransferOpenDirectoryRequest(value: Record<string, unknown>): boolean {
     return value.type === 'file-transfer-open-directory'
         && value.version === 1
@@ -4752,6 +4798,20 @@ function fileTransferCopySettlement(
     return status === 'copied' || status === 'cancelled'
         ? { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, value }
         : { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, message: value };
+}
+
+function fileTransferPreflightSettlement(
+    request: Record<string, unknown>,
+    result: unknown,
+): Record<string, unknown> {
+    return { type: 'file-transfer-copy-preflighted', version: 1, requestId: request.requestId, result };
+}
+
+function fileTransferPreflightFailure(
+    request: Record<string, unknown>,
+    message: string,
+): Record<string, unknown> {
+    return { type: 'file-transfer-copy-preflight-failed', version: 1, requestId: request.requestId, message };
 }
 
 function isFileTransferCancelRequest(value: Record<string, unknown>): boolean {

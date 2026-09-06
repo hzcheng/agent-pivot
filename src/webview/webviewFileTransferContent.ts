@@ -101,6 +101,7 @@ export function getFileTransferContent(
             <h3>Review copy</h3>
             <p data-file-transfer-review-summary></p>
             <p data-file-transfer-review-size></p>
+            <p class="file-transfer-review-preflight" data-file-transfer-review-preflight role="status">Checking the selected targets…</p>
             <ul class="file-transfer-review-items" data-file-transfer-review-items></ul>
             <label class="file-transfer-conflict-policy">If a target already exists
                 <select data-file-transfer-conflict-policy>
@@ -109,7 +110,7 @@ export function getFileTransferContent(
                     <option value="replace">Replace the existing item</option>
                 </select>
             </label>
-            <p class="file-transfer-review-note">Copy will begin only after you select Start copy.</p>
+            <p class="file-transfer-review-note" data-file-transfer-review-note>Copy will begin only after you select Start copy.</p>
             <div class="file-transfer-review-actions">
                 <button type="button" data-file-transfer-review-cancel>Back</button>
                 <button type="button" data-file-transfer-start-copy>Start copy</button>

@@ -8,6 +8,8 @@ import {
     MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND,
     MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
     FileTransferLocalRootResponse,
+    FileTransferPreflightRequest,
+    FileTransferPreflightResult,
     FileTransferCopyRequest,
     ManagedRemoteBridgeOperation,
     ManagedRemoteBridgeResponse,
@@ -126,6 +128,21 @@ export class ManagedRemoteBridgeClient {
         );
     }
 
+    preflightFileTransfer(
+        expectedRevisionId: string,
+        request: FileTransferPreflightRequest,
+    ): Promise<FileTransferPreflightResult> {
+        return this.executeAttempt(
+            'preflightFileTransfer', expectedRevisionId, undefined, undefined, request, true,
+        ).then(value => {
+            const parsed = parseFileTransferPreflightResult(value);
+            if (!parsed) {
+                throw new Error('Agent Pivot UI Bridge returned an invalid File Transfer review.');
+            }
+            return parsed;
+        });
+    }
+
     cancelFileTransferCopy(taskId: string): Promise<unknown> {
         return this.executeAttempt(
             'cancelFileTransferCopy', undefined, undefined, undefined,
@@ -141,6 +158,7 @@ export class ManagedRemoteBridgeClient {
         fileTransfer: (
             | { kind: 'localRoot'; rootId: string; directoryId?: string }
             | { kind: 'managedMachine'; directoryId?: string }
+            | FileTransferPreflightRequest
             | FileTransferCopyRequest
             | { kind: 'cancel'; taskId: string }
         ) | undefined,
@@ -245,6 +263,36 @@ export class ManagedRemoteBridgeClient {
             );
         });
     }
+}
+
+function parseFileTransferPreflightResult(value: unknown): FileTransferPreflightResult | null {
+    if (!isRecord(value)
+        || !hasExactKeys(value, [
+            'totalItems', 'knownBytes', 'unknownSizeItems', 'existingFileNames', 'existingDirectoryNames',
+        ])
+        || !Number.isSafeInteger(value.totalItems)
+        || value.totalItems < 1
+        || value.totalItems > 100
+        || !Number.isSafeInteger(value.knownBytes)
+        || value.knownBytes < 0
+        || !Number.isSafeInteger(value.unknownSizeItems)
+        || value.unknownSizeItems < 0
+        || value.unknownSizeItems > value.totalItems
+        || !validFileTransferNames(value.existingFileNames)
+        || !validFileTransferNames(value.existingDirectoryNames)) {
+        return null;
+    }
+    return value as unknown as FileTransferPreflightResult;
+}
+
+function validFileTransferNames(value: unknown): value is string[] {
+    return Array.isArray(value)
+        && value.length <= 100
+        && value.every(name => typeof name === 'string'
+            && name.length > 0
+            && name.length <= 255
+            && !/[\0\r\n]/u.test(name))
+        && new Set(value).size === value.length;
 }
 
 function parseFileTransferLocalRootResponse(value: unknown): FileTransferLocalRootResponse | null {

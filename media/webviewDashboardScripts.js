@@ -192,6 +192,42 @@ function validateFileTransferCopyQueued(message) {
         ].join('\n');
 }
 
+function validateFileTransferCopyPreflight(message) {
+    if (!message || message.version !== 1
+        || typeof message.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)) {
+        return false;
+    }
+    if (message.type === 'file-transfer-copy-preflight-failed') {
+        return Object.keys(message).sort().join('\n') === [
+            'message', 'requestId', 'type', 'version',
+        ].join('\n') && typeof message.message === 'string' && message.message.length <= 320;
+    }
+    var result = message.result;
+    return message.type === 'file-transfer-copy-preflighted'
+        && Object.keys(message).sort().join('\n') === [
+            'requestId', 'result', 'type', 'version',
+        ].join('\n')
+        && !!result && typeof result === 'object'
+        && Object.keys(result).sort().join('\n') === [
+            'existingDirectoryNames', 'existingFileNames', 'knownBytes', 'totalItems', 'unknownSizeItems',
+        ].join('\n')
+        && Number.isSafeInteger(result.totalItems) && result.totalItems > 0 && result.totalItems <= 100
+        && Number.isSafeInteger(result.knownBytes) && result.knownBytes >= 0
+        && Number.isSafeInteger(result.unknownSizeItems)
+        && result.unknownSizeItems >= 0 && result.unknownSizeItems <= result.totalItems
+        && validFileTransferPreflightNames(result.existingFileNames)
+        && validFileTransferPreflightNames(result.existingDirectoryNames);
+}
+
+function validFileTransferPreflightNames(names) {
+    return Array.isArray(names) && names.length <= 100
+        && names.every(function (name) {
+            return typeof name === 'string' && name.length > 0 && name.length <= 255
+                && !/[\0\r\n]/.test(name);
+        }) && new Set(names).size === names.length;
+}
+
 function validateFileTransferHistory(message) {
     return !!message && message.type === 'file-transfer-history'
         && message.version === 1
@@ -621,6 +657,8 @@ function initDashboard(options) {
         var reviewSheet = panel.querySelector('[data-file-transfer-review-sheet]');
         var reviewSummary = panel.querySelector('[data-file-transfer-review-summary]');
         var reviewSize = panel.querySelector('[data-file-transfer-review-size]');
+        var reviewPreflight = panel.querySelector('[data-file-transfer-review-preflight]');
+        var reviewNote = panel.querySelector('[data-file-transfer-review-note]');
         var reviewItems = panel.querySelector('[data-file-transfer-review-items]');
         var conflictPolicy = panel.querySelector('[data-file-transfer-conflict-policy]');
         var reviewCancel = panel.querySelector('[data-file-transfer-review-cancel]');
@@ -636,6 +674,9 @@ function initDashboard(options) {
         var activeCopyTaskId = null;
         var pendingCopyItemCount = 0;
         var pendingCopyPlan = null;
+        var pendingPreflightRequestId = null;
+        var reviewedCopyPlan = null;
+        var reviewPreflightResult = null;
         var lastFailedCopyPlan = null;
         var transferTasks = {};
         var pendingHistoryClearRequestId = null;
@@ -1021,6 +1062,74 @@ function initDashboard(options) {
             }
         }
 
+        function updateReviewStartAvailability() {
+            if (!startCopy || !reviewSheet || reviewSheet.hidden) return;
+            var result = reviewPreflightResult;
+            var policy = conflictPolicy ? conflictPolicy.value : 'fail';
+            var existingFileCount = result ? result.existingFileNames.length : 0;
+            var existingDirectoryCount = result ? result.existingDirectoryNames.length : 0;
+            var canStart = !!reviewedCopyPlan && !pendingPreflightRequestId && !!result;
+            if (canStart && (existingFileCount || existingDirectoryCount) && policy === 'fail') {
+                canStart = false;
+                if (reviewNote) reviewNote.textContent = (existingFileCount + existingDirectoryCount)
+                    + ' existing target item(s) need a Skip or Replace choice before copy can start.';
+            } else if (canStart && existingDirectoryCount && policy === 'replace') {
+                canStart = false;
+                if (reviewNote) reviewNote.textContent = 'Existing folders and non-files cannot be safely replaced. Select Skip existing or another folder.';
+            } else if (canStart) {
+                if (reviewNote) reviewNote.textContent = 'Copy will begin only after you select Start copy.';
+            } else if (pendingPreflightRequestId && reviewNote) {
+                reviewNote.textContent = 'Checking source access and existing target items…';
+            }
+            startCopy.disabled = !canStart;
+        }
+
+        function requestCopyPreflight(plan) {
+            var requestId = 'file-transfer-preflight-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingPreflightRequestId = requestId;
+            reviewPreflightResult = null;
+            if (reviewPreflight) reviewPreflight.textContent = 'Checking source access and target collisions…';
+            updateReviewStartAvailability();
+            options.postMessage({
+                type: 'file-transfer-preflight-copy',
+                version: 1,
+                requestId: requestId,
+                source: plan.source,
+                destination: plan.destination,
+                entryIds: plan.entryIds.slice(),
+            });
+        }
+
+        function applyCopyPreflight(message) {
+            if (message.requestId !== pendingPreflightRequestId) return false;
+            pendingPreflightRequestId = null;
+            if (message.type === 'file-transfer-copy-preflighted') {
+                reviewPreflightResult = message.result;
+                var existingCount = message.result.existingFileNames.length
+                    + message.result.existingDirectoryNames.length;
+                if (reviewSize) {
+                    reviewSize.textContent = message.result.unknownSizeItems
+                        ? 'Known size: ' + formatFileTransferBytes(message.result.knownBytes) + '. '
+                            + message.result.unknownSizeItems + ' folder or item size will be determined during copy.'
+                        : 'Total size: ' + formatFileTransferBytes(message.result.knownBytes) + '.';
+                }
+                if (reviewPreflight) {
+                    reviewPreflight.textContent = existingCount
+                        ? existingCount + ' target item(s) already exist ('
+                            + message.result.existingFileNames.length + ' file(s), '
+                            + message.result.existingDirectoryNames.length + ' folder or non-file item(s)).'
+                        : 'Source access is ready. No target collisions were found.';
+                }
+            } else {
+                reviewPreflightResult = null;
+                if (reviewPreflight) reviewPreflight.textContent = 'Could not complete review: ' + message.message;
+                if (reviewNote) reviewNote.textContent = 'Fix the reported issue, then open Review copy again.';
+            }
+            updateReviewStartAvailability();
+            return true;
+        }
+
         function openReview() {
             var sourceSide = selectedSourceSide();
             if (!sourceSide || !reviewSheet) return;
@@ -1050,23 +1159,32 @@ function initDashboard(options) {
             }
             renderReviewItems(entries);
             reviewSheet.hidden = false;
+            reviewedCopyPlan = {
+                source: endpointReference(sourceSide),
+                destination: endpointReference(destinationSide),
+                entryIds: Array.from(selectedEntries[sourceSide]),
+            };
+            if (!reviewedCopyPlan.source || !reviewedCopyPlan.destination) {
+                closeReview();
+                return;
+            }
+            requestCopyPreflight(reviewedCopyPlan);
         }
 
         function closeReview() {
             if (reviewSheet) reviewSheet.hidden = true;
+            pendingPreflightRequestId = null;
+            reviewedCopyPlan = null;
+            reviewPreflightResult = null;
         }
 
         function startReviewedCopy() {
-            var sourceSide = selectedSourceSide();
-            if (!sourceSide || pendingCopyRequestId) return;
-            var destinationSide = sourceSide === 'left' ? 'right' : 'left';
-            var source = endpointReference(sourceSide);
-            var destination = endpointReference(destinationSide);
-            if (!source || !destination) return;
+            if (!reviewedCopyPlan || pendingCopyRequestId || pendingPreflightRequestId || !reviewPreflightResult
+                || (startCopy && startCopy.disabled)) return;
             submitCopyPlan({
-                source: source,
-                destination: destination,
-                entryIds: Array.from(selectedEntries[sourceSide]),
+                source: reviewedCopyPlan.source,
+                destination: reviewedCopyPlan.destination,
+                entryIds: reviewedCopyPlan.entryIds.slice(),
                 conflictPolicy: conflictPolicy ? conflictPolicy.value : 'fail',
             });
         }
@@ -1195,6 +1313,7 @@ function initDashboard(options) {
         if (review) review.addEventListener('click', openReview);
         if (reviewCancel) reviewCancel.addEventListener('click', closeReview);
         if (startCopy) startCopy.addEventListener('click', startReviewedCopy);
+        if (conflictPolicy) conflictPolicy.addEventListener('change', updateReviewStartAvailability);
         if (retry) retry.addEventListener('click', retryFailedCopy);
         if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
         Array.from(panel.querySelectorAll('[data-file-transfer-show-hidden]')).forEach(function (checkbox) {
@@ -1256,6 +1375,7 @@ function initDashboard(options) {
             applyCopySettlement: applyCopySettlement,
             applyCopyStarted: applyCopyStarted,
             applyCopyQueued: applyCopyQueued,
+            applyCopyPreflight: applyCopyPreflight,
             applyHistory: applyHistory,
             applyHistoryClearSettlement: applyHistoryClearSettlement,
         };
@@ -1344,6 +1464,10 @@ function initDashboard(options) {
         if (event && event.data && validateFileTransferCopyQueued(event.data)
             && fileTransferPanel) {
             fileTransferPanel.applyCopyQueued(event.data);
+        }
+        if (event && event.data && validateFileTransferCopyPreflight(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopyPreflight(event.data);
         }
         if (event && event.data && validateFileTransferHistory(event.data)
             && fileTransferPanel) {

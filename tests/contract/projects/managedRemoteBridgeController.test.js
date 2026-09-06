@@ -302,6 +302,25 @@ test('FILE-TRANSFER-COPY-001 rejects local-to-local copy even with approved hand
     assert.match(copy.message, /does not copy between two local folders/i);
 });
 
+test('FILE-TRANSFER-PREFLIGHT-001 rejects local-to-local review before catalog access', async () => {
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { throw new Error('local-to-local preflight must be rejected first'); },
+    }, {
+        async create() { throw new Error('local-to-local preflight must not create a coordinator'); },
+    }, 'session-12345678');
+    const result = await controller.execute({
+        ...request('preflightFileTransfer', `revision:${'a'.repeat(64)}`),
+        fileTransfer: {
+            kind: 'preflight',
+            source: { kind: 'local', rootId: 'a'.repeat(32), directoryId: 'b'.repeat(32) },
+            destination: { kind: 'local', rootId: 'c'.repeat(32), directoryId: 'd'.repeat(32) },
+            entryIds: ['e'.repeat(32)],
+        },
+    });
+    assert.equal(result.status, 'failed');
+    assert.match(result.message, /does not copy between two local folders/i);
+});
+
 test('FILE-TRANSFER-COPY-002 permits only one active relay copy in a UI Bridge session', async () => {
     const controller = new ManagedRemoteBridgeController({
         readManagedCatalogEnvelope() { throw new Error('an active copy must be rejected before catalog access'); },

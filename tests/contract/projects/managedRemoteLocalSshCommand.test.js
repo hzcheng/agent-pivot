@@ -95,3 +95,42 @@ test('MANAGED-REMOTE-ACTIONS-001 rejects a Bridge without the projection-v2 capa
         /Update the Agent Pivot UI Bridge/,
     );
 });
+
+test('FILE-TRANSFER-PREFLIGHT-002 bridge client sends opaque handles and validates the bounded summary', async () => {
+    const calls = [];
+    const commands = {
+        async executeCommand(command, request) {
+            calls.push([command, request]);
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return {
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678', capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                };
+            }
+            return {
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: {
+                    totalItems: 1, knownBytes: 42, unknownSizeItems: 0,
+                    existingFileNames: ['report.txt'], existingDirectoryNames: [],
+                },
+            };
+        },
+    };
+    const result = await new ManagedRemoteBridgeClient(commands).preflightFileTransfer(
+        `revision:${'a'.repeat(64)}`,
+        {
+            kind: 'preflight', entryIds: ['a'.repeat(32)],
+            source: { kind: 'local', rootId: 'b'.repeat(32), directoryId: 'c'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'd'.repeat(32) },
+        },
+    );
+    assert.deepEqual(result.existingFileNames, ['report.txt']);
+    assert.equal(calls[1][1].operation, 'preflightFileTransfer');
+    assert.deepEqual(calls[1][1].fileTransfer, {
+        kind: 'preflight', entryIds: ['a'.repeat(32)],
+        source: { kind: 'local', rootId: 'b'.repeat(32), directoryId: 'c'.repeat(32) },
+        destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'd'.repeat(32) },
+    });
+    assert.doesNotMatch(JSON.stringify(calls[1][1]), /\/(?:home|tmp|work)\//u,
+        'the bridge request must not carry a local filesystem path');
+});

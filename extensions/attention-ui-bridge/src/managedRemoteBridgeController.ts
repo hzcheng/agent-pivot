@@ -2,13 +2,16 @@
 
 import { createHash, randomBytes } from 'crypto';
 import { ChildProcess, spawn } from 'child_process';
-import { lstat, opendir, realpath, stat } from 'fs/promises';
+import { constants } from 'fs';
+import { access, lstat, opendir, realpath, stat } from 'fs/promises';
 import * as path from 'path';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
     FileTransferDirectoryEntry,
     FileTransferLocalRootRequest,
     FileTransferRemoteDirectoryRequest,
+    FileTransferPreflightRequest,
+    FileTransferPreflightResult,
     FileTransferCopyRequest,
     FileTransferCopyResult,
     FileTransferEndpointReference,
@@ -189,11 +192,11 @@ function listRemoteDirectory(
     });
 }
 
-function remotePathExists(
+function remotePathKind(
     sshExecutable: string,
     alias: string,
     targetPath: string,
-): Promise<boolean> {
+): Promise<FileTransferDirectoryEntry['kind'] | null> {
     const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
     return new Promise((resolve, reject) => {
         const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -205,20 +208,30 @@ function remotePathExists(
                 reject(new Error('Could not inspect the remote copy destination.'));
                 return;
             }
-            const output = Buffer.concat(stdout).toString('utf8');
-            resolve(/^[-bcdlps][rwxStTs-]{9}\s/mu.test(output));
+            const entry = parseSftpLongListing(Buffer.concat(stdout).toString('utf8'))[0];
+            resolve(entry?.kind || null);
         });
         // The leading dash keeps a missing path from failing the whole batch.
         process.stdin.end(`-ls -ld ${quoteSftpPath(targetPath)}\n`);
     });
 }
 
-async function localPathExists(targetPath: string): Promise<boolean> {
+function remotePathExists(
+    sshExecutable: string,
+    alias: string,
+    targetPath: string,
+): Promise<boolean> {
+    return remotePathKind(sshExecutable, alias, targetPath).then(Boolean);
+}
+
+async function localPathKind(targetPath: string): Promise<FileTransferDirectoryEntry['kind'] | null> {
     try {
-        await lstat(targetPath);
-        return true;
+        const details = await lstat(targetPath);
+        return details.isSymbolicLink() ? 'symlink'
+            : details.isDirectory() ? 'directory'
+                : details.isFile() ? 'file' : 'unsupported';
     } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') { return false; }
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') { return null; }
         throw error;
     }
 }
@@ -364,6 +377,13 @@ export class ManagedRemoteBridgeController {
                 const cancellation = request.fileTransfer as { taskId: string };
                 return response(request.requestId, 'ok', this.cancelFileTransferCopy(cancellation.taskId));
             }
+            if (request.operation === 'copyFileTransferEntries'
+                || request.operation === 'preflightFileTransfer') {
+                const plan = request.fileTransfer as FileTransferCopyRequest | FileTransferPreflightRequest;
+                if (plan.source.kind === 'local' && plan.destination.kind === 'local') {
+                    throw new Error('File Transfer does not copy between two local folders.');
+                }
+            }
             const coordinator = await this.coordinators.create();
             if (request.operation === 'listFileTransferRemoteDirectory') {
                 const remoteDirectory = request.fileTransfer as FileTransferRemoteDirectoryRequest;
@@ -377,14 +397,20 @@ export class ManagedRemoteBridgeController {
             }
             if (request.operation === 'copyFileTransferEntries') {
                 const copy = request.fileTransfer as FileTransferCopyRequest;
-                if (copy.source.kind === 'local' && copy.destination.kind === 'local') {
-                    throw new Error('File Transfer does not copy between two local folders.');
-                }
                 const slot = this.readExpectedSlot(request);
                 return response(request.requestId, 'ok', await this.copyFileTransferEntries(
                     slot,
                     coordinator,
                     copy,
+                ));
+            }
+            if (request.operation === 'preflightFileTransfer') {
+                const preflight = request.fileTransfer as FileTransferPreflightRequest;
+                const slot = this.readExpectedSlot(request);
+                return response(request.requestId, 'ok', await this.preflightFileTransfer(
+                    slot,
+                    coordinator,
+                    preflight,
                 ));
             }
             if (request.operation === 'inspectLegacySshTarget') {
@@ -682,18 +708,21 @@ export class ManagedRemoteBridgeController {
                 const destinationPath = destination.kind === 'local'
                     ? path.join(destination.path, path.basename(entry.path))
                     : remoteChildPath(destination.path, path.basename(entry.path));
-                const collision = destination.kind === 'local'
-                    ? await localPathExists(destinationPath)
-                    : await remotePathExists(
+                const collisionKind = destination.kind === 'local'
+                    ? await localPathKind(destinationPath)
+                    : await remotePathKind(
                         coordinator.getExecutable(), destination.alias, destinationPath,
                     );
-                if (collision) {
+                if (collisionKind) {
                     if (request.conflictPolicy === 'skip') {
                         skippedItems += 1;
                         continue;
                     }
                     if (request.conflictPolicy !== 'replace') {
                         throw new Error(`Copy target already exists: ${path.basename(entry.path)}. Choose another folder or select a conflict policy.`);
+                    }
+                    if (entry.kind !== 'file' || collisionKind !== 'file') {
+                        throw new Error(`File Transfer cannot safely replace an existing folder or non-file: ${path.basename(entry.path)}. Choose Skip existing or another folder.`);
                     }
                 }
                 await copyFileTransferEntry(
@@ -728,6 +757,54 @@ export class ManagedRemoteBridgeController {
             this.activeFileTransferCopies.delete(request.taskId);
         }
         return { status: 'copied', completedItems, skippedItems, totalItems: request.entryIds.length };
+    }
+
+    private async preflightFileTransfer(
+        slot: ManagedRevisionSlot,
+        coordinator: ManagedSshConsentCoordinator,
+        request: FileTransferPreflightRequest,
+    ): Promise<FileTransferPreflightResult> {
+        const source = await this.resolveFileTransferSource(slot, request.source, request.entryIds);
+        const destination = await this.resolveFileTransferDestination(slot, request.destination);
+        const existingFileNames: string[] = [];
+        const existingDirectoryNames: string[] = [];
+        let knownBytes = 0;
+        let unknownSizeItems = 0;
+        for (const entry of source.entries) {
+            if (source.kind === 'local') {
+                try {
+                    await access(entry.path, constants.R_OK);
+                } catch (_error) {
+                    throw new Error(`The selected source is no longer readable: ${path.basename(entry.path)}.`);
+                }
+            } else if (!await remotePathExists(coordinator.getExecutable(), source.alias, entry.path)) {
+                throw new Error(`The selected source is no longer readable: ${path.basename(entry.path)}.`);
+            }
+            if (entry.kind === 'file' && Number.isSafeInteger(entry.size)
+                && knownBytes <= Number.MAX_SAFE_INTEGER - entry.size!) {
+                knownBytes += entry.size!;
+            } else {
+                unknownSizeItems += 1;
+            }
+            const destinationPath = destination.kind === 'local'
+                ? path.join(destination.path, path.basename(entry.path))
+                : remoteChildPath(destination.path, path.basename(entry.path));
+            const existingKind = destination.kind === 'local'
+                ? await localPathKind(destinationPath)
+                : await remotePathKind(coordinator.getExecutable(), destination.alias, destinationPath);
+            if (existingKind === 'file') {
+                existingFileNames.push(path.basename(entry.path));
+            } else if (existingKind) {
+                existingDirectoryNames.push(path.basename(entry.path));
+            }
+        }
+        return {
+            totalItems: source.entries.length,
+            knownBytes,
+            unknownSizeItems,
+            existingFileNames,
+            existingDirectoryNames,
+        };
     }
 
     private cancelFileTransferCopy(taskId: string): { cancelled: boolean } {
@@ -783,6 +860,11 @@ export class ManagedRemoteBridgeController {
             const resolvedPath = await realpath(directoryPath);
             if (!this.isWithinLocalRoot(root.path, resolvedPath) || !(await stat(resolvedPath)).isDirectory()) {
                 throw new Error('The selected local destination is outside the approved folder.');
+            }
+            try {
+                await access(resolvedPath, constants.W_OK | constants.X_OK);
+            } catch (_error) {
+                throw new Error('The selected local destination is not writable. Choose another folder.');
             }
             return { kind: 'local', path: resolvedPath };
         }

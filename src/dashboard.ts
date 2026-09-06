@@ -2745,6 +2745,28 @@ async function initializeDashboard(
         },
     };
 
+    const fileTransferHistoryKey = 'fileTransferHistoryV1';
+    const readFileTransferHistory = (): FileTransferHistoryEntry[] => {
+        const value = context.globalState.get<unknown>(fileTransferHistoryKey, []);
+        return Array.isArray(value) ? value.filter(isFileTransferHistoryEntry).slice(0, 50) : [];
+    };
+    const appendFileTransferHistory = async (
+        request: Record<string, unknown>,
+        status: 'copied' | 'failed',
+        value: unknown,
+    ): Promise<void> => {
+        const entry: FileTransferHistoryEntry = {
+            at: Date.now(),
+            status,
+            itemCount: Array.isArray(request.entryIds) ? request.entryIds.length : 0,
+            conflictPolicy: String(request.conflictPolicy),
+            ...(status === 'copied' && isRecordFileTransferCopyResult(value)
+                ? { completedItems: value.completedItems, skippedItems: value.skippedItems }
+                : {}),
+        };
+        await context.globalState.update(fileTransferHistoryKey, [entry, ...readFileTransferHistory()].slice(0, 50));
+    };
+
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
         saveCurrentWorkspace: async message => {
@@ -2941,14 +2963,25 @@ async function initializeDashboard(
                             conflictPolicy: message.conflictPolicy as 'fail' | 'skip' | 'replace',
                         },
                     ).then(
-                    result => provider.postMessage(fileTransferCopySettlement(message, 'copied', result)),
+                    async result => {
+                        await appendFileTransferHistory(message, 'copied', result);
+                        return provider.postMessage(fileTransferCopySettlement(message, 'copied', result));
+                    },
                     error => {
                         const rawMessage = error instanceof Error ? error.message : String(error);
-                        return provider.postMessage(fileTransferCopySettlement(
+                        return appendFileTransferHistory(message, 'failed', rawMessage).then(() => provider.postMessage(fileTransferCopySettlement(
                             message, 'failed', rawMessage.slice(0, 320),
-                        ));
+                        )));
                     },
                 );
+            },
+            'file-transfer-request-history': async message => {
+                if (!isFileTransferHistoryRequest(message)) {
+                    return;
+                }
+                await provider.postMessage({
+                    type: 'file-transfer-history', version: 1, entries: readFileTransferHistory(),
+                });
             },
             'file-transfer-cancel-copy': async message => {
                 if (!isFileTransferCancelRequest(message)) {
@@ -4651,6 +4684,47 @@ function isFileTransferCancelRequest(value: Record<string, unknown>): boolean {
         && typeof value.taskId === 'string'
         && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.taskId)
         && Object.keys(value).sort().join('\n') === ['taskId', 'type', 'version'].join('\n');
+}
+
+interface FileTransferHistoryEntry {
+    at: number;
+    status: 'copied' | 'failed';
+    itemCount: number;
+    conflictPolicy: string;
+    completedItems?: number;
+    skippedItems?: number;
+}
+
+function isFileTransferHistoryEntry(value: unknown): value is FileTransferHistoryEntry {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const entry = value as Record<string, unknown>;
+    return Object.keys(entry).every(key => [
+        'at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems',
+    ].includes(key))
+        && Number.isSafeInteger(entry.at) && (entry.at as number) > 0
+        && (entry.status === 'copied' || entry.status === 'failed')
+        && Number.isSafeInteger(entry.itemCount) && (entry.itemCount as number) > 0
+        && typeof entry.conflictPolicy === 'string'
+        && ['fail', 'skip', 'replace'].includes(entry.conflictPolicy)
+        && (entry.completedItems === undefined
+            || (Number.isSafeInteger(entry.completedItems) && (entry.completedItems as number) >= 0))
+        && (entry.skippedItems === undefined
+            || (Number.isSafeInteger(entry.skippedItems) && (entry.skippedItems as number) >= 0));
+}
+
+function isRecordFileTransferCopyResult(value: unknown): value is {
+    completedItems: number;
+    skippedItems: number;
+} {
+    return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+        && Number.isSafeInteger((value as Record<string, unknown>).completedItems)
+        && Number.isSafeInteger((value as Record<string, unknown>).skippedItems);
+}
+
+function isFileTransferHistoryRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-request-history'
+        && value.version === 1
+        && Object.keys(value).sort().join('\n') === ['type', 'version'].join('\n');
 }
 
 

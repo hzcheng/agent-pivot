@@ -84,5 +84,9 @@ export function getFileTransferContent(
                 <button type="button" data-file-transfer-start-copy>Start copy</button>
             </div>
         </section>
+        <section class="file-transfer-history" aria-label="Recent transfers">
+            <h3>Recent transfers</h3>
+            <ul data-file-transfer-history-list><li>Loading transfer history…</li></ul>
+        </section>
     </section>`;
 }

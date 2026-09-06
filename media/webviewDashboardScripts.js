@@ -131,6 +131,24 @@ function validateFileTransferCopyStarted(message) {
         ].join('\n');
 }
 
+function validateFileTransferHistory(message) {
+    return !!message && message.type === 'file-transfer-history'
+        && message.version === 1
+        && Object.keys(message).sort().join('\n') === ['entries', 'type', 'version'].join('\n')
+        && Array.isArray(message.entries)
+        && message.entries.length <= 50
+        && message.entries.every(function (entry) {
+            return !!entry && typeof entry === 'object'
+                && Object.keys(entry).every(function (key) {
+                    return ['at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems'].includes(key);
+                })
+                && Number.isSafeInteger(entry.at) && entry.at > 0
+                && (entry.status === 'copied' || entry.status === 'failed')
+                && Number.isSafeInteger(entry.itemCount) && entry.itemCount > 0
+                && ['fail', 'skip', 'replace'].includes(entry.conflictPolicy);
+        });
+}
+
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'agentPivot.activeDashboardTab';
@@ -516,6 +534,7 @@ function initDashboard(options) {
         var summary = panel.querySelector('[data-file-transfer-summary]');
         var review = panel.querySelector('[data-file-transfer-review]');
         var tasks = panel.querySelector('[data-file-transfer-tasks]');
+        var historyList = panel.querySelector('[data-file-transfer-history-list]');
         var reviewSheet = panel.querySelector('[data-file-transfer-review-sheet]');
         var reviewSummary = panel.querySelector('[data-file-transfer-review-summary]');
         var conflictPolicy = panel.querySelector('[data-file-transfer-conflict-policy]');
@@ -536,6 +555,27 @@ function initDashboard(options) {
                 : 'Cancel the active file copy';
             var count = tasks.querySelector ? tasks.querySelector('span') : null;
             if (count) count.textContent = String(activeTransferCount);
+        }
+
+        function applyHistory(message) {
+            if (!historyList) return false;
+            historyList.textContent = '';
+            if (!message.entries.length) {
+                var empty = document.createElement('li');
+                empty.textContent = 'No completed transfers yet.';
+                historyList.appendChild(empty);
+                return true;
+            }
+            message.entries.forEach(function (entry) {
+                var row = document.createElement('li');
+                var detail = entry.status === 'copied'
+                    ? 'Copied ' + (entry.completedItems === undefined ? entry.itemCount : entry.completedItems)
+                        + (entry.skippedItems ? ', skipped ' + entry.skippedItems : '')
+                    : 'Failed';
+                row.textContent = detail + ' · ' + entry.itemCount + ' item(s) · ' + entry.conflictPolicy;
+                historyList.appendChild(row);
+            });
+            return true;
         }
 
         function selectorFor(side) {
@@ -799,6 +839,7 @@ function initDashboard(options) {
             } else if (reviewSummary) {
                 reviewSummary.textContent = message.message || 'File copy failed.';
             }
+            options.postMessage({ type: 'file-transfer-request-history', version: 1 });
             return true;
         }
 
@@ -832,6 +873,7 @@ function initDashboard(options) {
             applyLocalRootMessage: applyLocalRootMessage,
             applyCopySettlement: applyCopySettlement,
             applyCopyStarted: applyCopyStarted,
+            applyHistory: applyHistory,
         };
     }
     var fileTransferPanel = initializeFileTransferPanel();
@@ -915,6 +957,10 @@ function initDashboard(options) {
             && fileTransferPanel) {
             fileTransferPanel.applyCopyStarted(event.data);
         }
+        if (event && event.data && validateFileTransferHistory(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyHistory(event.data);
+        }
         if (event && event.data
             && event.data.type === 'select-dashboard-tab'
             && event.data.version === 1
@@ -984,6 +1030,8 @@ function initDashboard(options) {
             ? fileTransferPanel.applyCopySettlement : function () { return false; },
         applyFileTransferCopyStarted: fileTransferPanel
             ? fileTransferPanel.applyCopyStarted : function () { return false; },
+        applyFileTransferHistory: fileTransferPanel
+            ? fileTransferPanel.applyHistory : function () { return false; },
         ensureProjectsPanel: projectsPanel.ensureProjectsPanel,
         ensureAiPanel: aiPanel.ensureAiPanel,
         getActiveTab: () => activeTab,

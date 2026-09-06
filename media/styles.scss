@@ -2002,6 +2002,26 @@ body .project {
     cursor: pointer;
 }
 
+.file-transfer-history {
+    padding-top: 3px;
+    border-top: 1px solid var(--vscode-panel-border);
+}
+
+.file-transfer-history h3 {
+    margin: 8px 0 6px;
+    font-size: 12px;
+}
+
+.file-transfer-history ul {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+}
+
 .file-transfer-action-bar {
     position: sticky;
     bottom: 0;

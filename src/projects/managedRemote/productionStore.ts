@@ -24,19 +24,34 @@ export interface ManagedRemoteMementoLike {
 }
 
 export class ConfigurationManagedCatalogBackend implements ManagedCatalogBackend {
+    private readonly acquire: () => ManagedRemoteConfigurationLike;
+
+    /**
+     * `configuration` may be a provider or a single object.
+     *
+     * `vscode.workspace.getConfiguration` returns a snapshot that never
+     * observes later writes, so holding one for the lifetime of the extension
+     * makes every read after a write return the value from activation: a
+     * Machine the user just added never reads back and the panel stays empty.
+     * Prefer passing a provider so each access re-acquires.
+     */
     constructor(
-        private readonly configuration: ManagedRemoteConfigurationLike,
+        configuration: ManagedRemoteConfigurationLike
+            | (() => ManagedRemoteConfigurationLike),
         private readonly key: string,
         private readonly globalTarget: vscode.ConfigurationTarget,
     ) {
+        this.acquire = typeof configuration === 'function'
+            ? configuration
+            : () => configuration;
     }
 
     read(): unknown {
-        return cloneManagedValue(this.configuration.get(this.key));
+        return cloneManagedValue(this.acquire().get(this.key));
     }
 
     write(value: ManagedCatalogEnvelopeV1): Thenable<void> {
-        return this.configuration.update(
+        return this.acquire().update(
             this.key,
             cloneManagedValue(value),
             this.globalTarget,

@@ -37,7 +37,13 @@ export function createDisabledManagedRemoteSnapshot(
 }
 
 export async function createManagedRemoteManagementCapability(options: {
-    configuration: ManagedRemoteConfigurationLike;
+    /**
+     * Re-acquired on every access. A `vscode.workspace.getConfiguration`
+     * snapshot never observes later writes, so a cached one makes the catalog
+     * unreadable immediately after it is written.
+     */
+    configuration: ManagedRemoteConfigurationLike
+        | (() => ManagedRemoteConfigurationLike);
     catalogSettingKey: string;
     globalTarget: vscode.ConfigurationTarget;
     memento: ManagedRemoteMementoLike;

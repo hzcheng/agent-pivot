@@ -212,3 +212,80 @@ test('MANAGED-REMOTE-MANAGEMENT-002 retains concurrent durable window replicas',
     assert.ok(replicaA.readWriter('writer-a'));
     assert.ok(replicaB.readWriter('writer-b'));
 });
+
+/**
+ * A faithful stand-in for `vscode.workspace.getConfiguration`, which returns a
+ * snapshot: a configuration object never observes writes made after it was
+ * handed out. Sharing one mutable fake hides that, and hides any code that
+ * caches the object instead of re-acquiring it.
+ */
+function configurationSource() {
+    const stored = new Map();
+    const handed = [];
+    return {
+        stored,
+        handed,
+        acquire() {
+            const snapshot = new Map(stored);
+            const configuration = {
+                get(key) { return snapshot.get(key); },
+                async update(key, value) {
+                    stored.set(key, JSON.parse(JSON.stringify(value)));
+                },
+            };
+            handed.push(configuration);
+            return configuration;
+        },
+    };
+}
+
+test('MANAGED-REMOTE-MANAGEMENT-002 reads back a catalog it just wrote through configuration', async () => {
+    const source = configurationSource();
+    const backend = new ConfigurationManagedCatalogBackend(
+        () => source.acquire(), 'managedRemoteCatalogData', 1,
+    );
+    const envelope = createEmptyManagedCatalogEnvelope('actor');
+
+    await backend.write(envelope);
+
+    // Holding one snapshot means every later read returns the value from
+    // activation, so a Machine the user just added never comes back and the
+    // panel stays empty.
+    assert.deepEqual(
+        backend.read(),
+        envelope,
+        'the backend must re-acquire configuration instead of caching a snapshot',
+    );
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-002 activates a Machine through the real configuration backend', async () => {
+    const source = configurationSource();
+    const coordinator = await ManagedCatalogCoordinator.create(
+        new ConfigurationManagedCatalogBackend(
+            () => source.acquire(), 'managedRemoteCatalogData', 1,
+        ),
+        new MementoManagedCatalogReplicaFacade(
+            new MemoryMemento(),
+            'managedRemote',
+            new MemoryMemento(),
+            (() => {
+                const identities = ['writer', 'actor'];
+                return () => identities.shift();
+            })(),
+        ),
+    );
+    let ordinal = 0;
+    const store = new ManagedRemoteCatalogManagementStore(
+        coordinator, 'catalog:one', prefix => `${prefix}:cfg-${++ordinal}`,
+    );
+
+    const added = await store.addMachine(null, {
+        name: 'RedDev', host: 'reddev.example.com', user: 'dev', port: 22022,
+    });
+    assert.equal(added.lifecycle, 'active');
+
+    // And it has to survive the next read, which is what the panel renders from.
+    const reread = await store.getSnapshot();
+    assert.equal(reread.catalog.machines.length, 1, 'the added Machine must persist');
+    assert.equal(reread.catalog.machines[0].name, 'RedDev');
+});

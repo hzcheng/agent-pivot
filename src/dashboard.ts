@@ -943,7 +943,7 @@ async function initializeDashboard(
     let managedRemoteCapability: ManagedRemoteManagementCapability | undefined;
     const managedRemoteBridgeClient = new ManagedRemoteBridgeClient(vscode.commands);
     const managedRemoteCapabilityPromise = createManagedRemoteManagementCapability({
-            configuration: promptConfiguration,
+            configuration: () => getAgentPivotConfiguration(),
             catalogSettingKey: MANAGED_REMOTE_CATALOG_DATA_KEY,
             globalTarget: vscode.ConfigurationTarget.Global,
             memento: context.globalState,

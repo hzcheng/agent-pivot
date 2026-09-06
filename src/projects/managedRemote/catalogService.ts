@@ -312,6 +312,20 @@ export class ManagedRemoteCatalogService {
      * Project through the single surrounding catalog transaction.
      */
     addMachineProject(input: AddManagedMachineProjectInput): ManagedRemoteProject {
+        const sourceAliases = new Set(input.machine.sourceSshAliases || []);
+        const matchingMachines = sourceAliases.size
+            ? this.getCatalog().machines.filter(machine =>
+                machine.sourceSshAliases?.some(alias => sourceAliases.has(alias)))
+            : [];
+        if (matchingMachines.length > 1) {
+            throw new Error('Current SSH target matches multiple Managed Machines.');
+        }
+        if (matchingMachines.length === 1) {
+            return this.addProject({
+                ...input.project,
+                environmentId: hostEnvironmentId(matchingMachines[0].id),
+            });
+        }
         const machine = this.addMachine(input.machine);
         return this.addProject({
             ...input.project,

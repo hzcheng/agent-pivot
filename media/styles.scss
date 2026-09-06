@@ -2468,12 +2468,25 @@ body .project {
 
     .open-window-save {
         color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+
+        &[data-save-pending="true"] svg {
+            animation: open-window-save-progress 900ms linear infinite;
+        }
+
+        &[aria-disabled="true"] {
+            cursor: progress;
+            opacity: .7;
+        }
     }
 
     .open-window-pin-slot,
     .open-window-save-slot {
         cursor: default;
     }
+}
+
+@keyframes open-window-save-progress {
+    to { transform: rotate(360deg); }
 }
 
 // 响应式宽度矩阵（webview 视口 media query，兼容旧 Chromium；禁 container query）。

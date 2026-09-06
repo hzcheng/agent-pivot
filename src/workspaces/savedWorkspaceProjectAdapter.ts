@@ -11,40 +11,36 @@ export interface SavedWorkspaceProjectAdapterOptions {
     getCurrentWorkspace: () => OpenWorkspace | null;
     pendingStore: PendingWorkspaceSaveStore;
     getProjectDetailsForSave: (navigationUri: string) => Promise<ProjectDetailsForSave | null>;
-    saveWorkspaceProject: (details: ProjectDetailsForSave | null) => Promise<void>;
+    saveWorkspaceProject: (details: ProjectDetailsForSave | null) => Promise<boolean>;
     executeSaveWorkspaceAs: () => Promise<unknown>;
     nowMs?: () => number;
 }
 
 export class SavedWorkspaceProjectAdapter {
-    private transaction: Promise<void> | null = null;
+    private transaction: Promise<boolean> | null = null;
 
     constructor(private readonly options: SavedWorkspaceProjectAdapterOptions) { }
 
-    saveCurrentWorkspace(): Promise<void> {
+    saveCurrentWorkspace(): Promise<boolean> {
         return this.runTransaction(() => this.saveCurrentWorkspaceUnlocked());
     }
 
-    completePendingWorkspaceSave(): Promise<void> {
-        return this.runTransaction(async () => {
-            await this.completePendingWorkspaceSaveUnlocked();
-        });
+    completePendingWorkspaceSave(): Promise<boolean> {
+        return this.runTransaction(() => this.completePendingWorkspaceSaveUnlocked());
     }
 
-    private async saveCurrentWorkspaceUnlocked(): Promise<void> {
+    private async saveCurrentWorkspaceUnlocked(): Promise<boolean> {
         const workspace = this.options.getCurrentWorkspace();
         if (this.options.pendingStore.read()
             && await this.completePendingWorkspaceSaveUnlocked()) {
-            return;
+            return true;
         }
         if (!workspace) {
-            await this.options.saveWorkspaceProject(null);
-            return;
+            return this.options.saveWorkspaceProject(null);
         }
 
         if (workspace.kind !== 'untitledMultiRoot') {
-            await this.saveWorkspace(workspace);
-            return;
+            return this.saveWorkspace(workspace);
         }
 
         const createdAtMs = this.nowMs();
@@ -64,11 +60,11 @@ export class SavedWorkspaceProjectAdapter {
         const transitioned = this.options.getCurrentWorkspace();
         if (transitioned?.kind === 'savedMultiRoot'
             && transitioned.scopeIdentity === workspace.scopeIdentity) {
-            await this.completePendingWorkspaceSaveUnlocked();
-            return;
+            return this.completePendingWorkspaceSaveUnlocked();
         }
 
         await this.options.pendingStore.clear();
+        return false;
     }
 
     private async completePendingWorkspaceSaveUnlocked(): Promise<boolean> {
@@ -85,22 +81,21 @@ export class SavedWorkspaceProjectAdapter {
             return false;
         }
 
-        await this.saveWorkspace(workspace);
-        return true;
+        return this.saveWorkspace(workspace);
     }
 
-    private async saveWorkspace(workspace: OpenWorkspace): Promise<void> {
+    private async saveWorkspace(workspace: OpenWorkspace): Promise<boolean> {
         const details = await this.options.getProjectDetailsForSave(workspace.navigationUri);
-        await this.options.saveWorkspaceProject(details);
+        return this.options.saveWorkspaceProject(details);
     }
 
-    private runTransaction(operation: () => Promise<void>): Promise<void> {
+    private runTransaction(operation: () => Promise<boolean>): Promise<boolean> {
         if (this.transaction) {
             return this.transaction;
         }
 
         const operationPromise = Promise.resolve().then(operation);
-        let transaction: Promise<void>;
+        let transaction: Promise<boolean>;
         transaction = operationPromise.finally(() => {
             if (this.transaction === transaction) {
                 this.transaction = null;

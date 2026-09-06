@@ -185,10 +185,46 @@ test('OPEN-WINDOW-SWITCHER-UI-001 renders single-line rows with the aria model',
 test('OPEN-WINDOW-SWITCHER-UI-001 saves an unsaved current workspace from its row button', async t => {
     const page = await openSwitcherPage(t);
     await page.locator('[data-open-window-row][data-window-kind="current"] [data-action="save-current-workspace"]').click();
-    assert.deepEqual(await page.evaluate(() => window.__postedMessages), [{
-        type: 'save-current-workspace',
-        projectId: '__currentWorkspace-' + 'a'.repeat(24),
-    }]);
+    const [request] = await page.evaluate(() => window.__postedMessages);
+    assert.equal(request.type, 'save-current-workspace');
+    assert.equal(request.version, 1);
+    assert.match(request.requestId, /^save-current-workspace-/u);
+    assert.equal(request.projectId, '__currentWorkspace-' + 'a'.repeat(24));
+});
+
+test('OPEN-WINDOW-SWITCHER-UI-001 visibly holds one Window save pending until its correlated result', async t => {
+    const page = await openSwitcherPage(t);
+    const button = page.locator(
+        '[data-open-window-row][data-window-kind="current"] [data-action="save-current-workspace"]'
+    );
+
+    await button.click();
+    const request = await page.evaluate(() => window.__postedMessages.at(-1));
+    assert.equal(request.type, 'save-current-workspace');
+    assert.equal(request.version, 1);
+    assert.match(request.requestId, /^save-current-workspace-/u);
+    assert.equal(await button.getAttribute('aria-disabled'), 'true');
+    assert.equal(await button.getAttribute('aria-label'), 'Saving Workspace…');
+    assert.equal(await button.locator('svg').evaluate(icon =>
+        getComputedStyle(icon).animationName), 'open-window-save-progress');
+    assert.equal(await page.locator('[data-open-window-nav-live-region]').textContent(),
+        'Saving Workspace alpha');
+
+    await button.click({ force: true });
+    assert.equal(await page.evaluate(() => window.__postedMessages.length), 1,
+        'a pending Window save must coalesce repeated clicks');
+
+    await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', {
+        data: {
+            type: 'save-current-workspace-result', version: 1, requestId,
+            projectId: '__currentWorkspace-' + 'a'.repeat(24),
+            operation: 'save-current-workspace', status: 'cancelled',
+        },
+    })), request.requestId);
+    assert.equal(await button.getAttribute('aria-disabled'), null);
+    assert.equal(await button.getAttribute('aria-label'), 'Save Workspace');
+    assert.equal(await page.locator('[data-open-window-nav-live-region]').textContent(),
+        'Save cancelled alpha');
 });
 
 test('OPEN-WINDOW-SWITCHER-UI-001 keeps window rows quiet by default and reserves emphasis for the current window', async t => {
@@ -1121,9 +1157,11 @@ test('OPEN-WINDOW-SWITCHER-UI-001 direct save closes More and restores focus aft
     assert.equal(await navigationMore.getAttribute('aria-expanded'), 'true');
     const saveButton = page.locator(`${currentRow} [data-action="save-current-workspace"]`);
     await saveButton.click();
-    assert.deepEqual(await page.evaluate(() => window.__postedMessages), [{
-        type: 'save-current-workspace', projectId: currentCard.id,
-    }]);
+    const [saveRequest] = await page.evaluate(() => window.__postedMessages);
+    assert.equal(saveRequest.type, 'save-current-workspace');
+    assert.equal(saveRequest.version, 1);
+    assert.match(saveRequest.requestId, /^save-current-workspace-/u);
+    assert.equal(saveRequest.projectId, currentCard.id);
     assert.equal(await page.locator('#openWindowMenu.visible').count(), 0);
     assert.equal(await navigationMore.getAttribute('aria-expanded'), 'false');
 

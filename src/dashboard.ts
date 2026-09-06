@@ -1191,14 +1191,15 @@ async function initializeDashboard(
         getProjectDetailsForSave: navigationUri =>
             currentProjectDetailsResolver.getProjectDetailsForSave(vscode.Uri.parse(navigationUri)),
         saveWorkspaceProject: async details => {
-            if (details && await saveWorkspaceIntoManagedCatalog(details)) { return; }
+            if (details && await saveWorkspaceIntoManagedCatalog(details)) { return true; }
             if (details && !isLocalMachineProjectPath(details.path)) {
                 await vscode.window.showErrorMessage(
                     'Agent Pivot: Save remote Projects from a Managed Machine or Managed Dev Container.',
                 );
-                return;
+                return false;
             }
             await projectMutationController.saveWorkspaceProject(details);
+            return Boolean(details);
         },
         executeSaveWorkspaceAs: () => Promise.resolve(
             vscode.commands.executeCommand('workbench.action.saveWorkspaceAs')
@@ -2743,7 +2744,32 @@ async function initializeDashboard(
 
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
-        saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
+        saveCurrentWorkspace: async message => {
+            const requestId = typeof message.requestId === 'string'
+                && /^save-current-workspace-[A-Za-z0-9-]{1,128}$/u.test(message.requestId)
+                ? message.requestId : null;
+            const projectId = typeof message.projectId === 'string'
+                && message.projectId.length <= 256 ? message.projectId : null;
+            try {
+                const saved = await savedWorkspaceProjectAdapter.saveCurrentWorkspace();
+                if (requestId && projectId) {
+                    await provider.postMessage({
+                        type: 'save-current-workspace-result', version: 1, requestId, projectId,
+                        operation: 'save-current-workspace',
+                        status: saved ? 'saved' : 'cancelled',
+                    });
+                }
+            } catch (error) {
+                logError('Could not save the current workspace.', error);
+                if (requestId && projectId) {
+                    await provider.postMessage({
+                        type: 'save-current-workspace-result', version: 1, requestId, projectId,
+                        operation: 'save-current-workspace',
+                        status: 'failed',
+                    });
+                }
+            }
+        },
         handlers: {
             ...conversationHandlers,
             ...projectHandlers,
@@ -4227,12 +4253,11 @@ async function initializeDashboard(
         // The user has already opened this SSH workspace successfully. Let them
         // explicitly adopt its Machine instead of sending them to a separate
         // setup flow, then persist the complete hierarchy in one mutation.
-        await capability.controller.addCurrentSshProject({
+        return capability.controller.addCurrentSshProject({
             name: projectName,
             remotePath,
             sshAlias,
         });
-        return true;
     }
 
 

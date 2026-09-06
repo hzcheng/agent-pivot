@@ -88,6 +88,28 @@ test('MANAGED-REMOTE-CATALOG-001 saves a workspace only once per Environment and
     assert.equal(catalog.getCatalog().projects.length, 1);
 });
 
+test('MANAGED-REMOTE-CATALOG-001 retries SSH adoption without creating another Machine or Project', () => {
+    const catalog = service();
+    const first = catalog.addMachineProject({
+        machine: {
+            name: 'Genesis', host: 'genesis.example.com', user: 'dev', port: 22,
+            sourceSshAliases: ['genesis'],
+        },
+        project: { name: 'Foundation', remotePath: '/work/foundation' },
+    });
+    const retried = catalog.addMachineProject({
+        machine: {
+            name: 'Genesis again', host: 'other.example.com', user: 'dev', port: 22022,
+            sourceSshAliases: ['genesis'],
+        },
+        project: { name: 'Foundation again', remotePath: '/work/foundation/' },
+    });
+
+    assert.equal(retried.id, first.id);
+    assert.equal(catalog.getCatalog().machines.length, 1);
+    assert.equal(catalog.getCatalog().projects.length, 1);
+});
+
 test('MANAGED-REMOTE-CATALOG-001 supports custom SSH ports and rejects credentials', () => {
     const catalog = service();
     const machine = addMachine(catalog, 'Remote WSL', { port: 22022 });

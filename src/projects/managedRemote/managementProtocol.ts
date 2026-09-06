@@ -123,7 +123,7 @@ export function parseManagedRemoteManagementRequest(
         'type', 'version', 'requestId', 'operation', 'expectedRevisionId',
     ];
     const acceptsTarget = TARGET_OPERATIONS.has(operation) || operation === 'addProject';
-    const acceptsInput = operation === 'addMachine';
+    const acceptsInput = operation === 'addMachine' || operation === 'editMachine';
     const allowedKeys = [
         ...requiredKeys,
         ...(acceptsTarget ? ['targetId'] : []),

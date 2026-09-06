@@ -208,12 +208,12 @@ export class ManagedRemoteManagementController {
         if (!targetId) { throw new Error('The Managed Remote target is missing.'); }
         if (operation === 'editMachine') {
             const machine = findMachine(snapshot, targetId);
-            const input = await this.options.prompts.editMachine(
+            const machineInput = input || await this.options.prompts.editMachine(
                 machine,
                 affectedProjectCount(snapshot, targetId),
             );
-            return input
-                ? this.options.store.editMachine(snapshot.revisionId, targetId, input) : null;
+            return machineInput
+                ? this.options.store.editMachine(snapshot.revisionId, targetId, machineInput) : null;
         }
         if (operation === 'removeMachine') {
             const machine = findMachine(snapshot, targetId);

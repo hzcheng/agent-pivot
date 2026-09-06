@@ -131,6 +131,19 @@ test('MANAGED-REMOTE-MANAGEMENT-001 uses a validated inline Machine draft withou
     }]);
 });
 
+test('MANAGED-REMOTE-MANAGEMENT-001 edits a Machine from a validated inline draft', async () => {
+    const { controller, calls } = fixture({
+        prompts: { async editMachine() { throw new Error('prompt must not open'); } },
+    });
+    await controller.handle({
+        ...request('editMachine', 'machine:one'),
+        input: { name: 'Build 2', host: 'next.example.com', user: 'ops', port: 22023 },
+    });
+    assert.deepEqual(calls[0], ['editMachine', revisionId, 'machine:one', {
+        name: 'Build 2', host: 'next.example.com', user: 'ops', port: 22023,
+    }]);
+});
+
 test('MANAGED-REMOTE-MANAGEMENT-001 resolves targets from the authoritative snapshot', async () => {
     const seen = [];
     const { controller, calls } = fixture({

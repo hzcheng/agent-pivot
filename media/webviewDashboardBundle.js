@@ -12913,6 +12913,21 @@ function validateFileTransferHistory(message) {
         });
 }
 
+function validateFileTransferHistoryClearSettlement(message) {
+    if (!message || message.version !== 1
+        || typeof message.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)) {
+        return false;
+    }
+    if (message.type === 'file-transfer-history-cleared') {
+        return Object.keys(message).sort().join('\n') === ['entries', 'requestId', 'type', 'version'].join('\n')
+            && Array.isArray(message.entries) && message.entries.length === 0;
+    }
+    return message.type === 'file-transfer-history-clear-failed'
+        && Object.keys(message).sort().join('\n') === ['message', 'requestId', 'type', 'version'].join('\n')
+        && typeof message.message === 'string' && message.message.length <= 320;
+}
+
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'agentPivot.activeDashboardTab';
@@ -13302,6 +13317,7 @@ function initDashboard(options) {
         var tasks = panel.querySelector('[data-file-transfer-tasks]');
         var taskStatus = panel.querySelector('[data-file-transfer-task-status]');
         var historyList = panel.querySelector('[data-file-transfer-history-list]');
+        var clearHistory = panel.querySelector('[data-file-transfer-clear-history]');
         var reviewSheet = panel.querySelector('[data-file-transfer-review-sheet]');
         var reviewSummary = panel.querySelector('[data-file-transfer-review-summary]');
         var conflictPolicy = panel.querySelector('[data-file-transfer-conflict-policy]');
@@ -13314,6 +13330,7 @@ function initDashboard(options) {
         var pendingCopyRequestId = null;
         var activeCopyTaskId = null;
         var activeCopyItemCount = 0;
+        var pendingHistoryClearRequestId = null;
 
         function renderTaskCount() {
             if (!tasks) return;
@@ -13331,16 +13348,17 @@ function initDashboard(options) {
             taskStatus.textContent = message || '';
         }
 
-        function applyHistory(message) {
+        function renderHistory(entries) {
             if (!historyList) return false;
             historyList.textContent = '';
-            if (!message.entries.length) {
+            if (!entries.length) {
                 var empty = document.createElement('li');
                 empty.textContent = 'No completed transfers yet.';
                 historyList.appendChild(empty);
+                if (clearHistory) clearHistory.disabled = true;
                 return true;
             }
-            message.entries.forEach(function (entry) {
+            entries.forEach(function (entry) {
                 var row = document.createElement('li');
                 var detail = entry.status === 'copied'
                     ? 'Copied ' + (entry.completedItems === undefined ? entry.itemCount : entry.completedItems)
@@ -13351,6 +13369,32 @@ function initDashboard(options) {
                 row.textContent = detail + ' · ' + entry.itemCount + ' item(s) · ' + entry.conflictPolicy;
                 historyList.appendChild(row);
             });
+            if (clearHistory) clearHistory.disabled = !!pendingHistoryClearRequestId;
+            return true;
+        }
+
+        function applyHistory(message) {
+            return renderHistory(message.entries);
+        }
+
+        function requestHistoryClear() {
+            if (pendingHistoryClearRequestId || !clearHistory || clearHistory.disabled) return;
+            var requestId = 'file-transfer-history-clear-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingHistoryClearRequestId = requestId;
+            clearHistory.disabled = true;
+            options.postMessage({ type: 'file-transfer-clear-history', version: 1, requestId: requestId });
+        }
+
+        function applyHistoryClearSettlement(message) {
+            if (message.requestId !== pendingHistoryClearRequestId) return false;
+            pendingHistoryClearRequestId = null;
+            if (message.type === 'file-transfer-history-cleared') {
+                renderHistory(message.entries);
+            } else {
+                if (clearHistory) clearHistory.disabled = false;
+                renderTaskStatus('Could not clear transfer history: ' + message.message);
+            }
             return true;
         }
 
@@ -13655,6 +13699,7 @@ function initDashboard(options) {
         if (review) review.addEventListener('click', openReview);
         if (reviewCancel) reviewCancel.addEventListener('click', closeReview);
         if (startCopy) startCopy.addEventListener('click', startReviewedCopy);
+        if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
         Array.from(panel.querySelectorAll('[data-file-transfer-refresh]')).forEach(function (button) {
             button.addEventListener('click', function () {
                 var side = button.getAttribute('data-file-transfer-refresh');
@@ -13688,6 +13733,7 @@ function initDashboard(options) {
             applyCopySettlement: applyCopySettlement,
             applyCopyStarted: applyCopyStarted,
             applyHistory: applyHistory,
+            applyHistoryClearSettlement: applyHistoryClearSettlement,
         };
     }
     var fileTransferPanel = initializeFileTransferPanel();
@@ -13775,6 +13821,10 @@ function initDashboard(options) {
             && fileTransferPanel) {
             fileTransferPanel.applyHistory(event.data);
         }
+        if (event && event.data && validateFileTransferHistoryClearSettlement(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyHistoryClearSettlement(event.data);
+        }
         if (event && event.data
             && event.data.type === 'select-dashboard-tab'
             && event.data.version === 1
@@ -13848,6 +13898,8 @@ function initDashboard(options) {
             ? fileTransferPanel.applyCopyStarted : function () { return false; },
         applyFileTransferHistory: fileTransferPanel
             ? fileTransferPanel.applyHistory : function () { return false; },
+        applyFileTransferHistoryClearSettlement: fileTransferPanel
+            ? fileTransferPanel.applyHistoryClearSettlement : function () { return false; },
         ensureProjectsPanel: projectsPanel.ensureProjectsPanel,
         ensureAiPanel: aiPanel.ensureAiPanel,
         getActiveTab: () => activeTab,

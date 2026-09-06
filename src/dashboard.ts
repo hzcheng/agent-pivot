@@ -2996,6 +2996,24 @@ async function initializeDashboard(
                     type: 'file-transfer-history', version: 1, entries: readFileTransferHistory(),
                 });
             },
+            'file-transfer-clear-history': async message => {
+                if (!isFileTransferHistoryClearRequest(message)) {
+                    return;
+                }
+                try {
+                    await context.globalState.update(fileTransferHistoryKey, []);
+                    await provider.postMessage({
+                        type: 'file-transfer-history-cleared', version: 1,
+                        requestId: message.requestId, entries: [],
+                    });
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    await provider.postMessage({
+                        type: 'file-transfer-history-clear-failed', version: 1,
+                        requestId: message.requestId, message: rawMessage.slice(0, 320),
+                    });
+                }
+            },
             'file-transfer-cancel-copy': async message => {
                 if (!isFileTransferCancelRequest(message)) {
                     return;
@@ -4741,6 +4759,14 @@ function isFileTransferHistoryRequest(value: Record<string, unknown>): boolean {
     return value.type === 'file-transfer-request-history'
         && value.version === 1
         && Object.keys(value).sort().join('\n') === ['type', 'version'].join('\n');
+}
+
+function isFileTransferHistoryClearRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-clear-history'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && Object.keys(value).sort().join('\n') === ['requestId', 'type', 'version'].join('\n');
 }
 
 

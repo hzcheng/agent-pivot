@@ -89,7 +89,10 @@ export function getFileTransferContent(
             </div>
         </section>
         <section class="file-transfer-history" aria-label="Recent transfers">
-            <h3>Recent transfers</h3>
+            <div class="file-transfer-history-heading">
+                <h3>Recent transfers</h3>
+                <button type="button" data-file-transfer-clear-history disabled>Clear history</button>
+            </div>
             <ul data-file-transfer-history-list><li>Loading transfer history…</li></ul>
         </section>
     </section>`;

@@ -441,6 +441,7 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(html, /Build &amp; Test/);
     assert.match(html, /data-file-transfer-task-status/);
     assert.match(html, /data-file-transfer-conflict-policy/);
+    assert.match(html, /data-file-transfer-clear-history/);
     assert.doesNotMatch(html, /Source endpoint|Destination endpoint/);
 });
 
@@ -449,6 +450,14 @@ test('FILE-TRANSFER-UI-002 treats cancellation as a terminal transfer result', (
     assert.match(dashboardSource, /Copy cancelled after/);
     assert.match(dashboardSource, /Cancelling copy…/);
     assert.match(generatedDashboardSource, /Copy cancelled after/);
+});
+
+test('FILE-TRANSFER-UI-003 clears local history only after a correlated settlement', () => {
+    assert.match(dashboardSource, /file-transfer-clear-history/);
+    assert.match(dashboardSource, /pendingHistoryClearRequestId/);
+    assert.match(dashboardSource, /file-transfer-history-cleared/);
+    assert.match(dashboardSource, /file-transfer-history-clear-failed/);
+    assert.match(generatedDashboardSource, /file-transfer-history-cleared/);
 });
 
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {

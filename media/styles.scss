@@ -2023,6 +2023,17 @@ body .project {
     font-size: 12px;
 }
 
+.file-transfer-history-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.file-transfer-history-heading button {
+    font-size: 11px;
+}
+
 .file-transfer-history ul {
     display: grid;
     gap: 4px;

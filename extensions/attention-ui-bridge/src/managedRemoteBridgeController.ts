@@ -593,7 +593,7 @@ export class ManagedRemoteBridgeController {
         slot: ManagedRevisionSlot,
         coordinator: ManagedSshConsentCoordinator,
         request: FileTransferCopyRequest,
-    ): Promise<{ status: 'copied'; completedItems: number; totalItems: number }> {
+    ): Promise<{ status: 'copied'; completedItems: number; skippedItems: number; totalItems: number }> {
         if (this.activeFileTransferCopies.has(request.taskId)) {
             throw new Error('This File Transfer task is already running.');
         }
@@ -602,6 +602,8 @@ export class ManagedRemoteBridgeController {
         }
         const active: ActiveFileTransferCopy = { cancelled: false };
         this.activeFileTransferCopies.set(request.taskId, active);
+        let completedItems = 0;
+        let skippedItems = 0;
         try {
             const source = await this.resolveFileTransferSource(slot, request.source, request.entryIds);
             const destination = await this.resolveFileTransferDestination(slot, request.destination);
@@ -616,7 +618,13 @@ export class ManagedRemoteBridgeController {
                         coordinator.getExecutable(), destination.alias, destinationPath,
                     );
                 if (collision) {
-                    throw new Error(`Copy target already exists: ${path.basename(entry.path)}. Choose another folder.`);
+                    if (request.conflictPolicy === 'skip') {
+                        skippedItems += 1;
+                        continue;
+                    }
+                    if (request.conflictPolicy !== 'replace') {
+                        throw new Error(`Copy target already exists: ${path.basename(entry.path)}. Choose another folder or select a conflict policy.`);
+                    }
                 }
                 await copyFileTransferEntry(
                     coordinator.getExecutable(),
@@ -627,11 +635,12 @@ export class ManagedRemoteBridgeController {
                         ? `${destination.alias}:${destination.path}` : destination.path,
                     active,
                 );
+                completedItems += 1;
             }
         } finally {
             this.activeFileTransferCopies.delete(request.taskId);
         }
-        return { status: 'copied', completedItems: request.entryIds.length, totalItems: request.entryIds.length };
+        return { status: 'copied', completedItems, skippedItems, totalItems: request.entryIds.length };
     }
 
     private cancelFileTransferCopy(taskId: string): { cancelled: boolean } {

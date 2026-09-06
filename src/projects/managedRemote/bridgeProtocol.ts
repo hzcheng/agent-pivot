@@ -55,6 +55,7 @@ export interface FileTransferCopyRequest {
     source: FileTransferEndpointReference;
     destination: FileTransferEndpointReference;
     entryIds: string[];
+    conflictPolicy: 'fail' | 'skip' | 'replace';
 }
 
 export interface FileTransferCancelRequest {
@@ -240,9 +241,10 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
 
 function validFileTransferCopyRequest(value: unknown): value is FileTransferCopyRequest {
     return isRecord(value)
-        && hasExactKeys(value, ['kind', 'taskId', 'source', 'destination', 'entryIds'])
+        && hasExactKeys(value, ['kind', 'taskId', 'source', 'destination', 'entryIds', 'conflictPolicy'])
         && value.kind === 'copy'
         && isCorrelationValue(value.taskId)
+        && ['fail', 'skip', 'replace'].includes(value.conflictPolicy as string)
         && validFileTransferEndpointReference(value.source)
         && validFileTransferEndpointReference(value.destination)
         && Array.isArray(value.entryIds)

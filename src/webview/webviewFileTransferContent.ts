@@ -71,6 +71,13 @@ export function getFileTransferContent(
         <section class="file-transfer-review" data-file-transfer-review-sheet role="dialog" aria-modal="true" aria-label="Review file copy" hidden>
             <h3>Review copy</h3>
             <p data-file-transfer-review-summary></p>
+            <label class="file-transfer-conflict-policy">If a target already exists
+                <select data-file-transfer-conflict-policy>
+                    <option value="fail">Stop and show the conflict</option>
+                    <option value="skip">Skip the existing item</option>
+                    <option value="replace">Replace the existing item</option>
+                </select>
+            </label>
             <p class="file-transfer-review-note">Copy will begin only after you select Start copy.</p>
             <div class="file-transfer-review-actions">
                 <button type="button" data-file-transfer-review-cancel>Back</button>

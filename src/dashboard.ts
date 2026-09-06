@@ -2938,6 +2938,7 @@ async function initializeDashboard(
                             source: message.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
                             destination: message.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
                             entryIds: message.entryIds as string[],
+                            conflictPolicy: message.conflictPolicy as 'fail' | 'skip' | 'replace',
                         },
                     ).then(
                     result => provider.postMessage(fileTransferCopySettlement(message, 'copied', result)),
@@ -4596,10 +4597,11 @@ function isFileTransferCopyRequest(value: Record<string, unknown>): boolean {
         || value.entryIds.length > 100
         || !value.entryIds.every(entry => typeof entry === 'string' && /^[a-f0-9]{32}$/u.test(entry))
         || new Set(value.entryIds).size !== value.entryIds.length
+        || !['fail', 'skip', 'replace'].includes(String(value.conflictPolicy))
         || !isFileTransferEndpointReference(value.source)
         || !isFileTransferEndpointReference(value.destination)
         || Object.keys(value).sort().join('\n') !== [
-            'destination', 'entryIds', 'requestId', 'source', 'type', 'version',
+            'conflictPolicy', 'destination', 'entryIds', 'requestId', 'source', 'type', 'version',
         ].join('\n')) {
         return false;
     }

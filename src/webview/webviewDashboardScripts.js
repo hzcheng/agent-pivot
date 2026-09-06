@@ -518,6 +518,7 @@ function initDashboard(options) {
         var tasks = panel.querySelector('[data-file-transfer-tasks]');
         var reviewSheet = panel.querySelector('[data-file-transfer-review-sheet]');
         var reviewSummary = panel.querySelector('[data-file-transfer-review-summary]');
+        var conflictPolicy = panel.querySelector('[data-file-transfer-conflict-policy]');
         var reviewCancel = panel.querySelector('[data-file-transfer-review-cancel]');
         var startCopy = panel.querySelector('[data-file-transfer-start-copy]');
         var localRoots = { left: null, right: null };
@@ -779,6 +780,7 @@ function initDashboard(options) {
                 source: source,
                 destination: destination,
                 entryIds: Array.from(selectedEntries[sourceSide]),
+                conflictPolicy: conflictPolicy ? conflictPolicy.value : 'fail',
             });
         }
 

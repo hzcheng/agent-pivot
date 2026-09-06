@@ -1969,6 +1969,23 @@ body .project {
     font-size: 12px;
 }
 
+.file-transfer-conflict-policy {
+    display: grid;
+    gap: 4px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.file-transfer-conflict-policy select {
+    min-height: 28px;
+    padding: 3px 6px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    font: inherit;
+}
+
 .file-transfer-review-actions {
     display: flex;
     justify-content: flex-end;

@@ -102,6 +102,7 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
             source: { kind: 'local', rootId: 'a'.repeat(32), directoryId: 'b'.repeat(32) },
             destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'c'.repeat(32) },
             entryIds: ['d'.repeat(32)],
+            conflictPolicy: 'skip',
         },
     };
     assert.deepEqual(parseManagedRemoteBridgeRequest(copy), copy);

@@ -5,6 +5,8 @@ function createMachineProjectsUi() {
     var activeProjectMenuTrigger = null;
     var nextManagedRequestId = 1;
     var pendingManagedActions = new Map();
+    var nextLocalProjectRequestId = 1;
+    var pendingLocalProjectEdits = new Map();
     var storageKeys = {
         tags: 'machineProjects.selectedTags.v1',
         collapsed: 'machineProjects.collapsed.v1',
@@ -320,10 +322,22 @@ function createMachineProjectsUi() {
             }) || null;
     }
 
+    function findLocalProjectForm(projectId, source) {
+        return panel && Array.from(panel.querySelectorAll('[data-local-project-form]'))
+            .find(function (form) {
+                return form.getAttribute('data-local-project-id') === projectId
+                    && (!source || form.getAttribute('data-local-project-form-source') === source);
+            }) || null;
+    }
+
     function hasPendingManagedMachineForm() {
         return Array.from(pendingManagedActions.values()).some(function (pending) {
             return pending.operation === 'addMachine' || pending.operation === 'editMachine' || pending.operation === 'editProject';
         });
+    }
+
+    function hasPendingInlineProjectForm() {
+        return hasPendingManagedMachineForm() || pendingLocalProjectEdits.size > 0;
     }
 
     function setManagedControlsPending(operation, targetId, requestId, pending, projectFormSource) {
@@ -416,12 +430,13 @@ function createMachineProjectsUi() {
     function setManagedMachineFormOpen(form, open, returnFocus) {
         var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
         if (!form || (!open && form.getAttribute('aria-busy') === 'true')) return;
-        if (open && hasPendingManagedMachineForm()) return;
+        if (open && hasPendingInlineProjectForm()) return;
         if (open) {
-            panel.querySelectorAll('[data-managed-machine-form], [data-managed-project-form]').forEach(function (other) {
+            panel.querySelectorAll('[data-managed-machine-form], [data-managed-project-form], [data-local-project-form]').forEach(function (other) {
                 if (other !== form) {
                     other.hidden = true;
                     if (other.hasAttribute('data-managed-project-form')) resetManagedProjectForm(other);
+                    else if (other.hasAttribute('data-local-project-form')) resetLocalProjectForm(other);
                     else resetDismissedManagedMachineForm(other);
                 }
             });
@@ -476,12 +491,13 @@ function createMachineProjectsUi() {
     }
 
     function setEditProjectFormOpen(form, open, returnFocus) {
-        if (!form || (!open && form.getAttribute('aria-busy') === 'true') || (open && hasPendingManagedMachineForm())) return;
+        if (!form || (!open && form.getAttribute('aria-busy') === 'true') || (open && hasPendingInlineProjectForm())) return;
         if (open) {
-            panel.querySelectorAll('[data-managed-machine-form], [data-managed-project-form]').forEach(function (other) {
+            panel.querySelectorAll('[data-managed-machine-form], [data-managed-project-form], [data-local-project-form]').forEach(function (other) {
                 if (other !== form) {
                     other.hidden = true;
                     if (other.hasAttribute('data-managed-project-form')) resetManagedProjectForm(other);
+                    else if (other.hasAttribute('data-local-project-form')) resetLocalProjectForm(other);
                 }
             });
         }
@@ -493,6 +509,79 @@ function createMachineProjectsUi() {
             var focusReturn = row && row.querySelector('.machine-project-primary');
             if (focusReturn) focusReturn.focus();
         }
+    }
+
+    function resetLocalProjectForm(form) {
+        form.reset();
+        form.querySelectorAll('[aria-invalid]').forEach(function (input) {
+            input.removeAttribute('aria-invalid');
+            input.removeAttribute('aria-describedby');
+        });
+        var error = form.querySelector('[data-local-project-form-error]');
+        if (error) { error.hidden = true; error.textContent = ''; }
+    }
+
+    function setLocalProjectFormOpen(form, open, returnFocus) {
+        if (!form || (!open && form.getAttribute('aria-busy') === 'true')
+            || (open && hasPendingInlineProjectForm())) return;
+        if (open) {
+            panel.querySelectorAll('[data-managed-machine-form], [data-managed-project-form], [data-local-project-form]').forEach(function (other) {
+                if (other !== form) {
+                    other.hidden = true;
+                    if (other.hasAttribute('data-managed-machine-form')) resetDismissedManagedMachineForm(other);
+                    else if (other.hasAttribute('data-managed-project-form')) resetManagedProjectForm(other);
+                    else resetLocalProjectForm(other);
+                }
+            });
+        }
+        form.hidden = !open;
+        if (!open) resetLocalProjectForm(form);
+        if (open) form.elements.name.focus();
+        else if (returnFocus) {
+            var row = form.closest('[data-machine-project-row]');
+            var focusReturn = row && row.querySelector('.machine-project-primary');
+            if (focusReturn) focusReturn.focus();
+        }
+    }
+
+    function submitLocalProjectForm(form) {
+        if (form.getAttribute('aria-busy') === 'true') return;
+        var values = {
+            name: String(form.elements.name.value || '').trim(),
+            description: String(form.elements.description.value || '').trim(),
+            tags: String(form.elements.tags.value || '').trim(),
+        };
+        var error = form.querySelector('[data-local-project-form-error]');
+        if (!values.name) {
+            var name = form.elements.name;
+            name.setAttribute('aria-invalid', 'true');
+            if (error) {
+                name.setAttribute('aria-describedby', error.id);
+                error.textContent = 'Enter a Project name.';
+                error.hidden = false;
+            }
+            name.focus();
+            return;
+        }
+        form.querySelectorAll('[aria-invalid]').forEach(function (input) {
+            input.removeAttribute('aria-invalid');
+            input.removeAttribute('aria-describedby');
+        });
+        if (error) { error.hidden = true; error.textContent = ''; }
+        var projectId = form.getAttribute('data-local-project-id') || '';
+        var groupId = form.getAttribute('data-local-group-id') || '';
+        if (!projectId || !groupId) return;
+        var requestId = 'machine-project-inline-' + Date.now() + '-' + nextLocalProjectRequestId++;
+        var source = form.getAttribute('data-local-project-form-source') || '';
+        pendingLocalProjectEdits.set(requestId, { projectId: projectId, source: source });
+        form.setAttribute('aria-busy', 'true');
+        form.querySelectorAll('input, textarea, button').forEach(function (control) { control.disabled = true; });
+        announceManaged('Saving Project…');
+        window.vscode.postMessage({
+            type: 'save-project-inline', version: 1, requestId: requestId,
+            projectId: projectId, groupId: groupId,
+            name: values.name, description: values.description, tags: values.tags,
+        });
     }
 
     function submitManagedProjectForm(form) {
@@ -552,7 +641,7 @@ function createMachineProjectsUi() {
     }
 
     function captureManagedMachineFormState() {
-        var form = Array.from(panel ? panel.querySelectorAll('[data-managed-machine-form], [data-managed-project-form]') : [])
+        var form = Array.from(panel ? panel.querySelectorAll('[data-managed-machine-form], [data-managed-project-form], [data-local-project-form]') : [])
             .find(function (candidate) { return !candidate.hidden; });
         if (!form) return null;
         var activeElement = document.activeElement;
@@ -562,9 +651,12 @@ function createMachineProjectsUi() {
         });
         return {
             operation: form.getAttribute('data-managed-machine-form-operation')
-                || (form.hasAttribute('data-managed-project-form') ? 'editProject' : ''),
-            targetId: form.getAttribute('data-managed-target-id') || '',
-            projectFormSource: form.getAttribute('data-managed-project-form-source') || '',
+                || (form.hasAttribute('data-managed-project-form') ? 'editProject'
+                    : form.hasAttribute('data-local-project-form') ? 'editLocalProject' : ''),
+            targetId: form.getAttribute('data-managed-target-id')
+                || form.getAttribute('data-local-project-id') || '',
+            projectFormSource: form.getAttribute('data-managed-project-form-source')
+                || form.getAttribute('data-local-project-form-source') || '',
             values: values,
             focusField: activeElement && form.contains(activeElement)
                 ? activeElement.getAttribute('name') || '' : '',
@@ -572,16 +664,29 @@ function createMachineProjectsUi() {
     }
 
     function restoreManagedMachineFormState(state) {
-        if (!state || (state.operation !== 'addMachine' && state.operation !== 'editMachine' && state.operation !== 'editProject')
+        if (!state || (state.operation !== 'addMachine' && state.operation !== 'editMachine'
+            && state.operation !== 'editProject' && state.operation !== 'editLocalProject')
             || !state.values) return;
         var form = state.operation === 'editProject'
             ? findManagedProjectForm(state.targetId || '', state.projectFormSource || '')
+            : state.operation === 'editLocalProject'
+                ? findLocalProjectForm(state.targetId || '', state.projectFormSource || '')
             : findManagedMachineForm(state.operation, state.targetId || '');
         if (!form) return;
         Object.keys(state.values).forEach(function (field) {
             if (form.elements[field] && typeof state.values[field] === 'string') form.elements[field].value = state.values[field];
         });
         form.hidden = false;
+        if (state.operation === 'editLocalProject') {
+            var hasPendingLocalSave = Array.from(pendingLocalProjectEdits.values()).some(function (pending) {
+                return pending.projectId === state.targetId
+                    && pending.source === (state.projectFormSource || '');
+            });
+            form.setAttribute('aria-busy', String(hasPendingLocalSave));
+            form.querySelectorAll('input, textarea, button').forEach(function (control) {
+                control.disabled = hasPendingLocalSave;
+            });
+        }
         if (state.operation === 'addMachine') {
             var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
             if (trigger) trigger.setAttribute('aria-expanded', 'true');
@@ -696,6 +801,12 @@ function createMachineProjectsUi() {
                 && control.closest('[data-machine-project-row]').querySelector('[data-managed-project-form]'), true, false);
             return;
         }
+        if (control.getAttribute('data-action') === 'show-edit-local-project-form') {
+            closeProjectMenu(false);
+            setLocalProjectFormOpen(control.closest('[data-machine-project-row]')
+                && control.closest('[data-machine-project-row]').querySelector('[data-local-project-form]'), true, false);
+            return;
+        }
         if (control.getAttribute('data-action') === 'cancel-managed-machine-form') {
             setManagedMachineFormOpen(control.closest('[data-managed-machine-form]'), false, true);
             return;
@@ -704,6 +815,11 @@ function createMachineProjectsUi() {
             setEditProjectFormOpen(control.closest('[data-managed-project-form]'), false, true);
             return;
         }
+        if (control.getAttribute('data-action') === 'cancel-local-project-form') {
+            setLocalProjectFormOpen(control.closest('[data-local-project-form]'), false, true);
+            return;
+        }
+        if (control.closest('[data-local-project-form]')) return;
         if (control.closest('[data-managed-project-form]')) return;
         if (control.closest('[data-managed-machine-form]')) return;
         if (control.hasAttribute('data-managed-operation')) {
@@ -761,8 +877,6 @@ function createMachineProjectsUi() {
         } else if (action === 'open-machine-project-current') {
             postProjectOpen(control.closest('[data-machine-project-row]'), ProjectOpenType.CurrentWindow);
             closeProjectMenu(false);
-        } else if (action === 'edit-machine-project') {
-            postProjectAction(control, 'edit-project');
         } else if (action === 'color-machine-project') {
             postProjectAction(control, 'color-project');
         } else if (action === 'remove-machine-project') {
@@ -817,10 +931,13 @@ function createMachineProjectsUi() {
             ? event.target.closest('[data-managed-machine-form]') : null;
         var projectForm = event.target && event.target.closest
             ? event.target.closest('[data-managed-project-form]') : null;
-        if ((!form && !projectForm) || !panel || !panel.contains(form || projectForm)) return;
+        var localProjectForm = event.target && event.target.closest
+            ? event.target.closest('[data-local-project-form]') : null;
+        if ((!form && !projectForm && !localProjectForm) || !panel || !panel.contains(form || projectForm || localProjectForm)) return;
         event.preventDefault();
         if (form) submitManagedMachineForm(form);
-        else submitManagedProjectForm(projectForm);
+        else if (projectForm) submitManagedProjectForm(projectForm);
+        else submitLocalProjectForm(localProjectForm);
     }
 
     function onKeyDown(event) {
@@ -839,6 +956,12 @@ function createMachineProjectsUi() {
             && event.target.closest('[data-managed-project-form]')) {
             event.preventDefault();
             setEditProjectFormOpen(event.target.closest('[data-managed-project-form]'), false, true);
+            return;
+        }
+        if (event.key === 'Escape' && event.target && event.target.closest
+            && event.target.closest('[data-local-project-form]')) {
+            event.preventDefault();
+            setLocalProjectFormOpen(event.target.closest('[data-local-project-form]'), false, true);
             return;
         }
         var menu = event.target && event.target.closest
@@ -913,6 +1036,33 @@ function createMachineProjectsUi() {
 
     function onWindowMessage(event) {
         var message = event && event.data;
+        if (message && message.type === 'project-inline-edit-settlement'
+            && message.version === 1 && typeof message.requestId === 'string') {
+            var localPending = pendingLocalProjectEdits.get(message.requestId);
+            if (!localPending || message.projectId !== localPending.projectId
+                || (message.status !== 'saved' && message.status !== 'failed')) return;
+            pendingLocalProjectEdits.delete(message.requestId);
+            var localForm = findLocalProjectForm(localPending.projectId, localPending.source);
+            if (!localForm) return;
+            localForm.setAttribute('aria-busy', 'false');
+            localForm.querySelectorAll('input, textarea, button').forEach(function (control) { control.disabled = false; });
+            if (message.status === 'saved') {
+                localForm.hidden = true;
+                resetLocalProjectForm(localForm);
+                var localRow = localForm.closest('[data-machine-project-row]');
+                var localFocus = localRow && localRow.querySelector('.machine-project-primary');
+                if (localFocus) localFocus.focus();
+                announceManaged('Project changes saved.');
+            } else {
+                var localError = localForm.querySelector('[data-local-project-form-error]');
+                if (localError) {
+                    localError.textContent = 'Unable to save Project changes.';
+                    localError.hidden = false;
+                }
+                announceManaged('Unable to save Project changes.');
+            }
+            return;
+        }
         if (!message || message.type !== 'managed-remote-settlement'
             || message.version !== 1 || typeof message.requestId !== 'string') {
             return;

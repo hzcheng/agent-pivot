@@ -167,15 +167,16 @@ test('WEBVIEW-DASHBOARD-BOOTSTRAP-001 binds the Managed Remote toolbar after a p
     // The real proof: opening and submitting the inline form has to reach the
     // extension. Without mount() the whole tab is inert.
     await button.click();
-    await page.locator('[data-managed-machine-form] input[name="name"]').fill('Build');
-    await page.locator('[data-managed-machine-form] input[name="host"]').fill('build.example.com');
-    await page.locator('[data-managed-machine-form] input[name="user"]').fill('dev');
-    await page.locator('[data-managed-machine-form]').evaluate(form => form.requestSubmit());
+    const form = page.locator('[data-managed-machine-form-operation="addMachine"]');
+    await form.locator('input[name="name"]').fill('Build');
+    await form.locator('input[name="host"]').fill('build.example.com');
+    await form.locator('input[name="user"]').fill('dev');
+    await form.evaluate(node => node.requestSubmit());
     const posted = await page.evaluate(() => window.__posted);
     const action = posted.filter(item => item?.type === 'managed-remote-action').at(-1);
 
     assert.ok(action,
-        'submitting Add Machine must post a managed-remote-action; '
+        'opening Add Machine must post a managed-remote-action; '
         + `posted instead: ${JSON.stringify(posted)} | errors: ${consoleErrors.join(' | ')}`);
     assert.equal(action.operation, 'addMachine');
     assert.equal(action.version, 1);

@@ -77,6 +77,7 @@ export function getOpenWindowRowHtml(
     <button type="button" class="open-window-focus" data-action="focus-open-window" title="${escapeAttribute(tooltip)}" aria-label="${escapeAttribute(focusLabel)}"${focusAria ? ' ' + focusAria : ''}>
         <span class="open-window-icon" title="${workspaceIconTitle}" aria-hidden="true">${workspaceIcon}</span>
         <span class="open-window-name">${escapedName}</span>
+        <span class="open-window-save-phase" aria-hidden="true"></span>
         <span class="open-window-jump-hint" aria-hidden="true">&#8599;</span>
     </button>
     ${saveSlot}

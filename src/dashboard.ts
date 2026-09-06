@@ -284,7 +284,10 @@ import { OpenWorkspaceController } from './openWorkspaces/workspaceController';
 import { WorkspaceContextResolver } from './workspaces/contextResolver';
 import { WorkspacePrimaryRootStore } from './workspaces/primaryRootStore';
 import { PendingWorkspaceSaveStore } from './workspaces/pendingWorkspaceSaveStore';
-import { SavedWorkspaceProjectAdapter } from './workspaces/savedWorkspaceProjectAdapter';
+import {
+    SavedWorkspaceProjectAdapter,
+    WorkspaceSaveProgressStage,
+} from './workspaces/savedWorkspaceProjectAdapter';
 import { WorkspacePendingSessionPromotionController } from './workspaces/pendingSessionPromotionController';
 import {
     CurrentWorkspaceSessionAuthority,
@@ -1191,14 +1194,15 @@ async function initializeDashboard(
         getProjectDetailsForSave: navigationUri =>
             currentProjectDetailsResolver.getProjectDetailsForSave(vscode.Uri.parse(navigationUri)),
         saveWorkspaceProject: async details => {
-            if (details && await saveWorkspaceIntoManagedCatalog(details)) { return; }
+            if (details && await saveWorkspaceIntoManagedCatalog(details)) { return true; }
             if (details && !isLocalMachineProjectPath(details.path)) {
                 await vscode.window.showErrorMessage(
                     'Agent Pivot: Save remote Projects from a Managed Machine or Managed Dev Container.',
                 );
-                return;
+                return false;
             }
             await projectMutationController.saveWorkspaceProject(details);
+            return Boolean(details);
         },
         executeSaveWorkspaceAs: () => Promise.resolve(
             vscode.commands.executeCommand('workbench.action.saveWorkspaceAs')
@@ -2743,7 +2747,69 @@ async function initializeDashboard(
 
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
-        saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
+        saveCurrentWorkspace: async message => {
+            const requestId = typeof message.requestId === 'string'
+                && /^save-current-workspace-[A-Za-z0-9-]{1,128}$/u.test(message.requestId)
+                ? message.requestId : null;
+            const projectId = typeof message.projectId === 'string'
+                && message.projectId.length <= 256 ? message.projectId : null;
+            const startedAtMs = monotonicNowMs();
+            const elapsedMs = () => Math.max(0, Math.round(monotonicNowMs() - startedAtMs));
+            const reportProgress = (stage: WorkspaceSaveProgressStage) => {
+                logDashboardDiagnostic({
+                    event: 'save-current-workspace-progress',
+                    requestId,
+                    projectId,
+                    stage,
+                    elapsedMs: elapsedMs(),
+                });
+                if (requestId && projectId) {
+                    void provider.postMessage({
+                        type: 'save-current-workspace-progress', version: 1, requestId, projectId,
+                        operation: 'save-current-workspace', stage,
+                    }).then(undefined, error => logError(
+                        'Could not report the current workspace save progress.', error));
+                }
+            };
+            logDashboardDiagnostic({
+                event: 'save-current-workspace-started',
+                requestId,
+                projectId,
+            });
+            try {
+                const saved = await savedWorkspaceProjectAdapter.saveCurrentWorkspace(reportProgress);
+                logDashboardDiagnostic({
+                    event: 'save-current-workspace-settled',
+                    requestId,
+                    projectId,
+                    status: saved ? 'saved' : 'cancelled',
+                    elapsedMs: elapsedMs(),
+                });
+                if (requestId && projectId) {
+                    await provider.postMessage({
+                        type: 'save-current-workspace-result', version: 1, requestId, projectId,
+                        operation: 'save-current-workspace',
+                        status: saved ? 'saved' : 'cancelled',
+                    });
+                }
+            } catch (error) {
+                logError('Could not save the current workspace.', error);
+                logDashboardDiagnostic({
+                    event: 'save-current-workspace-settled',
+                    requestId,
+                    projectId,
+                    status: 'failed',
+                    elapsedMs: elapsedMs(),
+                });
+                if (requestId && projectId) {
+                    await provider.postMessage({
+                        type: 'save-current-workspace-result', version: 1, requestId, projectId,
+                        operation: 'save-current-workspace',
+                        status: 'failed',
+                    });
+                }
+            }
+        },
         handlers: {
             ...conversationHandlers,
             ...projectHandlers,
@@ -3563,6 +3629,7 @@ async function initializeDashboard(
             buildMachineProjectsViewModel(
                 projectService.getLocalGroupsForDisplay(),
             ),
+            Boolean(resolveCurrentOpenWorkspace()),
         );
     };
     projectsPanelController = new ProjectsPanelController({
@@ -4182,7 +4249,6 @@ async function initializeDashboard(
     async function saveWorkspaceIntoManagedCatalog(
         details: ProjectDetailsForSave,
     ): Promise<boolean> {
-        if (managedRemoteSnapshot.lifecycle !== 'active') { return false; }
         const workspaceUri = vscode.Uri.parse(details.path);
         const context = {
             remoteName: vscode.env.remoteName,
@@ -4209,14 +4275,29 @@ async function initializeDashboard(
             managedRemoteSnapshot,
             workspaceUri,
         );
-        if (!target) { return false; }
-        await capability.controller.addDevContainerProjectDirectly({
-            machineId: target.machine.id,
-            environmentName: `${projectName} Container`,
-            anchor: target.anchor,
-            project: { name: projectName, remotePath: target.remotePath },
+        if (target) {
+            await capability.controller.addDevContainerProjectDirectly({
+                machineId: target.machine.id,
+                environmentName: `${projectName} Container`,
+                anchor: target.anchor,
+                project: { name: projectName, remotePath: target.remotePath },
+            });
+            return true;
+        }
+        if (workspaceUri.scheme !== 'vscode-remote'
+            || !workspaceUri.authority.startsWith('ssh-remote+')) {
+            return false;
+        }
+        const sshAlias = workspaceUri.authority.slice('ssh-remote+'.length);
+        if (!sshAlias) { return false; }
+        // The user has already opened this SSH workspace successfully. Let them
+        // explicitly adopt its Machine instead of sending them to a separate
+        // setup flow, then persist the complete hierarchy in one mutation.
+        return capability.controller.addCurrentSshProject({
+            name: projectName,
+            remotePath,
+            sshAlias,
         });
-        return true;
     }
 
 

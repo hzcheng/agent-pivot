@@ -58,6 +58,7 @@ function fixture(overrides = {}) {
     const store = {
         async getSnapshot() { return current; },
         async addMachine(expected, input) { calls.push(['addMachine', expected, input]); return changed; },
+        async addMachineProject(expected, input) { calls.push(['addMachineProject', expected, input]); return changed; },
         async editMachine(expected, id, input) { calls.push(['editMachine', expected, id, input]); return changed; },
         async removeMachine(expected, id) { calls.push(['removeMachine', expected, id]); return changed; },
         async addProject(expected, input) { calls.push(['addProject', expected, input]); return changed; },
@@ -281,6 +282,47 @@ test('MANAGED-REMOTE-MANAGEMENT-001 saves the open window without prompting', as
         }],
         ['refresh', 'save-workspace', 'addProject', nextRevisionId],
     ]);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-001 adopts a Machine only after the save flow is confirmed', async () => {
+    const adopted = [];
+    const { controller, calls } = fixture({
+        prompts: {
+            async adoptCurrentSshProject(input) {
+                adopted.push(input);
+                return { name: 'API host', host: 'api.example.com', user: 'dev', port: 22022 };
+            },
+        },
+    });
+    const saved = await controller.addCurrentSshProject({
+        name: 'API', remotePath: '/work/api', sshAlias: 'legacy-api',
+    });
+
+    assert.equal(saved, true);
+    assert.deepEqual(adopted, [{
+        name: 'API', remotePath: '/work/api', sshAlias: 'legacy-api',
+    }]);
+    assert.deepEqual(calls, [
+        ['addMachineProject', revisionId, {
+            machine: {
+                name: 'API host', host: 'api.example.com', user: 'dev', port: 22022,
+                sourceSshAliases: ['legacy-api'],
+            },
+            project: { name: 'API', remotePath: '/work/api' },
+        }],
+        ['refresh', 'save-workspace', 'addMachine', nextRevisionId],
+    ]);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-001 leaves the catalog unchanged when Machine adoption is cancelled', async () => {
+    const { controller, calls } = fixture({
+        prompts: { async adoptCurrentSshProject() { return undefined; } },
+    });
+
+    assert.equal(await controller.addCurrentSshProject({
+        name: 'API', remotePath: '/work/api', sshAlias: 'legacy-api',
+    }), false);
+    assert.deepEqual(calls, []);
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-001 surfaces a rejected direct save to the caller', async () => {

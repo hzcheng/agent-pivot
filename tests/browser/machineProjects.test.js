@@ -340,13 +340,13 @@ test('MACHINE-PROJECTS-TOOLBAR-001 keeps summary and icon actions in one compact
     const toolbar = page.locator('.machine-projects-toolbar');
     const summary = page.locator('[data-machine-projects-summary]');
     const tagButton = page.locator('[data-action="toggle-machine-tags"]');
-    const addButton = page.locator('[data-action="add-project"]');
+    const saveButton = page.locator('[data-action="save-current-project"]');
 
     assert.equal(await summary.evaluate(node =>
         node.parentElement.classList.contains('machine-projects-toolbar')), true);
     assert.equal(await tagButton.getAttribute('aria-label'), 'Filter projects by tag');
-    assert.equal(await addButton.getAttribute('aria-label'), 'Add Project');
-    const boxes = await Promise.all([toolbar, summary, tagButton, addButton].map(locator => locator.boundingBox()));
+    assert.equal(await saveButton.getAttribute('aria-label'), 'Save Current Project');
+    const boxes = await Promise.all([toolbar, summary, tagButton, saveButton].map(locator => locator.boundingBox()));
     assert.equal(boxes[1].y, boxes[2].y);
     assert.ok(boxes[3].x > boxes[2].x);
 });
@@ -434,7 +434,7 @@ test('MACHINE-PROJECTS-FOCUS-001 restores focus to the toolbar after the focused
         restoreProjectsFocus(panel, state.focus);
     }, emptyMarkup);
 
-    assert.equal(await page.locator('[data-action="show-add-machine-form"]')
+    assert.equal(await page.locator('[data-action="save-current-project"]')
         .evaluate(node => document.activeElement === node), true);
 });
 
@@ -791,7 +791,7 @@ test('MACHINE-PROJECTS-KEYBOARD-001 focuses the first enabled menu item from the
     await trigger.focus();
     await page.keyboard.press('Enter');
 
-    assert.equal(await page.locator('[data-managed-operation="addProject"]')
+    assert.equal(await page.locator('[data-action="show-edit-machine-form"]')
         .evaluate(node => document.activeElement === node), true);
     await page.keyboard.press('End');
     assert.equal(await page.locator('[data-managed-operation="removeMachine"]')

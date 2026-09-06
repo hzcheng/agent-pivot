@@ -3191,7 +3191,7 @@ function runDashboardBridgeLifecycleChecks() {
     const projectedOpenWorkspaces = extractFunctionBody(dashboard, 'getOpenWorkspaceCards');
     const selectedProjectHandler = projectMessageHandlers.slice(
         projectMessageHandlers.indexOf("'selected-project': async e =>"),
-        projectMessageHandlers.indexOf("'add-project': async e =>")
+        projectMessageHandlers.indexOf("'reordered-projects': async e =>")
     );
     const openWorkspaceControllerWiring = dashboard.slice(
         dashboard.indexOf('openWorkspaceController = new OpenWorkspaceController({'),
@@ -3305,8 +3305,10 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(selectedProjectHandler.includes('projectService.getProject(projectId)'));
     assert.ok(!selectedProjectHandler.includes('getOpenProjects()'));
     assert.ok(selectedProjectHandler.includes('await projectOpenController.openProject(project, projectOpenType);'));
-    assert.ok(projectMessageHandlers.includes('await projectMutationController.addProject('));
-    assert.ok(dashboard.includes('saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace()'));
+    assert.ok(!projectMessageHandlers.includes('await projectMutationController.addProject('));
+    assert.ok(dashboard.includes('saveCurrentWorkspace: async message => {'));
+    assert.ok(dashboard.includes("type: 'save-current-workspace-result', version: 1, requestId, projectId,"));
+    assert.ok(dashboard.includes("operation: 'save-current-workspace'"));
     assert.strictEqual(dashboard.includes('saveUntitledWorkspace:'), false,
         'workspace card saves must reuse the complete SavedWorkspaceProjectAdapter flow');
     assert.strictEqual(dashboard.includes("'save-project': async"), false,

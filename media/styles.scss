@@ -2295,9 +2295,24 @@ body .project {
         }
 
         .open-window-name {
+            flex: 1 1 auto;
+            min-width: 0;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+
+        .open-window-save-phase {
+            display: none;
+            flex: 0 0 auto;
+            min-width: 0;
+            max-width: 92px;
+            overflow: hidden;
+            color: var(--vscode-descriptionForeground);
+            font-size: 11px;
+            font-style: italic;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .open-window-jump-hint {
@@ -2399,6 +2414,10 @@ body .project {
         box-shadow: inset 0 0 0 1px var(--vscode-editorError-foreground, #f14c4c);
     }
 
+    &[data-save-state="pending"] .open-window-save-phase {
+        display: inline;
+    }
+
     .open-window-retry {
         flex: 0 0 auto;
         font-size: 11px;
@@ -2468,12 +2487,25 @@ body .project {
 
     .open-window-save {
         color: var(--vscode-textLink-foreground, var(--vscode-focusBorder));
+
+        &[data-save-pending="true"] svg {
+            animation: open-window-save-progress 900ms linear infinite;
+        }
+
+        &[aria-disabled="true"] {
+            cursor: progress;
+            opacity: .7;
+        }
     }
 
     .open-window-pin-slot,
     .open-window-save-slot {
         cursor: default;
     }
+}
+
+@keyframes open-window-save-progress {
+    to { transform: rotate(360deg); }
 }
 
 // 响应式宽度矩阵（webview 视口 media query，兼容旧 Chromium；禁 container query）。

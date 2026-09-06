@@ -187,9 +187,6 @@ export function createProjectMessageHandlers(
         },
         'set-open-workspace-pin': e => getOpenWorkspacePinController().handle(e),
         'open-window-navigation-request': e => getOpenWindowNavigationRequestController().handle(e),
-        'add-project': async e => {
-            await projectMutationController.addProject(e.groupId as string);
-        },
         'reordered-projects': async e => {
             await projectOrderController.reorderGroups(e.groupOrders as GroupOrder[]);
         },

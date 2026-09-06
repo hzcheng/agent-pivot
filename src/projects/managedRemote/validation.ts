@@ -93,7 +93,7 @@ function catalogVectorCoversRegister<T>(
 
 export function isManagedMachine(value: unknown): value is ManagedSshMachine {
     if (!isRecord(value)
-        || !hasExactKeys(value, ['id', 'name', 'connection'])
+        || !hasExactKeys(value, ['id', 'name', 'connection'], ['sourceSshAliases'])
         || !isSafeId(value.id)
         || !isSafeText(value.name, 128)
         || !isRecord(value.connection)
@@ -108,7 +108,11 @@ export function isManagedMachine(value: unknown): value is ManagedSshMachine {
     }
     const host = value.connection.host as string;
     return (isIP(host) !== 0 || DNS_HOST.test(host))
-        && SAFE_USER.test(value.connection.user as string);
+        && SAFE_USER.test(value.connection.user as string)
+        && (value.sourceSshAliases === undefined || (Array.isArray(value.sourceSshAliases)
+            && value.sourceSshAliases.length > 0
+            && value.sourceSshAliases.length <= 16
+            && value.sourceSshAliases.every(alias => isSafeText(alias, 256))));
 }
 
 function isDevContainerAnchor(value: unknown): value is DevContainerLaunchAnchorV1 {

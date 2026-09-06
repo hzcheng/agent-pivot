@@ -2,6 +2,7 @@
 
 import type {
     AddManagedMachineInput,
+    AddManagedMachineProjectInput,
     AddManagedDevContainerProjectInput,
     AddManagedProjectInput,
     EditManagedMachineInput,
@@ -33,6 +34,7 @@ export interface ManagedRemoteManagementSnapshot {
 export interface ManagedRemoteManagementStore {
     getSnapshot(): Promise<ManagedRemoteManagementSnapshot>;
     addMachine(expectedRevisionId: string | null, input: AddManagedMachineInput): Promise<ManagedRemoteManagementSnapshot>;
+    addMachineProject(expectedRevisionId: string | null, input: AddManagedMachineProjectInput): Promise<ManagedRemoteManagementSnapshot>;
     editMachine(expectedRevisionId: string | null, machineId: string, input: EditManagedMachineInput): Promise<ManagedRemoteManagementSnapshot>;
     removeMachine(expectedRevisionId: string | null, machineId: string): Promise<ManagedRemoteManagementSnapshot>;
     addProject(expectedRevisionId: string | null, input: AddManagedProjectInput): Promise<ManagedRemoteManagementSnapshot>;
@@ -44,6 +46,7 @@ export interface ManagedRemoteManagementStore {
 
 export interface ManagedRemoteManagementPrompts {
     addMachine(): Promise<AddManagedMachineInput | undefined>;
+    adoptCurrentSshProject(input: AddManagedMachineProjectInput['project'] & { sshAlias: string }): Promise<AddManagedMachineInput | undefined>;
     editMachine(machine: ManagedSshMachine, affectedProjectCount: number): Promise<EditManagedMachineInput | undefined>;
     confirmRemoveMachine(machine: ManagedSshMachine): Promise<boolean>;
     chooseMachineForProject(machines: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
@@ -118,6 +121,21 @@ export class ManagedRemoteManagementController {
         const result = await this.options.store.addProject(current.revisionId, input);
         await this.options.refreshAuthoritative('save-workspace', 'addProject', result);
         return result;
+    }
+
+    /** Save an already-open SSH workspace after the user explicitly adopts its Machine. */
+    async addCurrentSshProject(
+        project: AddManagedMachineProjectInput['project'] & { sshAlias: string },
+    ): Promise<boolean> {
+        const machine = await this.options.prompts.adoptCurrentSshProject(project);
+        if (!machine) { return false; }
+        const current = await this.options.store.getSnapshot();
+        const result = await this.options.store.addMachineProject(current.revisionId, {
+            machine: { ...machine, sourceSshAliases: [project.sshAlias] },
+            project: { name: project.name, remotePath: project.remotePath },
+        });
+        await this.options.refreshAuthoritative('save-workspace', 'addMachine', result);
+        return true;
     }
 
     async addDevContainerProjectDirectly(

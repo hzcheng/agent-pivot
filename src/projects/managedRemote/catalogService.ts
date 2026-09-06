@@ -27,12 +27,14 @@ import {
     VersionedCandidates,
 } from './types';
 import { parseManagedRemoteCatalog } from './validation';
+import { normalizePosixPath } from '../projectPathUtils';
 
 export interface AddManagedMachineInput {
     name: string;
     host: string;
     user: string;
     port?: number;
+    sourceSshAliases?: string[];
 }
 
 export interface EditManagedMachineInput {
@@ -57,6 +59,11 @@ export interface AddManagedDevContainerProjectInput {
     machineId: string;
     environmentName: string;
     anchor: DevContainerLaunchAnchorV1;
+    project: Omit<AddManagedProjectInput, 'environmentId'>;
+}
+
+export interface AddManagedMachineProjectInput {
+    machine: AddManagedMachineInput;
     project: Omit<AddManagedProjectInput, 'environmentId'>;
 }
 
@@ -177,6 +184,9 @@ export class ManagedRemoteCatalogService {
         const machine: ManagedSshMachine = {
             id: machineId,
             name: input.name,
+            ...(input.sourceSshAliases?.length
+                ? { sourceSshAliases: Array.from(new Set(input.sourceSshAliases)).sort() }
+                : {}),
             connection: {
                 kind: 'ssh',
                 host: input.host,
@@ -266,6 +276,11 @@ export class ManagedRemoteCatalogService {
             this.document.environments[input.environmentId],
             'Managed Environment',
         );
+        const remotePath = normalizePosixPath(input.remotePath);
+        const existing = this.getCatalog().projects.find(project =>
+            project.environmentId === input.environmentId
+            && normalizePosixPath(project.remotePath) === remotePath);
+        if (existing) { return cloneManagedValue(existing); }
         const projectId = input.id || this.createId('project');
         if (this.document.projects[projectId]
             && nonNullValues(this.document.projects[projectId]).length) {
@@ -275,7 +290,7 @@ export class ManagedRemoteCatalogService {
             id: projectId,
             environmentId: input.environmentId,
             name: input.name,
-            remotePath: input.remotePath,
+            remotePath,
             ...(input.description === undefined ? {} : { description: input.description }),
             ...(input.tags === undefined ? {} : { tags: normalizeTags(input.tags) }),
             ...(input.color === undefined ? {} : { color: input.color }),
@@ -289,6 +304,33 @@ export class ManagedRemoteCatalogService {
         }
         this.commit({ projects: { [projectId]: project }, layout });
         return cloneManagedValue(project);
+    }
+
+    /**
+     * The current workspace has already proved both the SSH connection and its
+     * path. Persist its newly adopted Machine, fixed Host Environment, and
+     * Project through the single surrounding catalog transaction.
+     */
+    addMachineProject(input: AddManagedMachineProjectInput): ManagedRemoteProject {
+        const sourceAliases = new Set(input.machine.sourceSshAliases || []);
+        const matchingMachines = sourceAliases.size
+            ? this.getCatalog().machines.filter(machine =>
+                machine.sourceSshAliases?.some(alias => sourceAliases.has(alias)))
+            : [];
+        if (matchingMachines.length > 1) {
+            throw new Error('Current SSH target matches multiple Managed Machines.');
+        }
+        if (matchingMachines.length === 1) {
+            return this.addProject({
+                ...input.project,
+                environmentId: hostEnvironmentId(matchingMachines[0].id),
+            });
+        }
+        const machine = this.addMachine(input.machine);
+        return this.addProject({
+            ...input.project,
+            environmentId: hostEnvironmentId(machine.id),
+        });
     }
 
     addDevContainerProject(

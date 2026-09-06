@@ -2164,7 +2164,8 @@ function runSourceContractChecks(source) {
     );
     assert.ok(projectGroupListRule.includes('max-height: calc(var(--steward-max-visible-projects-per-group, 5) * 65px)'));
     assert.ok(projectGroupListRule.includes('overflow-y: auto'));
-    assert.ok(projectSource.includes("e.target.closest('[data-action=\"add-project\"]')"));
+    assert.ok(!projectSource.includes("type: 'add-project'"));
+    assert.ok(!webviewContentSource.includes('data-action="add-project"'));
     const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
         + fs.readFileSync(path.join(root, 'docs', 'development-history.md'), 'utf8');
     assert.strictEqual((source.match(/type: 'request-projects-panel'/g) || []).length, 1);

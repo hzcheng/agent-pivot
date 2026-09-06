@@ -5207,8 +5207,8 @@ function runWebviewContentChecks() {
     assert.ok(!/class="codex-session-row[^>]*tabindex=/.test(sessionTabsHtml));
     assert.ok(!webviewProjectScripts.includes('updateOpenProjectAiSessionBadge('));
 
-    assert.ok(webviewContent.includes('data-action="add" title="Add Project"'));
-    assert.ok(webviewContent.includes('class="project no-projects" data-action="add-project" data-nodrag'));
+    assert.ok(!webviewContent.includes('data-action="add" title="Add Project"'));
+    assert.ok(webviewContent.includes('Open a project, then use Save Current Project.'));
     assert.ok(!webviewContent.includes('getAddProjectDiv(group.id)'));
     assert.ok(!webviewContent.includes('function getAddProjectDiv'));
     assert.ok(webviewContent.includes('class="settings-button" data-action="open-settings"'));
@@ -5395,7 +5395,7 @@ function runWebviewContentChecks() {
     );
     const selectedProjectHandler = projectMessageHandlers.slice(
         projectMessageHandlers.indexOf("'selected-project': async e =>"),
-        projectMessageHandlers.indexOf("'add-project': async e =>")
+        projectMessageHandlers.indexOf("'reordered-projects': async e =>")
     );
     assert.match(
         selectedProjectHandler,

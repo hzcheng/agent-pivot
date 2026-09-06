@@ -61,7 +61,8 @@ function environmentMatchesRemoteAuthority(
     if (environment.kind === 'host') {
         const openedAlias = authority.startsWith('ssh-remote+')
             ? authority.slice('ssh-remote+'.length) : '';
-        return aliasMatches(openedAlias, machine);
+        return aliasMatches(openedAlias, machine)
+            || machine.sourceSshAliases?.includes(openedAlias) === true;
     }
     const anchor = environment.devContainerAnchor;
     if (!anchor) { return false; }

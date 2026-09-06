@@ -13,6 +13,7 @@ import type {
 export function renderMachineProjectsPanel(
     model: MachineProjectsViewModel,
     managedRemoteRevisionId?: string | null,
+    canSaveCurrentProject = true,
 ): string {
     const managedAttributes = managedRemoteRevisionId === undefined
         ? ''
@@ -20,11 +21,12 @@ export function renderMachineProjectsPanel(
     const addManagedMachine = managedRemoteRevisionId === undefined
         ? ''
         : `<button type="button" class="machine-toolbar-button" data-managed-operation="addMachine" aria-label="Add Managed Machine" title="Add Managed Machine">${Icons.add}<span class="managed-toolbar-label">Machine</span></button>`;
+    const saveCurrentProject = `<button type="button" class="machine-toolbar-button" data-action="save-current-project" aria-label="Save Current Project" title="${canSaveCurrentProject ? 'Save Current Project' : 'Open a project before saving it'}"${canSaveCurrentProject ? '' : ' disabled'}>${Icons.save}</button>`;
     if (!model.machines.length) {
         return `<section class="machine-projects machine-projects-empty" data-machine-projects${managedAttributes} data-machine-project-count="0">
             <div class="machine-projects-toolbar">
                 <span class="machine-projects-summary">0 projects</span>
-                <div class="machine-projects-toolbar-actions">${addManagedMachine}<button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button></div>
+                <div class="machine-projects-toolbar-actions">${saveCurrentProject}${addManagedMachine}</div>
             </div>
             <p>No projects have been added yet.</p>
         </section>`;
@@ -37,7 +39,7 @@ export function renderMachineProjectsPanel(
             <div class="machine-projects-toolbar-actions">
                 ${renderTagControls(model.tags)}
                 ${addManagedMachine}
-                <button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button>
+                ${saveCurrentProject}
             </div>
         </div>
         ${renderFavorites(model.favorites)}

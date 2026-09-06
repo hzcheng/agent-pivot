@@ -33,13 +33,12 @@ function model() {
     };
 }
 
-test('MANAGED-REMOTE-MANAGEMENT-003 renders complete management actions and no Move Project action', () => {
+test('MANAGED-REMOTE-MANAGEMENT-003 renders Save Current Project and no hand-authored Project creation action', () => {
     const html = renderManagedRemoteProjectsPanel(model());
     assert.match(html, /data-managed-operation="addMachine"/);
     assert.doesNotMatch(html, /beginMigration|>Migrate</u);
-    assert.match(html, /data-managed-operation="addProject"/);
-    assert.equal((html.match(/data-managed-operation="addProject"/gu) || []).length, 1);
-    assert.match(html, /data-managed-operation="addProject" data-managed-target-id="machine:build"/u);
+    assert.match(html, /data-action="save-current-project"/);
+    assert.doesNotMatch(html, /data-managed-operation="addProject"/);
     assert.match(html, /data-managed-operation="editMachine"/);
     assert.match(html, /data-action="show-edit-machine-form" data-managed-target-id="machine:build"/u);
     assert.match(html, /Changing this connection affects 1 Project\./u);
@@ -50,6 +49,11 @@ test('MANAGED-REMOTE-MANAGEMENT-003 renders complete management actions and no M
     assert.match(html, /dev@build\.example\.com:22022/);
     assert.doesNotMatch(html, /class="managed-machine-endpoint"/u);
     assert.match(html, /title="Build — dev@build\.example\.com:22022"/u);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 disables Save Current Project without an open workspace', () => {
+    const html = renderManagedRemoteProjectsPanel(model(), undefined, false);
+    assert.match(html, /data-action="save-current-project"[^>]*title="Open a project before saving it"[^>]* disabled/u);
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-003 keeps unavailable Favorite identity and reason in its name', () => {

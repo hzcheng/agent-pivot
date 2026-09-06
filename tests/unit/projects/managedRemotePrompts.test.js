@@ -77,6 +77,26 @@ test('MANAGED-REMOTE-MANAGEMENT-004 Machine edit review explains synchronized bl
     assert.match(ui.picks[0].items[0].detail, /dev@old\.example\.com:22 → ops@new\.example\.com:2222 · 3 affected Projects/u);
 });
 
+test('MANAGED-REMOTE-MANAGEMENT-004 adoption review binds the current SSH target and Project path', async () => {
+    const ui = new ScriptedWizardUi([
+        { action: 'accept', value: 'API host' },
+        { action: 'accept', value: 'api.example.com' },
+        { action: 'accept', value: 'dev' },
+        { action: 'accept', value: '22022' },
+        { action: 'accept', value: true },
+    ]);
+    const result = await new ManagedRemotePromptController(ui).adoptCurrentSshProject({
+        name: 'API', remotePath: '/work/api', sshAlias: 'legacy-api',
+    });
+
+    assert.deepEqual(result, {
+        name: 'API host', host: 'api.example.com', user: 'dev', port: 22022,
+    });
+    assert.equal(ui.inputs[0].title, 'Save Current Project — Add Machine');
+    assert.equal(ui.picks[0].items[0].label, 'Save Machine and Project');
+    assert.match(ui.picks[0].items[0].detail, /Current SSH target: legacy-api · Project: \/work\/api/u);
+});
+
 test('MANAGED-REMOTE-MANAGEMENT-004 Project wizard keeps placement fixed and reviews Favorite', async () => {
     const ui = new ScriptedWizardUi([
         { action: 'accept', value: 'host-1' },

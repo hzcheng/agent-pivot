@@ -26,6 +26,17 @@ var agentPivotOpenWindowNavigation = (function () {
     // next request; the requestId lets a late 'focused' receipt clear the
     // error its own timeout created, as long as no newer request superseded it)
     var errorByCardId = new Map();
+    var nextSaveRequestId = 0;
+    // cardId -> { requestId }. A Window save can open a Host-side confirmation
+    // dialog, so keep the direct control visibly pending until that Host-owned
+    // workflow settles.
+    var pendingSavesByCardId = new Map();
+    var SAVE_PROGRESS_LABELS = {
+        'resolving-workspace': 'Checking…',
+        'awaiting-workspace-location': 'Choose location…',
+        'preparing-project': 'Preparing…',
+        'persisting-project': 'Saving…',
+    };
 
     // PRD live region：导航 pending/error 通过切换器内的播报区触达屏幕阅读器。
     function announce(cardId, message) {
@@ -67,6 +78,121 @@ var agentPivotOpenWindowNavigation = (function () {
         if (retry) {
             retry.hidden = state !== 'error';
         }
+    }
+
+    function applySaveState(cardId, pending, stage, root) {
+        var row = findRow(cardId, root);
+        if (!row) {
+            return;
+        }
+        var button = row.querySelector('[data-action="save-current-workspace"]');
+        if (!button) {
+            return;
+        }
+        if (pending) {
+            var label = SAVE_PROGRESS_LABELS[stage] || 'Saving Workspace…';
+            row.setAttribute('data-save-state', 'pending');
+            if (stage) {
+                row.setAttribute('data-save-stage', stage);
+            } else {
+                row.removeAttribute('data-save-stage');
+            }
+            button.setAttribute('data-save-pending', 'true');
+            button.setAttribute('aria-disabled', 'true');
+            button.setAttribute('title', label);
+            button.setAttribute('aria-label', label);
+            var phase = row.querySelector('.open-window-save-phase');
+            if (phase) {
+                phase.textContent = label;
+            }
+        } else {
+            row.removeAttribute('data-save-state');
+            row.removeAttribute('data-save-stage');
+            button.removeAttribute('data-save-pending');
+            button.removeAttribute('aria-disabled');
+            button.setAttribute('title', 'Save Workspace');
+            button.setAttribute('aria-label', 'Save Workspace');
+            var phase = row.querySelector('.open-window-save-phase');
+            if (phase) {
+                phase.textContent = '';
+            }
+        }
+    }
+
+    function requestWorkspaceSave(cardId) {
+        if (typeof cardId !== 'string' || !cardId || pendingSavesByCardId.has(cardId)) {
+            return;
+        }
+        nextSaveRequestId = nextSaveRequestId >= Number.MAX_SAFE_INTEGER
+            ? 1 : nextSaveRequestId + 1;
+        var requestId = 'save-current-workspace-' + Date.now() + '-' + nextSaveRequestId;
+        pendingSavesByCardId.set(cardId, { requestId: requestId, projectId: cardId, stage: null });
+        applySaveState(cardId, true);
+        announce(cardId, 'Saving Workspace');
+        if (window.vscode && typeof window.vscode.postMessage === 'function') {
+            window.vscode.postMessage({
+                type: 'save-current-workspace', version: 1, requestId: requestId, projectId: cardId,
+            });
+        }
+    }
+
+    function completeWorkspaceSave(message) {
+        if (!message
+            || Object.keys(message).sort().join('\n') !== [
+                'operation', 'projectId', 'requestId', 'status', 'type', 'version',
+            ].sort().join('\n')
+            || message.type !== 'save-current-workspace-result'
+            || message.version !== 1
+            || typeof message.requestId !== 'string'
+            || typeof message.projectId !== 'string'
+            || message.operation !== 'save-current-workspace'
+            || ['saved', 'cancelled', 'failed'].indexOf(message.status) === -1) {
+            return false;
+        }
+        var cardId = null;
+        pendingSavesByCardId.forEach(function (pending, candidateCardId) {
+            if (pending.requestId === message.requestId && pending.projectId === message.projectId) {
+                cardId = candidateCardId;
+            }
+        });
+        if (!cardId) {
+            return true;
+        }
+        pendingSavesByCardId.delete(cardId);
+        applySaveState(cardId, false);
+        announce(cardId, message.status === 'saved'
+            ? 'Workspace saved'
+            : message.status === 'cancelled' ? 'Save cancelled' : 'Could not save Workspace');
+        return true;
+    }
+
+    function reportWorkspaceSaveProgress(message) {
+        if (!message
+            || Object.keys(message).sort().join('\n') !== [
+                'operation', 'projectId', 'requestId', 'stage', 'type', 'version',
+            ].sort().join('\n')
+            || message.type !== 'save-current-workspace-progress'
+            || message.version !== 1
+            || typeof message.requestId !== 'string'
+            || typeof message.projectId !== 'string'
+            || message.operation !== 'save-current-workspace'
+            || typeof message.stage !== 'string'
+            || !Object.prototype.hasOwnProperty.call(SAVE_PROGRESS_LABELS, message.stage)) {
+            return false;
+        }
+        var cardId = null;
+        pendingSavesByCardId.forEach(function (pending, candidateCardId) {
+            if (pending.requestId === message.requestId && pending.projectId === message.projectId) {
+                cardId = candidateCardId;
+            }
+        });
+        if (!cardId) {
+            return true;
+        }
+        pendingSavesByCardId.get(cardId).stage = message.stage;
+        applySaveState(cardId, true, message.stage);
+        announce(cardId, SAVE_PROGRESS_LABELS[message.stage]);
+        return true;
     }
 
     function clearPending(cardId, pending) {
@@ -192,6 +318,9 @@ var agentPivotOpenWindowNavigation = (function () {
         errorByCardId.forEach(function (entry, cardId) {
             applyRowState(cardId, 'error', entry.outcome, root);
         });
+        pendingSavesByCardId.forEach(function (pending, cardId) {
+            applySaveState(cardId, true, pending.stage, root);
+        });
     }
 
     // --- window-row ⋯ menu ---------------------------------------------------
@@ -303,8 +432,8 @@ var agentPivotOpenWindowNavigation = (function () {
                 requestOpenWorkspacePin(pinButton, cardId);
             }
         } else if (action === 'save-current-workspace'
-            && window.vscode && typeof window.vscode.postMessage === 'function') {
-            window.vscode.postMessage({ type: 'save-current-workspace', projectId: cardId });
+            && row.getAttribute('data-window-kind') === 'current') {
+            requestWorkspaceSave(cardId);
         }
     }
 
@@ -392,10 +521,7 @@ var agentPivotOpenWindowNavigation = (function () {
                 e.stopPropagation();
                 if (saveRow.getAttribute('data-window-kind') === 'current'
                     && window.vscode && typeof window.vscode.postMessage === 'function') {
-                    window.vscode.postMessage({
-                        type: 'save-current-workspace',
-                        projectId: saveRow.getAttribute('data-id'),
-                    });
+                    requestWorkspaceSave(saveRow.getAttribute('data-id'));
                 }
                 return;
             }
@@ -416,6 +542,14 @@ var agentPivotOpenWindowNavigation = (function () {
         document.addEventListener('keydown', onMenuKeydown);
     }
 
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('message', function (event) {
+            if (!reportWorkspaceSaveProgress(event.data)) {
+                completeWorkspaceSave(event.data);
+            }
+        });
+    }
+
     return {
         request: request,
         retry: retry,
@@ -423,6 +557,8 @@ var agentPivotOpenWindowNavigation = (function () {
         reconcile: reconcile,
         toggleMenu: toggleMenu,
         closeMenu: closeMenu,
+        completeWorkspaceSave: completeWorkspaceSave,
+        reportWorkspaceSaveProgress: reportWorkspaceSaveProgress,
         isPending: function (cardId) { return pendingByCardId.has(cardId); },
         _pendingByCardId: pendingByCardId,
         _errorByCardId: errorByCardId,

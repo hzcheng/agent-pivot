@@ -187,6 +187,37 @@ test('MANAGED-REMOTE-NAVIGATION-001 recognizes opened Host and Dev Container Pro
     ), null);
 });
 
+test('MANAGED-REMOTE-NAVIGATION-001 recognizes an adopted SSH workspace through its original alias', () => {
+    const machine = {
+        id: 'machine:adopted', name: 'Adopted', sourceSshAliases: ['legacy-api'],
+        connection: { kind: 'ssh', host: 'api.example.com', user: 'dev', port: 22 },
+    };
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [machine],
+            environments: [{
+                id: 'environment:host', machineId: machine.id, kind: 'host', name: 'Host',
+            }],
+            projects: [{
+                id: 'project:api', environmentId: 'environment:host',
+                name: 'API', remotePath: '/work/api',
+            }],
+            layout: { machineIds: [machine.id], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+
+    assert.equal(
+        matcher.findManagedProjectForOpenProject(
+            snapshot, FakeUri.parse('vscode-remote://ssh-remote%2Blegacy-api/work/api'),
+        ).project.id,
+        'project:api',
+    );
+});
+
 test('MANAGED-REMOTE-NAVIGATION-001 resolves a first Dev Container save to its Managed Machine', () => {
     const machine = {
         id: 'machine:reddev', name: 'RedDev',

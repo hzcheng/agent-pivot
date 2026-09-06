@@ -161,6 +161,7 @@ interface RemoteDirectoryRow {
     name: string;
     kind: FileTransferDirectoryEntry['kind'];
     size?: number;
+    modifiedAt?: number;
 }
 
 function machineIdToTransferRootId(machineId: string): string {
@@ -391,19 +392,52 @@ function remoteFileSize(
     });
 }
 
+function parseSftpModifiedAt(monthLabel: string, dayLabel: string, timeOrYear: string): number | undefined {
+    const month = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].indexOf(monthLabel);
+    const day = Number(dayLabel);
+    if (month < 0 || !Number.isSafeInteger(day) || day < 1 || day > 31) { return undefined; }
+    const now = new Date();
+    let year = now.getFullYear();
+    let hours = 0;
+    let minutes = 0;
+    if (/^\d{4}$/u.test(timeOrYear)) {
+        year = Number(timeOrYear);
+    } else {
+        const time = /^(\d{2}):(\d{2})$/u.exec(timeOrYear);
+        if (!time) { return undefined; }
+        hours = Number(time[1]);
+        minutes = Number(time[2]);
+        if (hours > 23 || minutes > 59) { return undefined; }
+    }
+    let date = new Date(year, month, day, hours, minutes);
+    if (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day) {
+        return undefined;
+    }
+    // SFTP prints a time rather than a year for recent entries. A future value
+    // therefore belongs to the preceding year, matching the OpenSSH client convention.
+    if (!/^\d{4}$/u.test(timeOrYear) && date.getTime() > now.getTime() + 36 * 60 * 60 * 1000) {
+        date = new Date(year - 1, month, day, hours, minutes);
+    }
+    const timestamp = date.getTime();
+    return Number.isSafeInteger(timestamp) && timestamp >= 0 ? timestamp : undefined;
+}
+
 export function parseSftpLongListing(output: string): RemoteDirectoryRow[] {
     const rows: RemoteDirectoryRow[] = [];
     for (const line of output.split(/\r?\n/u)) {
         if (!line || /^sftp>\s*/u.test(line) || /^Connected to /u.test(line)) { continue; }
-        const match = /^([bcdlps-])[rwxStTs-]{9}\s+\S+\s+\S+\s+\S+\s+(\d+)\s+\S+\s+\d+\s+(?:\d\d:\d\d|\d{4})\s+(.+)$/u.exec(line);
+        const match = /^([bcdlps-])[rwxStTs-]{9}\s+\S+\s+\S+\s+\S+\s+(\d+)\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d\d:\d\d|\d{4})\s+(.+)$/u.exec(line);
         if (!match) { continue; }
-        const name = match[3];
+        const name = match[6];
         if (name === '.' || name === '..' || name.length > 255 || /[\0\r\n]/u.test(name)) { continue; }
+        const modifiedAt = parseSftpModifiedAt(match[3], match[4], match[5]);
         rows.push({
             name,
             kind: match[1] === 'd' ? 'directory' : match[1] === 'l' ? 'symlink'
                 : match[1] === '-' ? 'file' : 'unsupported',
             ...(match[1] === '-' ? { size: Number(match[2]) } : {}),
+            ...(modifiedAt === undefined ? {} : { modifiedAt }),
         });
     }
     rows.sort((left, right) => {
@@ -822,7 +856,11 @@ export class ManagedRemoteBridgeController {
                     directoryId: id,
                 });
             }
-            return { id, name: row.name, kind: row.kind, ...(row.size === undefined ? {} : { size: row.size }) };
+            return {
+                id, name: row.name, kind: row.kind,
+                ...(row.size === undefined ? {} : { size: row.size }),
+                ...(row.modifiedAt === undefined ? {} : { modifiedAt: row.modifiedAt }),
+            };
         });
         return {
             rootId: machineIdToTransferRootId(machineId),

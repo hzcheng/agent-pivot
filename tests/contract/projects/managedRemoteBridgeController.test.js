@@ -380,8 +380,8 @@ test('FILE-TRANSFER-COPY-003 retains SFTP file sizes for post-copy verification'
         + 'drwxr-xr-x    2 user     group          4096 Jan 01 2026 artifacts\n',
     );
     assert.deepEqual(entries, [
-        { name: 'artifacts', kind: 'directory' },
-        { name: 'report.txt', kind: 'file', size: 4096 },
+        { name: 'artifacts', kind: 'directory', modifiedAt: new Date(2026, 0, 1).getTime() },
+        { name: 'report.txt', kind: 'file', size: 4096, modifiedAt: new Date(2026, 0, 1).getTime() },
     ]);
 });
 
@@ -391,7 +391,18 @@ test('FILE-TRANSFER-COPY-003A retains hidden SFTP entries but omits dot navigati
         + 'drwxr-xr-x    2 user     group          4096 Jan 01 2026 ..\n'
         + '-rw-r--r--    1 user     group            42 Jan 01 2026 .env\n',
     );
-    assert.deepEqual(entries, [{ name: '.env', kind: 'file', size: 42 }]);
+    assert.deepEqual(entries, [{
+        name: '.env', kind: 'file', size: 42, modifiedAt: new Date(2026, 0, 1).getTime(),
+    }]);
+});
+
+test('FILE-TRANSFER-COPY-003B retains a safe timestamp for recent SFTP rows', () => {
+    const [entry] = parseSftpLongListing(
+        '-rw-r--r--    1 user     group             1 Sep 07 12:34 current.log\n',
+    );
+    assert.equal(entry.name, 'current.log');
+    assert.equal(Number.isSafeInteger(entry.modifiedAt), true);
+    assert.ok(entry.modifiedAt >= 0);
 });
 
 test('FILE-TRANSFER-COPY-004 stops active relay processes when the UI Bridge disposes', () => {

@@ -247,6 +247,7 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.ok(unsafeLocalFolder);
     assert.ok(unsafeRemoteDirectory);
     assert.ok(remoteFile);
+    assert.equal(Number.isSafeInteger(remoteFile.modifiedAt), true);
 
     const unsafeLocalPreflight = await controller.execute({
         ...request('preflightFileTransfer', slot.revisionId, 'unsafe-local-preflight'),

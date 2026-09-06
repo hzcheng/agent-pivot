@@ -576,6 +576,18 @@ test('FILE-TRANSFER-UI-015 routes a cross-pane drag through the reviewed copy fl
     assert.match(dashboardSource, /row\.draggable = true;/);
 });
 
+test('FILE-TRANSFER-UI-016 limits a reviewed target name to one regular file', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: { machines: [], environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [] },
+    });
+    assert.match(html, /data-file-transfer-target-name-input/);
+    assert.match(dashboardSource, /entries\.length === 1 && entries\[0\]\.kind === 'file'/);
+    assert.match(dashboardSource, /reviewedCopyPlan\.targetName = targetNameInput\.value;/);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

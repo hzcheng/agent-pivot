@@ -110,6 +110,14 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
         ...copy,
         fileTransfer: { ...copy.fileTransfer, entryIds: ['d'.repeat(32), 'd'.repeat(32)] },
     }), null);
+    assert.deepEqual(parseManagedRemoteBridgeRequest({
+        ...copy,
+        fileTransfer: { ...copy.fileTransfer, targetName: 'renamed-report.txt' },
+    })?.fileTransfer.targetName, 'renamed-report.txt');
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...copy,
+        fileTransfer: { ...copy.fileTransfer, targetName: '../outside' },
+    }), null);
 
     const preflight = {
         protocolVersion: 1,

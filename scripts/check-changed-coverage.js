@@ -49,6 +49,11 @@ const UNINSTRUMENTED_BY_DESIGN = [
     // compiles to an empty, statement-less file. Do not generalize this to
     // every types.ts file; several of them also export executable helpers.
     'src/workspaces/types.ts',
+    // Type-only module: it declares the Managed Remote catalog shapes (machines,
+    // environments, projects, causal metadata) and compiles to an empty,
+    // statement-less file. Same caveat as above: this is per-file, not a rule
+    // about the name `types.ts`.
+    'src/projects/managedRemote/types.ts',
     // Vendored third-party library (Name that Color, Creative Commons). It is
     // only reachable through colorService, whose own unit tests exercise the
     // ntc call sites; vendored code carries no per-change coverage obligation.

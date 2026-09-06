@@ -1,13 +1,12 @@
 'use strict';
 
-import type { Group } from '../../models';
 import type {
     AddManagedMachineInput,
+    AddManagedDevContainerProjectInput,
     AddManagedProjectInput,
     EditManagedMachineInput,
     EditManagedProjectInput,
 } from './catalogService';
-import type { ManagedRemoteMigrationPlanV1 } from './migrationPlan';
 import {
     createManagedRemoteManagementSettlement,
     ManagedRemoteManagementOperation,
@@ -16,7 +15,6 @@ import {
     readManagedRemoteManagementCorrelation,
 } from './managementProtocol';
 import type {
-    ChecksummedLegacySnapshot,
     ManagedEnvironment,
     ManagedRemoteProject,
     ManagedSshMachine,
@@ -25,8 +23,7 @@ import type {
 
 export interface ManagedRemoteManagementSnapshot {
     revisionId: string | null;
-    lifecycle: 'disabled' | 'preview' | 'active' | 'rolledBack';
-    migrationPlanId?: string;
+    lifecycle: 'disabled' | 'active';
     catalog: MaterializedManagedRemoteCatalog;
     machineConflictCandidates: Record<string, ManagedSshMachine[]>;
 }
@@ -37,13 +34,10 @@ export interface ManagedRemoteManagementStore {
     editMachine(expectedRevisionId: string | null, machineId: string, input: EditManagedMachineInput): Promise<ManagedRemoteManagementSnapshot>;
     removeMachine(expectedRevisionId: string | null, machineId: string): Promise<ManagedRemoteManagementSnapshot>;
     addProject(expectedRevisionId: string | null, input: AddManagedProjectInput): Promise<ManagedRemoteManagementSnapshot>;
+    addDevContainerProject(expectedRevisionId: string | null, input: AddManagedDevContainerProjectInput): Promise<ManagedRemoteManagementSnapshot>;
     editProject(expectedRevisionId: string | null, projectId: string, input: EditManagedProjectInput): Promise<ManagedRemoteManagementSnapshot>;
     removeProject(expectedRevisionId: string | null, projectId: string): Promise<ManagedRemoteManagementSnapshot>;
     resolveMachineConflict(expectedRevisionId: string | null, machineId: string, selected: ManagedSshMachine): Promise<ManagedRemoteManagementSnapshot>;
-    prepareMigration(): ManagedRemoteMigrationPlanV1;
-    beginMigration(expectedRevisionId: string | null, plan: ManagedRemoteMigrationPlanV1): Promise<ManagedRemoteManagementSnapshot>;
-    finalizeMigrationCleanup(expectedRevisionId: string): Promise<ManagedRemoteManagementSnapshot>;
-    rollbackMigration(expectedRevisionId: string): Promise<ManagedRemoteManagementSnapshot>;
 }
 
 export interface ManagedRemoteManagementPrompts {
@@ -58,15 +52,6 @@ export interface ManagedRemoteManagementPrompts {
     editProject(project: ManagedRemoteProject): Promise<EditManagedProjectInput | undefined>;
     confirmRemoveProject(project: ManagedRemoteProject): Promise<boolean>;
     resolveMachineConflict(machineId: string, candidates: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
-    reviewMigration(plan: ManagedRemoteMigrationPlanV1): Promise<ManagedRemoteMigrationPlanV1 | undefined>;
-}
-
-export interface ManagedRemoteMigrationSource {
-    getGroups(): Group[];
-    getProjectData(): unknown;
-    getProjectSyncData(): unknown;
-    clearLegacyData(): Promise<void>;
-    restoreLegacyData(snapshot: ChecksummedLegacySnapshot): Promise<void>;
 }
 
 export interface ManagedRemoteManagementControllerOptions {
@@ -130,6 +115,22 @@ export class ManagedRemoteManagementController {
         const current = await this.options.store.getSnapshot();
         const result = await this.options.store.addProject(current.revisionId, input);
         await this.options.refreshAuthoritative('save-workspace', 'addProject', result);
+        return result;
+    }
+
+    async addDevContainerProjectDirectly(
+        input: AddManagedDevContainerProjectInput,
+    ): Promise<ManagedRemoteManagementSnapshot> {
+        const current = await this.options.store.getSnapshot();
+        const result = await this.options.store.addDevContainerProject(
+            current.revisionId,
+            input,
+        );
+        await this.options.refreshAuthoritative(
+            'save-workspace',
+            'addProject',
+            result,
+        );
         return result;
     }
 

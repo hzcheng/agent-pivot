@@ -357,7 +357,6 @@ test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration increment
     const events = [];
     let localEcho = true;
     const controller = new DashboardLifecycleController({
-        checkDataMigration: async () => events.push('migrate'),
         consumePromptDataWriteEcho: () => {
             events.push('consume-prompt');
             return localEcho;
@@ -383,9 +382,7 @@ test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration increment
 });
 
 const DASHBOARD_COMMANDS = [
-    'agentPivot.open', 'agentPivot.addProject', 'agentPivot.saveProject',
-    'agentPivot.removeProject', 'agentPivot.editProjects', 'agentPivot.addGroup',
-    'agentPivot.removeGroup', 'agentPivot.addProjectsFromFolder',
+    'agentPivot.open', 'agentPivot.saveProject',
     'agentPivot.addFileToActiveTerminal', 'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral', 'agentPivot.changeGlobalSkillsLocation',
     'agentPivot.openCurrentAiSessionConversation',
@@ -419,8 +416,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
     const subscriptions = [];
     const calls = [];
     const handlerNames = [
-        'open', 'addProject', 'saveProject', 'removeProject', 'editProjects', 'addGroup', 'removeGroup',
-        'addProjectsFromFolder', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
+        'open', 'saveProject', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
         'migrateSkillsToCentral', 'changeGlobalSkillsLocation',
         'openCurrentAiSessionConversation',
         'seekLatestConversationInteraction',
@@ -451,7 +447,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
 
     await registered.get('agentPivot.open')('boot');
     await assert.rejects(
-        registered.get('agentPivot.addProject')('ignored'),
+        registered.get('agentPivot.saveProject')('ignored'),
         /Agent Pivot is still starting/
     );
     assert.deepEqual(calls, [['boot-open', 'boot']]);

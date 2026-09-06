@@ -9,7 +9,10 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getStewardContent } from './webview/webviewContent';
-import { buildMachineProjectsViewModel } from './projects/machineProjectsViewModel';
+import {
+    buildMachineProjectsViewModel,
+    isLocalMachineProjectPath,
+} from './projects/machineProjectsViewModel';
 import { renderManagedRemoteProjectsPanel } from './webview/webviewManagedRemoteProjectsContent';
 import { buildManagedRemoteProjectsViewModel } from './projects/managedRemote/viewModel';
 import {
@@ -227,6 +230,7 @@ import {
 } from './projects/openProjectService';
 import {
     findManagedEnvironmentForWorkspace,
+    findManagedDevContainerSaveTarget,
     findManagedProjectForOpenProject,
     managedRemotePathForWorkspace,
     findSavedProjectForOpenProject,
@@ -236,20 +240,8 @@ import {
     getWorkspacePath as resolveWorkspacePath,
     getWorkspaceUris,
 } from './projects/workspaceHelpers';
-import RemoteProjectResolver from './projects/remoteProjectResolver';
-import { AddProjectsFromFolderController } from './projects/addProjectsFromFolderController';
-import { CurrentProjectDetailsResolver } from './projects/currentProjectDetails';
-import { FavoriteProjectController } from './projects/favoriteProjectController';
-import { GroupCommandController } from './projects/groupCommandController';
-import { queryGroupName } from './projects/groupPrompts';
-import { ProjectManualEditController } from './projects/projectManualEditController';
-import { ProjectMutationController } from './projects/projectMutationController';
 import type { ProjectDetailsForSave } from './projects/remoteProjectResolver';
-import { ProjectOpenController } from './projects/projectOpenController';
-import { ProjectOrderController } from './projects/projectOrderController';
-import { ProjectPromptController } from './projects/projectPromptController';
-import { ProjectRemovalController } from './projects/projectRemovalController';
-import { createProjectMessageHandlers, createProjectSurfaceRefresh } from './projects/projectMessageHandlers';
+import { createProjectMessageHandlers } from './projects/projectMessageHandlers';
 import { AgentPivotViewProvider } from './dashboard/viewProvider';
 import type { AgentPivotViewProviderOptions } from './dashboard/viewProvider';
 import { DashboardBootstrapController } from './dashboard/bootstrapController';
@@ -270,7 +262,7 @@ import {
     DashboardRuntimeController,
     revealAgentPivotDashboard,
 } from './dashboard/runtimeController';
-import { DashboardStartupController, settleMigration } from './dashboard/startupController';
+import { DashboardStartupController } from './dashboard/startupController';
 import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
 import OpenWorkspaceBridgeClient from './openWorkspaces/bridgeClient';
 import type { OpenWorkspaceBridgeStatus } from './openWorkspaces/bridgeClient';
@@ -656,60 +648,13 @@ async function initializeDashboard(
             bootstrapPhaseTimings[phase] = Math.max(0, Date.now() - startedAtMs);
         }
     };
-    let settleStorageMigration: (available: boolean) => void = () => undefined;
-    let storageMigrationSettled = false;
-    const storageMigrationReady = new Promise<boolean>(resolve => {
-        settleStorageMigration = available => {
-            if (storageMigrationSettled) {
-                return;
-            }
-            storageMigrationSettled = true;
-            resolve(available);
-        };
-    });
-    resources.own({ dispose: () => settleStorageMigration(false) });
-    const runAfterStorageMigration = async <T>(run: () => T | PromiseLike<T>): Promise<T> => {
-        const available = await storageMigrationReady;
-        resources.assertActive();
-        if (!available) {
-            throw new Error('Agent Pivot storage migration did not complete.');
-        }
-        return run();
-    };
-    const storageMutationMessageTypes = new Set([
-        'save-current-workspace',
-        'save-project',
-        'add-project',
-        'import-from-other-storage',
-        'reordered-projects',
-        'reordered-favorites',
-        'remove-project',
-        'edit-project',
-        'save-project-inline',
-        'color-project',
-        'favorite-project',
-        'rename-machine',
-        'reset-machine-name',
-        'edit-group',
-        'remove-group',
-        'add-group',
-    ]);
-    const messageRequiresStorageMigration = (message: unknown): boolean => {
-        if (!message || typeof message !== 'object') {
-            return false;
-        }
-        const messageType = (message as { type?: unknown }).type;
-        return typeof messageType === 'string'
-            && storageMutationMessageTypes.has(messageType);
-    };
-
     const {
         colorService,
         projectService,
         projectWindowColorService,
         fileService,
         gitRepositoryDetector,
-    } = createProjectServices({ context, logDashboardDiagnostic });
+    } = createProjectServices({ context });
     const promptConfiguration = getAgentPivotConfiguration();
     const promptStore = await initializePromptMementoStore({
         globalState: context.globalState,
@@ -742,8 +687,6 @@ async function initializeDashboard(
         favoriteProjectController,
         projectOrderController,
         projectRemovalController,
-        projectManualEditController,
-        addProjectsFromFolderController,
         remoteProjectResolver,
         currentProjectDetailsResolver,
     } = createProjectControllers({
@@ -994,8 +937,7 @@ async function initializeDashboard(
     );
     let managedRemoteCapability: ManagedRemoteManagementCapability | undefined;
     const managedRemoteBridgeClient = new ManagedRemoteBridgeClient(vscode.commands);
-    const managedRemoteCapabilityPromise = runAfterStorageMigration(() =>
-        createManagedRemoteManagementCapability({
+    const managedRemoteCapabilityPromise = createManagedRemoteManagementCapability({
             configuration: promptConfiguration,
             catalogSettingKey: MANAGED_REMOTE_CATALOG_DATA_KEY,
             globalTarget: vscode.ConfigurationTarget.Global,
@@ -1018,7 +960,7 @@ async function initializeDashboard(
             postSettlement: async settlement => {
                 await provider.postMessage(settlement);
             },
-        }));
+        });
     void managedRemoteCapabilityPromise.then(async capability => {
         managedRemoteCapability = capability;
         managedRemoteSnapshot = capability.snapshot;
@@ -1248,6 +1190,12 @@ async function initializeDashboard(
             currentProjectDetailsResolver.getProjectDetailsForSave(vscode.Uri.parse(navigationUri)),
         saveWorkspaceProject: async details => {
             if (details && await saveWorkspaceIntoManagedCatalog(details)) { return; }
+            if (details && !isLocalMachineProjectPath(details.path)) {
+                await vscode.window.showErrorMessage(
+                    'Agent Pivot: Save remote Projects from a Managed Machine or Managed Dev Container.',
+                );
+                return;
+            }
             await projectMutationController.saveWorkspaceProject(details);
         },
         executeSaveWorkspaceAs: () => Promise.resolve(
@@ -1812,7 +1760,8 @@ async function initializeDashboard(
         isVisible: () => provider.visible,
         invalidateCache: providerId => invalidateAiSessionCache(providerId),
         watchSessionChanges: (providerId, onDidChange) => getRegisteredAiSessionProvider(providerId).service.watchSessionChanges(onDidChange),
-        getGroups: () => projectService.getGroups(),
+        getGroups: () => projectService.getLocalGroupsForDisplay(),
+        getManagedRemoteSnapshot: () => managedRemoteSnapshot,
         getSkillRecords: () => skillPanel.getRecords(),
         getCards: projection => getOpenWorkspaceCards(projection),
         buildAiSessionsUpdatedMessage,
@@ -2542,9 +2491,10 @@ async function initializeDashboard(
         projectService,
         renderProjectsPanel: (groups, infos) => renderProjectsPanel(groups, infos),
         getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
-            projectService.getGroups(),
+            projectService.getLocalGroupsForDisplay(),
             getOpenWorkspaceCards(),
             skillPanel.getRecords(),
+            managedRemoteSnapshot,
         ),
         promptDashboardController,
         getPromptTerminalCommandController: () => promptTerminalCommandController,
@@ -2939,7 +2889,7 @@ async function initializeDashboard(
             return getStewardContent(
                 context,
                 webview,
-                projectService.getGroups(),
+                projectService.getLocalGroupsForDisplay(),
                 stewardInfos,
                 true,
                 cards,
@@ -2954,12 +2904,11 @@ async function initializeDashboard(
                     currentWorktreeGroupsAggregateRevision(),
                 ),
                 openWorkspaceDashboardController.getWindowPathSegmentsByCardId(),
+                managedRemoteSnapshot,
             );
         },
         renderError: getErrorContent,
-        onMessage: message => messageRequiresStorageMigration(message)
-            ? runAfterStorageMigration(() => dashboardMessageRouter(message))
-            : dashboardMessageRouter(message),
+        onMessage: message => dashboardMessageRouter(message),
         onVisibleChanged: async visible => {
             projectsPanelController?.invalidatePendingUpdates();
             openWorkspaceDashboardController?.invalidatePendingUpdates();
@@ -3060,7 +3009,8 @@ async function initializeDashboard(
             );
             return transaction;
         },
-        getGroups: () => projectService.getGroups(),
+        getGroups: () => projectService.getLocalGroupsForDisplay(),
+        getManagedRemoteSnapshot: () => managedRemoteSnapshot,
         getSkillRecords: () => skillPanel.getRecords(),
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
@@ -3599,7 +3549,6 @@ async function initializeDashboard(
             remoteContainers: false,
         },
         get config() { return getAgentPivotConfiguration() },
-        get otherStorageHasData() { return projectService.otherStorageHasData() },
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
         get skills() { return skillPanel.getRecords() },
     };
@@ -3615,11 +3564,12 @@ async function initializeDashboard(
         );
     };
     projectsPanelController = new ProjectsPanelController({
-        getGroups: () => projectService.getGroups(),
+        getGroups: () => projectService.getLocalGroupsForDisplay(),
         getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
-            projectService.getGroups(),
+            projectService.getLocalGroupsForDisplay(),
             getOpenWorkspaceCards(),
             skillPanel.getRecords(),
+            managedRemoteSnapshot,
         ),
         renderHtml: groups => renderProjectsPanel(groups, stewardInfos),
         postMessage: message => provider.postMessage(message),
@@ -3632,25 +3582,14 @@ async function initializeDashboard(
         relevantExtensions: RelevantExtensions,
         isExtensionInstalled: extensionId => vscode.extensions.getExtension(extensionId) !== undefined,
         assertActive: () => resources.assertActive(),
-        migrateDataIfNeeded: async () => {
-            const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded());
-            const projects = await projectMigration;
-            settleStorageMigration(true);
-            return { projects };
-        },
-        refreshDashboard: () => provider.refresh(),
-        publishOpenWorkspace: () => openWorkspaceController.publish(),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logError,
-        showAgentPivot,
         applyProjectColorToCurrentWindow: projectSurface.applyProjectColorToCurrentWindow,
         getReopenReason: () => context.globalState.get(REOPEN_KEY),
         updateReopenReason: reason => context.globalState.update(REOPEN_KEY, reason),
         reopenNoneValue: ReopenStewardReason.None,
         getWorkspaceName: () => vscode.workspace.name,
         getVisibleEditorLanguageIds: () => vscode.window.visibleTextEditors.map(editor => editor.document.languageId),
-        afterProjectMigrationSucceeded: async () => {
+        showAgentPivot,
+        completePendingWorkspaceSave: async () => {
             try {
                 await savedWorkspaceProjectAdapter.completePendingWorkspaceSave();
             } catch (error) {
@@ -3676,12 +3615,6 @@ async function initializeDashboard(
                 await conversationCapability.viewer.refreshPresentation();
             }
         },
-        checkDataMigration: async openStewardAfterMigrate => {
-            await dashboardStartupController.checkDataMigration(openStewardAfterMigrate);
-        },
-        reconcileProjectCatalog: () => managedRemoteSnapshot.lifecycle === 'active'
-            ? Promise.resolve()
-            : projectService.reconcileProjectCatalog(),
         reconcileManagedRemoteCatalog: async () => {
             const capability = managedRemoteCapability
                 || await managedRemoteCapabilityPromise;
@@ -3691,8 +3624,6 @@ async function initializeDashboard(
                 managedRemoteActions.syncProjection(managedRemoteSnapshot.revisionId);
             }
         },
-        consumeProjectCatalogWriteEcho: change =>
-            projectService.consumeProjectCatalogWriteEcho(change),
         consumePromptDataWriteEcho: () =>
             promptService.consumeCurrentSettingsDataLocalWriteEcho(),
         applyProjectColorToCurrentWindow: projectSurface.applyProjectColorToCurrentWindow,
@@ -3739,15 +3670,7 @@ async function initializeDashboard(
 
     const commandHandlers = {
         open: () => showAgentPivot(),
-        addProject: () => runAfterStorageMigration(() => projectMutationController.addProject()),
-        saveProject: () => runAfterStorageMigration(() => savedWorkspaceProjectAdapter.saveCurrentWorkspace()),
-        removeProject: () => runAfterStorageMigration(() => projectRemovalController.removeProjectPerCommand()),
-        editProjects: () => runAfterStorageMigration(() => projectManualEditController.editProjectsManually()),
-        addGroup: () => runAfterStorageMigration(() => groupCommandController.addGroup()),
-        removeGroup: () => runAfterStorageMigration(() => groupCommandController.removeGroupPerCommand()),
-        addProjectsFromFolder: () => runAfterStorageMigration(
-            () => addProjectsFromFolderController.addProjectsFromFolder()
-        ),
+        saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
         addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
         insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
         migrateSkillsToCentral: () => skillPanel.migrateToCentral(),
@@ -4248,11 +4171,11 @@ async function initializeDashboard(
      *
      * The catalog is the authority the Project tab renders and the saved-project
      * check reads, and it is the store that synchronizes across machines. Saving
-     * into the legacy store instead left the Project invisible in the tab, still
+     * into the local store instead would leave the Project invisible in the tab, still
      * offering Save, and absent from the user's other machines.
      *
-     * Returns false when the window is not managed, so the legacy path still
-     * handles local and unmanaged remote folders.
+     * Returns false when the window is local or is not owned by a Managed
+     * Machine. The caller permits the local Project store only for local paths.
      */
     async function saveWorkspaceIntoManagedCatalog(
         details: ProjectDetailsForSave,
@@ -4268,14 +4191,28 @@ async function initializeDashboard(
             workspaceUri,
             context,
         );
-        if (!environment) { return false; }
         const remotePath = managedRemotePathForWorkspace(workspaceUri);
         if (!remotePath) { return false; }
         const capability = managedRemoteCapability || await managedRemoteCapabilityPromise;
-        await capability.controller.addProjectDirectly({
-            environmentId: environment.id,
-            name: remotePath.split('/').filter(Boolean).pop() || remotePath,
-            remotePath,
+        const projectName = remotePath.split('/').filter(Boolean).pop() || remotePath;
+        if (environment) {
+            await capability.controller.addProjectDirectly({
+                environmentId: environment.id,
+                name: projectName,
+                remotePath,
+            });
+            return true;
+        }
+        const target = findManagedDevContainerSaveTarget(
+            managedRemoteSnapshot,
+            workspaceUri,
+        );
+        if (!target) { return false; }
+        await capability.controller.addDevContainerProjectDirectly({
+            machineId: target.machine.id,
+            environmentName: `${projectName} Container`,
+            anchor: target.anchor,
+            project: { name: projectName, remotePath: target.remotePath },
         });
         return true;
     }
@@ -4314,9 +4251,11 @@ async function initializeDashboard(
                 } as Project;
             }
             return findSavedProjectForOpenProject(
-                projectService.getProjectsFlat(),
+                projectService.getLocalGroupsForDisplay().reduce(
+                    (projects, group) => projects.concat(group.projects || []),
+                    [] as Project[],
+                ),
                 workspaceUri,
-                vscode.env.remoteName,
             );
         } catch (error) {
             // Reporting "not saved" on a thrown lookup is indistinguishable from

@@ -911,6 +911,7 @@ function run() {
     assertIncludes(publishScript, 'BRIDGE_VSIX_FILE', 'Marketplace publish script');
     assertIncludes(publishScript, 'BRIDGE_PUBLISH_ARGS=(publish --packagePath "$BRIDGE_VSIX_FILE"', 'Marketplace publish script');
     assertIncludes(publishScript, 'PUBLISH_ARGS=(publish --packagePath "$VSIX_FILE"', 'Marketplace publish script');
+    assertIncludes(publishScript, '--allow-star-activation --skip-duplicate', 'Marketplace publish script');
     assertIncludes(publishScript, 'run_vsce "${BRIDGE_PUBLISH_ARGS[@]}"', 'Marketplace publish script');
     assertIncludes(publishScript, 'run_vsce "${PUBLISH_ARGS[@]}"', 'Marketplace publish script');
     assert.ok(

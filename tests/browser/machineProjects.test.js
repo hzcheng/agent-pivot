@@ -107,6 +107,15 @@ async function openPage(t, width = 320, panelMarkup = markup()) {
         <div id="outside-click-target">Outside</div>
         <main id="panel">${panelMarkup}</main>`);
     await page.evaluate(() => {
+        const storage = new Map();
+        Object.defineProperty(window, 'sessionStorage', {
+            configurable: true,
+            value: {
+                getItem: key => storage.has(key) ? storage.get(key) : null,
+                setItem: (key, value) => storage.set(key, String(value)),
+                removeItem: key => storage.delete(key),
+            },
+        });
         window.messages = [];
         window.vscode = { postMessage: message => window.messages.push(message) };
     });
@@ -163,6 +172,22 @@ test('MACHINE-PROJECTS-FILTER-001 applies AND tags without double-counting Favor
     assert.equal(await page.locator('#machine-children-machine').isHidden(), true);
     await page.click('[data-action="clear-machine-tags"]');
     assert.equal(await page.textContent('[data-machine-projects-summary]'), '2 projects on 1 machine');
+});
+
+test('MACHINE-PROJECTS-FILTER-001 persists removal of tags no longer in the catalog', async t => {
+    const page = await openPage(t);
+    await page.click('[data-action="toggle-machine-tags"]');
+    await page.check('[data-machine-tag-checkbox][value="worker"]');
+    await page.evaluate(nextMarkup => {
+        const panel = document.getElementById('panel');
+        panel.innerHTML = nextMarkup;
+        const removed = panel.querySelector('[data-machine-tag-checkbox][value="worker"]');
+        if (removed) removed.closest('label').remove();
+        window.machineUi.mount(panel);
+    }, markup());
+
+    assert.equal(await page.evaluate(() =>
+        window.sessionStorage.getItem('machineProjects.selectedTags.v1')), '[]');
 });
 
 test('MACHINE-PROJECTS-ROW-OPEN-001 opens Project rows through the existing selected-project message', async t => {
@@ -290,6 +315,22 @@ test('MACHINE-PROJECTS-KEYBOARD-001 exposes disclosure, Machine, Project, Favori
         .evaluate(node => document.activeElement === node), true);
 });
 
+test('MACHINE-PROJECTS-KEYBOARD-001 leaves focus in place when Escape has no open popover', async t => {
+    const page = await openPage(t);
+    const primary = page.locator('[data-machine-environment-row] [data-machine-project-id="api"] .machine-project-primary');
+    await primary.focus();
+    await page.keyboard.press('Escape');
+
+    assert.equal(await primary.evaluate(node => document.activeElement === node), true);
+});
+
+test('MACHINE-PROJECTS-A11Y-001 names Favorite actions with their Project', async t => {
+    const page = await openPage(t, 360, managedMarkup('ready'));
+    assert.equal(await page.locator(
+        '[data-managed-project-row]:not(.machine-favorite-row) [data-managed-operation="toggleFavorite"]'
+    ).getAttribute('aria-label'), 'Remove Managed API from Favorites');
+});
+
 test('MACHINE-PROJECTS-FOCUS-001 restores a Favorite Project to its directory row after refresh', async t => {
     const page = await openPage(t);
     await page.focus('[data-machine-favorites] [data-machine-project-id="api"] .machine-project-primary');
@@ -307,6 +348,26 @@ test('MACHINE-PROJECTS-FOCUS-001 restores a Favorite Project to its directory ro
             && active.closest('[data-machine-project-row]').getAttribute('data-machine-project-id') === 'api'
             && !active.closest('[data-machine-favorites]');
     }), true);
+});
+
+test('MACHINE-PROJECTS-FOCUS-001 restores focus to the toolbar after the focused Machine is removed', async t => {
+    const page = await openPage(t, 360, managedMarkup('ready'));
+    const emptyMarkup = renderManagedRemoteProjectsPanel({
+        revisionId: `revision:${'b'.repeat(64)}`,
+        lifecycle: 'active', clientState: 'ready', clientMessage: '',
+        projectCount: 0, tags: [], favorites: [], machines: [],
+    });
+    await page.focus('[data-managed-machine-row] [data-action="toggle-machine-menu"]');
+    await page.evaluate(nextMarkup => {
+        const panel = document.getElementById('panel');
+        const state = captureProjectsPanelState(panel);
+        panel.innerHTML = nextMarkup;
+        window.machineUi.mount(panel);
+        restoreProjectsFocus(panel, state.focus);
+    }, emptyMarkup);
+
+    assert.equal(await page.locator('[data-managed-operation="addMachine"]')
+        .evaluate(node => document.activeElement === node), true);
 });
 
 test('MACHINE-PROJECTS-NARROW-001 avoids horizontal scrolling at 260px', async t => {
@@ -422,6 +483,43 @@ test('MANAGED-REMOTE-NAVIGATION-001 opens the whole managed Project row through 
     assert.equal(message.type, 'managed-remote-client-action');
     assert.equal(message.action, 'openProject');
     assert.equal(message.targetId, 'project:managed');
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 does not open a disabled managed Project row', async t => {
+    const page = await openPage(t, 360, managedMarkup('preview'));
+    await page.locator(
+        '[data-managed-project-row]:not(.machine-favorite-row)'
+    ).evaluate(row => row.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+
+    assert.deepEqual(await page.evaluate(() => window.messages), []);
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 routes middle-click through the managed identity protocol', async t => {
+    const page = await openPage(t, 360, managedMarkup('ready'));
+    await page.locator(
+        '[data-managed-project-row]:not(.machine-favorite-row)'
+    ).evaluate(row => row.dispatchEvent(new MouseEvent('auxclick', {
+        bubbles: true,
+        button: 1,
+    })));
+
+    const message = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(message.type, 'managed-remote-client-action');
+    assert.equal(message.action, 'openProject');
+    assert.equal(message.targetId, 'project:managed');
+});
+
+test('MACHINE-PROJECTS-KEYBOARD-001 focuses the first enabled menu item from the More button', async t => {
+    const page = await openPage(t, 360, managedMarkup('preview'));
+    const trigger = page.locator('[data-managed-machine-row] [data-action="toggle-machine-menu"]');
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+
+    assert.equal(await page.locator('[data-managed-operation="addProject"]')
+        .evaluate(node => document.activeElement === node), true);
+    await page.keyboard.press('End');
+    assert.equal(await page.locator('[data-managed-operation="removeMachine"]')
+        .evaluate(node => document.activeElement === node), true);
 });
 
 test('MANAGED-REMOTE-NAVIGATION-001 lets an attention-state Project retry navigation', async t => {

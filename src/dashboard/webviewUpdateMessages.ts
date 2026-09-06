@@ -6,6 +6,7 @@ import type {
     AiSessionsUpdatedMessage,
 } from '../aiSessions/types';
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
+import type { ManagedRemoteManagementSnapshot } from '../projects/managedRemote/managementController';
 import {
     buildWorkspaceDashboardSearchCatalog,
     DashboardWorkspaceSearchCatalog,
@@ -80,6 +81,7 @@ export interface OpenWorkspacesUpdatedMessage {
 
 export interface BuildOpenWorkspacesUpdatedMessageInput {
     groups: Group[];
+    managedRemoteSnapshot?: ManagedRemoteManagementSnapshot;
     cards: WorkspaceCardViewModel[];
     semanticRevision: string;
     projectionRevision: number;
@@ -94,6 +96,7 @@ export interface BuildOpenWorkspacesUpdatedMessageInput {
 
 export interface BuildAiSessionsUpdatedMessageInput {
     groups: Group[];
+    managedRemoteSnapshot?: ManagedRemoteManagementSnapshot;
     cards: WorkspaceCardViewModel[];
     sequence: number;
     generatedAt: string;
@@ -124,6 +127,7 @@ export function buildOpenWorkspacesUpdatedMessage(
             input.groups,
             input.cards,
             input.skills,
+            input.managedRemoteSnapshot,
         ),
         html: getOpenWorkspacesGroupContent(
             input.cards,
@@ -159,6 +163,7 @@ export function buildAiSessionsUpdatedMessage(input: BuildAiSessionsUpdatedMessa
             input.groups,
             input.cards,
             input.skills,
+            input.managedRemoteSnapshot,
         ),
         presentation: input.presentation,
     };

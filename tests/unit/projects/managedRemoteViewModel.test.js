@@ -10,7 +10,7 @@ const {
 function snapshot() {
     return {
         revisionId: `revision:${'a'.repeat(64)}`,
-        lifecycle: 'preview',
+        lifecycle: 'active',
         machineConflictCandidates: {},
         catalog: {
             machines: [{
@@ -34,11 +34,11 @@ function snapshot() {
     };
 }
 
-test('MANAGED-REMOTE-MANAGEMENT-003 builds endpoint-qualified preview rows without enabling Open', () => {
+test('MANAGED-REMOTE-MANAGEMENT-003 builds endpoint-qualified active rows', () => {
     const model = buildManagedRemoteProjectsViewModel(snapshot());
     assert.equal(model.machines[0].endpoint, 'dev@[2001:db8::1]:22022');
-    assert.equal(model.machines[0].openable, false);
-    assert.equal(model.machines[0].environments[0].projects[0].openable, false);
+    assert.equal(model.machines[0].openable, true);
+    assert.equal(model.machines[0].environments[0].projects[0].openable, true);
     assert.equal(model.favorites[0].id, 'project:api');
     assert.deepEqual(model.tags, ['Backend']);
 });

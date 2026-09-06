@@ -13,7 +13,6 @@ const AiSessionPinController = require('../../../out/aiSessions/pinController').
 const AiSessionPinStore = require('../../../out/aiSessions/pinStore').default;
 const AiSessionTerminalBindingStore = require('../../../out/aiSessions/terminalBindingStore').default;
 const { TmuxClient } = require('../../../out/aiSessions/tmuxClient');
-const { AddProjectsFromFolderController } = require('../../../out/projects/addProjectsFromFolderController');
 
 const REQUIRED_TMUX_COMMANDS = [
     'new-session', 'new-window', 'list-windows', 'list-panes', 'set-option', 'show-options',
@@ -191,27 +190,4 @@ test('ERROR-DASHBOARD-DIAGNOSTICS-001 writes bounded diagnostics and contains se
     circular.self = circular;
     assert.doesNotThrow(() => diagnostics.logOpenWorkspaceDiagnostic('Renderer', circular));
     assert.ok(lines.some(line => line.includes('[OpenWorkspaces][Renderer] Failed to serialize diagnostic:')));
-});
-
-test('PROJECT-ADD-PROJECTS-FROM-FOLDER-CONTROLLER-001 treats user cancellation as a no-op', async () => {
-    const events = [];
-    let result;
-    const controller = new AddProjectsFromFolderController({
-        getCurrentWorkspacePath: () => '/work/current',
-        parsePathAsUri: value => ({ fsPath: value }),
-        showOpenDialog: async () => result,
-        getFolders: async () => { throw new Error('CanceledByUser'); },
-        addGroup: async () => { events.push('add-group'); return { id: 'group' }; },
-        addProject: async () => events.push('add-project'),
-        getRandomColor: () => '#000000',
-        isFolderGitRepo: () => false,
-        showErrorMessage: message => events.push(['error', message]),
-        refreshAfterMutation: () => events.push('refresh'),
-        userCanceledToken: 'CanceledByUser',
-    });
-
-    await controller.addProjectsFromFolder();
-    result = [{ fsPath: '/work/canceled' }];
-    await controller.addProjectsFromFolder();
-    assert.deepEqual(events, []);
 });

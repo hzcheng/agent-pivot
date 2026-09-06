@@ -5,14 +5,12 @@ const Module = require('node:module');
 const test = require('node:test');
 const { createFakeVscode } = require('../../helpers/fakeVscode');
 const { GroupCollapseController } = require('../../../out/dashboard/groupCollapseController');
-const { AddProjectsFromFolderController } = require('../../../out/projects/addProjectsFromFolderController');
 const { FavoriteProjectController } = require('../../../out/projects/favoriteProjectController');
 const { GroupCommandController } = require('../../../out/projects/groupCommandController');
 const { MachineRenameController } = require('../../../out/projects/machineRenameController');
 const { queryGroupName } = require('../../../out/projects/groupPrompts');
 const { ProjectOrderController } = require('../../../out/projects/projectOrderController');
 const { ProjectRemovalController } = require('../../../out/projects/projectRemovalController');
-const { ProjectManualEditController } = require('../../../out/projects/projectManualEditController');
 const {
     ProjectOpenType,
     ProjectPathType,
@@ -185,74 +183,6 @@ test('PROJECT-TAGS-001 creating a project never prompts for tags', async () => {
     ], 'creation stays fast: path, name, description only');
 });
 
-test('PROJECT-ADD-PROJECTS-FROM-FOLDER-CONTROLLER-001 imports child folders and refreshes once', async () => {
-    const actions = [];
-    const vscode = createFakeVscode({
-        window: {
-            showOpenDialog: async options => {
-                actions.push(['dialog', options.defaultUri, options.openLabel]);
-                return [{ fsPath: '/work/tools' }];
-            },
-            showErrorMessage: message => actions.push(['error', message]),
-        },
-    });
-    const controller = new AddProjectsFromFolderController({
-        getCurrentWorkspacePath: () => '/work/current',
-        parsePathAsUri: value => ({ uri: value }),
-        showOpenDialog: vscode.window.showOpenDialog,
-        getFolders: async folderPath => {
-            actions.push(['get-folders', folderPath]);
-            return ['/work/tools/api', '/work/tools/web'];
-        },
-        addGroup: async groupName => {
-            actions.push(['add-group', groupName]);
-            return { id: 'group-tools' };
-        },
-        addProject: async (project, groupId) => actions.push([
-            'add-project', project.name, project.path, project.color, project.isGitRepo, groupId,
-        ]),
-        getRandomColor: () => '#abcdef',
-        isFolderGitRepo: folder => folder.endsWith('/api'),
-        showErrorMessage: vscode.window.showErrorMessage,
-        refreshAfterMutation: () => actions.push(['refresh']),
-        userCanceledToken: 'CanceledByUser',
-    });
-
-    await controller.addProjectsFromFolder();
-    assert.deepEqual(actions, [
-        ['dialog', { uri: '/work/current' }, 'Select Folder containing Projects'],
-        ['get-folders', '/work/tools'],
-        ['add-group', 'tools'],
-        ['add-project', 'api', '/work/tools/api', '#abcdef', true, 'group-tools'],
-        ['add-project', 'web', '/work/tools/web', '#abcdef', false, 'group-tools'],
-        ['refresh'],
-    ]);
-});
-
-test('PROJECT-ADD-PROJECTS-FROM-FOLDER-CONTROLLER-001 treats dialog and token cancellation as no-ops', async () => {
-    let selection = [];
-    const refreshModes = [];
-    let errors = 0;
-    const controller = new AddProjectsFromFolderController({
-        getCurrentWorkspacePath: () => null,
-        parsePathAsUri: parseUri,
-        showOpenDialog: async () => selection,
-        getFolders: async () => { throw new Error('CanceledByUser'); },
-        addGroup: async () => ({ id: 'unused' }),
-        addProject: async () => undefined,
-        getRandomColor: () => '#fff',
-        isFolderGitRepo: () => false,
-        showErrorMessage: () => { errors += 1; },
-        refreshAfterMutation: mode => refreshModes.push(mode),
-        userCanceledToken: 'CanceledByUser',
-    });
-
-    await controller.addProjectsFromFolder();
-    selection = [{ fsPath: '/work/canceled' }];
-    await controller.addProjectsFromFolder();
-    assert.deepEqual(refreshModes, []);
-    assert.equal(errors, 0);
-});
 
 test('PROJECT-FAVORITE-PROJECT-CONTROLLER-001 serializes toggle and drag ordering through save then refresh', async () => {
     let groups = [{
@@ -518,57 +448,6 @@ test('PROJECT-PROJECT-REMOVAL-CONTROLLER-001 honors picker and confirmation canc
         'refresh',
         'post-command',
     ]);
-});
-
-test('PROJECT-CATALOG-SYNC-CONFLICT-001 manual editor passes its exported baseline with the edited groups', async () => {
-    const exportedGroups = [{
-        id: 'group-main',
-        groupName: 'Main',
-        projects: [{
-            id: 'project-a',
-            name: 'A',
-            path: '/work/a',
-        }, {
-            id: 'project-b',
-            name: 'B',
-            path: '/work/b',
-        }],
-    }];
-    const editedGroups = [{
-        ...exportedGroups[0],
-        projects: [exportedGroups[0].projects[0]],
-    }];
-    const document = {
-        getText: () => JSON.stringify(editedGroups),
-    };
-    let saveListener;
-    const saves = [];
-    const controller = new ProjectManualEditController({
-        getGroups: () => structuredClone(exportedGroups),
-        getTempFilePath: () => '/tmp/agent-pivot-projects.json',
-        writeTextFile: async () => undefined,
-        fileUri: value => value,
-        openTextDocument: async () => document,
-        showTextDocument: async () => undefined,
-        onWillSaveTextDocument: listener => {
-            saveListener = listener;
-            return { dispose() {} };
-        },
-        saveGroups: async (groups, baselineGroups) => {
-            saves.push({ groups, baselineGroups });
-        },
-        executeCommand: async () => undefined,
-        showErrorMessage: message => assert.fail(message),
-        postSave: () => undefined,
-    });
-
-    await controller.editProjectsManually();
-    await saveListener({ document });
-
-    assert.deepEqual(saves, [{
-        groups: editedGroups,
-        baselineGroups: exportedGroups,
-    }]);
 });
 
 test('OPEN-PROJECT-OPEN-CONTROLLER-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 maps default and explicit window modes to the UI Bridge', async () => {

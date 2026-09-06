@@ -3368,20 +3368,6 @@
     ]
   },
   {
-    "id": "PERSIST-DASHBOARD-MIGRATION-PUBLICATION-001",
-    "domain": "persistence",
-    "title": "Dashboard Migration Publication behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/openProjects/dashboardController.test.js",
-      "tests/contract/persistence/migrations.test.js"
-    ],
-    "evidence": [
-      "scripts/run-open-project-safety-checks.js"
-    ]
-  },
-  {
     "id": "PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001",
     "domain": "persistence",
     "title": "Incremental Jsonl Lifecycle Reader behavior",
@@ -3485,7 +3471,7 @@
   {
     "id": "PERSIST-WORKSPACE-SAVE-001",
     "domain": "persistence",
-    "title": "Workspace saves serialize after migration without mutating existing records",
+    "title": "Pending workspace saves complete during startup without mutating existing records",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -3508,19 +3494,6 @@
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
-    ]
-  },
-  {
-    "id": "PROJECT-ADD-PROJECTS-FROM-FOLDER-CONTROLLER-001",
-    "domain": "project",
-    "title": "Add Projects From Folder Controller behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/controllers.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
     ]
   },
   {
@@ -3547,26 +3520,6 @@
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
-    ]
-  },
-  {
-    "id": "PROJECT-CATALOG-SYNC-CONFLICT-001",
-    "domain": "persistence",
-    "title": "Project Catalog Sync Conflict Recovery behavior",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/persistence/projectCatalogSync.test.js",
-      "tests/contract/projects/controllers.test.js",
-      "tests/integration/dashboard/errorRecovery.test.js"
-    ],
-    "evidence": [
-      "src/services/projectService.ts",
-      "src/projects/projectCatalogSync.ts",
-      "src/services/projectCatalogSyncService.ts",
-      "src/projects/projectManualEditController.ts",
-      "src/dashboard/lifecycleController.ts",
-      "src/dashboard.ts"
     ]
   },
   {
@@ -3714,15 +3667,12 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/persistence/projectCatalogSync.test.js",
       "tests/contract/projects/panelController.test.js",
       "tests/contract/openProjects/dashboardController.test.js",
-      "tests/integration/dashboard/errorRecovery.test.js",
       "tests/integration/dashboard/webviewState.test.js",
       "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
-      "src/services/projectCatalogSyncService.ts",
       "src/dashboard/lifecycleController.ts",
       "src/dashboard/projectsPanelController.ts",
       "src/openWorkspaces/dashboardController.ts",
@@ -6868,7 +6818,7 @@
   {
     "id": "MACHINE-PROJECTS-HOST-NAVIGATION-001",
     "domain": "project",
-    "title": "A remote Machine Host is derived from its authoritative Project URI while Local opens a blank local VS Code window through the same Machine action",
+    "title": "A client-local Machine Host is derived from its local Project URI while This Computer opens a blank local VS Code window through the same Machine action",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -6885,7 +6835,7 @@
   {
     "id": "MACHINE-PROJECTS-PROJECTION-001",
     "domain": "project",
-    "title": "The feature-flagged Projects view directly derives Machine, Host, and Dev Container rows from authoritative saved Project URIs",
+    "title": "The always-on Projects view derives client-local Machine, Host, and Dev Container rows beside the authoritative Managed Remote catalog",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -6900,7 +6850,7 @@
   {
     "id": "MACHINE-PROJECTS-LOCAL-STORE-001",
     "domain": "project",
-    "title": "Local Projects remain in computer-local extension storage while Remote Projects remain synchronized",
+    "title": "Local filesystem, local WSL, and local-container Projects remain in computer-local extension storage while Managed Remote Projects use only the synchronized managed catalog",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -6915,15 +6865,13 @@
   {
     "id": "MACHINE-PROJECTS-RENAME-001",
     "domain": "project",
-    "title": "A Machine display name can be renamed and reset through its actions menu, synchronizes through existing Project records, and never changes derived identity or connection URIs",
+    "title": "Client-local derived Machine names can be renamed/reset locally, while managed names edit the catalog without changing stable identity or Project placement",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/unit/projects/machineProjectsViewModel.test.js",
       "tests/contract/projects/controllers.test.js",
       "tests/contract/projects/projectMessageHandlers.test.js",
-      "tests/contract/persistence/projectCatalogSync.test.js",
-      "tests/unit/services/projectService.test.js",
       "tests/browser/machineProjects.test.js",
       "tests/unit/webview/machineProjectsRendering.test.js"
     ],
@@ -6966,7 +6914,7 @@
   {
     "id": "MACHINE-PROJECTS-TOOLBAR-001",
     "domain": "webview",
-    "title": "The Project result summary and adjacent tag and Add icon buttons share one compact toolbar",
+    "title": "The Project result summary, Tags control, and Add Machine button share one compact toolbar",
     "priority": "P2",
     "status": "automated",
     "owners": [
@@ -6995,7 +6943,7 @@
   {
     "id": "MACHINE-PROJECTS-ROW-OPEN-001",
     "domain": "webview",
-    "title": "A Project opens through the existing selected-project action while its Favorite action remains isolated",
+    "title": "Client-local Projects open through selected-project, Managed Projects open through revision-bound managed identity, and Favorite remains isolated",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7089,19 +7037,6 @@
     ]
   },
   {
-    "id": "MANAGED-REMOTE-COMPATIBILITY-001",
-    "domain": "persistence",
-    "title": "Legacy snapshot changes can be fingerprinted for diagnostics without importing them into managed authority",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/managedRemoteEnvelope.test.js"
-    ],
-    "evidence": [
-      "src/projects/managedRemote/legacyCompatibilityGuard.ts"
-    ]
-  },
-  {
     "id": "MANAGED-REMOTE-MANAGEMENT-001",
     "domain": "project",
     "title": "Managed Machine and Project mutations use strict identity-only requests and settle only after authoritative refresh",
@@ -7191,7 +7126,6 @@
     "status": "automated",
     "owners": [
       "tests/unit/projects/managedSshProjectionWorker.test.js",
-      "tests/contract/projects/managedRemoteBridgeController.test.js",
       "tests/browser/machineProjects.test.js"
     ],
     "evidence": [
@@ -7240,56 +7174,14 @@
     ]
   },
   {
-    "id": "MANAGED-REMOTE-MIGRATION-001",
-    "domain": "project",
-    "title": "Migration classifies explicit SSH targets, local-only records, and unresolved aliases without dropping V1 identity or Group tags",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/managedRemoteMigration.test.js"
-    ],
-    "evidence": [
-      "src/projects/managedRemote/migrationPlan.ts"
-    ]
-  },
-  {
-    "id": "MANAGED-REMOTE-MIGRATION-002",
-    "domain": "project",
-    "title": "A computer-local WSL Project becomes managed only through explicit SSH endpoint, port, path, and rehearsal state",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/managedRemoteMigration.test.js"
-    ],
-    "evidence": [
-      "src/projects/managedRemote/migrationPlan.ts"
-    ]
-  },
-  {
-    "id": "MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001",
-    "domain": "project",
-    "title": "Migration resolves a legacy SSH alias through OpenSSH in the local UI host, automatically accepts plain endpoint data, and rejects advanced behavior without returning config or authentication data",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/managedLegacySshInspector.test.js",
-      "tests/contract/projects/managedRemoteBridgeController.test.js",
-      "tests/unit/projects/managedRemotePrompts.test.js"
-    ],
-    "evidence": [
-      "extensions/attention-ui-bridge/src/managedLegacySshInspector.ts",
-      "src/projects/managedRemote/bridgeProtocol.ts",
-      "src/projects/managedRemote/vscodePrompts.ts"
-    ]
-  },
-  {
     "id": "MANAGED-REMOTE-DEV-CONTAINER-001",
     "domain": "open-project",
-    "title": "Known Remote-SSH Dev Container authorities round-trip through a stable managed alias while unknown or attached formats fail closed",
+    "title": "Saving a Dev Container through one exact managed SSH alias creates its Environment and Project atomically while unknown or attached formats fail closed",
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/projects/managedRemoteMigration.test.js"
+      "tests/unit/projects/workspaceAndOpenMatching.test.js",
+      "tests/contract/projects/managedRemoteManagementStore.test.js"
     ],
     "evidence": [
       "src/projects/managedRemote/devContainerCodec.ts"
@@ -7298,7 +7190,7 @@
   {
     "id": "MANAGED-REMOTE-PERFORMANCE-001",
     "domain": "persistence",
-    "title": "A two-candidate 50-Machine 500-Project catalog merges within budget and its active, previous, and rollback envelope stays below the product ceiling",
+    "title": "A two-candidate 50-Machine 500-Project catalog merges within budget and its active/previous recovery envelope stays below the product ceiling",
     "priority": "P0",
     "status": "automated",
     "owners": [

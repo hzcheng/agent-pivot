@@ -86,7 +86,10 @@ const REMOTE_URI_PREFIX = 'vscode-remote://';
 export const MACHINE_DISPLAY_NAME_MAX_LENGTH = 80;
 
 export function isLocalMachineProjectPath(projectPath: string): boolean {
-    return deriveProjectTopology(projectPath).machineKey === 'local';
+    const remote = splitRemoteProjectUri(projectPath);
+    return deriveProjectTopology(projectPath).machineKey === 'local'
+        || Boolean(remote?.authority.startsWith('wsl+'))
+        || Boolean(!remote && parseLegacyWslDistribution(projectPath));
 }
 
 export function normalizeMachineDisplayName(value: unknown): string | null {

@@ -209,7 +209,6 @@ export interface CodexSession {
 export interface StewardInfos {
     relevantExtensionsInstalls: { remoteSSH: boolean; remoteContainers: boolean };
     config: vscode.WorkspaceConfiguration;
-    otherStorageHasData: boolean;
     favoritesGroupCollapsed?: boolean;
     skills?: import('./skills/types').SkillRecord[];
 }

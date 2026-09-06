@@ -2,7 +2,6 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { DashboardStartupController } = require('../../../out/dashboard/startupController');
 const {
     NEWER,
     OLDER,
@@ -607,48 +606,4 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 renderer-ready replay never fa
 
     assert.deepEqual(refreshes, []);
     assert.deepEqual(errors, [['Failed to post OPEN WORKSPACE update message.', 'webview closed']]);
-});
-
-test('PERSIST-DASHBOARD-MIGRATION-PUBLICATION-001 republishes only after migrated project metadata is visible', async () => {
-    const events = [];
-    let metadata = 'before-migration';
-    let migrated = true;
-    const controller = new DashboardStartupController({
-        stewardInfos: {
-            relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
-            config: { openOnStartup: 'never' },
-        },
-        isExtensionInstalled: () => false,
-        migrateDataIfNeeded: async () => {
-            if (migrated) metadata = 'after-migration';
-            return { projects: { migrated } };
-        },
-        refreshDashboard: () => events.push(['refresh', metadata]),
-        publishOpenWorkspace: () => events.push(['publish', metadata]),
-        showInformationMessage: () => undefined,
-        showErrorMessage: () => undefined,
-        logError: () => undefined,
-        showAgentPivot: () => events.push(['show']),
-        applyProjectColorToCurrentWindow: () => undefined,
-        getReopenReason: () => 0,
-        updateReopenReason: () => undefined,
-        reopenNoneValue: 0,
-        getWorkspaceName: () => 'workspace',
-        getVisibleEditorLanguageIds: () => [],
-    });
-
-    await controller.checkDataMigration();
-    migrated = false;
-    await controller.checkDataMigration();
-    migrated = true;
-    metadata = 'before-explicit-migration';
-    await controller.checkDataMigration(true);
-
-    assert.deepEqual(events, [
-        ['refresh', 'after-migration'],
-        ['publish', 'after-migration'],
-        ['refresh', 'after-migration'],
-        ['publish', 'after-migration'],
-        ['show'],
-    ]);
 });

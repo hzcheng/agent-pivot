@@ -190,10 +190,6 @@ export function createProjectMessageHandlers(
         'add-project': async e => {
             await projectMutationController.addProject(e.groupId as string);
         },
-        'import-from-other-storage': async () => {
-            await projectService.copyProjectsFromFilledStorageOptionToEmptyStorageOption();
-            refreshAfterMutation();
-        },
         'reordered-projects': async e => {
             await projectOrderController.reorderGroups(e.groupOrders as GroupOrder[]);
         },

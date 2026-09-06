@@ -9,13 +9,6 @@ import type {
     EditManagedProjectInput,
 } from './catalogService';
 import type { ManagedRemoteManagementPrompts } from './managementController';
-import { cloneManagedValue } from './causal';
-import {
-    ManagedLegacySshInspection,
-    ManagedRemoteMigrationPlanV1,
-    parseManagedLegacySshInspection,
-    resolveManagedMigrationWithConnection,
-} from './migrationPlan';
 import type {
     ManagedEnvironment,
     ManagedRemoteProject,
@@ -101,10 +94,7 @@ interface MachineDraft {
 }
 
 export class ManagedRemotePromptController implements ManagedRemoteManagementPrompts {
-    constructor(
-        private readonly ui: ManagedRemoteWizardUi,
-        private readonly inspectLegacySshTarget?: (target: string) => Promise<unknown>,
-    ) {
+    constructor(private readonly ui: ManagedRemoteWizardUi) {
     }
 
     addMachine(): Promise<AddManagedMachineInput | undefined> {
@@ -312,61 +302,6 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
             })),
         });
         return result.action === 'accept' ? result.value : undefined;
-    }
-
-    async reviewMigration(
-        planValue: ManagedRemoteMigrationPlanV1,
-    ): Promise<ManagedRemoteMigrationPlanV1 | undefined> {
-        const plan = cloneManagedValue(planValue);
-        const inspections = new Map<string, Promise<ManagedLegacySshInspection | null>>();
-        for (let index = 0; index < plan.records.length; index += 1) {
-            let record = plan.records[index];
-            if ((record.classification === 'needsInput'
-                || record.classification === 'unsupported')
-                && record.outerSshAuthority
-                && !record.endpoint
-                && this.inspectLegacySshTarget) {
-                const target = record.outerSshAuthority;
-                let inspection = inspections.get(target);
-                if (!inspection) {
-                    inspection = this.inspectLegacySshTarget(target)
-                        .then(parseManagedLegacySshInspection)
-                        .catch(() => null);
-                    inspections.set(target, inspection);
-                }
-                const inspected = await inspection;
-                if (inspected) {
-                    record = {
-                        ...record,
-                        classification: inspected.status,
-                        reason: inspected.reason,
-                        ...(inspected.endpoint ? { endpoint: inspected.endpoint } : {}),
-                    };
-                    plan.records[index] = record;
-                }
-            }
-            if (record.classification === 'needsInput'
-                && record.endpoint
-                && record.remotePath) {
-                plan.records[index] = resolveManagedMigrationWithConnection(
-                    record,
-                    record.proposedMachineName
-                        || record.originalProject.machineDisplayName
-                        || record.outerSshAuthority
-                        || record.originalProject.name,
-                    record.endpoint,
-                    record.remotePath,
-                );
-                continue;
-            }
-            if (record.classification === 'needsInput'
-                || record.classification === 'unsupported') {
-                throw new Error(
-                    `Could not automatically migrate Project "${record.originalProject.name}": ${record.reason}`,
-                );
-            }
-        }
-        return plan;
     }
 
     private async machineWizard(

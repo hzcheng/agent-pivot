@@ -17,10 +17,7 @@ export const INBUILT_COLOR_DEFAULTS = [
     { name: '--vscode-terminal-submoduleResourceForeground', defaultValue: '#8db9e2' },
 ];
 
-export const PROJECTS_KEY = 'projects';
 export const LOCAL_PROJECTS_KEY = 'localProjects.v1';
-export const PROJECT_SYNC_DATA_KEY = 'projectSyncData';
-export const PROJECT_SYNC_LOCAL_STATE_KEY = 'projectCatalogSyncLocal.v1';
 export const MANAGED_REMOTE_CATALOG_DATA_KEY = 'managedRemoteCatalogData';
 export const MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY = 'managedRemoteCatalogLocal.v1';
 export const RECENT_COLORS_KEY = 'recentColors';

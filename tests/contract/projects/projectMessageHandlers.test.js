@@ -33,9 +33,6 @@ function createFixture(overrides = {}) {
                     : project;
                 return value && groupId === 'group-a' ? [value, { id: groupId }] : [null, null];
             },
-            copyProjectsFromFilledStorageOptionToEmptyStorageOption: async () => {
-                calls.push(['copyFromOtherStorage']);
-            },
             updateProject: async (projectId, updated) => {
                 calls.push(['updateProject', projectId]);
                 var p = Object.prototype.hasOwnProperty.call(overrides, 'project')
@@ -118,7 +115,6 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every production project/grou
         'set-open-workspace-pin',
         'open-window-navigation-request',
         'add-project',
-        'import-from-other-storage',
         'reordered-projects',
         'reordered-favorites',
         'remove-project',
@@ -324,17 +320,6 @@ test('PROJECT-PROJECT-REMOVAL-CONTROLLER-001 delegates removals by project id', 
     await handlers['remove-project']({ projectId: 'project-a' });
 
     assert.deepEqual(calls, [['removeProject', 'project-a']]);
-});
-
-test('PROJECT-INCREMENTAL-REFRESH-001 imports the other storage before refreshing the surfaces', async () => {
-    const { handlers, calls } = createFixture();
-
-    await handlers['import-from-other-storage']({ type: 'import-from-other-storage' });
-
-    assert.deepEqual(calls, [
-        ['copyFromOtherStorage'],
-        ['refreshAfterMutation', undefined],
-    ], 'the catalog copy must settle before the partial surface refresh');
 });
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates group commands and workspace pins', async () => {

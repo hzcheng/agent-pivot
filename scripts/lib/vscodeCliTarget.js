@@ -62,12 +62,30 @@ function resolveVSCodeCliTarget(options = {}) {
     }
 
     const activeServerRoots = listActiveServerRoots(environment);
-    const serverRoots = Array.from(new Set([
-        ...activeServerRoots,
-        ...listServerRoots(environment),
-    ]));
     const hookPath = environment.VSCODE_IPC_HOOK_CLI || '';
     const hookIsLive = socketIsLive(hookPath);
+    const usableActiveServerRoots = Array.from(new Set(activeServerRoots))
+        .filter(serverRoot => exists(serverEntryPoint(serverRoot)));
+    if (usableActiveServerRoots.length > 1) {
+        return {
+            command: null,
+            source: 'ambiguous-active-servers',
+            extensionsDir: null,
+            error: 'Multiple running VS Code Server installations were found, so the intended '
+                + 'Extension Host cannot be selected safely. Set CODE_CMD to the exact CLI for '
+                + 'the host that should receive the extension.',
+        };
+    }
+    if (usableActiveServerRoots.length === 1) {
+        const serverRoot = usableActiveServerRoots[0];
+        return {
+            command: serverEntryPoint(serverRoot),
+            source: 'active-server',
+            extensionsDir: path.join(path.dirname(path.dirname(serverRoot)), 'extensions'),
+        };
+    }
+
+    const serverRoots = Array.from(new Set(listServerRoots(environment)));
     for (const serverRoot of serverRoots) {
         const command = serverEntryPoint(serverRoot);
         if (!exists(command)) {
@@ -75,9 +93,7 @@ function resolveVSCodeCliTarget(options = {}) {
         }
         return {
             command,
-            source: activeServerRoots.includes(serverRoot)
-                ? 'active-server'
-                : hookIsLive ? 'server' : 'server-stale-ipc',
+            source: hookIsLive ? 'server' : 'server-stale-ipc',
             extensionsDir: path.join(path.dirname(path.dirname(serverRoot)), 'extensions'),
         };
     }

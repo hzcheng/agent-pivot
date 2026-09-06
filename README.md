@@ -114,16 +114,20 @@ with that provider.
 ## Projects and prompts
 
 The `OPEN` view shows the current workspace and lightweight navigation cards
-for other VS Code windows. The `PROJECTS` view is the saved-project catalog.
-Save a local or remote project, group related work, mark favorites, and reopen
-the target in the current or a new window.
+for other VS Code windows. The `PROJECTS` view combines two explicit authorities:
+computer-local Projects and a synchronized Managed Machine catalog. Add a Machine
+with its SSH host, user, and port, then save Projects under its Host or a Dev
+Container environment. Tags and Favorites work across both kinds of Project.
 
 The prompt library stores reusable text and can insert a selected prompt into
 the active terminal without appending Enter. Do not store passwords, tokens,
 private keys, or other secrets in prompts.
 
-Projects can be kept in VS Code extension state or in user settings for
-Settings Sync. Prompts use synchronized VS Code extension state.
+Managed Machines and their remote Projects use VS Code user settings so Settings
+Sync can carry them to another computer. Local filesystem, local WSL, and local
+Dev Container Projects stay in extension state on this computer. Existing legacy
+remote Project settings are not imported or used as a fallback. Prompts use
+synchronized VS Code extension state.
 
 ## Notifications
 
@@ -280,18 +284,15 @@ Useful commands include:
 
 - `Agent Pivot: Open`
 - `Agent Pivot: Save Project`
-- `Agent Pivot: Add Project`
-- `Agent Pivot: Add Projects from Folder`
-- `Agent Pivot: Add Group`
-- `Agent Pivot: Edit Projects`
 - `Agent Pivot: Insert Prompt into Active Terminal`
 
 ## Configuration
 
 Configure Agent Pivot in VS Code settings. Common settings include:
 
-- `agentPivot.storeProjectsInSettings`: store projects in user
-  settings so VS Code Settings Sync can synchronize them.
+- `agentPivot.storeProjectsInSettings`: choose whether recently used Project colors
+  live in user settings or local extension state. Managed Machines always use
+  their dedicated synchronized catalog and client-local Projects always stay local.
 - `agentPivot.aiSessionTerminalMode`: use `auto` (default) to prefer tmux and
   fall back to VS Code Terminal, `vscode` to always use VS Code Terminal, or
   `tmux` to require tmux and confirm any fallback.
@@ -336,10 +337,9 @@ Agent Pivot has no product telemetry service and does not upload conversation co
 
 Agent Pivot uses these local data sources and stores:
 
-- VS Code settings and extension state for project, prompt, view, and
-  workspace preferences. Enabling `agentPivot.storeProjectsInSettings` writes
-  project data to user settings, where the user's VS Code Settings
-  Sync configuration may synchronize it.
+- VS Code user settings for the non-secret Managed Machine catalog, and local
+  extension state for computer-local Projects, prompts, views, and workspace
+  preferences. VS Code Settings Sync controls delivery of the managed catalog.
 - Provider-local session metadata and transcript reads for session discovery,
   user-input outlines, and the read-only conversation viewer.
 - Local extension state for managed terminal and tmux metadata used to find and

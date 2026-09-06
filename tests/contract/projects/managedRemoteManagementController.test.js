@@ -14,7 +14,7 @@ const nextRevisionId = `revision:${'b'.repeat(64)}`;
 function snapshot() {
     return {
         revisionId,
-        lifecycle: 'preview',
+        lifecycle: 'active',
         catalog: {
             machines: [{
                 id: 'machine:one',
@@ -55,23 +55,18 @@ function fixture(overrides = {}) {
     const settlements = [];
     const current = overrides.snapshot || snapshot();
     const changed = { ...current, revisionId: nextRevisionId };
-    const migrationPlan = {
-        schemaVersion: 1,
-        planId: `migration:${'c'.repeat(64)}`,
-        sourceChecksum: 'c'.repeat(64),
-        records: [],
-    };
     const store = {
         async getSnapshot() { return current; },
         async addMachine(expected, input) { calls.push(['addMachine', expected, input]); return changed; },
         async editMachine(expected, id, input) { calls.push(['editMachine', expected, id, input]); return changed; },
         async removeMachine(expected, id) { calls.push(['removeMachine', expected, id]); return changed; },
         async addProject(expected, input) { calls.push(['addProject', expected, input]); return changed; },
+        async addDevContainerProject(expected, input) {
+            calls.push(['addDevContainerProject', expected, input]); return changed;
+        },
         async editProject(expected, id, input) { calls.push(['editProject', expected, id, input]); return changed; },
         async removeProject(expected, id) { calls.push(['removeProject', expected, id]); return changed; },
         async resolveMachineConflict(expected, id, selected) { calls.push(['resolve', expected, id, selected]); return changed; },
-        prepareMigration() { calls.push(['prepareMigration']); return migrationPlan; },
-        async beginMigration(expected, plan) { calls.push(['beginMigration', expected, plan]); return changed; },
         ...overrides.store,
     };
     const prompts = {
@@ -268,4 +263,26 @@ test('MANAGED-REMOTE-MANAGEMENT-001 surfaces a rejected direct save to the calle
         }),
         /out of date/u,
     );
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-001 saves a first Dev Container without prompting', async () => {
+    const { controller, calls } = fixture();
+    const input = {
+        machineId: 'machine:one',
+        environmentName: 'API Container',
+        anchor: {
+            version: 1,
+            originalAuthority: 'dev-container+aa@ssh-remote+build',
+            sourceKind: 'workspace',
+            sourceLocator: '/work/api',
+        },
+        project: { name: 'API', remotePath: '/workspace/api' },
+    };
+
+    await controller.addDevContainerProjectDirectly(input);
+
+    assert.deepEqual(calls, [
+        ['addDevContainerProject', revisionId, input],
+        ['refresh', 'save-workspace', 'addProject', nextRevisionId],
+    ]);
 });

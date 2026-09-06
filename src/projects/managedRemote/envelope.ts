@@ -15,12 +15,9 @@ import {
 } from './causal';
 import { joinManagedRemoteCatalogs, normalizeManagedRemoteCatalog } from './merge';
 import {
-    ChecksummedLegacySnapshot,
     ManagedAuthorityState,
     ManagedCatalogEnvelopeV1,
-    ManagedMigrationJournal,
     ManagedRevisionSlot,
-    ManagedRollbackJournal,
     VersionedCandidate,
     VersionedCandidates,
     VersionVector,
@@ -97,32 +94,10 @@ function parseRevisionSlot(value: unknown): ManagedRevisionSlot | null {
     };
 }
 
-function parseLegacySnapshot(value: unknown): ChecksummedLegacySnapshot | null {
-    if (!isRecord(value)
-        || !hasExactKeys(value, ['checksum', 'projectData', 'projectSyncData'])
-        || typeof value.checksum !== 'string'
-        || !/^[a-f0-9]{64}$/.test(value.checksum)) {
-        return null;
-    }
-    const snapshot = {
-        projectData: cloneManagedValue(value.projectData),
-        projectSyncData: cloneManagedValue(value.projectSyncData),
-    };
-    return checksumManagedValue(snapshot) === value.checksum
-        ? { checksum: value.checksum, ...snapshot }
-        : null;
-}
-
 function parseAuthority(value: unknown): ManagedAuthorityState | null {
     if (!isRecord(value)
-        || !hasExactKeys(
-            value,
-            ['lifecycle'],
-            ['active', 'previous', 'migrationPlanId', 'rollbackPlanId'],
-        )
-        || !['disabled', 'preview', 'active', 'rolledBack'].includes(value.lifecycle as string)
-        || (value.migrationPlanId !== undefined && typeof value.migrationPlanId !== 'string')
-        || (value.rollbackPlanId !== undefined && typeof value.rollbackPlanId !== 'string')) {
+        || !hasExactKeys(value, ['lifecycle'], ['active', 'previous'])
+        || !['disabled', 'active'].includes(value.lifecycle as string)) {
         return null;
     }
     const active = value.active === undefined ? undefined : parseRevisionSlot(value.active);
@@ -137,43 +112,7 @@ function parseAuthority(value: unknown): ManagedAuthorityState | null {
         lifecycle: value.lifecycle as ManagedAuthorityState['lifecycle'],
         ...(active ? { active } : {}),
         ...(previous ? { previous } : {}),
-        ...(value.migrationPlanId ? { migrationPlanId: value.migrationPlanId } : {}),
-        ...(value.rollbackPlanId ? { rollbackPlanId: value.rollbackPlanId } : {}),
     };
-}
-
-function parseMigration(value: unknown): ManagedMigrationJournal | null {
-    if (!isRecord(value)
-        || !hasExactKeys(value, ['planId', 'phase', 'frozenLegacy', 'candidate'])
-        || typeof value.planId !== 'string'
-        || !value.planId
-        || !['prepared', 'localReady', 'active', 'complete'].includes(value.phase as string)) {
-        return null;
-    }
-    const frozenLegacy = parseLegacySnapshot(value.frozenLegacy);
-    const candidate = parseRevisionSlot(value.candidate);
-    return frozenLegacy && candidate ? {
-        planId: value.planId,
-        phase: value.phase as ManagedMigrationJournal['phase'],
-        frozenLegacy,
-        candidate,
-    } : null;
-}
-
-function parseRollback(value: unknown): ManagedRollbackJournal | null {
-    if (!isRecord(value)
-        || !hasExactKeys(value, ['planId', 'phase', 'target'])
-        || typeof value.planId !== 'string'
-        || !value.planId
-        || !['prepared', 'legacyRestored', 'rolledBack'].includes(value.phase as string)) {
-        return null;
-    }
-    const target = parseLegacySnapshot(value.target);
-    return target ? {
-        planId: value.planId,
-        phase: value.phase as ManagedRollbackJournal['phase'],
-        target,
-    } : null;
 }
 
 function parseRegister<T>(
@@ -251,9 +190,6 @@ export function parseManagedCatalogEnvelope(value: unknown): ManagedEnvelopePars
             'causalContext',
             'authority',
             'stagedRevisions',
-            'migrationPlans',
-            'rollbackPlans',
-            'legacyDivergences',
         ])
         || value.envelopeVersion !== 1
         || !validVector(value.causalContext)) {
@@ -286,27 +222,6 @@ export function parseManagedCatalogEnvelope(value: unknown): ManagedEnvelopePars
         'staged',
         issues,
     );
-    const migrationPlans = parseRegisterMap(
-        value.migrationPlans,
-        vector,
-        parseMigration,
-        'migration',
-        issues,
-    );
-    const rollbackPlans = parseRegisterMap(
-        value.rollbackPlans,
-        vector,
-        parseRollback,
-        'rollback',
-        issues,
-    );
-    const legacyDivergences = parseRegisterMap(
-        value.legacyDivergences,
-        vector,
-        parseLegacySnapshot,
-        'legacy-divergence',
-        issues,
-    );
     if (!authority && recoveryCandidates.length
         && isRecord(value.authority)
         && Array.isArray(value.authority.candidates)) {
@@ -315,15 +230,14 @@ export function parseManagedCatalogEnvelope(value: unknown): ManagedEnvelopePars
             .find(isCausalVersion);
         if (rawVersion) {
             authority = createVersionedCandidates({
-                lifecycle: 'preview',
+                lifecycle: 'disabled',
                 previous: recoveryCandidates.slice().sort((left, right) =>
                     left.revisionId.localeCompare(right.revisionId))[0],
             }, rawVersion);
             issues.push('authority:recovery-placeholder');
         }
     }
-    if (!authority || !stagedRevisions || !migrationPlans || !rollbackPlans
-        || !legacyDivergences) {
+    if (!authority || !stagedRevisions) {
         return null;
     }
     for (const register of Object.values(stagedRevisions)) {
@@ -341,9 +255,6 @@ export function parseManagedCatalogEnvelope(value: unknown): ManagedEnvelopePars
             causalContext: vector,
             authority: authority as VersionedCandidates<ManagedAuthorityState>,
             stagedRevisions,
-            migrationPlans,
-            rollbackPlans,
-            legacyDivergences,
         }),
         issues: Array.from(new Set(issues)).sort(),
         recoveryCandidates: Array.from(uniqueRecovery.values()).sort((left, right) =>
@@ -369,9 +280,6 @@ export function normalizeManagedCatalogEnvelope(
         causalContext: joinVersionVectors({}, envelope.causalContext),
         authority: normalizeVersionedCandidates(envelope.authority),
         stagedRevisions: normalizeMap(envelope.stagedRevisions),
-        migrationPlans: normalizeMap(envelope.migrationPlans),
-        rollbackPlans: normalizeMap(envelope.rollbackPlans),
-        legacyDivergences: normalizeMap(envelope.legacyDivergences),
     };
 }
 
@@ -382,9 +290,6 @@ export function createEmptyManagedCatalogEnvelope(actorId: string): ManagedCatal
         causalContext: vectorIncludingVersion(version),
         authority: createVersionedCandidates({ lifecycle: 'disabled' }, version),
         stagedRevisions: {},
-        migrationPlans: {},
-        rollbackPlans: {},
-        legacyDivergences: {},
     });
 }
 
@@ -394,16 +299,6 @@ export function readManagedActiveRevisionSlot(value: unknown): ManagedRevisionSl
     const authorities = distinctCandidateValues(parsed.envelope.authority);
     return authorities.length === 1
         && authorities[0].lifecycle === 'active'
-        && authorities[0].active
-        ? cloneManagedValue(authorities[0].active) : null;
-}
-
-export function readManagedCurrentRevisionSlot(value: unknown): ManagedRevisionSlot | null {
-    const parsed = parseManagedCatalogEnvelope(value);
-    if (!parsed || parsed.issues.length) { return null; }
-    const authorities = distinctCandidateValues(parsed.envelope.authority);
-    return authorities.length === 1
-        && (authorities[0].lifecycle === 'preview' || authorities[0].lifecycle === 'active')
         && authorities[0].active
         ? cloneManagedValue(authorities[0].active) : null;
 }
@@ -430,11 +325,6 @@ function collectRevisionSlots(envelope: ManagedCatalogEnvelopeV1): ManagedRevisi
     for (const register of Object.values(envelope.stagedRevisions)) {
         for (const candidate of register.candidates) {
             if (candidate.value) { slots.push(candidate.value); }
-        }
-    }
-    for (const register of Object.values(envelope.migrationPlans)) {
-        for (const candidate of register.candidates) {
-            if (candidate.value) { slots.push(candidate.value.candidate); }
         }
     }
     return slots;
@@ -476,18 +366,6 @@ export function joinManagedCatalogEnvelopes(
             leftParsed.envelope.stagedRevisions,
             rightParsed.envelope.stagedRevisions,
         ),
-        migrationPlans: joinMaps(
-            leftParsed.envelope.migrationPlans,
-            rightParsed.envelope.migrationPlans,
-        ),
-        rollbackPlans: joinMaps(
-            leftParsed.envelope.rollbackPlans,
-            rightParsed.envelope.rollbackPlans,
-        ),
-        legacyDivergences: joinMaps(
-            leftParsed.envelope.legacyDivergences,
-            rightParsed.envelope.legacyDivergences,
-        ),
     });
     assertRevisionIdentity(joined);
     return joined;
@@ -505,8 +383,7 @@ export function mergeActiveAuthorityCandidates(
     const active = envelope.authority.candidates
         .map(candidate => candidate.value)
         .filter((authority): authority is ManagedAuthorityState & { active: ManagedRevisionSlot } =>
-            (authority.lifecycle === 'active' || authority.lifecycle === 'preview')
-            && Boolean(authority.active));
+            authority.lifecycle === 'active' && Boolean(authority.active));
     if (active.length < 2) {
         return envelope;
     }
@@ -529,12 +406,4 @@ export function mergeActiveAuthorityCandidates(
             previous: active[0].active,
         }, version),
     });
-}
-
-export function createChecksummedLegacySnapshot(
-    projectData: unknown,
-    projectSyncData: unknown,
-): ChecksummedLegacySnapshot {
-    const value = { projectData: cloneManagedValue(projectData), projectSyncData: cloneManagedValue(projectSyncData) };
-    return { checksum: checksumManagedValue(value), ...value };
 }

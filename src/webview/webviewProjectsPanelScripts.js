@@ -172,6 +172,7 @@ function restoreProjectsFocus(panel, target) {
     var project = group && Array.from(group.querySelectorAll('.project[data-id]'))
         .find(candidate => candidate.getAttribute('data-id') === target.projectId);
     if (!project) {
+        focusProjectsPanelFallback(panel);
         return;
     }
     var focusTarget = project;
@@ -190,7 +191,10 @@ function restoreProjectsFocus(panel, target) {
 function restoreMachineProjectsFocus(panel, target) {
     var machine = Array.from(panel.querySelectorAll('[data-machine-row]'))
         .find(candidate => candidate.getAttribute('data-machine-id') === target.machineId);
-    if (!machine) return;
+    if (!machine) {
+        focusProjectsPanelFallback(panel);
+        return;
+    }
     var owner = machine;
     if (target.kind === 'machine-environment' || target.kind === 'machine-project') {
         owner = Array.from(machine.querySelectorAll('[data-machine-environment-row]'))
@@ -216,5 +220,14 @@ function restoreMachineProjectsFocus(panel, target) {
         || machine.querySelector(':scope > .machine-row-line > .machine-row-primary');
     if (focusTarget && typeof focusTarget.focus === 'function') {
         focusTarget.focus({ preventScroll: true });
+    }
+}
+
+function focusProjectsPanelFallback(panel) {
+    var fallback = panel && panel.querySelector(
+        '[data-managed-operation="addMachine"], [data-action="add-project"], button:not(:disabled)'
+    );
+    if (fallback && typeof fallback.focus === 'function') {
+        fallback.focus({ preventScroll: true });
     }
 }

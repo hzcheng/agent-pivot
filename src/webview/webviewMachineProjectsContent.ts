@@ -155,7 +155,7 @@ export function renderMachineProjectsProject(project: MachineProjectRowViewModel
                 ? `<span class="machine-project-context" title="${escapeAttribute(`${project.machineName} › ${project.environmentName}`)}">${escapeAttribute(`${project.machineName} › ${project.environmentName}`)}</span>`
                 : ''}
             <div class="machine-project-actions">
-                <button type="button" class="machine-pointer-action machine-favorite-action${project.favorite ? ' is-active' : ''}" data-action="toggle-machine-favorite" aria-label="${project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}" title="${project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}">${project.favorite ? Icons.starFilled : Icons.star}</button>
+                <button type="button" class="machine-pointer-action machine-favorite-action${project.favorite ? ' is-active' : ''}" data-action="toggle-machine-favorite" aria-label="${project.favorite ? 'Remove' : 'Add'} ${escapeAttribute(project.name)} ${project.favorite ? 'from' : 'to'} Favorites" title="${project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}">${project.favorite ? Icons.starFilled : Icons.star}</button>
                 <div class="machine-project-menu-shell">
                     <button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-project-menu" aria-label="More actions for ${escapeAttribute(project.name)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button>
                     <div class="machine-project-menu" data-machine-project-menu role="menu" hidden>

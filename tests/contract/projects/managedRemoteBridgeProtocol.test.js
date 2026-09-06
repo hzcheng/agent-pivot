@@ -33,17 +33,13 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
         ...request,
         expectedRevisionId: `revision:${'A'.repeat(64)}`,
     }), null);
-    const cancel = {
+    const recover = {
         protocolVersion: 1,
         requestId: 'request-12345678',
         sessionToken: 'session-12345678',
-        operation: 'cancelTransition',
-    };
-    assert.deepEqual(parseManagedRemoteBridgeRequest(cancel), cancel);
-    assert.deepEqual(parseManagedRemoteBridgeRequest({
-        ...cancel,
         operation: 'recover',
-    }), { ...cancel, operation: 'recover' });
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(recover), recover);
 
     const terminal = {
         ...request,
@@ -66,26 +62,6 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
     };
     assert.deepEqual(parseManagedRemoteBridgeRequest(project), project);
 
-    const inspection = {
-        protocolVersion: 1,
-        requestId: 'request-12345678',
-        sessionToken: 'session-12345678',
-        operation: 'inspectLegacySshTarget',
-        legacySshTarget: 'build-alias',
-    };
-    assert.deepEqual(parseManagedRemoteBridgeRequest(inspection), inspection);
-    assert.equal(parseManagedRemoteBridgeRequest({
-        ...inspection,
-        legacySshTarget: '-F',
-    }), null);
-    assert.equal(parseManagedRemoteBridgeRequest({
-        ...inspection,
-        legacySshTarget: 'build alias',
-    }), null);
-    assert.equal(parseManagedRemoteBridgeRequest({
-        ...inspection,
-        expectedRevisionId: `revision:${'a'.repeat(64)}`,
-    }), null);
 });
 
 test('MANAGED-REMOTE-BRIDGE-001 correlates the strict capability handshake', () => {

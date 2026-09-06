@@ -11,7 +11,6 @@ const {
     vectorIncludingVersion,
 } = require('../../../out/projects/managedRemote/causal');
 const {
-    createChecksummedLegacySnapshot,
     createEmptyManagedCatalogEnvelope,
     createManagedRevisionSlot,
     normalizeManagedCatalogEnvelope,
@@ -88,17 +87,10 @@ test('MANAGED-REMOTE-PERFORMANCE-001 keeps the 50 Machine / 500 Project recovery
 
     const envelope = createEmptyManagedCatalogEnvelope('envelope');
     const version = createCausalVersion(envelope.causalContext, 'envelope');
-    const legacy = createChecksummedLegacySnapshot(
-        Object.values(left.projects).map(register => register.candidates[0].value),
-        { schemaVersion: 1 },
-    );
     envelope.authority = createVersionedCandidates({
         lifecycle: 'active',
         active: createManagedRevisionSlot(joined),
         previous: createManagedRevisionSlot(left),
-    }, version);
-    envelope.rollbackPlans['rollback:fixture'] = createVersionedCandidates({
-        planId: 'rollback:fixture', phase: 'prepared', target: legacy,
     }, version);
     envelope.causalContext = joinVersionVectors(
         envelope.causalContext, vectorIncludingVersion(version),

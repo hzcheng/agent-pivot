@@ -82,6 +82,33 @@ test('MANAGED-REMOTE-MANAGEMENT-002 enforces revision identity and Project place
     assert.equal(withProject.catalog.projects[0].remotePath, '/work/api');
 });
 
+test('MANAGED-REMOTE-MANAGEMENT-002 MANAGED-REMOTE-DEV-CONTAINER-001 adds a Dev Container Environment and Project atomically', async () => {
+    const { store } = await fixture();
+    const added = await store.addMachine(null, {
+        name: 'Build', host: 'build.example.com', user: 'dev', port: 22,
+    });
+    const machine = added.catalog.machines[0];
+    const saved = await store.addDevContainerProject(added.revisionId, {
+        machineId: machine.id,
+        environmentName: 'API Container',
+        anchor: {
+            version: 1,
+            originalAuthority: 'dev-container+aa@ssh-remote+build',
+            sourceKind: 'config',
+            sourceLocator: '/work/api/.devcontainer/devcontainer.json',
+        },
+        project: { name: 'API', remotePath: '/workspace/api' },
+    });
+
+    const container = saved.catalog.environments.find(environment =>
+        environment.kind === 'devContainer');
+    assert.ok(container);
+    assert.equal(container.machineId, machine.id);
+    assert.equal(saved.catalog.projects[0].environmentId, container.id);
+    assert.equal(saved.catalog.projects[0].remotePath, '/workspace/api');
+    assert.equal(saved.lifecycle, 'active');
+});
+
 test('MANAGED-REMOTE-MANAGEMENT-002 preserves active lifecycle across writers', async () => {
     const backend = new MemoryBackend();
     const leftCoordinator = await ManagedCatalogCoordinator.create(backend, new MemoryReplicas());
@@ -182,116 +209,4 @@ test('MANAGED-REMOTE-MANAGEMENT-002 exposes the surviving side of a delete-updat
             .map(candidate => candidate.connection.host),
         ['other.example.com'],
     );
-});
-
-test('MANAGED-REMOTE-MIGRATION-003 freezes V1 authority and installs only reviewed remote Projects', async () => {
-    const backend = new MemoryBackend();
-    const coordinator = await ManagedCatalogCoordinator.create(backend, new MemoryReplicas());
-    const groups = [{
-        id: 'group', groupName: 'Backend', projects: [{
-            id: 'remote', name: 'API',
-            path: 'vscode-remote://ssh-remote%2Bdev%40build.example.com%3A2207/work/api',
-            favorite: true,
-        }, {
-            id: 'local', name: 'Local', path: '/work/local',
-        }],
-    }];
-    const frozenProjectData = [{ id: 'legacy', value: true }];
-    const frozenProjectSyncData = { schemaVersion: 1, marker: 'frozen' };
-    let projectData = cloneManagedValue(frozenProjectData);
-    let projectSyncData = cloneManagedValue(frozenProjectSyncData);
-    const store = new ManagedRemoteCatalogManagementStore(
-        coordinator,
-        'catalog:migration',
-        undefined,
-        {
-            getGroups: () => JSON.parse(JSON.stringify(groups)),
-            getProjectData: () => cloneManagedValue(projectData),
-            getProjectSyncData: () => cloneManagedValue(projectSyncData),
-            async clearLegacyData() {
-                projectData = undefined;
-                projectSyncData = undefined;
-            },
-            async restoreLegacyData(snapshot) {
-                projectData = snapshot.projectData === null
-                    ? undefined : cloneManagedValue(snapshot.projectData);
-                projectSyncData = snapshot.projectSyncData === null
-                    ? undefined : cloneManagedValue(snapshot.projectSyncData);
-            },
-        },
-    );
-
-    const plan = store.prepareMigration();
-    const snapshot = await store.beginMigration(null, plan);
-    assert.equal(snapshot.lifecycle, 'preview');
-    assert.equal(snapshot.migrationPlanId, plan.planId);
-    assert.deepEqual(snapshot.catalog.projects.map(value => value.id), ['remote']);
-    const envelope = backend.value;
-    const journal = envelope.migrationPlans[plan.planId].candidates[0].value;
-    assert.equal(journal.phase, 'prepared');
-    assert.deepEqual(journal.frozenLegacy.projectData, frozenProjectData);
-    assert.deepEqual(journal.frozenLegacy.projectSyncData, frozenProjectSyncData);
-    assert.equal(journal.candidate.revisionId, snapshot.revisionId);
-
-    const active = await store.activateMigration(snapshot.revisionId);
-    assert.equal(active.lifecycle, 'active');
-    assert.equal(active.migrationPlanId, plan.planId);
-    const completed = backend.value.migrationPlans[plan.planId].candidates[0].value;
-    assert.equal(completed.phase, 'complete');
-
-    await store.finalizeMigrationCleanup(active.revisionId);
-    assert.equal(projectData, undefined);
-    assert.equal(projectSyncData, undefined);
-
-    const rolledBack = await store.rollbackMigration(active.revisionId);
-    assert.equal(rolledBack.lifecycle, 'rolledBack');
-    assert.deepEqual(projectData, frozenProjectData);
-    assert.deepEqual(projectSyncData, frozenProjectSyncData);
-    const authority = backend.value.authority.candidates[0].value;
-    assert.equal(authority.rollbackPlanId, `rollback:${plan.planId}`);
-    const rollback = backend.value.rollbackPlans[authority.rollbackPlanId]
-        .candidates[0].value;
-    assert.equal(rollback.phase, 'rolledBack');
-    assert.deepEqual(rollback.target.projectData, frozenProjectData);
-    assert.deepEqual(rollback.target.projectSyncData, frozenProjectSyncData);
-});
-
-test('MANAGED-REMOTE-MIGRATION-ROLLBACK-001 restores the frozen backup after legacy cleanup', async () => {
-    const backend = new MemoryBackend();
-    const coordinator = await ManagedCatalogCoordinator.create(backend, new MemoryReplicas());
-    let projectData = [{ id: 'legacy', value: true }];
-    let projectSyncData = { schemaVersion: 1, marker: 'frozen' };
-    const store = new ManagedRemoteCatalogManagementStore(
-        coordinator,
-        'catalog:migration-divergence',
-        undefined,
-        {
-            getGroups: () => [{
-                id: 'group', groupName: 'Backend', projects: [{
-                    id: 'remote', name: 'API',
-                    path: 'vscode-remote://ssh-remote%2Bdev%40build.example.com/work/api',
-                }],
-            }],
-            getProjectData: () => cloneManagedValue(projectData),
-            getProjectSyncData: () => cloneManagedValue(projectSyncData),
-            async clearLegacyData() {
-                projectData = undefined;
-                projectSyncData = undefined;
-            },
-            async restoreLegacyData(snapshot) {
-                projectData = cloneManagedValue(snapshot.projectData);
-                projectSyncData = cloneManagedValue(snapshot.projectSyncData);
-            },
-        },
-    );
-    const preview = await store.beginMigration(null, store.prepareMigration());
-    const active = await store.activateMigration(preview.revisionId);
-    await store.finalizeMigrationCleanup(active.revisionId);
-    assert.equal(projectData, undefined);
-    assert.equal(projectSyncData, undefined);
-
-    const rolledBack = await store.rollbackMigration(active.revisionId);
-    assert.equal(rolledBack.lifecycle, 'rolledBack');
-    assert.deepEqual(projectData, [{ id: 'legacy', value: true }]);
-    assert.deepEqual(projectSyncData, { schemaVersion: 1, marker: 'frozen' });
 });

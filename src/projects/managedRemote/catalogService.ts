@@ -53,6 +53,13 @@ export interface AddManagedProjectInput {
     favorite?: boolean;
 }
 
+export interface AddManagedDevContainerProjectInput {
+    machineId: string;
+    environmentName: string;
+    anchor: DevContainerLaunchAnchorV1;
+    project: Omit<AddManagedProjectInput, 'environmentId'>;
+}
+
 export interface EditManagedProjectInput {
     name?: string;
     remotePath?: string;
@@ -282,6 +289,20 @@ export class ManagedRemoteCatalogService {
         }
         this.commit({ projects: { [projectId]: project }, layout });
         return cloneManagedValue(project);
+    }
+
+    addDevContainerProject(
+        input: AddManagedDevContainerProjectInput,
+    ): ManagedRemoteProject {
+        const environment = this.addDevContainer(
+            input.machineId,
+            input.environmentName,
+            input.anchor,
+        );
+        return this.addProject({
+            ...input.project,
+            environmentId: environment.id,
+        });
     }
 
     editProject(projectId: string, patch: EditManagedProjectInput): ManagedRemoteProject {

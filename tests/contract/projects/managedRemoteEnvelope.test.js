@@ -7,7 +7,6 @@ const { cloneManagedValue, stableManagedValue } = require('../../../out/projects
 const {
     createManagedRevisionSlot,
     createEmptyManagedCatalogEnvelope,
-    createChecksummedLegacySnapshot,
     joinManagedCatalogEnvelopes,
     parseManagedCatalogEnvelope,
 } = require('../../../out/projects/managedRemote/envelope');
@@ -17,9 +16,6 @@ const {
     joinVersionVectors,
     vectorIncludingVersion,
 } = require('../../../out/projects/managedRemote/causal');
-const {
-    detectManagedLegacyDivergence,
-} = require('../../../out/projects/managedRemote/legacyCompatibilityGuard');
 const { ManagedRemoteCatalogService } = require('../../../out/projects/managedRemote/catalogService');
 const { ManagedCatalogCoordinator } = require('../../../out/projects/managedRemote/store');
 
@@ -157,33 +153,6 @@ test('MANAGED-REMOTE-ENVELOPE-002 stages, activates, and repairs a missing backe
         .authority.candidates[0].value.lifecycle, 'active');
 });
 
-test('MANAGED-REMOTE-ENVELOPE-002 rolls back and discards a selected recovery reference', async () => {
-    const backend = new MemoryBackend();
-    const replicas = new MemoryReplicas();
-    const coordinator = await ManagedCatalogCoordinator.create(backend, replicas);
-    const firstStage = await coordinator.stageCatalog(draft());
-    const first = await coordinator.activateStagedCatalog(firstStage);
-    const changed = new ManagedRemoteCatalogService(
-        first.document, 'changed', prefix => `${prefix}:changed`,
-    );
-    changed.editMachine('machine:one', { name: 'Changed' });
-    const secondStage = await coordinator.stageCatalog(changed.getDocument());
-    const second = await coordinator.activateStagedCatalog(secondStage);
-
-    const restored = await coordinator.rollBackToPrevious();
-    assert.equal(restored.revisionId, first.revisionId);
-    let authority = parseManagedCatalogEnvelope(backend.value)
-        .envelope.authority.candidates[0].value;
-    assert.equal(authority.active.revisionId, first.revisionId);
-    assert.equal(authority.previous.revisionId, second.revisionId);
-
-    await coordinator.discardRecoveryCandidate(second.revisionId);
-    authority = parseManagedCatalogEnvelope(backend.value)
-        .envelope.authority.candidates[0].value;
-    assert.equal(authority.active.revisionId, first.revisionId);
-    assert.equal(authority.previous, undefined);
-});
-
 test('MANAGED-REMOTE-ENVELOPE-002 retains a staged mutation across backend failure', async () => {
     const backend = new MemoryBackend();
     const replicas = new MemoryReplicas();
@@ -198,22 +167,4 @@ test('MANAGED-REMOTE-ENVELOPE-002 retains a staged mutation across backend failu
         .filter(candidate => candidate.value !== null);
     assert.equal(stages.length, 1);
     assert.equal(recovered.repairedBackend, true);
-});
-
-test('MANAGED-REMOTE-COMPATIBILITY-001 fingerprints a legacy branch without importing it', () => {
-    const frozen = createChecksummedLegacySnapshot([{ id: 'old' }], { revision: 1 });
-    assert.equal(detectManagedLegacyDivergence(
-        frozen, [{ id: 'old' }], { revision: 1 },
-    ), null);
-
-    const divergence = detectManagedLegacyDivergence(
-        frozen,
-        [{ id: 'old' }, { id: 'offline-addition' }],
-        { revision: 2 },
-    );
-    assert.deepEqual(divergence.changedSources, ['projectData', 'projectSyncData']);
-    assert.match(divergence.divergenceId, /^legacy-divergence:/);
-    assert.deepEqual(divergence.current.projectData, [
-        { id: 'old' }, { id: 'offline-addition' },
-    ]);
 });

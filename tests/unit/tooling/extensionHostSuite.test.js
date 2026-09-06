@@ -11,13 +11,7 @@ const bridgeId = 'hzcheng.agent-pivot-attention-ui-bridge';
 const commandRegistrationPath = path.resolve(__dirname, '../../../out/dashboard/commandRegistration.js');
 const publicCommands = [
     'agentPivot.open',
-    'agentPivot.addProject',
     'agentPivot.saveProject',
-    'agentPivot.removeProject',
-    'agentPivot.editProjects',
-    'agentPivot.addGroup',
-    'agentPivot.removeGroup',
-    'agentPivot.addProjectsFromFolder',
     'agentPivot.addFileToActiveTerminal',
     'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral',

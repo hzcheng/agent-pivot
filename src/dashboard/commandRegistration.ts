@@ -8,13 +8,7 @@ type DashboardCommandHandler = (...args: unknown[]) => unknown;
 
 export interface DashboardCommandHandlers {
     open: DashboardCommandHandler;
-    addProject: DashboardCommandHandler;
     saveProject: DashboardCommandHandler;
-    removeProject: DashboardCommandHandler;
-    editProjects: DashboardCommandHandler;
-    addGroup: DashboardCommandHandler;
-    removeGroup: DashboardCommandHandler;
-    addProjectsFromFolder: DashboardCommandHandler;
     addFileToActiveTerminal: DashboardCommandHandler;
     insertPromptToActiveTerminal: DashboardCommandHandler;
     migrateSkillsToCentral: DashboardCommandHandler;
@@ -48,13 +42,7 @@ type DashboardCommandName = keyof DashboardCommandHandlers;
 
 const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]> = [
     ['agentPivot.open', 'open'],
-    ['agentPivot.addProject', 'addProject'],
     ['agentPivot.saveProject', 'saveProject'],
-    ['agentPivot.removeProject', 'removeProject'],
-    ['agentPivot.editProjects', 'editProjects'],
-    ['agentPivot.addGroup', 'addGroup'],
-    ['agentPivot.removeGroup', 'removeGroup'],
-    ['agentPivot.addProjectsFromFolder', 'addProjectsFromFolder'],
     ['agentPivot.addFileToActiveTerminal', 'addFileToActiveTerminal'],
     ['agentPivot.insertPromptToActiveTerminal', 'insertPromptToActiveTerminal'],
     ['agentPivot.migrateSkillsToCentral', 'migrateSkillsToCentral'],

@@ -3,7 +3,7 @@
 import { isUriString } from '../uriStrings';
 import * as vscode from 'vscode';
 
-import { getRemoteType, getRemoteTypeFromRemoteName, Project, ProjectRemoteType } from '../models';
+import { Project } from '../models';
 import type { ManagedRemoteManagementSnapshot } from './managedRemote/managementController';
 import type {
     ManagedEnvironment,
@@ -15,7 +15,6 @@ import {
     rebuildManagedDevContainerProjectUri,
 } from './managedRemote/devContainerCodec';
 import {
-    isLegacyNameOnlyAliasForMachine,
     isManagedSshAliasForMachine,
     managedSshAlias,
 } from './managedRemote/sshConfigProjection';
@@ -32,6 +31,12 @@ export interface ManagedOpenProjectMatch {
     machine: ManagedSshMachine;
 }
 
+export interface ManagedDevContainerSaveTarget {
+    machine: ManagedSshMachine;
+    anchor: NonNullable<ManagedEnvironment['devContainerAnchor']>;
+    remotePath: string;
+}
+
 export interface ManagedCurrentRemoteContext {
     remoteName?: string;
     devContainerHostWorkspaceFolder?: string;
@@ -42,14 +47,6 @@ function environmentMachine(
     environment: ManagedEnvironment,
 ): ManagedSshMachine | undefined {
     return snapshot.catalog.machines.find(machine => machine.id === environment.machineId);
-}
-
-function openedOuterAlias(uri: vscode.Uri): string {
-    const authority = normalizeRemoteAuthority(uri.authority);
-    if (authority.startsWith('ssh-remote+')) {
-        return authority.slice('ssh-remote+'.length);
-    }
-    return parseManagedDevContainerProjectUri(uri.toString())?.outerSshAuthority || '';
 }
 
 function environmentMatchesRemoteAuthority(
@@ -125,26 +122,6 @@ export function findManagedEnvironmentForWorkspace(
                 snapshot, environment, uri,
                 (alias, machine) => isManagedSshAliasForMachine(alias, machine.id),
             ));
-        if (!matches.length) {
-            // An alias projected before the identity suffix existed carries no
-            // Machine identity, so it can only be attributed when exactly one
-            // Machine claims it. Two Machines sharing a name or connection host
-            // (a dev box registered alongside its Dev Container) stay ambiguous
-            // rather than resolving to an arbitrary one.
-            const alias = openedOuterAlias(uri);
-            const claimants = snapshot.catalog.machines.filter(machine =>
-                isLegacyNameOnlyAliasForMachine(
-                    alias, machine.name, machine.connection.host,
-                ));
-            if (claimants.length === 1) {
-                const ownerId = claimants[0].id;
-                matches = snapshot.catalog.environments.filter(environment =>
-                    environmentMatchesRemoteAuthority(
-                        snapshot, environment, uri,
-                        (_alias, machine) => machine.id === ownerId,
-                    ));
-            }
-        }
     } else if (uri.scheme === 'file' && context.remoteName === 'dev-container') {
         const hostWorkspace = context.devContainerHostWorkspaceFolder;
         if (hostWorkspace) {
@@ -157,6 +134,29 @@ export function findManagedEnvironmentForWorkspace(
         }
     }
     return matches.length === 1 ? matches[0] : null;
+}
+
+/**
+ * Resolve the first save from a Dev Container opened through a Managed SSH
+ * alias. At this point the Environment does not exist yet, so the outer alias
+ * is the only authoritative link back to a Machine.
+ */
+export function findManagedDevContainerSaveTarget(
+    snapshot: ManagedRemoteManagementSnapshot,
+    uri: vscode.Uri,
+): ManagedDevContainerSaveTarget | null {
+    if (snapshot.lifecycle !== 'active' || !uri) { return null; }
+    const parsed = parseManagedDevContainerProjectUri(uri.toString());
+    if (!parsed) { return null; }
+    const machines = snapshot.catalog.machines.filter(machine =>
+        isManagedSshAliasForMachine(parsed.outerSshAuthority, machine.id));
+    if (machines.length !== 1) { return null; }
+    const remotePath = managedRemotePathForWorkspace(uri);
+    return remotePath ? {
+        machine: machines[0],
+        anchor: parsed.anchor,
+        remotePath,
+    } : null;
 }
 
 function currentOuterSshAlias(uri: vscode.Uri): string | null {
@@ -240,14 +240,8 @@ export function findManagedProjectForOpenProject(
     return null;
 }
 
-export function findSavedProjectForOpenProject(savedProjects: Project[], uri: vscode.Uri, currentRemoteName: string): Project {
-    let exactMatch = savedProjects.find(project => projectMatchesOpenProject(project, uri));
-    if (exactMatch) {
-        return exactMatch;
-    }
-
-    let remotePathMatches = savedProjects.filter(project => projectPathMatchesRemoteOpenProject(project, uri, currentRemoteName));
-    return remotePathMatches.length === 1 ? remotePathMatches[0] : null;
+export function findSavedProjectForOpenProject(savedProjects: Project[], uri: vscode.Uri): Project {
+    return savedProjects.find(project => projectMatchesOpenProject(project, uri)) || null;
 }
 
 export function projectMatchesOpenProject(project: Project, uri: vscode.Uri): boolean {
@@ -310,50 +304,6 @@ export function normalizeComparableProjectPath(projectPath: string): string {
     }
 
     return projectPath.replace(/\\/g, '/').replace(/\/+$/g, '');
-}
-
-export function projectPathMatchesRemoteOpenProject(project: Project, uri: vscode.Uri, currentRemoteName: string): boolean {
-    if (!currentRemoteName || !projectRemoteTypeMatchesCurrentRemote(project, currentRemoteName)) {
-        return false;
-    }
-
-    if (uri.scheme === "vscode-remote" || uri.authority) {
-        return false;
-    }
-
-    let projectPath = getProjectPathPart(project.path);
-    let openPath = uri.path || uri.fsPath;
-    if (!projectPath || !openPath) {
-        return false;
-    }
-
-    return normalizePosixPath(projectPath) === normalizePosixPath(openPath);
-}
-
-export function projectRemoteTypeMatchesCurrentRemote(project: Project, currentRemoteName: string): boolean {
-    let currentRemoteType = getRemoteTypeFromRemoteName(currentRemoteName);
-    if (currentRemoteType === ProjectRemoteType.None) {
-        return false;
-    }
-
-    return getRemoteType(project) === currentRemoteType;
-}
-
-export function getProjectPathPart(projectPath: string): string {
-    if (!projectPath) {
-        return projectPath;
-    }
-
-    if (!isUriString(projectPath)) {
-        return projectPath;
-    }
-
-    try {
-        let uri = vscode.Uri.parse(projectPath);
-        return uri.path || uri.fsPath || projectPath;
-    } catch (e) {
-        return projectPath;
-    }
 }
 
 export function uriToProjectPath(uri: vscode.Uri): string {

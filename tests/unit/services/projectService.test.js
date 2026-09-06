@@ -96,60 +96,40 @@ test('PROJECT-INCREMENTAL-REFRESH-001 inline metadata updates do not rewrite rec
     assert.deepEqual(colors, [], 'inline edits must not change recent-colour configuration');
 });
 
-test('MACHINE-PROJECTS-RENAME-001 inherits a Machine alias on add and clears it after a move', async () => {
-    const groups = [{
-        id: 'group-a',
-        groupName: 'A',
-        collapsed: false,
-        projects: [{
-            id: 'project-api',
-            name: 'API',
-            path: 'vscode-remote://ssh-remote%2Bdevbox/work/api',
-            color: '#112233',
-            machineDisplayName: 'Build Box',
+test('MANAGED-REMOTE-AUTHORITY-001 MANAGED-REMOTE-LOCAL-PROJECTION-001 keeps synchronized remote bytes inert while local Projects remain editable', async () => {
+    const legacyRemote = [{
+        id: 'legacy-group', groupName: 'Legacy', projects: [{
+            id: 'legacy-remote', name: 'Legacy Remote',
+            path: 'vscode-remote://ssh-remote%2Bold/work/legacy', color: '#112233',
         }],
     }];
-    const service = makeProjectService(makeGlobalState({ projects: groups }));
-
-    await service.addProject({
-        id: 'project-worker',
-        name: 'Worker',
-        path: 'vscode-remote://ssh-remote%2Bdevbox/work/worker',
-        color: '#445566',
-    }, 'group-a');
-    assert.equal(service.getProject('project-worker').machineDisplayName, 'Build Box');
-
-    await service.updateProject('project-worker', {
-        id: 'ignored-by-update',
-        name: 'Worker',
-        path: 'vscode-remote://ssh-remote%2Bother/work/worker',
-        color: '#445566',
+    const local = [{
+        id: 'local-group', groupName: 'Local', projects: [{
+            id: 'local-project', name: 'Local', path: '/work/local', color: '#223344',
+        }],
+    }];
+    const globalState = makeGlobalState({
+        projects: legacyRemote,
+        'localProjects.v1': local,
     });
-    assert.equal(service.getProject('project-worker').machineDisplayName, undefined);
-    assert.equal(service.getProject('project-api').machineDisplayName, 'Build Box');
-});
-
-test('MACHINE-PROJECTS-LOCAL-STORE-001 MANAGED-REMOTE-LOCAL-PROJECTION-001 separates Local Projects when Settings Sync is disabled', async () => {
-    const groups = [{
-        id: 'group-a', groupName: 'A', projects: [{
-            id: 'local', name: 'Local', path: '/work/local', color: '#112233',
-        }, {
-            id: 'remote', name: 'Remote',
-            path: 'vscode-remote://ssh-remote%2Bdevbox/work/remote', color: '#223344',
-        }],
-    }];
-    const globalState = makeGlobalState({ projects: groups });
     const service = makeProjectService(globalState);
 
-    assert.equal(await service.migrateDataIfNeeded(), true);
-    assert.deepEqual(globalState.values.projects[0].projects.map(project => project.id), ['remote']);
-    assert.deepEqual(
-        globalState.values['localProjects.v1'][0].projects.map(project => project.id),
-        ['local'],
-    );
-    assert.deepEqual(service.getProjectsFlat().map(project => project.id), ['remote', 'local']);
-    assert.deepEqual(
-        service.getRemoteGroupsForManagedMigration()[0].projects.map(project => project.id),
-        ['remote'],
-    );
+    assert.deepEqual(service.getProjectsFlat().map(project => project.id), ['local-project']);
+    await service.addProject({
+        id: 'local-second', name: 'Local 2', path: '/work/local-2', color: '#334455',
+    }, 'local-group');
+    await service.addProject({
+        id: 'local-wsl', name: 'WSL',
+        path: 'vscode-remote://wsl%2BUbuntu/home/dev/app', color: '#334455',
+    }, 'local-group');
+    assert.deepEqual(globalState.values.projects, legacyRemote,
+        'normal product writes must not rewrite retained legacy remote bytes');
+    assert.deepEqual(service.getProjectsFlat().map(project => project.id), [
+        'local-project', 'local-second', 'local-wsl',
+    ]);
+    await assert.rejects(service.addProject({
+        id: 'remote-new', name: 'Remote',
+        path: 'vscode-remote://ssh-remote%2Bnew/work/new', color: '#445566',
+    }, 'local-group'), /Managed Machine/u);
+    assert.deepEqual(globalState.values.projects, legacyRemote);
 });

@@ -82,7 +82,7 @@ export interface ManagedRemoteCatalogV1 {
     layout: VersionedCandidates<ManagedRemoteLayout>;
 }
 
-export type ManagedAuthorityLifecycle = 'disabled' | 'preview' | 'active' | 'rolledBack';
+export type ManagedAuthorityLifecycle = 'disabled' | 'active';
 
 export interface ManagedRevisionSlot {
     revisionId: string;
@@ -94,31 +94,6 @@ export interface ManagedAuthorityState {
     lifecycle: ManagedAuthorityLifecycle;
     active?: ManagedRevisionSlot;
     previous?: ManagedRevisionSlot;
-    migrationPlanId?: string;
-    rollbackPlanId?: string;
-}
-
-export interface ChecksummedLegacySnapshot {
-    checksum: string;
-    projectData: unknown;
-    projectSyncData: unknown;
-}
-
-export type ManagedMigrationPhase = 'prepared' | 'localReady' | 'active' | 'complete';
-
-export interface ManagedMigrationJournal {
-    planId: string;
-    phase: ManagedMigrationPhase;
-    frozenLegacy: ChecksummedLegacySnapshot;
-    candidate: ManagedRevisionSlot;
-}
-
-export type ManagedRollbackPhase = 'prepared' | 'legacyRestored' | 'rolledBack';
-
-export interface ManagedRollbackJournal {
-    planId: string;
-    phase: ManagedRollbackPhase;
-    target: ChecksummedLegacySnapshot;
 }
 
 export interface ManagedCatalogEnvelopeV1 {
@@ -126,9 +101,6 @@ export interface ManagedCatalogEnvelopeV1 {
     causalContext: VersionVector;
     authority: VersionedCandidates<ManagedAuthorityState>;
     stagedRevisions: Record<string, VersionedCandidates<ManagedRevisionSlot | null>>;
-    migrationPlans: Record<string, VersionedCandidates<ManagedMigrationJournal | null>>;
-    rollbackPlans: Record<string, VersionedCandidates<ManagedRollbackJournal | null>>;
-    legacyDivergences: Record<string, VersionedCandidates<ChecksummedLegacySnapshot | null>>;
 }
 
 export type ManagedCatalogConflictKind =

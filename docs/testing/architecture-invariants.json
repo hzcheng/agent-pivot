@@ -384,7 +384,6 @@
           "discardStagedCatalog",
           "activateRecoveryCandidate",
           "discardRecoveryCandidate",
-          "rollBackToPrevious",
           "discardRecoveryState"
         ],
         "writerFacade": true

@@ -11,7 +11,6 @@ import {
 } from './causal';
 import {
     createEmptyManagedCatalogEnvelope,
-    createChecksummedLegacySnapshot,
     createManagedRevisionSlot,
     joinManagedCatalogEnvelopes,
     mergeActiveAuthorityCandidates,
@@ -24,12 +23,9 @@ import {
 } from './merge';
 import { assertManagedEnvelopePayload } from './payload';
 import {
-    ChecksummedLegacySnapshot,
     ManagedAuthorityState,
     ManagedCatalogEnvelopeV1,
     ManagedCatalogWriterReplicaV1,
-    ManagedMigrationJournal,
-    ManagedRollbackJournal,
     ManagedRemoteCatalogV1,
     ManagedRevisionSlot,
 } from './types';
@@ -153,10 +149,7 @@ export class ManagedCatalogCoordinator {
         });
     }
 
-    activateStagedCatalog(
-        stageId: string,
-        lifecycle: 'preview' | 'active' = 'active',
-    ): Promise<ManagedRevisionSlot> {
+    activateStagedCatalog(stageId: string): Promise<ManagedRevisionSlot> {
         return this.enqueue(async () => {
             const reconciled = await this.reconcileNow();
             if (reconciled.recoveryRequired) {
@@ -172,8 +165,7 @@ export class ManagedCatalogCoordinator {
                 throw new Error('Managed catalog staged revision is conflicted.');
             }
             const current = distinctCandidateValues(reconciled.envelope.authority);
-            const currentSlot = current.length === 1
-                && (current[0].lifecycle === 'preview' || current[0].lifecycle === 'active')
+            const currentSlot = current.length === 1 && current[0].lifecycle === 'active'
                 ? current[0].active : undefined;
             const slot = currentSlot
                 ? createManagedRevisionSlot(joinManagedRemoteCatalogs(
@@ -187,7 +179,7 @@ export class ManagedCatalogCoordinator {
                 this.actorId,
                 (envelope, version) => {
                     envelope.authority = createVersionedCandidates({
-                        lifecycle,
+                        lifecycle: 'active',
                         active: slot,
                         ...(previous ? { previous } : {}),
                     }, version);
@@ -213,170 +205,6 @@ export class ManagedCatalogCoordinator {
                 },
             );
             await this.publishCandidate(candidate);
-        });
-    }
-
-    prepareMigration(input: {
-        planId: string;
-        frozenLegacy: { projectData: unknown; projectSyncData: unknown };
-        document: ManagedRemoteCatalogV1;
-    }): Promise<ManagedRevisionSlot> {
-        return this.enqueue(async () => {
-            const reconciled = await this.reconcileNow();
-            if (reconciled.recoveryRequired) {
-                throw new Error('Managed catalog recovery is required before migration.');
-            }
-            const authorities = distinctCandidateValues(reconciled.envelope.authority);
-            if (authorities.length !== 1 || authorities[0].lifecycle === 'active') {
-                throw new Error('Managed Remote migration cannot replace active authority.');
-            }
-            const candidateSlot = createManagedRevisionSlot(input.document);
-            if (materializeManagedRemoteCatalog(candidateSlot.document).conflicts.length) {
-                throw new Error('Managed migration candidate has unresolved catalog conflicts.');
-            }
-            const frozenLegacy = createChecksummedLegacySnapshot(
-                input.frozenLegacy.projectData === undefined
-                    ? null : input.frozenLegacy.projectData,
-                input.frozenLegacy.projectSyncData === undefined
-                    ? null : input.frozenLegacy.projectSyncData,
-            );
-            const journal: ManagedMigrationJournal = {
-                planId: input.planId,
-                phase: 'prepared',
-                frozenLegacy,
-                candidate: candidateSlot,
-            };
-            const previous = authorities[0].active;
-            const envelope = withEnvelopeMutation(
-                reconciled.envelope,
-                this.actorId,
-                (value, version) => {
-                    value.migrationPlans[input.planId] = createVersionedCandidates(
-                        journal,
-                        version,
-                    );
-                    value.authority = createVersionedCandidates({
-                        lifecycle: 'preview',
-                        active: candidateSlot,
-                        ...(previous ? { previous } : {}),
-                        migrationPlanId: input.planId,
-                    }, version);
-                },
-            );
-            await this.publishCandidate(envelope);
-            return cloneManagedValue(candidateSlot);
-        });
-    }
-
-    activatePreparedMigration(
-        planId: string,
-        expectedRevisionId: string,
-    ): Promise<ManagedRevisionSlot> {
-        return this.enqueue(async () => {
-            const reconciled = await this.reconcileNow();
-            if (reconciled.recoveryRequired) {
-                throw new Error('Managed catalog recovery is required before activation.');
-            }
-            const authorities = distinctCandidateValues(reconciled.envelope.authority);
-            if (authorities.length !== 1
-                || authorities[0].lifecycle !== 'preview'
-                || authorities[0].migrationPlanId !== planId
-                || authorities[0].active?.revisionId !== expectedRevisionId) {
-                throw new Error('Managed migration preview changed before activation.');
-            }
-            const planValues = reconciled.envelope.migrationPlans[planId]
-                ? distinctCandidateValues(reconciled.envelope.migrationPlans[planId]) : [];
-            const journals = planValues.filter(
-                (value): value is ManagedMigrationJournal => value !== null,
-            );
-            if (journals.length !== 1
-                || journals[0].candidate.revisionId !== expectedRevisionId) {
-                throw new Error('Managed migration journal is missing or conflicted.');
-            }
-            const slot = cloneManagedValue(authorities[0].active);
-            if (materializeManagedRemoteCatalog(slot.document).conflicts.length) {
-                throw new Error('Managed migration candidate has unresolved catalog conflicts.');
-            }
-            const completed: ManagedMigrationJournal = {
-                ...cloneManagedValue(journals[0]),
-                phase: 'complete',
-            };
-            const envelope = withEnvelopeMutation(
-                reconciled.envelope,
-                this.actorId,
-                (value, version) => {
-                    value.migrationPlans[planId] = createVersionedCandidates(
-                        completed,
-                        version,
-                    );
-                    value.authority = createVersionedCandidates({
-                        lifecycle: 'active',
-                        active: slot,
-                        ...(authorities[0].previous
-                            ? { previous: authorities[0].previous } : {}),
-                        migrationPlanId: planId,
-                    }, version);
-                },
-            );
-            await this.publishCandidate(envelope);
-            return slot;
-        });
-    }
-
-    completePreparedMigrationRollback(
-        planId: string,
-        expectedRevisionId: string,
-        target: ChecksummedLegacySnapshot,
-    ): Promise<ManagedRevisionSlot> {
-        return this.enqueue(async () => {
-            const reconciled = await this.reconcileNow();
-            if (reconciled.recoveryRequired) {
-                throw new Error('Managed catalog recovery is required before rollback.');
-            }
-            const authorities = distinctCandidateValues(reconciled.envelope.authority);
-            if (authorities.length !== 1
-                || authorities[0].lifecycle !== 'active'
-                || authorities[0].migrationPlanId !== planId
-                || authorities[0].active?.revisionId !== expectedRevisionId) {
-                throw new Error('Managed migration authority changed before rollback.');
-            }
-            const planValues = reconciled.envelope.migrationPlans[planId]
-                ? distinctCandidateValues(reconciled.envelope.migrationPlans[planId]) : [];
-            const journals = planValues.filter(
-                (value): value is ManagedMigrationJournal => value !== null,
-            );
-            if (journals.length !== 1
-                || journals[0].phase !== 'complete'
-                || stableManagedValue(journals[0].frozenLegacy) !== stableManagedValue(target)) {
-                throw new Error('Managed migration rollback material is missing or conflicted.');
-            }
-            const rollbackPlanId = `rollback:${planId}`;
-            const rollback: ManagedRollbackJournal = {
-                planId: rollbackPlanId,
-                phase: 'rolledBack',
-                target: cloneManagedValue(target),
-            };
-            const active = cloneManagedValue(authorities[0].active);
-            const candidate = withEnvelopeMutation(
-                reconciled.envelope,
-                this.actorId,
-                (envelope, version) => {
-                    envelope.rollbackPlans[rollbackPlanId] = createVersionedCandidates(
-                        rollback,
-                        version,
-                    );
-                    envelope.authority = createVersionedCandidates({
-                        lifecycle: 'rolledBack',
-                        active,
-                        ...(authorities[0].previous
-                            ? { previous: authorities[0].previous } : {}),
-                        migrationPlanId: planId,
-                        rollbackPlanId,
-                    }, version);
-                },
-            );
-            await this.publishCandidate(candidate);
-            return active;
         });
     }
 
@@ -417,7 +245,7 @@ export class ManagedCatalogCoordinator {
                 candidate.value.active?.revisionId === revisionId);
             if (referencedByActive) {
                 throw new Error(
-                    'Cannot discard an active recovery candidate; activate another candidate or roll back first.',
+                    'Cannot discard the active revision; activate another recovery candidate first.',
                 );
             }
             const referencedByPrevious = reconciled.envelope.authority.candidates.some(candidate =>
@@ -450,34 +278,6 @@ export class ManagedCatalogCoordinator {
                 },
             );
             await this.publishCandidate(candidate, reconciled.recoveryRequired);
-        });
-    }
-
-    rollBackToPrevious(): Promise<ManagedRevisionSlot> {
-        return this.enqueue(async () => {
-            const reconciled = await this.reconcileNow();
-            const authorityValues = distinctCandidateValues(reconciled.envelope.authority);
-            if (authorityValues.length !== 1 || !authorityValues[0].previous) {
-                throw new Error('Managed catalog has no unambiguous previous revision.');
-            }
-            const authority = authorityValues[0];
-            const previous = cloneManagedValue(authority.previous);
-            if (materializeManagedRemoteCatalog(previous.document).conflicts.length) {
-                throw new Error('Previous Managed catalog revision has unresolved conflicts.');
-            }
-            const candidate = withEnvelopeMutation(
-                reconciled.envelope,
-                this.actorId,
-                (envelope, version) => {
-                    envelope.authority = createVersionedCandidates({
-                        lifecycle: 'active',
-                        active: previous,
-                        ...(authority.active ? { previous: authority.active } : {}),
-                    }, version);
-                },
-            );
-            await this.publishCandidate(candidate, reconciled.recoveryRequired);
-            return previous;
         });
     }
 

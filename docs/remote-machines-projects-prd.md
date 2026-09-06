@@ -1,5 +1,9 @@
 # Remote Machines Projects PRD
 
+> Superseded by [Managed Remote Machines PRD](./managed-remote-machines-prd.md).
+> This document describes an abandoned URI-derived design and is not current
+> product behavior.
+
 状态：Owner 验收中
 
 范围：Projects 页信息架构重构

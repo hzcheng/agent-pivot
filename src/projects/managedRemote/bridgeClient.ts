@@ -59,24 +59,13 @@ export class ManagedRemoteBridgeClient {
         expectedRevisionId?: string,
         targetId?: string,
     ): Promise<unknown> {
-        return this.executeAttempt(operation, expectedRevisionId, targetId, undefined, true);
-    }
-
-    inspectLegacySshTarget(target: string): Promise<unknown> {
-        return this.executeAttempt(
-            'inspectLegacySshTarget',
-            undefined,
-            undefined,
-            target,
-            true,
-        );
+        return this.executeAttempt(operation, expectedRevisionId, targetId, true);
     }
 
     private async executeAttempt(
         operation: ManagedRemoteBridgeOperation,
         expectedRevisionId: string | undefined,
         targetId: string | undefined,
-        legacySshTarget: string | undefined,
         retryExpiredSession: boolean,
     ): Promise<unknown> {
         const requestId = correlation('managed-remote');
@@ -89,13 +78,12 @@ export class ManagedRemoteBridgeClient {
                 operation,
                 ...(expectedRevisionId ? { expectedRevisionId } : {}),
                 ...(targetId ? { targetId } : {}),
-                ...(legacySshTarget ? { legacySshTarget } : {}),
             },
         ));
         if (!isRecord(response)
             || response.protocolVersion !== MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION
             || response.requestId !== requestId
-            || !['ok', 'catalogOutOfDate', 'clientNotEnabled', 'recoveryRequired', 'failed']
+            || !['ok', 'catalogOutOfDate', 'recoveryRequired', 'failed']
                 .includes(String(response.status))) {
             throw new Error('Agent Pivot UI Bridge returned an invalid Managed Remote response.');
         }
@@ -113,7 +101,7 @@ export class ManagedRemoteBridgeClient {
                 && /session expired/iu.test(response.message)) {
                 this.session = undefined;
                 return this.executeAttempt(
-                    operation, expectedRevisionId, targetId, legacySshTarget, false,
+                    operation, expectedRevisionId, targetId, false,
                 );
             }
             throw new ManagedRemoteBridgeClientError(

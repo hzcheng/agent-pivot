@@ -39,6 +39,7 @@ import {
 } from './runningAnimationImages';
 import * as Icons from '../webviewIcons';
 import { sanitizeCssColor } from './webviewCssSanitize';
+import type { ManagedRemoteManagementSnapshot } from '../projects/managedRemote/managementController';
 
 export { sanitizeCssColor };
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
@@ -80,6 +81,7 @@ export function getStewardContent(
     readyDocumentGeneration: number = 1,
     initialAiSessionPresentation?: AiSessionPresentationStateMessage,
     windowPathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>,
+    managedRemoteSnapshot?: ManagedRemoteManagementSnapshot,
 ): string {
     var safeReadyDocumentGeneration = Number.isSafeInteger(readyDocumentGeneration)
         && readyDocumentGeneration > 0
@@ -97,7 +99,12 @@ export function getStewardContent(
 
     var customCss = sanitizeCustomCss(infos.config.get('customCss') || '');
     var searchCatalog = serializeDashboardSearchCatalog(
-        buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.skills || [])
+        buildWorkspaceDashboardSearchCatalog(
+            groups,
+            workspaceCards,
+            infos.skills || [],
+            managedRemoteSnapshot,
+        )
     );
     var serializedAiSessionPresentation = initialAiSessionPresentation
         ? JSON.stringify(initialAiSessionPresentation)
@@ -286,10 +293,7 @@ export function getStewardContent(
                         if (typeof window.__agentPivotSyncCollapseButton === 'function') {
                             window.__agentPivotSyncCollapseButton();
                         }
-                        if (filtering && window.__agentPivotMachineProjects
-                            && window.__agentPivotMachineProjects.isMounted()
-                            && window.__agentPivotDashboard
-                            && window.__agentPivotDashboard.getActiveTab() === 'projects') {
+                        if (filtering) {
                             filtering.apply();
                         }
                     },
@@ -503,7 +507,7 @@ export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): s
                     getSourceGroupId: () => group.id,
                 }
             )).join('\n')
-            : (infos.otherStorageHasData ? getImportDiv() : getNoProjectsDiv())}
+            : getNoProjectsDiv()}
     </div>
     ${infos.config.showAddGroupButtonTile ? getTempGroupSection() : ''}`;
 }
@@ -833,18 +837,6 @@ function getNoProjectsDiv() {
         No projects have been added yet.
         <br/>
         Click here to add one.
-    </div>
-</div>`;
-}
-
-function getImportDiv() {
-    return `
-<div class="project-container">
-    <div class="project no-projects import-data" data-action="import-from-other-storage" data-nodrag>
-        Agent Pivot is empty, but there are projects in your other storage.
-        <br/>
-        This can happen if the storage option has been changed on a different device that is synced via Settings Sync.
-        <p>Click here to import.</p>
     </div>
 </div>`;
 }

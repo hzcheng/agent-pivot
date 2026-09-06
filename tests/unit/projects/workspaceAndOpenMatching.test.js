@@ -126,25 +126,6 @@ test('PROJECT-WORKSPACE-HELPER-001 matches encoded SSH WSL and Dev Container wor
     );
 });
 
-test('PROJECT-WORKSPACE-HELPER-001 resolves one unambiguous legacy remote-path match', () => {
-    const savedProjects = [
-        { id: 'ssh', path: 'vscode-remote://ssh-remote+host/work/app', remoteType: 1 },
-        { id: 'wsl', path: 'vscode-remote://wsl+Ubuntu/work/app', remoteType: 2 },
-    ];
-    assert.equal(
-        matcher.findSavedProjectForOpenProject(savedProjects, FakeUri.file('/work/app'), 'ssh-remote').id,
-        'ssh'
-    );
-    assert.equal(
-        matcher.findSavedProjectForOpenProject(savedProjects.concat({
-            id: 'ssh-duplicate',
-            path: 'vscode-remote://ssh-remote+other/work/app',
-            remoteType: 1,
-        }), FakeUri.file('/work/app'), 'ssh-remote'),
-        null
-    );
-});
-
 test('MANAGED-REMOTE-NAVIGATION-001 recognizes opened Host and Dev Container Projects as saved', () => {
     const machine = {
         id: 'machine:reddev', name: 'RedDev Main',
@@ -206,7 +187,48 @@ test('MANAGED-REMOTE-NAVIGATION-001 recognizes opened Host and Dev Container Pro
     ), null);
 });
 
-test('MANAGED-REMOTE-NAVIGATION-001 identifies the current Dev Container Environment from its migrated authority', () => {
+test('MANAGED-REMOTE-NAVIGATION-001 resolves a first Dev Container save to its Managed Machine', () => {
+    const machine = {
+        id: 'machine:reddev', name: 'RedDev',
+        connection: { kind: 'ssh', host: '10.0.0.8', user: 'dev', port: 22022 },
+    };
+    const snapshot = {
+        revisionId: `revision:${'a'.repeat(64)}`,
+        lifecycle: 'active',
+        catalog: {
+            machines: [machine],
+            environments: [{
+                id: 'environment:host', machineId: machine.id, kind: 'host', name: 'Host',
+            }],
+            projects: [],
+            layout: {
+                machineIds: [machine.id], environmentIdsByMachine: {},
+                projectIdsByEnvironment: {}, favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    };
+    const payload = Buffer.from(JSON.stringify({
+        configFile: { path: '/work/api/.devcontainer/devcontainer.json' },
+    }), 'utf8').toString('hex');
+    const alias = managedSshAlias(machine.id, machine.name, machine.connection.host);
+    const uri = FakeUri.parse(
+        `vscode-remote://${encodeURIComponent(`dev-container+${payload}@ssh-remote+${alias}`)}/workspace/api`,
+    );
+
+    const target = matcher.findManagedDevContainerSaveTarget(snapshot, uri);
+    assert.equal(target.machine.id, machine.id);
+    assert.equal(target.remotePath, '/workspace/api');
+    assert.deepEqual(target.anchor, {
+        version: 1,
+        originalAuthority: `dev-container+${payload}@ssh-remote+${alias}`,
+        sourceKind: 'config',
+        sourceLocator: '/work/api/.devcontainer/devcontainer.json',
+    });
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 MANAGED-REMOTE-DEV-CONTAINER-001 identifies the current Dev Container Environment from managed authority', () => {
     const payload = Buffer.from(JSON.stringify({ hostPath: '/work/container' }), 'utf8')
         .toString('hex');
     const targetPayload = Buffer.from(JSON.stringify({ hostPath: '/work/other-container' }), 'utf8')
@@ -451,37 +473,6 @@ test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Machine sharing a connection ho
     assert.equal(environment.id, 'environment:one');
 });
 
-test('MANAGED-REMOTE-NAVIGATION-001 stays ambiguous for a legacy alias two Machines both claim', () => {
-    const { snapshot } = twoMachinesOnOneHost();
-    // A pre-suffix alias derived from the shared connection host carries no
-    // Machine identity, so attributing it to either Machine would be a guess.
-    const environment = matcher.findManagedEnvironmentForWorkspace(
-        snapshot,
-        FakeUri.parse('vscode-remote://ssh-remote%2Breddev.example.com/work/api'),
-    );
-
-    assert.equal(environment, null);
-});
-
-test('MANAGED-REMOTE-NAVIGATION-001 resolves a legacy alias exactly one Machine claims', () => {
-    const { first, snapshot } = twoMachinesOnOneHost();
-    // Give the sibling a distinct connection host so only one Machine can claim
-    // the legacy name-only alias; it must then still resolve.
-    snapshot.catalog.machines[1] = {
-        ...snapshot.catalog.machines[1],
-        connection: { ...snapshot.catalog.machines[1].connection, host: 'other.example.com' },
-    };
-    const legacy = require('../../../out/projects/managedRemote/sshConfigProjection')
-        .managedSshAliasName(first.name, first.connection.host);
-    const environment = matcher.findManagedEnvironmentForWorkspace(
-        snapshot,
-        FakeUri.parse(`vscode-remote://${encodeURIComponent(`ssh-remote+${legacy}`)}/work/api`),
-    );
-
-    assert.ok(environment, 'a uniquely claimed legacy alias must still resolve');
-    assert.equal(environment.id, 'environment:one');
-});
-
 test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Machine after it is renamed', () => {
     const { first, snapshot } = twoMachinesOnOneHost();
     // The alias already written to the SSH config keeps the old readable
@@ -498,9 +489,7 @@ test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Machine after it is renamed', (
     assert.equal(environment.id, 'environment:one');
 });
 
-test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Machine adopted from a hand-written SSH host alias', () => {
-    // A Machine migrated from ~/.ssh/config keeps the Host alias the user chose,
-    // which is neither the projected form nor derivable from the Machine name.
+test('MANAGED-REMOTE-NAVIGATION-001 rejects a hand-written SSH host alias', () => {
     const machine = {
         id: 'machine:one', name: '小红书开发机',
         connection: {
@@ -533,17 +522,12 @@ test('MANAGED-REMOTE-NAVIGATION-001 recognizes a Machine adopted from a hand-wri
         snapshot,
         FakeUri.parse('vscode-remote://ssh-remote%2Breddev/home/hzcheng/projects/repos/workspaces/ai-tour.code-workspace'),
     );
-    assert.ok(environment, 'the original Host alias must still resolve');
-    assert.equal(environment.id, 'environment:host');
-
-    // A multi-root .code-workspace file is addressed by its file path, so the
-    // saved Project must be recognised from that path and not only from folders.
+    assert.equal(environment, null);
     const match = matcher.findManagedProjectForOpenProject(
         snapshot,
         FakeUri.parse('vscode-remote://ssh-remote%2Breddev/home/hzcheng/projects/repos/workspaces/ai-tour.code-workspace'),
     );
-    assert.ok(match, 'the saved multi-root workspace must be recognised as saved');
-    assert.equal(match.project.id, 'project:one');
+    assert.equal(match, null);
 });
 
 test('MANAGED-REMOTE-NAVIGATION-001 does not attribute a hand-written alias to an unrelated Machine', () => {

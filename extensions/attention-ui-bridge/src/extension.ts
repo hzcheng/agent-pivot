@@ -54,7 +54,6 @@ import {
     parseManagedRemoteBridgeHandshakeRequest,
 } from '../../../src/projects/managedRemote/bridgeProtocol';
 import { ManagedRemoteBridgeController } from './managedRemoteBridgeController';
-import { ManagedLegacySshInspector } from './managedLegacySshInspector';
 import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
 import { ManagedSshConsentFileStore } from './managedSshConsentStore';
 import { discoverManagedSshLocalInputs } from './managedSshDiscovery';
@@ -110,7 +109,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const bridgeRoot = resolveBridgeStorageRoot(context.globalStoragePath, context.globalStorageUri.scheme);
     const managedRemoteSessionToken = crypto.randomBytes(32).toString('hex');
     const managedSshConsent = new ManagedSshConsentFileStore(bridgeRoot);
-    const managedLegacySshInspector = new ManagedLegacySshInspector({});
     const createManagedSshCoordinator = async (): Promise<ManagedSshConsentCoordinator> => {
         const inputs = discoverManagedSshLocalInputs({
             platform: process.platform,
@@ -173,8 +171,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             vscode.Uri.parse(uri),
             { forceNewWindow: true },
         ),
-        inspectLegacySshTarget: (executable, activeConfigPath, target) =>
-            managedLegacySshInspector.inspect(executable, activeConfigPath, target),
     }, managedSshProjection);
     const instanceId = crypto.randomBytes(16).toString('hex');
     const store = new LocalStore(bridgeRoot, instanceId, bridgeProcessId);

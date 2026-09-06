@@ -53,7 +53,7 @@ test('MANAGED-REMOTE-MANAGEMENT-001 accepts strict identity-only management inte
         requestId,
         operation: 'beginMigration',
         expectedRevisionId: null,
-    }), null, 'migration is automatic and has no Webview command');
+    }), null, 'migration is not part of the managed catalog protocol');
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-001 rejects payload injection and target-shape drift', () => {

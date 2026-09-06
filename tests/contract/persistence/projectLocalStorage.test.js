@@ -87,18 +87,10 @@ function makeHarness(initialGroups) {
     };
 }
 
-test('MACHINE-PROJECTS-LOCAL-STORE-001 migrates Local Projects out of synchronized settings', async () => {
-    const localContainerAnchor = Buffer.from(JSON.stringify({
-        hostPath: '/work/container',
-        localDocker: true,
-    }), 'utf8').toString('hex');
+test('MACHINE-PROJECTS-LOCAL-STORE-001 keeps legacy synchronized Projects inert', async () => {
     const initial = [{
         id: 'group-main', groupName: 'Main', projects: [{
             id: 'project-local', name: 'Local', path: '/work/local', color: '#445566',
-        }, {
-            id: 'project-container', name: 'Container',
-            path: `vscode-remote://dev-container%2B${localContainerAnchor}/workspaces/app`,
-            color: '#556677',
         }, {
             id: 'project-remote', name: 'Remote',
             path: 'vscode-remote://ssh-remote%2Bdevbox/work/remote', color: '#667788',
@@ -106,29 +98,9 @@ test('MACHINE-PROJECTS-LOCAL-STORE-001 migrates Local Projects out of synchroniz
     }];
     const { clientA, clientB, settings, stateA, stateB } = makeHarness(initial);
 
-    stateA.failNextUpdate('localProjects.v1', new Error('local storage unavailable'));
-    await assert.rejects(clientA.migrateDataIfNeeded(), /local storage unavailable/);
-    assert.deepEqual(projectIds(settings.projectData), [
-        'project-container',
-        'project-local',
-        'project-remote',
-    ]);
-    assert.equal(stateA.values['localProjects.v1'], undefined);
-
-    assert.equal(await clientA.migrateDataIfNeeded(), true);
-    assert.deepEqual(projectIds(settings.projectData), ['project-remote']);
-    assert.deepEqual(projectIds(stateA.values['localProjects.v1']), [
-        'project-container',
-        'project-local',
-    ]);
-    assert.deepEqual(projectIds(clientA.getGroups()), [
-        'project-container',
-        'project-local',
-        'project-remote',
-    ]);
-
-    await clientB.reconcileProjectCatalog();
-    assert.deepEqual(projectIds(clientB.getGroups()), ['project-remote']);
+    assert.deepEqual(projectIds(settings.projectData), ['project-local', 'project-remote']);
+    assert.deepEqual(clientA.getGroups(), []);
+    assert.deepEqual(clientB.getGroups(), []);
     assert.equal(stateB.values['localProjects.v1'], undefined);
 
     await clientA.addProject({
@@ -137,55 +109,13 @@ test('MACHINE-PROJECTS-LOCAL-STORE-001 migrates Local Projects out of synchroniz
     await clientB.addProject({
         id: 'project-local-b', name: 'Local B', path: '/work/local-b', color: '#8899aa',
     }, 'group-main');
-    await clientA.reconcileProjectCatalog();
-    assert.deepEqual(projectIds(settings.projectData), ['project-remote']);
-    assert.deepEqual(projectIds(clientA.getGroups()), [
-        'project-container',
-        'project-local',
-        'project-local-a',
-        'project-remote',
-    ]);
-    assert.deepEqual(projectIds(clientB.getGroups()), [
-        'project-local-b',
-        'project-remote',
-    ]);
-
-    await clientA.addProject({
+    assert.deepEqual(projectIds(clientA.getGroups()), ['project-local-a']);
+    assert.deepEqual(projectIds(clientB.getGroups()), ['project-local-b']);
+    assert.deepEqual(projectIds(settings.projectData), ['project-local', 'project-remote']);
+    await assert.rejects(clientA.addProject({
         id: 'project-remote-two', name: 'Remote two',
         path: 'vscode-remote://ssh-remote%2Bdevbox/work/two', color: '#99aabb',
-    }, 'group-main');
-    await clientB.reconcileProjectCatalog();
-    assert.deepEqual(projectIds(clientB.getGroups()), [
-        'project-local-b',
-        'project-remote',
-        'project-remote-two',
-    ]);
-
-    await clientA.updateProject('project-local', {
-        id: 'ignored', name: 'Local moved remote',
-        path: 'vscode-remote://ssh-remote%2Bdevbox/work/local', color: '#445566',
-    });
-    assert.deepEqual(projectIds(stateA.values['localProjects.v1']), [
-        'project-container',
-        'project-local-a',
-    ]);
-    assert.deepEqual(projectIds(settings.projectData), [
-        'project-local',
-        'project-remote',
-        'project-remote-two',
-    ]);
-
-    await clientA.updateProject('project-remote', {
-        id: 'ignored', name: 'Remote moved local', path: '/work/returned', color: '#667788',
-    });
-    await clientB.reconcileProjectCatalog();
-    assert.deepEqual(projectIds(settings.projectData), [
-        'project-local',
-        'project-remote-two',
-    ]);
-    assert.deepEqual(projectIds(clientB.getGroups()), [
-        'project-local',
-        'project-local-b',
-        'project-remote-two',
-    ]);
+    }, 'group-main'), /Managed Machine/u);
+    assert.deepEqual(projectIds(stateA.values['localProjects.v1']), ['project-local-a']);
+    assert.deepEqual(projectIds(settings.projectData), ['project-local', 'project-remote']);
 });

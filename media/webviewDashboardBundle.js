@@ -7894,15 +7894,6 @@ function initProjects() {
         });
     }
 
-    function onImportFromOtherStorageClicked(e) {
-        if (!e.target)
-            return;
-
-        window.vscode.postMessage({
-            type: 'import-from-other-storage',
-        });
-    }
-
     function onInsideOpenWindowRowClick(e, row) {
         // PRD 单击语义：非当前行 = 聚焦该 OS 窗口（走导航请求协议）；当前行 =
         // 空操作；双击/中键 = 无行为。★/⋯/重试按钮在各行内单独处理，不触发行点击。
@@ -8266,11 +8257,6 @@ function initProjects() {
 
         if (e.target.closest('[data-action="add-project"]')) {
             onAddProjectClicked(e);
-            return;
-        }
-
-        if (e.target.closest('[data-action="import-from-other-storage"]')) {
-            onImportFromOtherStorageClicked(e);
             return;
         }
 
@@ -9306,12 +9292,16 @@ function createMachineProjectsUi() {
 
     function restoreState() {
         selectedTags = new Set(readArray(storageKeys.tags));
+        var restoredTagCount = selectedTags.size;
         var available = new Set(Array.from(
             panel.querySelectorAll('[data-machine-tag-checkbox]')
         ).map(function (input) { return input.value; }));
         selectedTags.forEach(function (tag) {
             if (!available.has(tag)) selectedTags.delete(tag);
         });
+        if (selectedTags.size !== restoredTagCount) {
+            writeArray(storageKeys.tags, selectedTags);
+        }
         panel.querySelectorAll('[data-machine-tag-checkbox]').forEach(function (input) {
             input.checked = selectedTags.has(input.value);
         });
@@ -9392,7 +9382,7 @@ function createMachineProjectsUi() {
         trigger.setAttribute('aria-expanded', 'true');
         activeProjectMenuTrigger = trigger;
         if (focusFirst) {
-            var first = menu.querySelector('[role="menuitem"]');
+            var first = menu.querySelector('[role="menuitem"]:not(:disabled)');
             if (first) first.focus();
         }
     }
@@ -9507,7 +9497,7 @@ function createMachineProjectsUi() {
     function postManagedClientAction(control) {
         var action = control.getAttribute('data-managed-client-action');
         var root = managedRoot();
-        if (!action || !root) return;
+        if (!action || !root || control.disabled) return;
         closeProjectMenu(false);
         window.vscode.postMessage({
             type: 'managed-remote-client-action',
@@ -9536,10 +9526,11 @@ function createMachineProjectsUi() {
                 var managedOpen = row.querySelector(
                     ':scope > .machine-row-line > [data-managed-client-action="openProject"]'
                 );
-                if (managedOpen) {
+                if (managedOpen && !managedOpen.disabled) {
                     postManagedClientAction(managedOpen);
                     return;
                 }
+                if (managedOpen) return;
                 postProjectOpen(
                     row,
                     event.ctrlKey || event.metaKey
@@ -9595,9 +9586,9 @@ function createMachineProjectsUi() {
                 });
             }
         } else if (action === 'toggle-machine-project-menu') {
-            toggleProjectMenu(control, false);
+            toggleProjectMenu(control, event.detail === 0);
         } else if (action === 'toggle-machine-menu') {
-            toggleProjectMenu(control, false);
+            toggleProjectMenu(control, event.detail === 0);
         } else if (action === 'rename-machine') {
             postMachineAction(control, 'rename-machine');
         } else if (action === 'reset-machine-name') {
@@ -9638,6 +9629,13 @@ function createMachineProjectsUi() {
         var row = event.target.closest('[data-machine-project-row]');
         if (!row || !panel.contains(row)) return;
         event.preventDefault();
+        var managedOpen = row.querySelector(
+            ':scope > .machine-row-line > [data-managed-client-action="openProject"]'
+        );
+        if (managedOpen) {
+            if (!managedOpen.disabled) postManagedClientAction(managedOpen);
+            return;
+        }
         postProjectOpen(row, ProjectOpenType.NewWindow);
     }
 
@@ -9661,7 +9659,8 @@ function createMachineProjectsUi() {
         if (menu && (event.key === 'ArrowDown' || event.key === 'ArrowUp'
             || event.key === 'Home' || event.key === 'End')) {
             event.preventDefault();
-            var items = Array.from(menu.querySelectorAll('[role="menuitem"]'));
+            var items = Array.from(menu.querySelectorAll('[role="menuitem"]:not(:disabled)'));
+            if (!items.length) return;
             var current = items.indexOf(document.activeElement);
             var next = event.key === 'Home' ? 0
                 : event.key === 'End' ? items.length - 1
@@ -9686,7 +9685,13 @@ function createMachineProjectsUi() {
                 return;
             }
         }
-        if (event.key === 'Escape') closeTags(true);
+        if (event.key === 'Escape') {
+            var tagPopover = panel && panel.querySelector('[data-machine-tag-popover]');
+            if (tagPopover && !tagPopover.hidden) {
+                event.preventDefault();
+                closeTags(true);
+            }
+        }
     }
 
     function onDocumentPointerDown(event) {
@@ -11327,6 +11332,7 @@ function restoreProjectsFocus(panel, target) {
     var project = group && Array.from(group.querySelectorAll('.project[data-id]'))
         .find(candidate => candidate.getAttribute('data-id') === target.projectId);
     if (!project) {
+        focusProjectsPanelFallback(panel);
         return;
     }
     var focusTarget = project;
@@ -11345,7 +11351,10 @@ function restoreProjectsFocus(panel, target) {
 function restoreMachineProjectsFocus(panel, target) {
     var machine = Array.from(panel.querySelectorAll('[data-machine-row]'))
         .find(candidate => candidate.getAttribute('data-machine-id') === target.machineId);
-    if (!machine) return;
+    if (!machine) {
+        focusProjectsPanelFallback(panel);
+        return;
+    }
     var owner = machine;
     if (target.kind === 'machine-environment' || target.kind === 'machine-project') {
         owner = Array.from(machine.querySelectorAll('[data-machine-environment-row]'))
@@ -11371,6 +11380,15 @@ function restoreMachineProjectsFocus(panel, target) {
         || machine.querySelector(':scope > .machine-row-line > .machine-row-primary');
     if (focusTarget && typeof focusTarget.focus === 'function') {
         focusTarget.focus({ preventScroll: true });
+    }
+}
+
+function focusProjectsPanelFallback(panel) {
+    var fallback = panel && panel.querySelector(
+        '[data-managed-operation="addMachine"], [data-action="add-project"], button:not(:disabled)'
+    );
+    if (fallback && typeof fallback.focus === 'function') {
+        fallback.focus({ preventScroll: true });
     }
 }
 
@@ -11679,8 +11697,14 @@ function renderDashboardSearchResults(container, sections) {
                 button.dataset.skillDir = String(item.dirPath || '');
                 metadata.textContent = [item.scope === 'project' ? 'Project' : 'Global', item.description].filter(Boolean).join(' · ');
             } else {
-                button.dataset.searchAction = 'open-saved-project';
-                metadata.textContent = [item.description].concat(item.groupLabels || []).filter(Boolean).join(' · ');
+                button.dataset.searchAction = item.action === 'open-managed-project'
+                    ? 'open-managed-project'
+                    : 'open-saved-project';
+                if (item.expectedRevisionId) {
+                    button.dataset.expectedRevisionId = String(item.expectedRevisionId);
+                }
+                metadata.textContent = [item.description, item.environmentLabel]
+                    .concat(item.groupLabels || []).filter(Boolean).join(' · ');
             }
             button.appendChild(metadata);
             sectionElement.appendChild(button);
@@ -12281,7 +12305,6 @@ function initDashboard(options) {
                 restoreScroll(activeTab);
             }
         }
-        notifyActiveTabChanged();
     }
 
     function replaceSearchCatalog(nextCatalog) {
@@ -12397,6 +12420,17 @@ function initDashboard(options) {
                 type: 'selected-project',
                 projectId: button.dataset.projectId,
                 projectOpenType: 0,
+            });
+            return;
+        }
+        if (action === 'open-managed-project') {
+            options.postMessage({
+                type: 'managed-remote-client-action',
+                version: 1,
+                requestId: 'managed-search-' + Date.now(),
+                action: 'openProject',
+                expectedRevisionId: button.dataset.expectedRevisionId || null,
+                targetId: button.dataset.projectId,
             });
             return;
         }

@@ -1,5 +1,8 @@
 # Remote Machines Projects 实施计划
 
+> Superseded by [Managed Remote Machines PRD](./managed-remote-machines-prd.md)
+> and its technical design. This historical plan is not current product behavior.
+
 本计划以“现有 Project 是唯一事实源”为边界，替代此前的 V2/Profile 方案。
 
 ## 实现边界

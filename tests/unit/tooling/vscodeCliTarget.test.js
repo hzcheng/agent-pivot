@@ -105,6 +105,19 @@ test('LOCAL-INSTALL-CLI-TARGET-001 prefers the active Extension Host Server over
     assert.equal(target.source, 'active-server');
 });
 
+test('LOCAL-INSTALL-CLI-TARGET-001 refuses to guess between multiple running Server roots', () => {
+    const other = '/home/dev/.vscode-server/bin/def456';
+    const target = resolve({
+        listActiveServerRoots: () => [SERVER_ROOT, other],
+        listServerRoots: () => [SERVER_ROOT, other],
+    });
+
+    assert.equal(target.command, null);
+    assert.equal(target.source, 'ambiguous-active-servers');
+    assert.match(target.error, /Multiple running VS Code Server installations/);
+    assert.match(target.error, /CODE_CMD/);
+});
+
 test('LOCAL-INSTALL-CLI-TARGET-001 treats an unreachable socket path as dead', () => {
     assert.equal(isLiveIpcSocket('', () => true), false, 'an unset hook is not live');
     assert.equal(isLiveIpcSocket('/tmp/whatever.sock', () => false), false);

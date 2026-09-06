@@ -84,64 +84,6 @@ test('MANAGED-REMOTE-BRIDGE-001 rejects endpoint-bearing requests before creatin
     assert.equal(creates, 0);
 });
 
-test('MANAGED-REMOTE-BRIDGE-001 never returns local SSH config bytes to a workspace host', async () => {
-    const { envelope, slot } = activeEnvelope();
-    const controller = new ManagedRemoteBridgeController({
-        readManagedCatalogEnvelope() { return envelope; },
-    }, {
-        async create() {
-            return {
-                async preflightEnable() {
-                    return {
-                        activeConfigPath: '/home/local/.ssh/config',
-                        includeBlock: 'Include safe',
-                        candidateConfigContent: 'Host private-secret',
-                        currentConfigContent: 'Host private-secret',
-                        dependencyFingerprint: { files: [{ checksum: 'secret' }] },
-                        projection: { entries: [{ host: 'synced.example.com' }] },
-                    };
-                },
-            };
-        },
-    }, 'session-12345678');
-    const result = await controller.execute(request('preflightEnable', slot.revisionId));
-    assert.equal(result.status, 'ok');
-    assert.equal(result.value.activeConfigPath, '/home/local/.ssh/config');
-    assert.equal(result.value.includeBlock, 'Include safe');
-    assert.equal('candidateConfigContent' in result.value, false);
-    assert.equal('currentConfigContent' in result.value, false);
-    assert.equal('dependencyFingerprint' in result.value, false);
-    assert.equal('projection' in result.value, false);
-});
-
-test('MANAGED-REMOTE-CLIENT-ENABLE-001 allows enable preflight for preview but not runtime reconcile', async () => {
-    const { envelope, slot } = activeEnvelope('preview');
-    let preflights = 0;
-    const controller = new ManagedRemoteBridgeController({
-        readManagedCatalogEnvelope() { return envelope; },
-    }, {
-        async create() {
-            return {
-                async preflightEnable() {
-                    preflights += 1;
-                    return {
-                        activeConfigPath: '/home/local/.ssh/config',
-                        generatedConfigPath: '/home/local/.agent-pivot/ssh/config',
-                        backupPath: '/home/local/.ssh/config.bak',
-                        editMode: 'automatic',
-                    };
-                },
-                async reconcile() { throw new Error('must not reconcile preview'); },
-            };
-        },
-    }, 'session-12345678');
-    const preflight = await controller.execute(request('preflightEnable', slot.revisionId));
-    const reconcile = await controller.execute(request('reconcile', slot.revisionId));
-    assert.equal(preflight.status, 'ok');
-    assert.equal(preflights, 1);
-    assert.equal(reconcile.status, 'catalogOutOfDate');
-});
-
 test('MANAGED-REMOTE-BRIDGE-001 can recover local disable without catalog authority', async () => {
     let reads = 0;
     const controller = new ManagedRemoteBridgeController({
@@ -160,48 +102,6 @@ test('MANAGED-REMOTE-BRIDGE-001 can recover local disable without catalog author
     assert.equal(result.status, 'ok');
     assert.equal(result.value.status, 'disabled');
     assert.equal(reads, 0);
-});
-
-test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 inspects only a validated alias in the UI host', async () => {
-    let reads = 0;
-    const calls = [];
-    const controller = new ManagedRemoteBridgeController({
-        readManagedCatalogEnvelope() { reads += 1; return null; },
-    }, {
-        async create() {
-            return {
-                getExecutable() { return '/usr/bin/ssh'; },
-                getActiveConfigPath() { return '/home/local/.ssh/config'; },
-            };
-        },
-    }, 'session-12345678', {
-        platform: 'linux',
-        openTerminal() {},
-        async writeClipboard() {},
-        async openRemoteWindow() {},
-        async openRemoteFolder() {},
-        async inspectLegacySshTarget(executable, configPath, target) {
-            calls.push({ executable, configPath, target });
-            return {
-                status: 'needsInput',
-                reason: 'Review detected details.',
-                endpoint: { host: 'build.example.com', user: 'dev', port: 2207 },
-            };
-        },
-    });
-    const result = await controller.execute({
-        ...request('inspectLegacySshTarget'),
-        legacySshTarget: 'build-alias',
-    });
-
-    assert.equal(result.status, 'ok');
-    assert.equal(reads, 0);
-    assert.deepEqual(calls, [{
-        executable: '/usr/bin/ssh',
-        configPath: '/home/local/.ssh/config',
-        target: 'build-alias',
-    }]);
-    assert.equal(result.value.endpoint.port, 2207);
 });
 
 test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies the endpoint without projection', async () => {

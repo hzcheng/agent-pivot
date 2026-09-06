@@ -4,6 +4,7 @@ import type { AiSessionProviderId, Group, Project } from '../models';
 import type { WorktreeActivity, WorktreeRowViewModel } from '../aiSessions/types';
 import type { WorktreeKey } from '../worktrees';
 import { normalizeProjectTags } from '../projects/projectTags';
+import type { ManagedRemoteManagementSnapshot } from '../projects/managedRemote/managementController';
 
 export interface DashboardWorkspaceSearchSessionItem {
     key: string;
@@ -44,7 +45,8 @@ export interface DashboardSearchProjectItem {
     projectId: string;
     name: string;
     description: string;
-    action: 'open-saved';
+    action: 'open-saved-project' | 'open-managed-project';
+    expectedRevisionId?: string;
     environmentLabel?: string;
     groupLabels: string[];
 }
@@ -153,7 +155,7 @@ function buildSavedProjectSearchItems(groups: Group[]): DashboardSearchProjectIt
                 projectId: project.id,
                 name: project.name || '',
                 description: project.description || '',
-                action: 'open-saved',
+                action: 'open-saved-project',
                 groupLabels: [],
             };
             savedByIdentity.set(identity, item);
@@ -170,10 +172,50 @@ function buildSavedProjectSearchItems(groups: Group[]): DashboardSearchProjectIt
     return Array.from(savedByIdentity.values());
 }
 
+function buildManagedProjectSearchItems(
+    snapshot: ManagedRemoteManagementSnapshot | undefined,
+): DashboardSearchProjectItem[] {
+    if (!snapshot || snapshot.lifecycle !== 'active' || !snapshot.revisionId) {
+        return [];
+    }
+    const machines = new Map(snapshot.catalog.machines.map(machine => [machine.id, machine]));
+    const environments = new Map(snapshot.catalog.environments.map(environment => [environment.id, environment]));
+    return snapshot.catalog.projects.reduce<DashboardSearchProjectItem[]>((items, project) => {
+        const environment = environments.get(project.environmentId);
+        const machine = environment && machines.get(environment.machineId);
+        if (!environment || !machine) { return items; }
+        const host = machine.connection.host.includes(':')
+            ? `[${machine.connection.host}]` : machine.connection.host;
+        const endpoint = `${machine.connection.user}@${host}:${machine.connection.port}`;
+        items.push({
+            key: `managed:${project.id}`,
+            identity: `managed:${project.id}`,
+            searchText: searchable(
+                project.name,
+                project.description,
+                project.remotePath,
+                ...normalizeProjectTags(project.tags),
+                machine.name,
+                endpoint,
+                environment.name,
+            ),
+            projectId: project.id,
+            name: project.name || '',
+            description: project.description || project.remotePath,
+            action: 'open-managed-project' as const,
+            expectedRevisionId: snapshot.revisionId,
+            environmentLabel: `${machine.name} · ${environment.name}`,
+            groupLabels: project.favorite ? ['FAVORITES'] : [],
+        });
+        return items;
+    }, []);
+}
+
 export function buildWorkspaceDashboardSearchCatalog(
     groups: Group[],
     workspaces: DashboardSearchWorkspace[],
-    skills: import('../skills/types').SkillRecord[] = []
+    skills: import('../skills/types').SkillRecord[] = [],
+    managedRemoteSnapshot?: ManagedRemoteManagementSnapshot,
 ): DashboardWorkspaceSearchCatalog {
     const current = (workspaces || []).find(workspace => workspace.kind === 'current');
     const byNavigationIdentity = new Map<string, DashboardSearchWorkspace>();
@@ -285,7 +327,10 @@ export function buildWorkspaceDashboardSearchCatalog(
             }));
     }
 
-    const savedProjects = buildSavedProjectSearchItems(groups);
+    const savedProjects = [
+        ...buildSavedProjectSearchItems(groups),
+        ...buildManagedProjectSearchItems(managedRemoteSnapshot),
+    ];
     const skillItems: DashboardSearchSkillItem[] = (skills || []).map(record => ({
         key: `skill:${record.dirPath}`,
         searchText: searchable(record.name, record.description, record.scope, record.source),

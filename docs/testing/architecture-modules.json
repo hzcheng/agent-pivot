@@ -710,7 +710,6 @@
           "src/services/colorService.ts",
           "src/services/fileService.ts",
           "src/services/projectWindowColorService.ts",
-          "src/services/projectCatalogSyncService.ts",
           "src/services/sourceControl.ts",
           "src/services/gitChangesDiff.ts",
           "src/services/ntc.ts"
@@ -718,7 +717,6 @@
         "exclude": []
       },
       "publicEntrypoints": [
-        "src/projects/addProjectsFromFolderController.ts",
         "src/projects/currentProjectDetails.ts",
         "src/projects/favoriteProjectController.ts",
         "src/projects/favoriteProjectOrder.ts",
@@ -728,7 +726,6 @@
         "src/projects/machineRenameController.ts",
         "src/projects/openProjectMatcher.ts",
         "src/projects/openProjectService.ts",
-        "src/projects/projectManualEditController.ts",
         "src/projects/projectMessageHandlers.ts",
         "src/projects/machineProjectsViewModel.ts",
         "src/projects/projectMutationController.ts",
@@ -745,13 +742,11 @@
         "src/projects/managedRemote/composition.ts",
         "src/projects/managedRemote/devContainerCodec.ts",
         "src/projects/managedRemote/envelope.ts",
-        "src/projects/managedRemote/legacyCompatibilityGuard.ts",
         "src/projects/managedRemote/targetResolver.ts",
         "src/projects/managedRemote/managementController.ts",
         "src/projects/managedRemote/managementProtocol.ts",
         "src/projects/managedRemote/managementStore.ts",
         "src/projects/managedRemote/merge.ts",
-        "src/projects/managedRemote/migrationPlan.ts",
         "src/projects/managedRemote/productionStore.ts",
         "src/projects/managedRemote/sshConfigProjection.ts",
         "src/projects/managedRemote/store.ts",
@@ -782,7 +777,6 @@
             "src/projects/projectPathUtils.ts",
             "src/projects/favoriteProjectOrder.ts",
             "src/projects/projectNavigationProtocol.ts",
-            "src/projects/projectCatalogSync.ts",
             "src/projects/projectTags.ts",
             "src/projects/managedRemote/causal.ts",
             "src/projects/managedRemote/bridgeProtocol.ts",
@@ -961,7 +955,6 @@
             "extensions/attention-ui-bridge/src/managedSshConfigPolicy.ts",
             "extensions/attention-ui-bridge/src/managedSshConsentStore.ts",
             "extensions/attention-ui-bridge/src/managedSshDiscovery.ts",
-            "extensions/attention-ui-bridge/src/managedLegacySshInspector.ts",
             "extensions/attention-ui-bridge/src/managedSshOwnedFiles.ts",
             "extensions/attention-ui-bridge/src/managedSshValidator.ts",
             "extensions/attention-ui-bridge/src/openWorkspace*Store.ts"

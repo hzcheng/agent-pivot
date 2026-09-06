@@ -44,12 +44,7 @@ export interface DashboardLifecycleControllerOptions {
     prepareConfigurationChange?: (
         event: ConfigurationChangeEventLike
     ) => Promise<void>;
-    checkDataMigration: (openStewardAfterMigrate: boolean) => Promise<void>;
-    reconcileProjectCatalog?: () => Promise<void>;
     reconcileManagedRemoteCatalog?: () => Promise<void>;
-    consumeProjectCatalogWriteEcho?: (
-        change: { syncData: boolean; legacyGroups: boolean }
-    ) => boolean;
     consumePromptDataWriteEcho?: () => boolean;
     applyProjectColorToCurrentWindow: () => void;
     refresh: (reason: string) => void;
@@ -89,14 +84,6 @@ export class DashboardLifecycleController {
             await this.options.prepareConfigurationChange(event);
             this.assertActive();
         }
-        const projectCatalogChange = {
-            syncData: event.affectsConfiguration(configurationKey('projectSyncData')),
-            legacyGroups: event.affectsConfiguration(configurationKey('projectData')),
-        };
-        const projectCatalogChanged = projectCatalogChange.syncData
-            || projectCatalogChange.legacyGroups;
-        const localProjectCatalogWriteEcho = projectCatalogChanged
-            && this.options.consumeProjectCatalogWriteEcho?.(projectCatalogChange) === true;
         const promptDataChanged = event.affectsConfiguration(configurationKey('promptData'));
         const localPromptDataWriteEcho = promptDataChanged
             && this.options.consumePromptDataWriteEcho?.() === true;
@@ -108,35 +95,17 @@ export class DashboardLifecycleController {
                 section => event.affectsConfiguration(section)
             );
 
-        if (event.affectsConfiguration(configurationKey('storeProjectsInSettings'))) {
-            await this.options.checkDataMigration(false);
-            this.assertActive();
-        }
-
-        if (projectCatalogChanged && !localProjectCatalogWriteEcho) {
-            if (this.options.reconcileProjectCatalog) {
-                await this.options.reconcileProjectCatalog();
-                this.assertActive();
-            }
-        }
-
         if (managedRemoteCatalogChanged && this.options.reconcileManagedRemoteCatalog) {
             await this.options.reconcileManagedRemoteCatalog();
             this.assertActive();
         }
 
-        const trackedDataChanged = projectCatalogChanged
-            || promptDataChanged
+        const trackedDataChanged = promptDataChanged
             || managedRemoteCatalogChanged;
         const fullDashboardRefreshRequired = dashboardConfigurationChanged;
         if (trackedDataChanged && !fullDashboardRefreshRequired) {
-            if ((projectCatalogChanged && !localProjectCatalogWriteEcho)
-                || managedRemoteCatalogChanged) {
+            if (managedRemoteCatalogChanged) {
                 this.options.refreshProjects?.('configuration-changed');
-                if (projectCatalogChanged && !localProjectCatalogWriteEcho) {
-                    this.options.applyProjectColorToCurrentWindow();
-                    this.options.publishOpenWorkspace();
-                }
             }
             if (promptDataChanged && !localPromptDataWriteEcho) {
                 this.options.refreshPrompts?.('configuration-changed');

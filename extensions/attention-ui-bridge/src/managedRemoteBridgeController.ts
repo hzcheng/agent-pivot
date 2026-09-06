@@ -1,9 +1,6 @@
 'use strict';
 
-import {
-    readManagedActiveRevisionSlot,
-    readManagedCurrentRevisionSlot,
-} from '../../../src/projects/managedRemote/envelope';
+import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
     ManagedRemoteBridgeRequest,
     ManagedRemoteBridgeResponse,
@@ -43,11 +40,6 @@ export interface ManagedRemoteBridgeLocalActions {
     writeClipboard(value: string): Promise<void> | Thenable<void>;
     openRemoteWindow(remoteAuthority: string): Promise<void> | Thenable<void>;
     openRemoteFolder(uri: string): Promise<void> | Thenable<void>;
-    inspectLegacySshTarget(
-        executable: string,
-        activeConfigPath: string,
-        target: string,
-    ): Promise<unknown>;
 }
 
 export function formatManagedSshCommand(
@@ -128,49 +120,11 @@ export class ManagedRemoteBridgeController {
         }
         try {
             const coordinator = await this.coordinators.create();
-            if (request.operation === 'inspectLegacySshTarget') {
-                if (!this.localActions || !request.legacySshTarget) {
-                    throw new Error('Legacy SSH inspection is unavailable.');
-                }
-                return response(
-                    request.requestId,
-                    'ok',
-                    await this.localActions.inspectLegacySshTarget(
-                        coordinator.getExecutable(),
-                        coordinator.getActiveConfigPath(),
-                        request.legacySshTarget,
-                    ),
-                );
-            }
             if (request.operation === 'getStatus') {
                 const state = coordinator.getState();
                 return state.status === 'recoveryRequired'
                     ? response(request.requestId, 'recoveryRequired', state.recoveryReason || 'Recovery required.')
                     : response(request.requestId, 'ok', state);
-            }
-            if (request.operation === 'preflightDisable') {
-                return response(
-                    request.requestId,
-                    'ok',
-                    sanitizeLocalResult(coordinator.preflightDisable()),
-                );
-            }
-            if (request.operation === 'beginDisable') {
-                return response(
-                    request.requestId,
-                    'ok',
-                    sanitizeLocalResult(await coordinator.beginDisable()),
-                );
-            }
-            if (request.operation === 'confirmDisable') {
-                return response(request.requestId, 'ok', await coordinator.confirmDisable());
-            }
-            if (request.operation === 'cancelTransition') {
-                return response(
-                    request.requestId,
-                    'ok',
-                    await coordinator.cancelPendingTransition(),
-                );
             }
             if (request.operation === 'recover') {
                 const slot = request.expectedRevisionId
@@ -181,12 +135,7 @@ export class ManagedRemoteBridgeController {
                     sanitizeLocalResult(await coordinator.recover(slot)),
                 );
             }
-            const slot = this.readExpectedSlot(
-                request,
-                request.operation === 'preflightEnable'
-                    || request.operation === 'beginEnable'
-                    || request.operation === 'confirmEnable',
-            );
+            const slot = this.readExpectedSlot(request);
             if (request.operation === 'openManagedMachine'
                 || request.operation === 'openManagedProject'
                 || request.operation === 'openManagedEnvironment') {
@@ -250,23 +199,6 @@ export class ManagedRemoteBridgeController {
                     alias: target.alias,
                 });
             }
-            if (request.operation === 'preflightEnable') {
-                return response(
-                    request.requestId,
-                    'ok',
-                    sanitizeLocalResult(await coordinator.preflightEnable(slot)),
-                );
-            }
-            if (request.operation === 'beginEnable') {
-                return response(
-                    request.requestId,
-                    'ok',
-                    sanitizeLocalResult(await coordinator.beginEnable(slot)),
-                );
-            }
-            if (request.operation === 'confirmEnable') {
-                return response(request.requestId, 'ok', await coordinator.confirmEnable(slot));
-            }
             if (request.operation === 'reconcile') {
                 if (this.projection) {
                     this.projection.schedule(slot);
@@ -279,9 +211,6 @@ export class ManagedRemoteBridgeController {
             const message = error instanceof Error ? error.message : String(error);
             if (/catalog revision|active Managed Remote catalog/i.test(message)) {
                 return response(request.requestId, 'catalogOutOfDate', error);
-            }
-            if (/not enabled on this computer/i.test(message)) {
-                return response(request.requestId, 'clientNotEnabled', error);
             }
             if (/recovery/i.test(message)) {
                 return response(request.requestId, 'recoveryRequired', error);
@@ -299,13 +228,9 @@ export class ManagedRemoteBridgeController {
         return this.projection.ensureReady(slot);
     }
 
-    private readExpectedSlot(
-        request: ManagedRemoteBridgeRequest,
-        allowPreview = false,
-    ): ManagedRevisionSlot {
+    private readExpectedSlot(request: ManagedRemoteBridgeRequest): ManagedRevisionSlot {
         const raw = this.catalog.readManagedCatalogEnvelope();
-        const slot = allowPreview
-            ? readManagedCurrentRevisionSlot(raw) : activeSlot(raw);
+        const slot = activeSlot(raw);
         if (!slot) {
             throw new Error('There is no unambiguous active Managed Remote catalog.');
         }

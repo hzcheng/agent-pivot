@@ -67,18 +67,6 @@
                 "title": "Agent Pivot: Open"
             },
             {
-                "command": "agentPivot.addGroup",
-                "title": "Agent Pivot: Add Group"
-            },
-            {
-                "command": "agentPivot.removeGroup",
-                "title": "Agent Pivot: Remove Group"
-            },
-            {
-                "command": "agentPivot.addProject",
-                "title": "Agent Pivot: Add Project"
-            },
-            {
                 "command": "agentPivot.sshToMachine",
                 "title": "Agent Pivot: SSH to Machine…"
             },
@@ -89,18 +77,6 @@
             {
                 "command": "agentPivot.saveProject",
                 "title": "Agent Pivot: Save Project"
-            },
-            {
-                "command": "agentPivot.removeProject",
-                "title": "Agent Pivot: Remove Project"
-            },
-            {
-                "command": "agentPivot.editProjects",
-                "title": "Agent Pivot: Edit Projects"
-            },
-            {
-                "command": "agentPivot.addProjectsFromFolder",
-                "title": "Agent Pivot: Add Projects from Folder"
             },
             {
                 "command": "agentPivot.addFileToActiveTerminal",
@@ -199,22 +175,6 @@
             "type": "object",
             "title": "Agent Pivot",
             "properties": {
-                "agentPivot.projectData": {
-                    "type": [
-                        "array",
-                        "null"
-                    ],
-                    "markdownDescription": "Stores synchronized remote Agent Pivot Projects if ```agentPivot.storeProjectsInSettings``` is ```true```. Local Projects remain in extension storage on this computer. Use ```Agent Pivot: Edit Projects``` to edit the merged Project list.",
-                    "default": null
-                },
-                "agentPivot.projectSyncData": {
-                    "type": [
-                        "object",
-                        "null"
-                    ],
-                    "markdownDescription": "Versioned Agent Pivot sync metadata. Use Agent Pivot commands to edit projects.",
-                    "default": null
-                },
                 "agentPivot.managedRemoteCatalogData": {
                     "type": [
                         "object",
@@ -298,13 +258,13 @@
                 },
                 "agentPivot.recentColors": {
                     "type": "array",
-                    "markdownDescription": "Stores the recently used colors if the ```agentPivot.storeProjectsInSettings``` option is set to ```true```.",
+                    "markdownDescription": "Stores recently used Project colors in user settings when ```agentPivot.storeProjectsInSettings``` is ```true```.",
                     "default": null
                 },
                 "agentPivot.storeProjectsInSettings": {
                     "type": "boolean",
                     "default": true,
-                    "markdownDescription": "If set to ```true```, remote Agent Pivot Projects are saved in user settings and can be synchronized across devices. Local paths and local containers always remain on this computer. **(VSCode restart required)**"
+                    "markdownDescription": "Controls whether recently used Project colors are stored in user settings or local extension state. Managed Machines always use their dedicated synchronized catalog; client-local Projects always stay local. **(VSCode restart required)**"
                 },
                 "agentPivot.maxVisibleAiSessions": {
                     "type": "number",

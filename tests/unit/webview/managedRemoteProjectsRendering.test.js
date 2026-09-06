@@ -12,26 +12,22 @@ function model() {
         id: 'project:api', environmentId: 'environment:host', machineId: 'machine:build',
         machineName: 'Build', machineEndpoint: 'dev@build.example.com:22022',
         environmentName: 'Host', name: 'API', remotePath: '/work/api', tags: ['Backend'],
-        favorite: true, color: '#ef4444', searchText: 'api backend', openable: false,
-        unavailableReason: 'Managed Remote preview.',
+        favorite: true, color: '#ef4444', searchText: 'api backend', openable: true,
     };
     return {
         revisionId: `revision:${'a'.repeat(64)}`,
-        lifecycle: 'preview',
-        clientState: 'preview',
-        clientMessage: 'Managed Remote preview.',
+        lifecycle: 'active',
         projectCount: 1,
         tags: ['Backend'],
         favorites: [project],
         machines: [{
             id: 'machine:build', name: 'Build', endpoint: 'dev@build.example.com:22022',
             connection: { kind: 'ssh', host: 'build.example.com', user: 'dev', port: 22022 },
-            projectCount: 1, openable: false, unavailableReason: 'Managed Remote preview.',
+            projectCount: 1, openable: true,
             conflict: false,
             environments: [{
                 id: 'environment:host', machineId: 'machine:build', kind: 'host', name: 'Host',
-                projects: [project], openable: false,
-                unavailableReason: 'Managed Remote preview.', conflict: false,
+                projects: [project], openable: true, conflict: false,
             }],
         }],
     };
@@ -55,8 +51,12 @@ test('MANAGED-REMOTE-MANAGEMENT-003 renders complete management actions and no M
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-003 keeps unavailable Favorite identity and reason in its name', () => {
-    const html = renderManagedRemoteProjectsPanel(model());
-    assert.match(html, /Favorite shortcut to API, on Build \(dev@build\.example\.com:22022\), Host\. Unavailable: Managed Remote preview\./);
+    const unavailable = model();
+    unavailable.lifecycle = 'disabled';
+    unavailable.favorites[0].openable = false;
+    unavailable.favorites[0].unavailableReason = 'The Managed Machine catalog is unavailable.';
+    const html = renderManagedRemoteProjectsPanel(unavailable);
+    assert.match(html, /Favorite shortcut to API, on Build \(dev@build\.example\.com:22022\), Host\. Unavailable: The Managed Machine catalog is unavailable\./);
     assert.match(html, /<fieldset[^>]+data-machine-tag-popover/);
     assert.match(html, /Match all selected tags/);
     assert.match(html, /machine-project-color/);
@@ -70,7 +70,7 @@ test('MANAGED-REMOTE-CLIENT-ENABLE-001 keeps an unavailable catalog free of a lo
 
 test('MANAGED-REMOTE-CLIENT-ENABLE-001 keeps local SSH projection state out of the Project product surface', () => {
     for (const clientState of [
-        'preview', 'enableRequired', 'applying', 'attention', 'remoteSshMissing',
+        'enableRequired', 'applying', 'attention', 'remoteSshMissing',
     ]) {
         const current = model();
         current.lifecycle = 'active';

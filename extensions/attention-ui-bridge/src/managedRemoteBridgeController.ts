@@ -158,6 +158,34 @@ function remoteChildPath(parent: string, name: string): string {
     return parent === '.' ? `./${name}` : `${parent}/${name}`;
 }
 
+const scpSftpDefaultCache = new Map<string, Promise<boolean>>();
+
+/** OpenSSH 9.0 made SFTP the SCP default; older clients invoke a remote shell. */
+function scpUsesSftpByDefault(sshExecutable: string): Promise<boolean> {
+    const cached = scpSftpDefaultCache.get(sshExecutable);
+    if (cached) { return cached; }
+    const result = new Promise<boolean>(resolve => {
+        const process = spawn(sshExecutable, ['-V'], { stdio: ['ignore', 'ignore', 'pipe'] });
+        const stderr: Buffer[] = [];
+        process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        process.on('error', () => resolve(false));
+        process.on('close', () => {
+            const version = /OpenSSH(?:_for_Windows)?_(\d+)\.(\d+)/u
+                .exec(Buffer.concat(stderr).toString('utf8'));
+            resolve(Boolean(version && Number(version[1]) >= 9));
+        });
+    });
+    scpSftpDefaultCache.set(sshExecutable, result);
+    return result;
+}
+
+/** Legacy SCP executes the remote endpoint through a shell, so quote its path. */
+function scpRemotePath(alias: string, remotePath: string, legacyScp: boolean): string {
+    return legacyScp
+        ? `${alias}:'${remotePath.replace(/'/gu, `"'"'`)}'`
+        : `${alias}:${remotePath}`;
+}
+
 function quoteSftpPath(value: string): string {
     return `"${value.replace(/([\\"])/gu, '\\$1')}"`;
 }
@@ -726,13 +754,15 @@ export class ManagedRemoteBridgeController {
                         throw new Error(`File Transfer cannot safely replace an existing folder or non-file: ${path.basename(entry.path)}. Choose Skip existing or another folder.`);
                     }
                 }
+                const legacyScp = !await scpUsesSftpByDefault(coordinator.getExecutable());
                 await copyFileTransferEntry(
                     coordinator.getExecutable(),
                     source.kind === 'managedMachine' && destination.kind === 'managedMachine',
                     entry.kind === 'directory',
-                    source.kind === 'managedMachine' ? `${source.alias}:${entry.path}` : entry.path,
+                    source.kind === 'managedMachine'
+                        ? scpRemotePath(source.alias, entry.path, legacyScp) : entry.path,
                     destination.kind === 'managedMachine'
-                        ? `${destination.alias}:${destinationPath}` : destinationPath,
+                        ? scpRemotePath(destination.alias, destinationPath, legacyScp) : destinationPath,
                     active,
                 );
                 if (entry.kind === 'file' && Number.isSafeInteger(entry.size)) {

@@ -126,6 +126,13 @@ export class ManagedRemoteBridgeClient {
         );
     }
 
+    cancelFileTransferCopy(taskId: string): Promise<unknown> {
+        return this.executeAttempt(
+            'cancelFileTransferCopy', undefined, undefined, undefined,
+            { kind: 'cancel', taskId }, true,
+        );
+    }
+
     private async executeAttempt(
         operation: ManagedRemoteBridgeOperation,
         expectedRevisionId: string | undefined,
@@ -135,6 +142,7 @@ export class ManagedRemoteBridgeClient {
             | { kind: 'localRoot'; rootId: string; directoryId?: string }
             | { kind: 'managedMachine'; directoryId?: string }
             | FileTransferCopyRequest
+            | { kind: 'cancel'; taskId: string }
         ) | undefined,
         retryExpiredSession: boolean,
     ): Promise<unknown> {

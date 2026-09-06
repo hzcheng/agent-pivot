@@ -15,6 +15,7 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'fileTransferLocalBrowseV1',
     'fileTransferRemoteBrowseV1',
     'fileTransferCopyV1',
+    'fileTransferCancelV1',
 ] as const;
 
 export type ManagedRemoteBridgeOperation =
@@ -30,7 +31,8 @@ export type ManagedRemoteBridgeOperation =
     | 'selectFileTransferLocalRoot'
     | 'listFileTransferLocalDirectory'
     | 'listFileTransferRemoteDirectory'
-    | 'copyFileTransferEntries';
+    | 'copyFileTransferEntries'
+    | 'cancelFileTransferCopy';
 
 export interface FileTransferLocalRootRequest {
     kind: 'localRoot';
@@ -49,9 +51,15 @@ export type FileTransferEndpointReference =
 
 export interface FileTransferCopyRequest {
     kind: 'copy';
+    taskId: string;
     source: FileTransferEndpointReference;
     destination: FileTransferEndpointReference;
     entryIds: string[];
+}
+
+export interface FileTransferCancelRequest {
+    kind: 'cancel';
+    taskId: string;
 }
 
 export interface FileTransferLocalRootResponse {
@@ -94,7 +102,8 @@ export interface ManagedRemoteBridgeRequest {
     legacySshTarget?: string;
     fileTransfer?: FileTransferLocalRootRequest
         | FileTransferRemoteDirectoryRequest
-        | FileTransferCopyRequest;
+        | FileTransferCopyRequest
+        | FileTransferCancelRequest;
 }
 
 export type ManagedRemoteBridgeResponse =
@@ -165,6 +174,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             'listFileTransferLocalDirectory',
             'listFileTransferRemoteDirectory',
             'copyFileTransferEntries',
+            'cancelFileTransferCopy',
         ].includes(value.operation as string)
         || (value.expectedRevisionId !== undefined
             && (typeof value.expectedRevisionId !== 'string'
@@ -209,7 +219,8 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
     }
     const requiresFileTransfer = value.operation === 'listFileTransferLocalDirectory'
         || value.operation === 'listFileTransferRemoteDirectory'
-        || value.operation === 'copyFileTransferEntries';
+        || value.operation === 'copyFileTransferEntries'
+        || value.operation === 'cancelFileTransferCopy';
     if (value.operation === 'selectFileTransferLocalRoot') {
         if (value.fileTransfer !== undefined) { return null; }
     } else if (requiresFileTransfer) {
@@ -217,7 +228,9 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             ? validFileTransferLocalRootRequest(value.fileTransfer)
             : value.operation === 'listFileTransferRemoteDirectory'
                 ? validFileTransferRemoteDirectoryRequest(value.fileTransfer)
-                : validFileTransferCopyRequest(value.fileTransfer);
+                : value.operation === 'copyFileTransferEntries'
+                    ? validFileTransferCopyRequest(value.fileTransfer)
+                    : validFileTransferCancelRequest(value.fileTransfer);
         if (!valid) { return null; }
     } else if (value.fileTransfer !== undefined) {
         return null;
@@ -227,8 +240,9 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
 
 function validFileTransferCopyRequest(value: unknown): value is FileTransferCopyRequest {
     return isRecord(value)
-        && hasExactKeys(value, ['kind', 'source', 'destination', 'entryIds'])
+        && hasExactKeys(value, ['kind', 'taskId', 'source', 'destination', 'entryIds'])
         && value.kind === 'copy'
+        && isCorrelationValue(value.taskId)
         && validFileTransferEndpointReference(value.source)
         && validFileTransferEndpointReference(value.destination)
         && Array.isArray(value.entryIds)
@@ -236,6 +250,13 @@ function validFileTransferCopyRequest(value: unknown): value is FileTransferCopy
         && value.entryIds.length <= 100
         && value.entryIds.every(validFileTransferHandle)
         && new Set(value.entryIds).size === value.entryIds.length;
+}
+
+function validFileTransferCancelRequest(value: unknown): value is FileTransferCancelRequest {
+    return isRecord(value)
+        && hasExactKeys(value, ['kind', 'taskId'])
+        && value.kind === 'cancel'
+        && isCorrelationValue(value.taskId);
 }
 
 function validFileTransferEndpointReference(value: unknown): value is FileTransferEndpointReference {

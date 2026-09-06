@@ -98,6 +98,7 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
         expectedRevisionId: `revision:${'a'.repeat(64)}`,
         fileTransfer: {
             kind: 'copy',
+            taskId: 'task-123456789012',
             source: { kind: 'local', rootId: 'a'.repeat(32), directoryId: 'b'.repeat(32) },
             destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'c'.repeat(32) },
             entryIds: ['d'.repeat(32)],

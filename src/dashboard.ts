@@ -2895,6 +2895,7 @@ async function initializeDashboard(
                         managedRemoteSnapshot.revisionId,
                         {
                             kind: 'copy',
+                            taskId: message.requestId as string,
                             source: message.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
                             destination: message.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
                             entryIds: message.entryIds as string[],
@@ -2908,6 +2909,16 @@ async function initializeDashboard(
                         ));
                     },
                 );
+            },
+            'file-transfer-cancel-copy': async message => {
+                if (!isFileTransferCancelRequest(message)) {
+                    return;
+                }
+                try {
+                    await managedRemoteBridgeClient.cancelFileTransferCopy(message.taskId as string);
+                } catch (_error) {
+                    // The terminal settlement remains the authoritative task outcome.
+                }
             },
         },
         createAiSession: async e => {
@@ -4579,6 +4590,14 @@ function fileTransferCopySettlement(
     return status === 'copied'
         ? { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, value }
         : { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, message: value };
+}
+
+function isFileTransferCancelRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-cancel-copy'
+        && value.version === 1
+        && typeof value.taskId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.taskId)
+        && Object.keys(value).sort().join('\n') === ['taskId', 'type', 'version'].join('\n');
 }
 
 

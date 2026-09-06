@@ -13285,10 +13285,14 @@ function initDashboard(options) {
         var selectedEntries = { left: new Set(), right: new Set() };
         var pendingCopyRequestId = null;
         var activeTransferCount = 0;
+        var activeCopyTaskId = null;
 
         function renderTaskCount() {
             if (!tasks) return;
             tasks.disabled = activeTransferCount === 0;
+            tasks.title = activeTransferCount === 0
+                ? 'Transfer tasks will appear here'
+                : 'Cancel the active file copy';
             var count = tasks.querySelector ? tasks.querySelector('span') : null;
             if (count) count.textContent = String(activeTransferCount);
         }
@@ -13509,6 +13513,7 @@ function initDashboard(options) {
             if (message.requestId !== pendingCopyRequestId) return false;
             pendingCopyRequestId = null;
             activeTransferCount = Math.max(0, activeTransferCount - 1);
+            activeCopyTaskId = null;
             renderTaskCount();
             if (startCopy) startCopy.disabled = false;
             if (message.status === 'copied') {
@@ -13525,6 +13530,7 @@ function initDashboard(options) {
         function applyCopyStarted(message) {
             if (message.requestId !== pendingCopyRequestId) return false;
             activeTransferCount += 1;
+            activeCopyTaskId = message.requestId;
             renderTaskCount();
             return true;
         }
@@ -13535,6 +13541,15 @@ function initDashboard(options) {
         if (review) review.addEventListener('click', openReview);
         if (reviewCancel) reviewCancel.addEventListener('click', closeReview);
         if (startCopy) startCopy.addEventListener('click', startReviewedCopy);
+        if (tasks) tasks.addEventListener('click', function () {
+            if (!activeCopyTaskId) return;
+            tasks.disabled = true;
+            options.postMessage({
+                type: 'file-transfer-cancel-copy',
+                version: 1,
+                taskId: activeCopyTaskId,
+            });
+        });
         renderTaskCount();
         updatePair();
 

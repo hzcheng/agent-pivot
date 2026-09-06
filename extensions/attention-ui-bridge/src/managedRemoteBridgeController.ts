@@ -1,7 +1,7 @@
 'use strict';
 
 import { createHash, randomBytes } from 'crypto';
-import { spawn } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
 import { lstat, opendir, realpath, stat } from 'fs/promises';
 import * as path from 'path';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
@@ -73,6 +73,11 @@ interface FileTransferEntry {
 interface FileTransferRemoteDirectory extends FileTransferEntry {
     machineId: string;
     path: string;
+}
+
+interface ActiveFileTransferCopy {
+    cancelled: boolean;
+    process?: ChildProcess;
 }
 
 export function formatManagedSshCommand(
@@ -210,6 +215,7 @@ function copyFileTransferEntry(
     recursive: boolean,
     source: string,
     destination: string,
+    active: ActiveFileTransferCopy,
 ): Promise<void> {
     const executable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'scp.exe' : 'scp');
     const args = [
@@ -221,10 +227,16 @@ function copyFileTransferEntry(
     ];
     return new Promise((resolve, reject) => {
         const process = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        active.process = process;
         const stderr: Buffer[] = [];
         process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
         process.on('error', error => reject(new Error(`Could not start SCP: ${error.message}`)));
         process.on('close', code => {
+            active.process = undefined;
+            if (active.cancelled) {
+                reject(new Error('File copy was cancelled.'));
+                return;
+            }
             if (code === 0) { resolve(); return; }
             const message = Buffer.concat(stderr).toString('utf8').trim();
             reject(new Error(message ? `File copy failed: ${message.slice(0, 320)}` : 'File copy failed.'));
@@ -236,6 +248,7 @@ export class ManagedRemoteBridgeController {
     private readonly fileTransferRoots = new Map<string, FileTransferLocalRoot>();
     private readonly fileTransferRemoteDirectories = new Map<string, FileTransferRemoteDirectory>();
     private readonly fileTransferRemoteEntries = new Map<string, FileTransferRemoteDirectory>();
+    private readonly activeFileTransferCopies = new Map<string, ActiveFileTransferCopy>();
     constructor(
         private readonly catalog: ManagedRemoteBridgeCatalogReader,
         private readonly coordinators: ManagedRemoteBridgeCoordinatorFactory,
@@ -263,6 +276,10 @@ export class ManagedRemoteBridgeController {
                     localRoot.rootId,
                     localRoot.directoryId,
                 ));
+            }
+            if (request.operation === 'cancelFileTransferCopy') {
+                const cancellation = request.fileTransfer as { taskId: string };
+                return response(request.requestId, 'ok', this.cancelFileTransferCopy(cancellation.taskId));
             }
             const coordinator = await this.coordinators.create();
             if (request.operation === 'listFileTransferRemoteDirectory') {
@@ -543,22 +560,41 @@ export class ManagedRemoteBridgeController {
         coordinator: ManagedSshConsentCoordinator,
         request: FileTransferCopyRequest,
     ): Promise<{ status: 'copied'; completedItems: number; totalItems: number }> {
+        if (this.activeFileTransferCopies.has(request.taskId)) {
+            throw new Error('This File Transfer task is already running.');
+        }
         if (request.source.kind === 'local' && request.destination.kind === 'local') {
             throw new Error('File Transfer does not copy between two local folders.');
         }
-        const source = await this.resolveFileTransferSource(slot, request.source, request.entryIds);
-        const destination = await this.resolveFileTransferDestination(slot, request.destination);
-        for (const entry of source.entries) {
-            await copyFileTransferEntry(
-                coordinator.getExecutable(),
-                source.kind === 'managedMachine' && destination.kind === 'managedMachine',
-                entry.kind === 'directory',
-                source.kind === 'managedMachine' ? `${source.alias}:${entry.path}` : entry.path,
-                destination.kind === 'managedMachine'
-                    ? `${destination.alias}:${destination.path}` : destination.path,
-            );
+        const active: ActiveFileTransferCopy = { cancelled: false };
+        this.activeFileTransferCopies.set(request.taskId, active);
+        try {
+            const source = await this.resolveFileTransferSource(slot, request.source, request.entryIds);
+            const destination = await this.resolveFileTransferDestination(slot, request.destination);
+            for (const entry of source.entries) {
+                if (active.cancelled) { throw new Error('File copy was cancelled.'); }
+                await copyFileTransferEntry(
+                    coordinator.getExecutable(),
+                    source.kind === 'managedMachine' && destination.kind === 'managedMachine',
+                    entry.kind === 'directory',
+                    source.kind === 'managedMachine' ? `${source.alias}:${entry.path}` : entry.path,
+                    destination.kind === 'managedMachine'
+                        ? `${destination.alias}:${destination.path}` : destination.path,
+                    active,
+                );
+            }
+        } finally {
+            this.activeFileTransferCopies.delete(request.taskId);
         }
-        return { status: 'copied', completedItems: source.entries.length, totalItems: source.entries.length };
+        return { status: 'copied', completedItems: request.entryIds.length, totalItems: request.entryIds.length };
+    }
+
+    private cancelFileTransferCopy(taskId: string): { cancelled: boolean } {
+        const active = this.activeFileTransferCopies.get(taskId);
+        if (!active) { return { cancelled: false }; }
+        active.cancelled = true;
+        active.process?.kill();
+        return { cancelled: true };
     }
 
     private async resolveFileTransferSource(

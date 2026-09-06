@@ -5,8 +5,16 @@ import { escapeAttribute } from '../webviewHtmlEscape';
 import * as Icons from '../webviewIcons';
 
 function machineOptions(snapshot: ManagedRemoteManagementSnapshot | undefined): string {
+    const blockedMachineIds = new Set<string>();
+    for (const conflict of snapshot?.catalog.conflicts || []) {
+        blockedMachineIds.add(conflict.entityId);
+        for (const relatedId of conflict.relatedEntityIds || []) {
+            blockedMachineIds.add(relatedId);
+        }
+    }
     const machines = snapshot?.lifecycle === 'active'
-        ? snapshot.catalog.machines.slice().sort((left, right) => left.name.localeCompare(right.name))
+        ? snapshot.catalog.machines.filter(machine => !blockedMachineIds.has(machine.id))
+            .sort((left, right) => left.name.localeCompare(right.name))
         : [];
     return machines.map(machine => `<option value="managed:${escapeAttribute(machine.id)}">${escapeAttribute(machine.name)}</option>`).join('');
 }

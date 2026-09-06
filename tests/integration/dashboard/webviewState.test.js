@@ -457,6 +457,23 @@ test('FILE-TRANSFER-UI-002 treats cancellation as a terminal transfer result', (
     assert.match(generatedDashboardSource, /Copy cancelled after/);
 });
 
+test('FILE-TRANSFER-UI-004 excludes conflict-blocked Managed Machines from endpoint choices', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: {
+            machines: [
+                { id: 'machine-ready', name: 'Ready', connection: { kind: 'ssh', host: 'ready', user: 'dev', port: 22 } },
+                { id: 'machine-blocked', name: 'Blocked', connection: { kind: 'ssh', host: 'blocked', user: 'dev', port: 22 } },
+            ],
+            environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [{ entityId: 'machine-blocked', relatedEntityIds: [], field: 'name', candidates: [] }],
+        },
+    });
+    assert.match(html, /Ready/);
+    assert.doesNotMatch(html, /Blocked/);
+});
+
 test('FILE-TRANSFER-UI-003 clears local history only after a correlated settlement', () => {
     assert.match(dashboardSource, /file-transfer-clear-history/);
     assert.match(dashboardSource, /pendingHistoryClearRequestId/);

@@ -13453,6 +13453,7 @@ function initDashboard(options) {
         var review = panel.querySelector('[data-file-transfer-review]');
         var tasks = panel.querySelector('[data-file-transfer-tasks]');
         var taskStatus = panel.querySelector('[data-file-transfer-task-status]');
+        var revealTarget = panel.querySelector('[data-file-transfer-reveal-target]');
         var retry = panel.querySelector('[data-file-transfer-retry]');
         var taskList = panel.querySelector('[data-file-transfer-task-list]');
         var historyList = panel.querySelector('[data-file-transfer-history-list]');
@@ -13484,6 +13485,7 @@ function initDashboard(options) {
         var reviewedCopyPlan = null;
         var reviewPreflightResult = null;
         var lastFailedCopyPlan = null;
+        var lastCompletedCopyPlan = null;
         var transferTasks = {};
         var pendingHistoryClearRequestId = null;
         var draggedFileTransferEntry = null;
@@ -14208,6 +14210,8 @@ function initDashboard(options) {
                 renderTaskStatus('Copy complete: ' + completed + ' copied'
                     + (skipped ? ', ' + skipped + ' skipped.' : '.'));
                 if (wasPending) closeReview();
+                lastCompletedCopyPlan = task && task.plan ? task.plan : null;
+                if (revealTarget) revealTarget.hidden = !lastCompletedCopyPlan;
                 if (task && task.plan === lastFailedCopyPlan) {
                     lastFailedCopyPlan = null;
                     if (retry) retry.hidden = true;
@@ -14295,6 +14299,27 @@ function initDashboard(options) {
             submitCopyPlan(plan);
         }
 
+        function sameFileTransferEndpoint(left, right) {
+            if (!left || !right || left.kind !== right.kind) return false;
+            return left.kind === 'local'
+                ? left.rootId === right.rootId
+                : left.machineId === right.machineId;
+        }
+
+        function revealCompletedTarget() {
+            if (!lastCompletedCopyPlan || !lastCompletedCopyPlan.destination) return;
+            var destination = lastCompletedCopyPlan.destination;
+            var side = ['left', 'right'].find(function (candidate) {
+                return sameFileTransferEndpoint(endpointReference(candidate), destination);
+            });
+            if (!side) {
+                renderTaskStatus('Select the original destination endpoint to reveal this copy target.');
+                return;
+            }
+            renderTaskStatus('Opening the completed copy target…');
+            openDirectory(side, destination.directoryId);
+        }
+
         selectors.forEach(function (selector) {
             selector.addEventListener('change', onEndpointChange);
         });
@@ -14310,6 +14335,7 @@ function initDashboard(options) {
             requestCopyPreflight(reviewedCopyPlan);
         });
         if (retry) retry.addEventListener('click', retryFailedCopy);
+        if (revealTarget) revealTarget.addEventListener('click', revealCompletedTarget);
         if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
         panel.addEventListener('keydown', function (event) {
             if (event.key !== 'Escape' || !reviewSheet || reviewSheet.hidden) return;

@@ -512,6 +512,8 @@ test('FILE-TRANSFER-UI-008 renders correlated queued copy tasks with cancellatio
     assert.match(dashboardSource, /task\.plan\.sourceLabel \+ ' → ' \+ task\.plan\.destinationLabel/);
     assert.match(dashboardSource, /function validateFileTransferCopyProgress\(message\)/);
     assert.match(dashboardSource, /function applyCopyProgress\(message\)/);
+    assert.match(dashboardSource, /function revealCompletedTarget\(\)/);
+    assert.match(dashboardSource, /data-file-transfer-reveal-target/);
     assert.match(dashboardSource, /if \(wasPending\) closeReview\(\);/);
     assert.match(dashboardSource, /file-transfer-task-list/);
 });

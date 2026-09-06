@@ -20,8 +20,8 @@ Global Skills library 的维护入口。当前项目只是在使用或启用资�
 ## 目标
 
 1. 用户在 10 秒内找到并将一个 Prompt 插入活动终端。
-2. 用户能为一个功能建立按步骤组织的 Prompt set，例如 Plan → Implement
-   → Review，并逐步使用其中的 Prompt。
+2. 用户能为一个功能建立 Prompt group，并以清晰的顺序组织 Plan → Implement
+   → Review 等 Prompt。
 3. 用户一眼看清全局有哪些 Skills；在需要时进入某项目上下文，查看分别可供
    哪些 Agent 使用并快速启用或关闭。
 4. 用户可从明确来源安装、导入或创建 Skill；安装后立即决定是否用于当前
@@ -31,7 +31,7 @@ Global Skills library 的维护入口。当前项目只是在使用或启用资�
 
 ## 非目标
 
-- 不在 v1 自动连续执行一个 Prompt set，也不隐式向终端发送多段文本。
+- 不在 v1 自动连续执行一个 Prompt group，也不隐式向终端发送多段文本。
 - 不在 v1 引入 Prompt 变量、条件分支、跨会话执行器或团队协作同步。
 - 不在 v1 提供远程 Skill 市场评分、自动更新或复杂推荐算法。
 - 不修改 OPEN 的 AI Sessions / CHATS / ALL 体验。
@@ -39,16 +39,20 @@ Global Skills library 的维护入口。当前项目只是在使用或启用资�
 
 ## 核心术语与状态模型
 
-### Prompt 与 Prompt set
+### Prompt 与 Prompt group
 
-- **Prompt**：全局可复用的文本模板，含名称、用途说明和正文。
-- **Prompt set**：全局维护的、有序 Prompt 引用集合。一个 Prompt 可属于零
-  或多个 set，不复制正文。
+- **Prompt**：全局可复用的文本模板，含名称、用途说明和正文；v1 中每个
+  Prompt **恰好属于一个** Prompt group。
+- **Prompt group**：全局 Prompt library 的树节点，用于按领域或功能组织
+  Prompt。Group 内的 Prompt 有稳定顺序，可表达 Plan → Implement → Review
+  这类连续任务，但不会自动执行。
+- **General**：常驻、顶层且不可删除的默认 Prompt group。没有自定义归属的
+  Prompt 都在这里；它也是删除自定义 group 时的安全迁移目标。
 - **Use**：将一个 Prompt 的正文插入当前活动终端；不附加 Enter，不创建
   终端。
 
-v1 的产品文案使用 `Prompt sets`，避免 `Workflow` 暗示会自动执行。用户可
-按步骤 `Use`，但系统不会自动推进或批量发送。
+v1 的产品文案使用 `Groups`，不使用 `Workflow` 或 `Prompt set`，以免暗示
+自动执行、跨组复用或批量发送。
 
 ### Skill
 
@@ -72,9 +76,8 @@ Skill 的以下概念必须分开，不能用一个 scope 或 toggle 混淆：
 AI
 ├── Prompts
 │   ├── Search
-│   ├── Recent / Favorites
-│   ├── Prompt sets
-│   └── All prompts
+│   ├── General (persistent)
+│   └── Custom groups
 └── Skills
     ├── Global library
     ├── This project access
@@ -99,54 +102,44 @@ More 菜单中，不能占据首屏标签位。
 
 ```text
 Prompts  Skills
-[ Search prompts & sets… ]                     [+ ▾]
+[ Search prompts… ]                             [+ ▾]
 
-RECENT PROMPTS
-  Review implementation              [Use] [···]
-  Draft acceptance criteria          [Use] [···]
+▾ General                                      [＋] [···]
+    Review implementation              [Use] [···]
+    Draft acceptance criteria          [Use] [···]
 
-PROMPT SETS
-  Feature · PR flow                  3 steps  ›
-  Bug triage                         2 steps  ›
+▾ Feature · PR flow                    [＋] [···]
+    Plan the feature                    [Use] [···]
+    Implement the change                [Use] [···]
+    Review and prepare PR               [Use] [···]
 
-PROMPT LIBRARY
-  View all prompts                              ›
+▸ Bug triage                             2 prompts
 ```
 
-- `+` 打开 `New prompt` 与 `New prompt set`。
-- Recent 最多显示最近使用的少量 Prompt；收藏的 Prompt 位于 Recent 前或与之
-  合并显示。完整库始终可搜索。
+- `+` 打开 `New prompt` 与 `New group`。从 group 行的 `＋` 创建 Prompt 时，
+  默认归入该 group；顶层 `+` 创建 Prompt 时默认归入 General。
+- General 始终位于树的第一项，不能重命名或删除；其 tooltip 文案为
+  `Default group for prompts not assigned to a custom group.`。
+- 自定义 group 与 General 同级；v1 只支持一个 group 层级。折叠/展开状态
+  在当前窗口保持，group 与其内部 Prompt 都可单独排序。
 - 每个 Prompt 行的稳定主操作是 `Use`；点击行主体进入详情，`…` 承载复制、
-  收藏、设为默认、编辑和删除。
+  编辑、移动到其他 group 和删除。
 - 行展示名称与不超过一行的用途说明。正文第一行不能作为可靠用途说明，因此
   Prompt 新模型增加可选 `description`；未填写时可由现有正文预览兜底。
-- 默认 Prompt 只显示安静的星标，不能通过整行描边或额外卡片制造噪声。
-
-### Prompt set
-
-进入 set 后显示返回入口、名称、可选说明和有序步骤：
-
-```text
-← Prompt sets
-Feature · PR flow                         [···]
-1  Plan the feature                       [Use]
-2  Implement the change                   [Use]
-3  Review and prepare PR                  [Use]
-                                      [+ Add prompt]
-```
-
-- 创建流程：命名 → 搜索并添加已有 Prompt 或就地新建 → 排序 → 保存。
+- Tooltip 可展示完整名称、用途说明及安全截断的正文预览；它不是唯一的信息
+  入口。键盘焦点、触屏和详情页都必须能读取完整内容。
 - 鼠标可拖拽排序，但必须同时提供键盘可操作的 `Move up` / `Move down`。
-- 删除一个被 set 引用的 Prompt 时，先显示受影响 set 数量，并让用户选择
-  Cancel、从所有 set 移除或替换引用；不得留下静默失效引用。
+- 删除非空自定义 group 时，必须确认，并提供 `Move prompts to General`；不允许
+  因删除 group 而隐式删除 Prompt。Prompt 的永久删除始终是独立确认动作。
 - `Use` 失败时提供具体恢复动作：没有活动终端时显示 `Open terminal`，暂时
   失败时显示 `Retry`。不只显示静态错误文案。
 
 ### 数据与迁移
 
-全局 Prompt library 和 Prompt set 都可复用并保持同步。未来如确有需求，
-可新增显式 Project-only set；v1 不把 set 隐式绑定到当前工作区。初始模型如下，
-持久化时应加入版本和 revision，并延续现有的乐观并发冲突检测与权威回执机制：
+全局 Prompt library 及其树均可复用并保持同步；v1 不把 group 隐式绑定到
+当前工作区。未来可以在不改变 Prompt 单一归属语义的前提下支持嵌套 group，
+但 v1 只交付一层自定义 group。初始模型如下，持久化时应加入版本和 revision，
+并延续现有的乐观并发冲突检测与权威回执机制：
 
 ```ts
 interface PromptV2 {
@@ -154,18 +147,22 @@ interface PromptV2 {
     name: string;
     description?: string;
     text: string;
+    groupId: string; // exactly one existing PromptGroupV1 id
+    order: number;
 }
 
-interface PromptSetV1 {
+interface PromptGroupV1 {
     id: string;
     name: string;
-    description?: string;
-    promptIds: string[]; // 有序、无重复、每项引用现存 Prompt
+    kind: 'general' | 'custom';
+    order: number;
 }
 ```
 
-旧 PromptV1 数据须无损迁移：`name` 和 `text` 保持不变，`description` 缺省。
-Prompt set 的创建不依赖工作区；它与全局 Prompt 一样可以在任意窗口维护。
+`General` 使用稳定 id 和 `kind: 'general'`；它必须唯一、置顶且不可删除。旧
+PromptV1 数据须无损迁移：创建 General，将每个既有 Prompt 放入其中，保持
+`name`、`text` 和原有顺序不变，`description` 缺省。Group 的创建不依赖工作区；
+它与全局 Prompt 一样可以在任意窗口维护。
 
 ## Skills
 
@@ -246,7 +243,7 @@ Centralize 或 Copy 操作改名为 Install。
 | 场景 | 必须提供的下一步 |
 | --- | --- |
 | 没有 Prompt | `Create prompt` |
-| 空 Prompt set | `Add first prompt` |
+| 空 Group | `Create prompt` |
 | 搜索无结果 | 清除筛选 / 创建或导入 |
 | 项目没有已启用的 Skill | 从 Global library 添加，或创建 Project-only Skill |
 | 无工作区 | 说明项目操作不可用，并提供 Global 路径 |
@@ -261,8 +258,8 @@ pending → authoritative success / failure → Retry 或 Undo
 ## MVP 验收旅程
 
 1. 用户从打开 AI tab 到首次 `Use` 一个 Prompt，不超过两次操作。
-2. 用户在 30 秒内创建 `Plan → Implement → Review` 三步 Prompt set，并对
-   任一步执行 `Use`。
+2. 用户在 30 秒内创建 `Feature · PR flow` group，建立 `Plan → Implement
+   → Review` 三条按序 Prompt，并对任一条执行 `Use`。
 3. 用户能搜索一个全局已安装 Skill，将它启用到当前项目并选择 Agent；关闭后
    可 Undo 并恢复上次 Agent 集合。
 4. 用户能从支持的来源把 Skill 安装到 Global library，看到来源与信任信息，
@@ -276,15 +273,15 @@ pending → authoritative success / failure → Retry 或 Undo
 
 1. 建立由 Dashboard 拥有的 AI Hub shell；Prompts 与 Skills 成为平级 feature
    section，保持现有消息协议兼容。
-2. 交付紧凑 Prompt 行、搜索、Recent、详情页和稳定 `Use` 主操作。
-3. 交付全局 Prompt set、迁移、引用完整性和逐步 Use。
+2. 交付紧凑 Prompt tree、搜索、详情页、tooltip 预览和稳定 `Use` 主操作。
+3. 交付 General、全局自定义 group、单一归属迁移、排序与安全删除语义。
 4. 交付单列 Skills 页面、项目级启停、逐 Agent 详情和 Advanced 收纳。
 5. 交付 `Add skill` 与 `Create skill` 的最小闭环、来源/信任模型和失败恢复。
 6. 在以上能力稳定后，评估 MCP、Hooks 或 registry 浏览。
 
 ## 成功指标
 
-- Prompt：首次 Use 时长、Use 成功率、Prompt set 的 7 日复用率。
+- Prompt：首次 Use 时长、Use 成功率、Prompt group 的 7 日复用率。
 - Skill：Install 完成率与耗时、Install → 项目启用转化率、项目开关成功率、
   Create → 首次启用完成率。
 - 质量：Needs attention 的解决率、失败后 Retry 成功率、Undo 使用率和用户

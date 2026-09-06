@@ -493,6 +493,12 @@ test('FILE-TRANSFER-UI-006 renders a directory response for either endpoint kind
     assert.doesNotMatch(dashboardSource, /var localRoot = value === 'local' \? localRoots\[side\] : null;/);
 });
 
+test('FILE-TRANSFER-UI-007 labels file metadata and blocks unsupported entry types', () => {
+    assert.match(dashboardSource, /file-transfer-file-meta/);
+    assert.match(dashboardSource, /Not supported for copy/);
+    assert.match(dashboardSource, /checkbox\.disabled = entry\.kind !== 'directory' && entry\.kind !== 'file'/);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

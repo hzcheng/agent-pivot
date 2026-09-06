@@ -16,11 +16,22 @@ function writeDashboardSessionValue(key, value) {
     }
 }
 
+function formatFileTransferBytes(bytes) {
+    if (!Number.isSafeInteger(bytes) || bytes < 0) return 'Unknown size';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+}
+
 function renderLocalFileTransferEntries(fileList, entries, selectedIds, onChange, onOpenDirectory) {
     fileList.textContent = '';
     entries.forEach(function (entry) {
         var row = document.createElement('li');
         row.className = 'file-transfer-file-row';
+        if (entry.kind === 'symlink' || entry.kind === 'unsupported') {
+            row.className += ' is-unsupported';
+        }
         row.setAttribute('data-file-transfer-entry-id', entry.id);
         if (entry.kind === 'directory') {
             row.title = 'Double-click to open this folder';
@@ -30,12 +41,27 @@ function renderLocalFileTransferEntries(fileList, entries, selectedIds, onChange
         var checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = selectedIds.has(entry.id);
+        checkbox.disabled = entry.kind !== 'directory' && entry.kind !== 'file';
         checkbox.addEventListener('change', function () {
             onChange(entry.id, checkbox.checked);
         });
         var kind = entry.kind === 'directory' ? 'Folder' : entry.kind === 'file' ? 'File' : entry.kind;
         label.appendChild(checkbox);
         label.appendChild(document.createTextNode(kind + '  ' + entry.name));
+        var meta = [];
+        if (Number.isSafeInteger(entry.size)) meta.push(formatFileTransferBytes(entry.size));
+        if (Number.isSafeInteger(entry.modifiedAt)) {
+            meta.push(new Date(entry.modifiedAt).toLocaleString());
+        }
+        if (entry.kind === 'symlink' || entry.kind === 'unsupported') {
+            meta.push('Not supported for copy');
+        }
+        if (meta.length) {
+            var metadata = document.createElement('span');
+            metadata.className = 'file-transfer-file-meta';
+            metadata.textContent = meta.join(' · ');
+            label.appendChild(metadata);
+        }
         row.appendChild(label);
         fileList.appendChild(row);
     });
@@ -892,14 +918,6 @@ function initDashboard(options) {
             return Array.from(selectedEntries[side]).map(function (entryId) {
                 return entries.find(function (entry) { return entry.id === entryId; }) || null;
             }).filter(Boolean);
-        }
-
-        function formatFileTransferBytes(bytes) {
-            if (!Number.isSafeInteger(bytes) || bytes < 0) return 'Unknown size';
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-            return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
         }
 
         function renderReviewItems(entries) {

@@ -1957,6 +1957,19 @@ body .project {
     cursor: pointer;
 }
 
+.file-transfer-file-meta {
+    min-width: 0;
+    margin-left: auto;
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    text-overflow: ellipsis;
+}
+
+.file-transfer-file-row.is-unsupported {
+    opacity: .65;
+}
+
 .file-transfer-file-row input {
     flex: 0 0 auto;
 }

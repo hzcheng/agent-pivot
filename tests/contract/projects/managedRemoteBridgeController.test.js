@@ -13,6 +13,7 @@ const { managedSshAliasSuffix } = require('../../../out/projects/managedRemote/s
 const {
     formatManagedSshCommand,
     ManagedRemoteBridgeController,
+    parseSftpLongListing,
 } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedRemoteBridgeController');
 
 function activeEnvelope(lifecycle = 'active') {
@@ -288,4 +289,15 @@ test('FILE-TRANSFER-COPY-002 permits only one active relay copy in a UI Bridge s
         }),
         /another file transfer copy is already running/i,
     );
+});
+
+test('FILE-TRANSFER-COPY-003 retains SFTP file sizes for post-copy verification', () => {
+    const entries = parseSftpLongListing(
+        '-rw-r--r--    1 user     group          4096 Jan 01 2026 report.txt\n'
+        + 'drwxr-xr-x    2 user     group          4096 Jan 01 2026 artifacts\n',
+    );
+    assert.deepEqual(entries, [
+        { name: 'artifacts', kind: 'directory' },
+        { name: 'report.txt', kind: 'file', size: 4096 },
+    ]);
 });

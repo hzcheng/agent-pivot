@@ -69,6 +69,7 @@ interface FileTransferLocalRoot {
 interface FileTransferEntry {
     path: string;
     kind: FileTransferDirectoryEntry['kind'];
+    size?: number;
 }
 
 interface FileTransferRemoteDirectory extends FileTransferEntry {
@@ -221,7 +222,46 @@ async function localPathExists(targetPath: string): Promise<boolean> {
     }
 }
 
-function parseSftpLongListing(output: string): RemoteDirectoryRow[] {
+async function localFileSize(targetPath: string): Promise<number> {
+    const details = await stat(targetPath);
+    if (!details.isFile()) {
+        throw new Error('The copied local target is not a regular file.');
+    }
+    return details.size;
+}
+
+function remoteFileSize(
+    sshExecutable: string,
+    alias: string,
+    targetPath: string,
+): Promise<number> {
+    const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
+    return new Promise((resolve, reject) => {
+        const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const stdout: Buffer[] = [];
+        const stderr: Buffer[] = [];
+        process.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
+        process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        process.on('error', error => reject(new Error(`Could not start SFTP: ${error.message}`)));
+        process.on('close', code => {
+            if (code !== 0) {
+                const message = Buffer.concat(stderr).toString('utf8').trim();
+                reject(new Error(message ? `Could not verify remote file size: ${message.slice(0, 320)}`
+                    : 'Could not verify remote file size.'));
+                return;
+            }
+            const entry = parseSftpLongListing(Buffer.concat(stdout).toString('utf8'))[0];
+            if (!entry || entry.kind !== 'file' || !Number.isSafeInteger(entry.size)) {
+                reject(new Error('Could not verify remote file size.'));
+                return;
+            }
+            resolve(entry.size);
+        });
+        process.stdin.end(`ls -l ${quoteSftpPath(targetPath)}\n`);
+    });
+}
+
+export function parseSftpLongListing(output: string): RemoteDirectoryRow[] {
     const rows: RemoteDirectoryRow[] = [];
     for (const line of output.split(/\r?\n/u)) {
         if (!line || /^sftp>\s*/u.test(line) || /^Connected to /u.test(line)) { continue; }
@@ -517,7 +557,10 @@ export class ManagedRemoteBridgeController {
                             ? 'file'
                             : 'unsupported';
                 const id = this.fileTransferHandle();
-                root.entries.set(id, { path: childPath, kind });
+                root.entries.set(id, {
+                    path: childPath, kind,
+                    ...(kind === 'file' ? { size: childStat.size } : {}),
+                });
                 if (kind === 'directory') {
                     const realChildPath = await realpath(childPath);
                     if (this.isWithinLocalRoot(root.path, realChildPath)) {
@@ -580,7 +623,10 @@ export class ManagedRemoteBridgeController {
         const entries: FileTransferDirectoryEntry[] = rows.map(row => {
             const id = this.fileTransferHandle();
             const entryPath = remoteChildPath(directory!.path, row.name);
-            this.fileTransferRemoteEntries.set(id, { machineId, path: entryPath, kind: row.kind });
+            this.fileTransferRemoteEntries.set(id, {
+                machineId, path: entryPath, kind: row.kind,
+                ...(row.size === undefined ? {} : { size: row.size }),
+            });
             if (row.kind === 'directory') {
                 this.fileTransferRemoteDirectories.set(id, {
                     machineId,
@@ -648,6 +694,16 @@ export class ManagedRemoteBridgeController {
                         ? `${destination.alias}:${destination.path}` : destination.path,
                     active,
                 );
+                if (entry.kind === 'file' && Number.isSafeInteger(entry.size)) {
+                    const copiedSize = destination.kind === 'local'
+                        ? await localFileSize(destinationPath)
+                        : await remoteFileSize(
+                            coordinator.getExecutable(), destination.alias, destinationPath,
+                        );
+                    if (copiedSize !== entry.size) {
+                        throw new Error(`File copy did not pass size verification: ${path.basename(entry.path)}.`);
+                    }
+                }
                 completedItems += 1;
             }
         } catch (error) {

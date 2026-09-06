@@ -36,12 +36,14 @@ function validateFileTransferLocalRootMessage(message) {
         || (message.side !== 'left' && message.side !== 'right')) {
         return false;
     }
-    if (message.type === 'file-transfer-local-root-selected' && message.root) {
+    if ((message.type === 'file-transfer-local-root-selected'
+        || message.type === 'file-transfer-remote-directory-listed') && message.root) {
         return Object.keys(message).sort().join('\n') === [
             'requestId', 'root', 'side', 'type', 'version',
         ].join('\n') && validateFileTransferLocalRoot(message.root);
     }
-    if (message.type === 'file-transfer-local-root-failed') {
+    if (message.type === 'file-transfer-local-root-failed'
+        || message.type === 'file-transfer-remote-directory-failed') {
         return Object.keys(message).sort().join('\n') === [
             'message', 'requestId', 'side', 'type', 'version',
         ].join('\n')
@@ -511,9 +513,13 @@ function initDashboard(options) {
                 : value === 'local' ? 'Choose a local folder' : 'Managed Machine';
             if (status) {
                 status.textContent = localRoot
-                    ? localRoot.entries.length + ' items in this approved local folder.'
+                    ? localRoot.entries.length + (value === 'local'
+                        ? ' items in this approved local folder.'
+                        : ' items in this Managed Machine directory.')
                     : value === 'local' && pendingLocalRootRequests[side]
                         ? 'Opening the local folder chooser…'
+                    : value.indexOf('managed:') === 0 && pendingLocalRootRequests[side]
+                        ? 'Opening the Managed Machine directory…'
                     : value === 'local'
                         ? 'Choose a local folder to begin browsing.'
                     : 'Managed Machine selected. File browsing will be enabled by the local UI Bridge.';
@@ -554,6 +560,19 @@ function initDashboard(options) {
             });
         }
 
+        function requestRemoteDirectory(side, machineId) {
+            var requestId = 'file-transfer-' + side + '-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingLocalRootRequests[side] = requestId;
+            options.postMessage({
+                type: 'file-transfer-list-remote-directory',
+                version: 1,
+                requestId: requestId,
+                side: side,
+                machineId: machineId,
+            });
+        }
+
         function onEndpointChange(event) {
             var selector = event.currentTarget;
             var side = selector && selector.getAttribute
@@ -565,6 +584,8 @@ function initDashboard(options) {
             pendingLocalRootRequests[side] = null;
             if (selector.value === 'local') {
                 requestLocalRoot(side);
+            } else if (selector.value.indexOf('managed:') === 0) {
+                requestRemoteDirectory(side, selector.value.slice('managed:'.length));
             }
             updatePair();
         }

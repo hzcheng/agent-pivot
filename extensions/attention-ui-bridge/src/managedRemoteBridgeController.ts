@@ -1,11 +1,13 @@
 'use strict';
 
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+import { spawn } from 'child_process';
 import { lstat, opendir, realpath, stat } from 'fs/promises';
 import * as path from 'path';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
     FileTransferDirectoryEntry,
+    FileTransferLocalRootRequest,
     FileTransferLocalRootResponse,
     ManagedRemoteBridgeRequest,
     ManagedRemoteBridgeResponse,
@@ -57,6 +59,11 @@ interface FileTransferLocalRoot {
     path: string;
     label: string;
     directories: Map<string, string>;
+}
+
+interface FileTransferRemoteDirectory {
+    machineId: string;
+    path: string;
 }
 
 export function formatManagedSshCommand(
@@ -117,8 +124,80 @@ function authorityFromRemoteUri(uri: string): string {
     return decodeURIComponent(remainder.slice(0, remainder.indexOf('/')));
 }
 
+interface RemoteDirectoryRow {
+    name: string;
+    kind: FileTransferDirectoryEntry['kind'];
+    size?: number;
+}
+
+function machineIdToTransferRootId(machineId: string): string {
+    return createHash('sha256').update(machineId, 'utf8').digest('hex').slice(0, 32);
+}
+
+function remoteChildPath(parent: string, name: string): string {
+    return parent === '.' ? `./${name}` : `${parent}/${name}`;
+}
+
+function quoteSftpPath(value: string): string {
+    return `"${value.replace(/([\\"])/gu, '\\$1')}"`;
+}
+
+function listRemoteDirectory(
+    sshExecutable: string,
+    alias: string,
+    directoryPath: string,
+): Promise<RemoteDirectoryRow[]> {
+    const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
+    return new Promise((resolve, reject) => {
+        const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const stdout: Buffer[] = [];
+        const stderr: Buffer[] = [];
+        process.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
+        process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        process.on('error', error => reject(new Error(`Could not start SFTP: ${error.message}`)));
+        process.on('close', code => {
+            if (code !== 0) {
+                const message = Buffer.concat(stderr).toString('utf8').trim();
+                reject(new Error(message ? `Could not read remote directory: ${message.slice(0, 320)}`
+                    : 'Could not read remote directory.'));
+                return;
+            }
+            try {
+                resolve(parseSftpLongListing(Buffer.concat(stdout).toString('utf8')));
+            } catch (error) {
+                reject(error);
+            }
+        });
+        process.stdin.end(`ls -l ${quoteSftpPath(directoryPath)}\n`);
+    });
+}
+
+function parseSftpLongListing(output: string): RemoteDirectoryRow[] {
+    const rows: RemoteDirectoryRow[] = [];
+    for (const line of output.split(/\r?\n/u)) {
+        if (!line || /^sftp>\s*/u.test(line) || /^Connected to /u.test(line)) { continue; }
+        const match = /^([bcdlps-])[rwxStTs-]{9}\s+\S+\s+\S+\s+\S+\s+(\d+)\s+\S+\s+\d+\s+(?:\d\d:\d\d|\d{4})\s+(.+)$/u.exec(line);
+        if (!match) { continue; }
+        const name = match[3];
+        if (name === '.' || name === '..' || name.length > 255 || /[\0\r\n]/u.test(name)) { continue; }
+        rows.push({
+            name,
+            kind: match[1] === 'd' ? 'directory' : match[1] === 'l' ? 'symlink'
+                : match[1] === '-' ? 'file' : 'unsupported',
+            ...(match[1] === '-' ? { size: Number(match[2]) } : {}),
+        });
+    }
+    rows.sort((left, right) => {
+        if (left.kind === 'directory' && right.kind !== 'directory') { return -1; }
+        if (left.kind !== 'directory' && right.kind === 'directory') { return 1; }
+        return left.name.localeCompare(right.name);
+    });
+    return rows.slice(0, 1_000);
+}
+
 export class ManagedRemoteBridgeController {
     private readonly fileTransferRoots = new Map<string, FileTransferLocalRoot>();
+    private readonly fileTransferRemoteDirectories = new Map<string, FileTransferRemoteDirectory>();
     constructor(
         private readonly catalog: ManagedRemoteBridgeCatalogReader,
         private readonly coordinators: ManagedRemoteBridgeCoordinatorFactory,
@@ -141,12 +220,22 @@ export class ManagedRemoteBridgeController {
                 return response(request.requestId, 'ok', await this.selectFileTransferLocalRoot());
             }
             if (request.operation === 'listFileTransferLocalDirectory') {
+                const localRoot = request.fileTransfer as FileTransferLocalRootRequest;
                 return response(request.requestId, 'ok', await this.listFileTransferLocalDirectory(
-                    request.fileTransfer!.rootId,
-                    request.fileTransfer!.directoryId,
+                    localRoot.rootId,
+                    localRoot.directoryId,
                 ));
             }
             const coordinator = await this.coordinators.create();
+            if (request.operation === 'listFileTransferRemoteDirectory') {
+                const slot = this.readExpectedSlot(request);
+                return response(request.requestId, 'ok', await this.listFileTransferRemoteDirectory(
+                    slot,
+                    coordinator,
+                    request.targetId!,
+                    request.fileTransfer!.directoryId,
+                ));
+            }
             if (request.operation === 'inspectLegacySshTarget') {
                 if (!this.localActions || !request.legacySshTarget) {
                     throw new Error('Local SSH inspection is unavailable.');
@@ -355,6 +444,46 @@ export class ManagedRemoteBridgeController {
 
     private fileTransferHandle(): string {
         return randomBytes(16).toString('hex');
+    }
+
+    private async listFileTransferRemoteDirectory(
+        slot: ManagedRevisionSlot,
+        coordinator: ManagedSshConsentCoordinator,
+        machineId: string,
+        directoryId: string | undefined,
+    ): Promise<FileTransferLocalRootResponse> {
+        const view = materializeManagedRemoteCatalog(slot.document);
+        const target = resolveManagedMachineTarget(view, machineId);
+        await this.ensureProjectionReady(slot);
+        let resolvedDirectoryId = directoryId;
+        let directory: FileTransferRemoteDirectory | undefined;
+        if (resolvedDirectoryId) {
+            directory = this.fileTransferRemoteDirectories.get(resolvedDirectoryId);
+            if (!directory || directory.machineId !== machineId) {
+                throw new Error('The selected remote directory is no longer available. Refresh the Machine.');
+            }
+        } else {
+            resolvedDirectoryId = this.fileTransferHandle();
+            directory = { machineId, path: '.' };
+            this.fileTransferRemoteDirectories.set(resolvedDirectoryId, directory);
+        }
+        const rows = await listRemoteDirectory(coordinator.getExecutable(), target.alias, directory.path);
+        const entries: FileTransferDirectoryEntry[] = rows.map(row => {
+            const id = this.fileTransferHandle();
+            if (row.kind === 'directory') {
+                this.fileTransferRemoteDirectories.set(id, {
+                    machineId,
+                    path: remoteChildPath(directory!.path, row.name),
+                });
+            }
+            return { id, name: row.name, kind: row.kind, ...(row.size === undefined ? {} : { size: row.size }) };
+        });
+        return {
+            rootId: machineIdToTransferRootId(machineId),
+            directoryId: resolvedDirectoryId,
+            label: target.machine.name,
+            entries,
+        };
     }
 
     private readExpectedSlot(request: ManagedRemoteBridgeRequest): ManagedRevisionSlot {

@@ -99,12 +99,32 @@ export class ManagedRemoteBridgeClient {
         });
     }
 
+    listFileTransferRemoteDirectory(
+        expectedRevisionId: string,
+        machineId: string,
+        directoryId?: string,
+    ): Promise<FileTransferLocalRootResponse> {
+        return this.executeAttempt(
+            'listFileTransferRemoteDirectory', expectedRevisionId, machineId, undefined,
+            { kind: 'managedMachine', ...(directoryId ? { directoryId } : {}) }, true,
+        ).then(value => {
+            const parsed = parseFileTransferLocalRootResponse(value);
+            if (!parsed) {
+                throw new Error('Agent Pivot UI Bridge returned an invalid File Transfer directory.');
+            }
+            return parsed;
+        });
+    }
+
     private async executeAttempt(
         operation: ManagedRemoteBridgeOperation,
         expectedRevisionId: string | undefined,
         targetId: string | undefined,
         legacySshTarget: string | undefined,
-        fileTransfer: { kind: 'localRoot'; rootId: string; directoryId?: string } | undefined,
+        fileTransfer: (
+            | { kind: 'localRoot'; rootId: string; directoryId?: string }
+            | { kind: 'managedMachine'; directoryId?: string }
+        ) | undefined,
         retryExpiredSession: boolean,
     ): Promise<unknown> {
         const requestId = correlation('managed-remote');

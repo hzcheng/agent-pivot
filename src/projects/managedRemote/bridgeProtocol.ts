@@ -13,6 +13,7 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'managedActionProjectionV2',
     'localSshEndpointV1',
     'fileTransferLocalBrowseV1',
+    'fileTransferRemoteBrowseV1',
 ] as const;
 
 export type ManagedRemoteBridgeOperation =
@@ -26,11 +27,17 @@ export type ManagedRemoteBridgeOperation =
     | 'openManagedEnvironment'
     | 'inspectLegacySshTarget'
     | 'selectFileTransferLocalRoot'
-    | 'listFileTransferLocalDirectory';
+    | 'listFileTransferLocalDirectory'
+    | 'listFileTransferRemoteDirectory';
 
 export interface FileTransferLocalRootRequest {
     kind: 'localRoot';
     rootId: string;
+    directoryId?: string;
+}
+
+export interface FileTransferRemoteDirectoryRequest {
+    kind: 'managedMachine';
     directoryId?: string;
 }
 
@@ -72,7 +79,7 @@ export interface ManagedRemoteBridgeRequest {
     targetId?: string;
     /** An SSH host alias to resolve against this computer's own SSH config. */
     legacySshTarget?: string;
-    fileTransfer?: FileTransferLocalRootRequest;
+    fileTransfer?: FileTransferLocalRootRequest | FileTransferRemoteDirectoryRequest;
 }
 
 export type ManagedRemoteBridgeResponse =
@@ -141,6 +148,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             'inspectLegacySshTarget',
             'selectFileTransferLocalRoot',
             'listFileTransferLocalDirectory',
+            'listFileTransferRemoteDirectory',
         ].includes(value.operation as string)
         || (value.expectedRevisionId !== undefined
             && (typeof value.expectedRevisionId !== 'string'
@@ -151,6 +159,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         'reconcile',
         'openLocalSshTerminal', 'copyLocalSshCommand',
         'openManagedMachine', 'openManagedProject', 'openManagedEnvironment',
+        'listFileTransferRemoteDirectory',
     ].includes(value.operation as string);
     if (requiresRevision && typeof value.expectedRevisionId !== 'string') {
         return null;
@@ -165,10 +174,12 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         || value.operation === 'openManagedMachine'
         || value.operation === 'openManagedProject'
         || value.operation === 'openManagedEnvironment';
+    const remoteBrowse = value.operation === 'listFileTransferRemoteDirectory';
+    const requiresTargetForOperation = requiresTarget || remoteBrowse;
     const validTarget = typeof value.targetId === 'string'
         && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value.targetId);
-    if ((requiresTarget && !validTarget)
-        || (!requiresTarget && value.targetId !== undefined)) {
+    if ((requiresTargetForOperation && !validTarget)
+        || (!requiresTargetForOperation && value.targetId !== undefined)) {
         return null;
     }
     const requiresLegacyTarget = value.operation === 'inspectLegacySshTarget';
@@ -179,15 +190,28 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         || (!requiresLegacyTarget && value.legacySshTarget !== undefined)) {
         return null;
     }
-    const requiresFileTransfer = value.operation === 'listFileTransferLocalDirectory';
+    const requiresFileTransfer = value.operation === 'listFileTransferLocalDirectory'
+        || value.operation === 'listFileTransferRemoteDirectory';
     if (value.operation === 'selectFileTransferLocalRoot') {
         if (value.fileTransfer !== undefined) { return null; }
     } else if (requiresFileTransfer) {
-        if (!validFileTransferLocalRootRequest(value.fileTransfer)) { return null; }
+        const valid = value.operation === 'listFileTransferLocalDirectory'
+            ? validFileTransferLocalRootRequest(value.fileTransfer)
+            : validFileTransferRemoteDirectoryRequest(value.fileTransfer);
+        if (!valid) { return null; }
     } else if (value.fileTransfer !== undefined) {
         return null;
     }
     return value as unknown as ManagedRemoteBridgeRequest;
+}
+
+function validFileTransferRemoteDirectoryRequest(
+    value: unknown,
+): value is FileTransferRemoteDirectoryRequest {
+    return isRecord(value)
+        && hasExactKeys(value, ['kind'], ['directoryId'])
+        && value.kind === 'managedMachine'
+        && (value.directoryId === undefined || validFileTransferHandle(value.directoryId));
 }
 
 function validFileTransferLocalRootRequest(value: unknown): value is FileTransferLocalRootRequest {

@@ -2848,6 +2848,34 @@ async function initializeDashboard(
                     });
                 }
             },
+            'file-transfer-list-remote-directory': async message => {
+                if (!isFileTransferRemoteDirectoryRequest(message)) {
+                    return;
+                }
+                if (managedRemoteSnapshot.lifecycle !== 'active'
+                    || !managedRemoteSnapshot.revisionId) {
+                    await provider.postMessage(fileTransferDirectoryFailure(message,
+                        'Managed Machines are unavailable. Refresh and try again.'));
+                    return;
+                }
+                try {
+                    const root = await managedRemoteBridgeClient.listFileTransferRemoteDirectory(
+                        managedRemoteSnapshot.revisionId,
+                        message.machineId as string,
+                    );
+                    await provider.postMessage({
+                        type: 'file-transfer-remote-directory-listed',
+                        version: 1,
+                        requestId: message.requestId,
+                        side: message.side,
+                        root,
+                    });
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    await provider.postMessage(fileTransferDirectoryFailure(message,
+                        rawMessage.slice(0, 320)));
+                }
+            },
         },
         createAiSession: async e => {
             const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
@@ -4447,6 +4475,32 @@ function isFileTransferLocalRootRequest(value: Record<string, unknown>): boolean
         && Object.keys(value).sort().join('\n') === [
             'requestId', 'side', 'type', 'version',
         ].join('\n');
+}
+
+function isFileTransferRemoteDirectoryRequest(value: Record<string, unknown>): value is Record<string, string | number> {
+    return value.type === 'file-transfer-list-remote-directory'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && (value.side === 'left' || value.side === 'right')
+        && typeof value.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value.machineId)
+        && Object.keys(value).sort().join('\n') === [
+            'machineId', 'requestId', 'side', 'type', 'version',
+        ].join('\n');
+}
+
+function fileTransferDirectoryFailure(
+    request: Record<string, unknown>,
+    message: string,
+): Record<string, unknown> {
+    return {
+        type: 'file-transfer-remote-directory-failed',
+        version: 1,
+        requestId: request.requestId,
+        side: request.side,
+        message,
+    };
 }
 
 

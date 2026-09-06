@@ -1980,6 +1980,14 @@ body .project {
     font-size: 12px;
 }
 
+.file-transfer-review-items {
+    max-height: 96px;
+    margin: 6px 0;
+    overflow: auto;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
 .file-transfer-conflict-policy {
     display: grid;
     gap: 4px;

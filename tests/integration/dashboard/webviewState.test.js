@@ -442,6 +442,8 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(html, /data-file-transfer-task-status/);
     assert.match(html, /data-file-transfer-conflict-policy/);
     assert.match(html, /data-file-transfer-clear-history/);
+    assert.match(html, /data-file-transfer-review-size/);
+    assert.match(html, /data-file-transfer-review-items/);
     assert.match(dashboardSource, /displayPath/);
     assert.doesNotMatch(html, /Source endpoint|Destination endpoint/);
 });

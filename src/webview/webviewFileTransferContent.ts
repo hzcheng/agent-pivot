@@ -75,6 +75,8 @@ export function getFileTransferContent(
         <section class="file-transfer-review" data-file-transfer-review-sheet role="dialog" aria-modal="true" aria-label="Review file copy" hidden>
             <h3>Review copy</h3>
             <p data-file-transfer-review-summary></p>
+            <p data-file-transfer-review-size></p>
+            <ul class="file-transfer-review-items" data-file-transfer-review-items></ul>
             <label class="file-transfer-conflict-policy">If a target already exists
                 <select data-file-transfer-conflict-policy>
                     <option value="fail">Stop and show the conflict</option>

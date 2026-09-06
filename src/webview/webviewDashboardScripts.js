@@ -560,6 +560,8 @@ function initDashboard(options) {
         var clearHistory = panel.querySelector('[data-file-transfer-clear-history]');
         var reviewSheet = panel.querySelector('[data-file-transfer-review-sheet]');
         var reviewSummary = panel.querySelector('[data-file-transfer-review-summary]');
+        var reviewSize = panel.querySelector('[data-file-transfer-review-size]');
+        var reviewItems = panel.querySelector('[data-file-transfer-review-items]');
         var conflictPolicy = panel.querySelector('[data-file-transfer-conflict-policy]');
         var reviewCancel = panel.querySelector('[data-file-transfer-review-cancel]');
         var startCopy = panel.querySelector('[data-file-transfer-start-copy]');
@@ -851,6 +853,37 @@ function initDashboard(options) {
             return selectedEntries.left.size ? 'left' : selectedEntries.right.size ? 'right' : null;
         }
 
+        function selectedEntryDetails(side) {
+            var root = localRoots[side];
+            var entries = root && Array.isArray(root.entries) ? root.entries : [];
+            return Array.from(selectedEntries[side]).map(function (entryId) {
+                return entries.find(function (entry) { return entry.id === entryId; }) || null;
+            }).filter(Boolean);
+        }
+
+        function formatFileTransferBytes(bytes) {
+            if (!Number.isSafeInteger(bytes) || bytes < 0) return 'Unknown size';
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+        }
+
+        function renderReviewItems(entries) {
+            if (!reviewItems) return;
+            reviewItems.textContent = '';
+            entries.slice(0, 5).forEach(function (entry) {
+                var item = document.createElement('li');
+                item.textContent = entry.name + (entry.kind === 'directory' ? ' (folder)' : '');
+                reviewItems.appendChild(item);
+            });
+            if (entries.length > 5) {
+                var more = document.createElement('li');
+                more.textContent = 'and ' + (entries.length - 5) + ' more item(s)';
+                reviewItems.appendChild(more);
+            }
+        }
+
         function openReview() {
             var sourceSide = selectedSourceSide();
             if (!sourceSide || !reviewSheet) return;
@@ -858,6 +891,13 @@ function initDashboard(options) {
             var source = selectorFor(sourceSide);
             var destination = selectorFor(destinationSide);
             if (!source || !destination || !source.value || !destination.value) return;
+            var entries = selectedEntryDetails(sourceSide);
+            var knownBytes = entries.reduce(function (total, entry) {
+                return total + (Number.isSafeInteger(entry.size) ? entry.size : 0);
+            }, 0);
+            var unknownSizeCount = entries.filter(function (entry) {
+                return !Number.isSafeInteger(entry.size);
+            }).length;
             if (reviewSummary) {
                 reviewSummary.textContent = 'Copy ' + selectedEntries[sourceSide].size + ' item(s) from '
                     + source.options[source.selectedIndex].textContent + ' / '
@@ -865,6 +905,13 @@ function initDashboard(options) {
                     + destination.options[destination.selectedIndex].textContent + ' / '
                     + (localRoots[destinationSide] ? localRoots[destinationSide].displayPath : '.') + '.';
             }
+            if (reviewSize) {
+                reviewSize.textContent = unknownSizeCount
+                    ? 'Known size: ' + formatFileTransferBytes(knownBytes) + '. '
+                        + unknownSizeCount + ' folder or item size will be determined during copy.'
+                    : 'Total size: ' + formatFileTransferBytes(knownBytes) + '.';
+            }
+            renderReviewItems(entries);
             reviewSheet.hidden = false;
         }
 

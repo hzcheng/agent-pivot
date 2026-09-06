@@ -12925,6 +12925,17 @@ function validateFileTransferCopyStarted(message) {
         ].join('\n');
 }
 
+function validateFileTransferCopyQueued(message) {
+    return !!message && message.type === 'file-transfer-copy-queued'
+        && message.version === 1
+        && typeof message.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        && Number.isSafeInteger(message.position) && message.position >= 1 && message.position <= 10
+        && Object.keys(message).sort().join('\n') === [
+            'position', 'requestId', 'type', 'version',
+        ].join('\n');
+}
+
 function validateFileTransferHistory(message) {
     return !!message && message.type === 'file-transfer-history'
         && message.version === 1
@@ -13347,6 +13358,7 @@ function initDashboard(options) {
         var review = panel.querySelector('[data-file-transfer-review]');
         var tasks = panel.querySelector('[data-file-transfer-tasks]');
         var taskStatus = panel.querySelector('[data-file-transfer-task-status]');
+        var taskList = panel.querySelector('[data-file-transfer-task-list]');
         var historyList = panel.querySelector('[data-file-transfer-history-list]');
         var clearHistory = panel.querySelector('[data-file-transfer-clear-history]');
         var reviewSheet = panel.querySelector('[data-file-transfer-review-sheet]');
@@ -13363,7 +13375,8 @@ function initDashboard(options) {
         var directoryHistory = { left: [], right: [] };
         var pendingCopyRequestId = null;
         var activeCopyTaskId = null;
-        var activeCopyItemCount = 0;
+        var pendingCopyItemCount = 0;
+        var transferTasks = {};
         var pendingHistoryClearRequestId = null;
 
         function renderTaskCount() {
@@ -13373,7 +13386,32 @@ function initDashboard(options) {
                 ? 'Transfer tasks will appear here'
                 : 'Cancel the active file copy';
             var count = tasks.querySelector ? tasks.querySelector('span') : null;
-            if (count) count.textContent = activeCopyTaskId ? '1' : '0';
+            if (count) count.textContent = String(Object.keys(transferTasks).length);
+            renderTaskList();
+        }
+
+        function renderTaskList() {
+            if (!taskList) return;
+            var taskIds = Object.keys(transferTasks);
+            taskList.textContent = '';
+            taskList.hidden = taskIds.length === 0;
+            taskIds.forEach(function (taskId) {
+                var task = transferTasks[taskId];
+                var row = document.createElement('li');
+                var label = document.createElement('span');
+                label.textContent = task.status === 'running'
+                    ? 'Copying ' + task.itemCount + ' item(s)'
+                    : task.status === 'cancelling'
+                        ? 'Cancelling ' + task.itemCount + ' item(s)'
+                        : 'Queued · ' + task.itemCount + ' item(s)';
+                row.appendChild(label);
+                var cancel = document.createElement('button');
+                cancel.type = 'button';
+                cancel.textContent = 'Cancel';
+                cancel.addEventListener('click', function () { requestTaskCancellation(taskId); });
+                row.appendChild(cancel);
+                taskList.appendChild(row);
+            });
         }
 
         function renderTaskStatus(message) {
@@ -13517,7 +13555,7 @@ function initDashboard(options) {
                 ? 'Copy ' + count + ' selected item' + (count === 1 ? '' : 's')
                     + ' to the ' + (sourceSide === 'left' ? 'right' : 'left') + ' endpoint.'
                 : 'Select files in either pane to choose a copy direction.';
-            if (review) review.disabled = !!activeCopyTaskId || !!pendingCopyRequestId
+            if (review) review.disabled = !!pendingCopyRequestId
                 || !sourceSide || !left || !right || !left.value || !right.value;
         }
 
@@ -13736,7 +13774,7 @@ function initDashboard(options) {
 
         function startReviewedCopy() {
             var sourceSide = selectedSourceSide();
-            if (!sourceSide || activeCopyTaskId || pendingCopyRequestId) return;
+            if (!sourceSide || pendingCopyRequestId) return;
             var destinationSide = sourceSide === 'left' ? 'right' : 'left';
             var source = endpointReference(sourceSide);
             var destination = endpointReference(destinationSide);
@@ -13744,6 +13782,7 @@ function initDashboard(options) {
             var requestId = 'file-transfer-copy-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
             pendingCopyRequestId = requestId;
+            pendingCopyItemCount = selectedEntries[sourceSide].size;
             if (startCopy) startCopy.disabled = true;
             options.postMessage({
                 type: 'file-transfer-copy',
@@ -13757,10 +13796,14 @@ function initDashboard(options) {
         }
 
         function applyCopySettlement(message) {
-            if (message.requestId !== pendingCopyRequestId) return false;
-            pendingCopyRequestId = null;
-            activeCopyTaskId = null;
-            activeCopyItemCount = 0;
+            if (message.requestId !== pendingCopyRequestId && !transferTasks[message.requestId]) return false;
+            var wasPending = message.requestId === pendingCopyRequestId;
+            if (wasPending) {
+                pendingCopyRequestId = null;
+                pendingCopyItemCount = 0;
+            }
+            if (activeCopyTaskId === message.requestId) activeCopyTaskId = null;
+            delete transferTasks[message.requestId];
             renderTaskCount();
             if (startCopy) startCopy.disabled = false;
             if (message.status === 'copied') {
@@ -13770,8 +13813,6 @@ function initDashboard(options) {
                     ? message.value.skippedItems : 0;
                 renderTaskStatus('Copy complete: ' + completed + ' copied'
                     + (skipped ? ', ' + skipped + ' skipped.' : '.'));
-                selectedEntries.left.clear();
-                selectedEntries.right.clear();
                 closeReview();
                 updatePair();
             } else if (message.status === 'cancelled') {
@@ -13788,13 +13829,40 @@ function initDashboard(options) {
         }
 
         function applyCopyStarted(message) {
-            if (message.requestId !== pendingCopyRequestId) return false;
+            var task = transferTasks[message.requestId];
+            if (!task) return false;
             activeCopyTaskId = message.requestId;
-            activeCopyItemCount = selectedSourceSide() ? selectedEntries[selectedSourceSide()].size : 0;
+            task.status = 'running';
             renderTaskCount();
-            renderTaskStatus('Copying ' + activeCopyItemCount + ' item(s). Select Transfers to cancel.');
+            renderTaskStatus('Copying ' + task.itemCount + ' item(s). Select Transfers to cancel.');
             updatePair();
             return true;
+        }
+
+        function applyCopyQueued(message) {
+            if (message.requestId !== pendingCopyRequestId) return false;
+            transferTasks[message.requestId] = { status: 'queued', itemCount: pendingCopyItemCount };
+            pendingCopyRequestId = null;
+            pendingCopyItemCount = 0;
+            if (startCopy) startCopy.disabled = false;
+            selectedEntries.left.clear();
+            selectedEntries.right.clear();
+            closeReview();
+            renderTaskStatus('Copy queued in position ' + message.position + '.');
+            renderTaskCount();
+            updatePair();
+            return true;
+        }
+
+        function requestTaskCancellation(taskId) {
+            var task = transferTasks[taskId];
+            if (!task) return;
+            task.status = 'cancelling';
+            if (taskId === activeCopyTaskId) {
+                renderTaskStatus('Cancelling copy…');
+            }
+            renderTaskCount();
+            options.postMessage({ type: 'file-transfer-cancel-copy', version: 1, taskId: taskId });
         }
 
         selectors.forEach(function (selector) {
@@ -13832,12 +13900,7 @@ function initDashboard(options) {
         if (tasks) tasks.addEventListener('click', function () {
             if (!activeCopyTaskId) return;
             tasks.disabled = true;
-            renderTaskStatus('Cancelling copy…');
-            options.postMessage({
-                type: 'file-transfer-cancel-copy',
-                version: 1,
-                taskId: activeCopyTaskId,
-            });
+            requestTaskCancellation(activeCopyTaskId);
         });
         renderTaskCount();
         updatePair();
@@ -13846,6 +13909,7 @@ function initDashboard(options) {
             applyLocalRootMessage: applyLocalRootMessage,
             applyCopySettlement: applyCopySettlement,
             applyCopyStarted: applyCopyStarted,
+            applyCopyQueued: applyCopyQueued,
             applyHistory: applyHistory,
             applyHistoryClearSettlement: applyHistoryClearSettlement,
         };
@@ -13931,6 +13995,10 @@ function initDashboard(options) {
             && fileTransferPanel) {
             fileTransferPanel.applyCopyStarted(event.data);
         }
+        if (event && event.data && validateFileTransferCopyQueued(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopyQueued(event.data);
+        }
         if (event && event.data && validateFileTransferHistory(event.data)
             && fileTransferPanel) {
             fileTransferPanel.applyHistory(event.data);
@@ -14010,6 +14078,8 @@ function initDashboard(options) {
             ? fileTransferPanel.applyCopySettlement : function () { return false; },
         applyFileTransferCopyStarted: fileTransferPanel
             ? fileTransferPanel.applyCopyStarted : function () { return false; },
+        applyFileTransferCopyQueued: fileTransferPanel
+            ? fileTransferPanel.applyCopyQueued : function () { return false; },
         applyFileTransferHistory: fileTransferPanel
             ? fileTransferPanel.applyHistory : function () { return false; },
         applyFileTransferHistoryClearSettlement: fileTransferPanel

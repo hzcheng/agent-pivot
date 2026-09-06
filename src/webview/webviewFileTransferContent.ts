@@ -66,6 +66,7 @@ export function getFileTransferContent(
             <button type="button" class="file-transfer-tasks" data-file-transfer-tasks disabled title="Transfer tasks will appear here">Transfers <span>0</span></button>
         </header>
         <p class="file-transfer-task-status" data-file-transfer-task-status aria-live="polite" hidden></p>
+        <ul class="file-transfer-task-list" data-file-transfer-task-list aria-label="Transfer tasks" hidden></ul>
         <div class="file-transfer-pair" role="group" aria-label="Choose transfer endpoints">
             ${endpointPicker('left', options)}
             <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Swap the left and right endpoint layout" aria-label="Swap endpoint layout">↔</button>

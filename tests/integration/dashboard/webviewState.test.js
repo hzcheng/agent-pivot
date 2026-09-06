@@ -499,6 +499,15 @@ test('FILE-TRANSFER-UI-007 labels file metadata and blocks unsupported entry typ
     assert.match(dashboardSource, /checkbox\.disabled = entry\.kind !== 'directory' && entry\.kind !== 'file'/);
 });
 
+test('FILE-TRANSFER-UI-008 renders correlated queued copy tasks with cancellation controls', () => {
+    assert.match(dashboardSource, /validateFileTransferCopyQueued/);
+    assert.match(dashboardSource, /file-transfer-copy-queued/);
+    assert.match(dashboardSource, /Queued · /);
+    assert.match(dashboardSource, /requestTaskCancellation/);
+    assert.match(dashboardSource, /Cancelling /);
+    assert.match(dashboardSource, /file-transfer-task-list/);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

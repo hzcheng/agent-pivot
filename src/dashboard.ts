@@ -2751,6 +2751,57 @@ async function initializeDashboard(
         return Array.isArray(value) ? value.filter(isFileTransferHistoryEntry).slice(0, 50) : [];
     };
     let activeFileTransferTaskId: string | undefined;
+    const queuedFileTransferTasks: Record<string, unknown>[] = [];
+    const runNextFileTransferTask = (): void => {
+        if (activeFileTransferTaskId || queuedFileTransferTasks.length === 0) {
+            return;
+        }
+        const task = queuedFileTransferTasks.shift()!;
+        activeFileTransferTaskId = task.requestId as string;
+        if (managedRemoteSnapshot.lifecycle !== 'active' || !managedRemoteSnapshot.revisionId) {
+            const message = 'Managed Machines are unavailable. Refresh and try again.';
+            void appendFileTransferHistorySafely(task, 'failed', message).then(() => provider.postMessage(
+                fileTransferCopySettlement(task, 'failed', message),
+            )).finally(() => {
+                if (activeFileTransferTaskId === task.requestId) {
+                    activeFileTransferTaskId = undefined;
+                }
+                runNextFileTransferTask();
+            });
+            return;
+        }
+        void Promise.resolve(provider.postMessage({
+            type: 'file-transfer-copy-started', version: 1, requestId: task.requestId,
+        })).then(() => managedRemoteBridgeClient.copyFileTransferEntries(
+            managedRemoteSnapshot.revisionId!,
+            {
+                kind: 'copy',
+                taskId: task.requestId as string,
+                source: task.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                destination: task.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                entryIds: task.entryIds as string[],
+                conflictPolicy: task.conflictPolicy as 'fail' | 'skip' | 'replace',
+            },
+        )).then(
+            async result => {
+                const status = isRecordFileTransferCopyResult(result) && result.status === 'cancelled'
+                    ? 'cancelled' : 'copied';
+                await appendFileTransferHistorySafely(task, status, result);
+                return provider.postMessage(fileTransferCopySettlement(task, status, result));
+            },
+            error => {
+                const rawMessage = error instanceof Error ? error.message : String(error);
+                return appendFileTransferHistorySafely(task, 'failed', rawMessage).then(() => provider.postMessage(
+                    fileTransferCopySettlement(task, 'failed', rawMessage.slice(0, 320)),
+                ));
+            },
+        ).finally(() => {
+            if (activeFileTransferTaskId === task.requestId) {
+                activeFileTransferTaskId = undefined;
+            }
+            runNextFileTransferTask();
+        });
+    };
     const appendFileTransferHistory = async (
         request: Record<string, unknown>,
         status: FileTransferHistoryEntry['status'],
@@ -2766,6 +2817,17 @@ async function initializeDashboard(
                 : {}),
         };
         await context.globalState.update(fileTransferHistoryKey, [entry, ...readFileTransferHistory()].slice(0, 50));
+    };
+    const appendFileTransferHistorySafely = async (
+        request: Record<string, unknown>,
+        status: FileTransferHistoryEntry['status'],
+        value: unknown,
+    ): Promise<void> => {
+        try {
+            await appendFileTransferHistory(request, status, value);
+        } catch (_error) {
+            // History is best effort. The task settlement remains authoritative.
+        }
     };
 
     const dashboardMessageRouter = createDashboardMessageRouter({
@@ -2948,45 +3010,19 @@ async function initializeDashboard(
                         'Managed Machines are unavailable. Refresh and try again.'));
                     return;
                 }
-                if (activeFileTransferTaskId) {
+                if (queuedFileTransferTasks.length >= 10) {
                     await provider.postMessage(fileTransferCopySettlement(message, 'failed',
-                        'Another File Transfer copy is already running. Cancel it or wait for it to finish.'));
+                        'The File Transfer queue is full. Wait for a task to finish before adding another.'));
                     return;
                 }
-                activeFileTransferTaskId = message.requestId as string;
+                queuedFileTransferTasks.push(message);
                 await provider.postMessage({
-                    type: 'file-transfer-copy-started',
+                    type: 'file-transfer-copy-queued',
                     version: 1,
                     requestId: message.requestId,
+                    position: queuedFileTransferTasks.length,
                 });
-                void managedRemoteBridgeClient.copyFileTransferEntries(
-                        managedRemoteSnapshot.revisionId,
-                        {
-                            kind: 'copy',
-                            taskId: message.requestId as string,
-                            source: message.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
-                            destination: message.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
-                            entryIds: message.entryIds as string[],
-                            conflictPolicy: message.conflictPolicy as 'fail' | 'skip' | 'replace',
-                        },
-                    ).then(
-                    async result => {
-                        const status = isRecordFileTransferCopyResult(result) && result.status === 'cancelled'
-                            ? 'cancelled' : 'copied';
-                        await appendFileTransferHistory(message, status, result);
-                        return provider.postMessage(fileTransferCopySettlement(message, status, result));
-                    },
-                    error => {
-                        const rawMessage = error instanceof Error ? error.message : String(error);
-                        return appendFileTransferHistory(message, 'failed', rawMessage).then(() => provider.postMessage(fileTransferCopySettlement(
-                            message, 'failed', rawMessage.slice(0, 320),
-                        )));
-                    },
-                ).finally(() => {
-                    if (activeFileTransferTaskId === message.requestId) {
-                        activeFileTransferTaskId = undefined;
-                    }
-                });
+                runNextFileTransferTask();
             },
             'file-transfer-request-history': async message => {
                 if (!isFileTransferHistoryRequest(message)) {
@@ -3019,6 +3055,15 @@ async function initializeDashboard(
                     return;
                 }
                 try {
+                    const queuedIndex = queuedFileTransferTasks.findIndex(task => task.requestId === message.taskId);
+                    if (queuedIndex >= 0) {
+                        const [cancelled] = queuedFileTransferTasks.splice(queuedIndex, 1);
+                        const result = { status: 'cancelled' as const, completedItems: 0, skippedItems: 0,
+                            totalItems: Array.isArray(cancelled.entryIds) ? cancelled.entryIds.length : 0 };
+                        await appendFileTransferHistorySafely(cancelled, 'cancelled', result);
+                        await provider.postMessage(fileTransferCopySettlement(cancelled, 'cancelled', result));
+                        return;
+                    }
                     await managedRemoteBridgeClient.cancelFileTransferCopy(message.taskId as string);
                 } catch (_error) {
                     // The terminal settlement remains the authoritative task outcome.

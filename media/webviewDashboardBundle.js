@@ -13461,6 +13461,7 @@ function initDashboard(options) {
         var transferTasks = {};
         var pendingHistoryClearRequestId = null;
         var draggedFileTransferEntry = null;
+        var reviewReturnFocus = null;
 
         function renderTaskCount() {
             if (!tasks) return;
@@ -14028,6 +14029,7 @@ function initDashboard(options) {
                         + unknownSizeCount + ' folder or item size will be determined during copy.'
                     : 'Total size: ' + formatFileTransferBytes(knownBytes) + '.';
             }
+            reviewReturnFocus = document.activeElement;
             renderReviewItems(entries);
             reviewSheet.hidden = false;
             reviewedCopyPlan = {
@@ -14041,6 +14043,11 @@ function initDashboard(options) {
                 return;
             }
             requestCopyPreflight(reviewedCopyPlan);
+            setTimeout(function () {
+                if (!reviewSheet || reviewSheet.hidden) return;
+                var initialFocus = canRename ? targetNameInput : reviewCancel;
+                if (initialFocus && typeof initialFocus.focus === 'function') initialFocus.focus();
+            }, 0);
         }
 
         function closeReview() {
@@ -14048,6 +14055,10 @@ function initDashboard(options) {
             pendingPreflightRequestId = null;
             reviewedCopyPlan = null;
             reviewPreflightResult = null;
+            if (reviewReturnFocus && typeof reviewReturnFocus.focus === 'function') {
+                reviewReturnFocus.focus();
+            }
+            reviewReturnFocus = null;
         }
 
         function startReviewedCopy() {
@@ -14197,6 +14208,11 @@ function initDashboard(options) {
         });
         if (retry) retry.addEventListener('click', retryFailedCopy);
         if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
+        panel.addEventListener('keydown', function (event) {
+            if (event.key !== 'Escape' || !reviewSheet || reviewSheet.hidden) return;
+            event.preventDefault();
+            closeReview();
+        });
         ['left', 'right'].forEach(function (side) {
             var pane = panes[side];
             if (!pane) return;

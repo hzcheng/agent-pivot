@@ -101,7 +101,7 @@ export function getFileTransferContent(
             <span data-file-transfer-summary>Select files in either pane to choose a copy direction.</span>
             <button type="button" data-file-transfer-review disabled>Review copy ${Icons.handoff}</button>
         </footer>
-        <section class="file-transfer-review" data-file-transfer-review-sheet role="dialog" aria-modal="true" aria-label="Review file copy" hidden>
+        <section class="file-transfer-review" data-file-transfer-review-sheet role="dialog" aria-modal="true" aria-label="Review file copy" tabindex="-1" hidden>
             <h3>Review copy</h3>
             <p data-file-transfer-review-summary></p>
             <p data-file-transfer-review-size></p>

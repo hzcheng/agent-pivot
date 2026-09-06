@@ -10,19 +10,20 @@ Hooks 的占位页。Prompt 以高卡片和 hover 操作呈现，Skill 则直接
 Global/Project 双树、来源目录、链接、复制、冲突和同步等底层概念。
 
 这使用户难以完成两件最重要的事：快速把合适的 Prompt 用到当前任务中，
-以及清楚地为当前项目启用、安装或创建一个 Skill。
+以及在需要时把一个全局 Skill 启用到当前项目。
 
-AI tab 不是 OPEN 中的活跃会话视图。它的定位是：**当前项目的 AI 资产
-工作台**。OPEN 继续承载会话、终端和运行状态；AI tab 承载可复用的
-Prompt 与 Skills。
+AI tab 不是 OPEN 中的活跃会话视图。它的定位是：**全局 AI 资产工作台**。
+OPEN 继续承载会话、终端和运行状态；AI tab 是全局 Prompt library 和
+Global Skills library 的维护入口。当前项目只是在使用或启用资产时提供上下文，
+不是这些资产的默认所有者。
 
 ## 目标
 
 1. 用户在 10 秒内找到并将一个 Prompt 插入活动终端。
 2. 用户能为一个功能建立按步骤组织的 Prompt set，例如 Plan → Implement
    → Review，并逐步使用其中的 Prompt。
-3. 用户一眼看清当前项目启用了哪些 Skills、分别可供哪些 Agent 使用，
-   并能快速启用或关闭。
+3. 用户一眼看清全局有哪些 Skills；在需要时进入某项目上下文，查看分别可供
+   哪些 Agent 使用并快速启用或关闭。
 4. 用户可从明确来源安装、导入或创建 Skill；安装后立即决定是否用于当前
    项目及哪些 Agent。
 5. 在 300–340px 的 VS Code 侧栏中保持紧凑、原生、可访问且赏心悦目的
@@ -41,8 +42,8 @@ Prompt 与 Skills。
 ### Prompt 与 Prompt set
 
 - **Prompt**：全局可复用的文本模板，含名称、用途说明和正文。
-- **Prompt set**：默认属于当前项目的、有序 Prompt 引用集合。一个 Prompt
-  可属于零或多个 set，不复制正文。
+- **Prompt set**：全局维护的、有序 Prompt 引用集合。一个 Prompt 可属于零
+  或多个 set，不复制正文。
 - **Use**：将一个 Prompt 的正文插入当前活动终端；不附加 Enter，不创建
   终端。
 
@@ -56,7 +57,7 @@ Skill 的以下概念必须分开，不能用一个 scope 或 toggle 混淆：
 | 概念 | 用户问题 | 例子 |
 | --- | --- | --- |
 | Installation | Skill 从哪里来，是否可信？ | Git URL、导入文件夹、创建 |
-| Ownership | 它属于哪个资产库？ | Global library、当前项目 |
+| Ownership | 它属于哪个资产库？ | Global library、显式 Project-only |
 | Activation | 当前项目是否能使用它？ | 已添加到本项目 |
 | Agent access | 哪些 Agent 可以使用？ | Codex、Claude、Kimi |
 
@@ -75,8 +76,8 @@ AI
 │   ├── Prompt sets
 │   └── All prompts
 └── Skills
-    ├── This project
     ├── Global library
+    ├── This project access
     └── Add skill
 ```
 
@@ -143,9 +144,9 @@ Feature · PR flow                         [···]
 
 ### 数据与迁移
 
-全局 Prompt library 保持可复用；Prompt set 默认保存在项目工作区状态中。
-初始模型如下，持久化时应加入版本和 revision，并延续现有的乐观并发冲突
-检测与权威回执机制：
+全局 Prompt library 和 Prompt set 都可复用并保持同步。未来如确有需求，
+可新增显式 Project-only set；v1 不把 set 隐式绑定到当前工作区。初始模型如下，
+持久化时应加入版本和 revision，并延续现有的乐观并发冲突检测与权威回执机制：
 
 ```ts
 interface PromptV2 {
@@ -164,31 +165,33 @@ interface PromptSetV1 {
 ```
 
 旧 PromptV1 数据须无损迁移：`name` 和 `text` 保持不变，`description` 缺省。
-项目外或无工作区环境中，Prompt set 创建入口禁用并解释需要先打开项目。
+Prompt set 的创建不依赖工作区；它与全局 Prompt 一样可以在任意窗口维护。
 
 ## Skills
 
-### This project 首页
+### Global library 首页
 
 ```text
 Prompts  Skills
-[ This project | Global library ]             [+]
+[ Global library | This project ]             [+]
 [ Search skills… ]                   [All agents ▾]
 
-ENABLED IN THIS PROJECT
-  fixing-regressions-with-ci       2 agents    [on]
-  review-fix-commit-loop           Codex       [on]
+INSTALLED SKILLS
+  fixing-regressions-with-ci       2 projects [···]
+  review-fix-commit-loop           Codex      [···]
 
-AVAILABLE FROM LIBRARY
-  frontend-design                  UI flow    [Add]
+AVAILABLE TO INSTALL
+  frontend-design                  UI flow [Install]
 
 NEEDS ATTENTION                                      1
   frontend-design                  Newer copy [Review]
 ```
 
-- 默认进入 `This project`；`Global library` 是资产管理视图，而不是默认工作
-  场景。
-- `Enabled in this project` 与 `Available from library` 是主分组。
+- 默认进入 `Global library`；全局维护是 AI tab 的默认任务。`This project`
+  是当前工作区的使用/启用视图，不改变资产归属。
+- Global library 中以 `Installed skills`、`Available to install` 和诊断状态
+  组织资产；This project 中才以 `Enabled in this project` 和 `Available from
+  library` 组织当前项目的访问状态。
 - `Needs attention` 是顶部可筛选的诊断状态和行内文本标识，不是与 Enabled
   互斥的第三归属；一个已启用但异常的 Skill 仍留在 Enabled。
 - 行显示名称、单行说明、Agent 摘要和一个项目级总开关。总开关第一次启用时
@@ -209,13 +212,14 @@ NEEDS ATTENTION                                      1
 Centralize 或 Copy 操作改名为 Install。
 
 安装流程：选择来源 → 显示作者/来源 URL、版本或 commit、目标 Ownership 与
-信任说明 → 选择当前项目及 Agent → 安装 → 权威成功或失败回执 → 回到项目
-列表并高亮结果。远程 Skill 可能影响 Agent 的指令行为，安装前不得跳过来源
-与信任提示。
+信任说明 → 默认安装到 Global library → 可选地选择当前项目及 Agent → 安装 →
+权威成功或失败回执 → 回到 library 并高亮结果。远程 Skill 可能影响 Agent 的
+指令行为，安装前不得跳过来源与信任提示。
 
-创建流程默认选择当前项目：名称 → 用途 → 模板 → 创建合法 `SKILL.md` →
-校验 → 选择 Agent → 打开编辑器。UI 必须明确会写入项目目录，可能被 Git
-追踪；没有工作区时改为显式 Global 创建，不得静默改变范围。
+创建流程默认选择 Global library：名称 → 用途 → 模板 → 创建合法 `SKILL.md`
+→ 校验 → 选择 Agent → 打开编辑器。用户可显式选择 Project-only；此时 UI
+必须明确会写入项目目录，可能被 Git 追踪。没有工作区时 Project-only 不可选，
+不得静默改变范围。
 
 项目级总开关的语义为“新的 Agent 工作开始时可用”。若对正在运行的 session
 不立即生效，详情页必须明确说明。
@@ -244,7 +248,7 @@ Centralize 或 Copy 操作改名为 Install。
 | 没有 Prompt | `Create prompt` |
 | 空 Prompt set | `Add first prompt` |
 | 搜索无结果 | 清除筛选 / 创建或导入 |
-| 项目没有 Skill | `Browse skills` 与 `Create skill` |
+| 项目没有已启用的 Skill | 从 Global library 添加，或创建 Project-only Skill |
 | 无工作区 | 说明项目操作不可用，并提供 Global 路径 |
 | 安装、扫描或保存失败 | 原因、`Retry` 与 `Open diagnostics` |
 
@@ -259,11 +263,12 @@ pending → authoritative success / failure → Retry 或 Undo
 1. 用户从打开 AI tab 到首次 `Use` 一个 Prompt，不超过两次操作。
 2. 用户在 30 秒内创建 `Plan → Implement → Review` 三步 Prompt set，并对
    任一步执行 `Use`。
-3. 用户能搜索一个已安装 Skill，将它启用到当前项目并选择 Agent；关闭后可
-   Undo 并恢复上次 Agent 集合。
-4. 用户能从支持的来源安装一个 Skill，看到来源与信任信息，并在成功后直接
-   在当前项目中使用它。
-5. 用户能在两分钟内创建、校验并启用一个项目 Skill。
+3. 用户能搜索一个全局已安装 Skill，将它启用到当前项目并选择 Agent；关闭后
+   可 Undo 并恢复上次 Agent 集合。
+4. 用户能从支持的来源把 Skill 安装到 Global library，看到来源与信任信息，
+   并可选地直接启用到当前项目。
+5. 用户能在两分钟内创建、校验并启用一个全局 Skill；必要时可显式创建
+   Project-only Skill。
 6. 在键盘操作、窄侧栏和高对比主题下，上述旅程都没有仅依赖 hover、颜色或
    拖拽的必经步骤。
 
@@ -272,7 +277,7 @@ pending → authoritative success / failure → Retry 或 Undo
 1. 建立由 Dashboard 拥有的 AI Hub shell；Prompts 与 Skills 成为平级 feature
    section，保持现有消息协议兼容。
 2. 交付紧凑 Prompt 行、搜索、Recent、详情页和稳定 `Use` 主操作。
-3. 交付项目级 Prompt set、迁移、引用完整性和逐步 Use。
+3. 交付全局 Prompt set、迁移、引用完整性和逐步 Use。
 4. 交付单列 Skills 页面、项目级启停、逐 Agent 详情和 Advanced 收纳。
 5. 交付 `Add skill` 与 `Create skill` 的最小闭环、来源/信任模型和失败恢复。
 6. 在以上能力稳定后，评估 MCP、Hooks 或 registry 浏览。

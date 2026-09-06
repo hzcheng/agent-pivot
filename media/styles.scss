@@ -1793,7 +1793,7 @@ body .project {
 
 .file-transfer-header p,
 .file-transfer-pair-hint,
-.file-transfer-pane-header span,
+.file-transfer-pane-path,
 .file-transfer-pane-status {
     margin: 3px 0 0;
     color: var(--vscode-descriptionForeground);
@@ -1936,11 +1936,16 @@ body .project {
 }
 
 .file-transfer-pane-header strong,
-.file-transfer-pane-header span {
+.file-transfer-pane-path {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.file-transfer-pane-header > div:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
 }
 
 .file-transfer-pane-header button {
@@ -1951,8 +1956,50 @@ body .project {
 }
 
 .file-transfer-pane-actions {
+    flex: 0 0 auto;
     display: flex;
     gap: 4px;
+}
+
+.file-transfer-pane-path {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    text-overflow: clip;
+}
+
+.file-transfer-breadcrumb,
+.file-transfer-breadcrumb-current,
+.file-transfer-breadcrumb-separator {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-transfer-breadcrumb {
+    max-width: 112px;
+    padding: 0;
+    border: 0;
+    color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+}
+
+.file-transfer-breadcrumb:focus-visible {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
+}
+
+.file-transfer-breadcrumb-separator {
+    flex: 0 0 auto;
+    color: var(--vscode-descriptionForeground);
 }
 
 .file-transfer-pane-toolbar {

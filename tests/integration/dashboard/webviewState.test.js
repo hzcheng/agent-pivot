@@ -542,6 +542,19 @@ test('FILE-TRANSFER-UI-012 requires a correlated preflight before starting a cop
     assert.match(dashboardSource, /pendingPreflightRequestId/);
 });
 
+test('FILE-TRANSFER-UI-013 navigates known directories through opaque breadcrumbs', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: { machines: [], environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [] },
+    });
+    assert.match(html, /data-file-transfer-pane-path aria-label="Current directory"/);
+    assert.match(dashboardSource, /function renderPaneBreadcrumbs/);
+    assert.match(dashboardSource, /directoryHistory\[side\] = trail\.slice\(0, index\);/);
+    assert.match(dashboardSource, /openDirectory\(side, directory\.directoryId, false\);/);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

@@ -778,6 +778,52 @@ function initDashboard(options) {
             }) || null;
         }
 
+        function renderPaneBreadcrumbs(side, pathElement, directoryView, fallback) {
+            if (!pathElement) return;
+            pathElement.textContent = '';
+            if (!directoryView) {
+                pathElement.textContent = fallback;
+                return;
+            }
+            var trail = directoryHistory[side].concat([directoryView]).filter(function (directory, index, all) {
+                return index === 0 || directory.directoryId !== all[index - 1].directoryId;
+            });
+            trail.forEach(function (directory, index) {
+                if (index > 0) {
+                    var separator = document.createElement('span');
+                    separator.className = 'file-transfer-breadcrumb-separator';
+                    separator.textContent = '/';
+                    separator.setAttribute('aria-hidden', 'true');
+                    pathElement.appendChild(separator);
+                }
+                var displayPath = directory.displayPath || '.';
+                var segments = displayPath.split('/').filter(function (segment) {
+                    return segment && segment !== '.';
+                });
+                var label = segments.length ? segments[segments.length - 1] : 'Root';
+                if (index === trail.length - 1) {
+                    var current = document.createElement('span');
+                    current.className = 'file-transfer-breadcrumb-current';
+                    current.textContent = label;
+                    current.setAttribute('aria-current', 'page');
+                    current.title = displayPath;
+                    pathElement.appendChild(current);
+                    return;
+                }
+                var button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'file-transfer-breadcrumb';
+                button.textContent = label;
+                button.title = displayPath;
+                button.setAttribute('aria-label', 'Open ' + displayPath + ' in this endpoint');
+                button.addEventListener('click', function () {
+                    directoryHistory[side] = trail.slice(0, index);
+                    openDirectory(side, directory.directoryId, false);
+                });
+                pathElement.appendChild(button);
+            });
+        }
+
         function updatePane(side, selector) {
             var pane = panes[side];
             if (!pane || !selector) {
@@ -796,7 +842,7 @@ function initDashboard(options) {
             var value = selector.value || '';
             if (!value) {
                 if (name) name.textContent = 'Choose an endpoint';
-                if (path) path.textContent = '—';
+                renderPaneBreadcrumbs(side, path, null, '—');
                 if (status) status.textContent = 'Choose an endpoint to browse its files.';
                 if (refresh) refresh.disabled = true;
                 if (up) up.disabled = true;
@@ -821,8 +867,12 @@ function initDashboard(options) {
                 sort.disabled = !directoryView;
                 sort.value = fileTransferSort[side];
             }
-            if (path) path.textContent = directoryView ? directoryView.label + ' / ' + directoryView.displayPath
-                : value === 'local' ? 'Choose a local folder' : 'Managed Machine';
+            renderPaneBreadcrumbs(
+                side,
+                path,
+                directoryView,
+                value === 'local' ? 'Choose a local folder' : 'Managed Machine',
+            );
             if (status) {
                 status.textContent = paneFailures[side]
                     ? paneFailures[side] + ' Select Refresh to try again.'

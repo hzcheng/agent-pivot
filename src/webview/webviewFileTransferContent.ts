@@ -37,7 +37,7 @@ function pane(side: 'left' | 'right'): string {
         <header class="file-transfer-pane-header">
             <div>
                 <strong data-file-transfer-pane-name>Choose an endpoint</strong>
-                <span data-file-transfer-pane-path>—</span>
+                <nav class="file-transfer-pane-path" data-file-transfer-pane-path aria-label="Current directory">—</nav>
             </div>
             <div class="file-transfer-pane-actions">
                 <button type="button" data-file-transfer-up="${side}" aria-label="Go up in ${label}" title="Up" disabled>↑</button>

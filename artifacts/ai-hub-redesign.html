@@ -1,93 +1,126 @@
-<div id="ai-hub-sidebar" aria-label="AI Hub sidebar redesign">
+<div id="agent-pivot-ai-final" aria-label="Agent Pivot AI tab final layout">
   <style>
-    #ai-hub-sidebar { max-width:340px; color:light-dark(#202938,#e6edf3); font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    #ai-hub-sidebar * { box-sizing:border-box; }
-    #ai-hub-sidebar .surface { overflow:hidden; border:1px solid light-dark(#d9dee5,#303946); border-radius:8px; background:light-dark(#fff,#1d232d); box-shadow:0 10px 24px rgba(0,0,0,.15); }
-    #ai-hub-sidebar .top { padding:12px 12px 0; border-bottom:1px solid light-dark(#e2e6eb,#303946); }
-    #ai-hub-sidebar .topline, #ai-hub-sidebar .subline, #ai-hub-sidebar .workflow-title { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-    #ai-hub-sidebar .topline { margin-bottom:11px; font-size:15px; font-weight:600; }
-    #ai-hub-sidebar .meta { color:light-dark(#687386,#9da8b7); font-size:11px; font-weight:400; }
-    #ai-hub-sidebar button { border:0; color:inherit; background:transparent; font:inherit; cursor:pointer; }
-    #ai-hub-sidebar .new { padding:5px 8px; border-radius:5px; color:#fff; background:light-dark(#2563eb,#238636); font-size:12px; }
-    #ai-hub-sidebar .tabs { display:flex; gap:13px; }
-    #ai-hub-sidebar .tabs button { padding:0 1px 8px; border-bottom:2px solid transparent; color:light-dark(#6b7585,#aab5c4); font-size:12px; }
-    #ai-hub-sidebar .tabs button.active { border-bottom-color:light-dark(#2563eb,#58a6ff); color:light-dark(#1f2937,#f2f5f8); font-weight:600; }
-    #ai-hub-sidebar .page { padding:10px; }
-    #ai-hub-sidebar .page[hidden] { display:none; }
-    #ai-hub-sidebar .nav-row, #ai-hub-sidebar .item { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; width:100%; min-height:40px; padding:7px 8px; border-bottom:1px solid light-dark(#edf0f3,#29313d); text-align:left; }
-    #ai-hub-sidebar .nav-row:first-of-type, #ai-hub-sidebar .item:first-of-type { border-top:1px solid light-dark(#edf0f3,#29313d); }
-    #ai-hub-sidebar .nav-row:hover, #ai-hub-sidebar .item:hover { background:light-dark(#f5f8fd,#253142); }
-    #ai-hub-sidebar .item { grid-template-columns:22px minmax(0,1fr) auto; }
-    #ai-hub-sidebar .name { display:block; overflow:hidden; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
-    #ai-hub-sidebar .desc { display:block; overflow:hidden; color:light-dark(#748092,#9da8b7); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
-    #ai-hub-sidebar .count, #ai-hub-sidebar .chevron { color:light-dark(#6d7787,#aab5c4); font-size:11px; }
-    #ai-hub-sidebar .section { padding:11px 2px 5px; color:light-dark(#687386,#9da8b7); font-size:10px; font-weight:700; letter-spacing:.07em; }
-    #ai-hub-sidebar .back { padding:2px 0 8px; color:light-dark(#2563eb,#58a6ff); font-size:12px; }
-    #ai-hub-sidebar .workflow-title { padding:1px 0 9px; }
-    #ai-hub-sidebar .step { display:grid; width:21px; height:21px; place-items:center; border-radius:50%; color:light-dark(#2563eb,#83c1ff); background:light-dark(#e8f0ff,#203a58); font-size:11px; font-weight:700; }
-    #ai-hub-sidebar .more { padding:4px; color:light-dark(#637083,#b0bdcc); }
-    #ai-hub-sidebar .skills-head { display:flex; align-items:center; justify-content:space-between; padding-bottom:8px; }
-    #ai-hub-sidebar .segmented { display:inline-flex; padding:2px; border:1px solid light-dark(#dbe0e6,#394351); border-radius:5px; }
-    #ai-hub-sidebar .segmented button { padding:3px 6px; border-radius:3px; color:light-dark(#697485,#aab5c4); font-size:11px; }
-    #ai-hub-sidebar .segmented button.active { color:light-dark(#1f2937,#f2f5f8); background:light-dark(#f2f5f9,#303a47); font-weight:600; }
-    #ai-hub-sidebar .agent { color:light-dark(#627084,#aab5c4); font-size:10px; white-space:nowrap; }
-    #ai-hub-sidebar .warn { color:light-dark(#9a5907,#edb659); font-size:11px; white-space:nowrap; }
+    #agent-pivot-ai-final { --ap-bg:light-dark(#f4f5f7,#181b20); --ap-panel:light-dark(#ffffff,#20242b); --ap-text:light-dark(#20242b,#e8eaed); --ap-muted:light-dark(#6e7784,#a6adb8); --ap-line:light-dark(#dde1e6,#343a44); --ap-hover:light-dark(#e9edf3,#2a3039); --ap-accent:light-dark(#1769e0,#5da5ff); --ap-accent-fill:light-dark(#e8f1ff,#253d59); --ap-warn:light-dark(#9a5a05,#e7b55a); max-width:336px; overflow:hidden; color:var(--ap-text); background:var(--ap-bg); font:13px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    #agent-pivot-ai-final * { box-sizing:border-box; }
+    #agent-pivot-ai-final .chrome { padding:10px 10px 0; border-bottom:1px solid var(--ap-line); background:var(--ap-panel); }
+    #agent-pivot-ai-final .nav { display:flex; gap:14px; }
+    #agent-pivot-ai-final .nav button { padding:0 1px 8px; border:0; border-bottom:2px solid transparent; color:var(--ap-muted); background:transparent; font:600 12px inherit; cursor:pointer; }
+    #agent-pivot-ai-final .nav button.active { border-bottom-color:var(--ap-accent); color:var(--ap-text); }
+    #agent-pivot-ai-final .view { padding:10px; }
+    #agent-pivot-ai-final .view[hidden] { display:none; }
+    #agent-pivot-ai-final .heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:9px; }
+    #agent-pivot-ai-final .heading strong { font-size:14px; font-weight:600; }
+    #agent-pivot-ai-final .count { color:var(--ap-muted); font-size:11px; font-weight:400; }
+    #agent-pivot-ai-final button, #agent-pivot-ai-final input { font:inherit; }
+    #agent-pivot-ai-final .add, #agent-pivot-ai-final .use, #agent-pivot-ai-final .text-action { border:0; color:var(--ap-accent); background:transparent; cursor:pointer; }
+    #agent-pivot-ai-final .add { padding:3px 5px; font-size:12px; font-weight:600; }
+    #agent-pivot-ai-final .search { width:100%; padding:6px 8px; border:1px solid var(--ap-line); border-radius:4px; color:var(--ap-text); background:var(--ap-panel); outline-offset:2px; }
+    #agent-pivot-ai-final .section { display:flex; align-items:baseline; justify-content:space-between; padding:13px 2px 5px; color:var(--ap-muted); font-size:10px; font-weight:700; letter-spacing:.065em; }
+    #agent-pivot-ai-final .row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:6px; width:100%; min-height:42px; padding:6px 2px; border:0; border-top:1px solid var(--ap-line); color:var(--ap-text); background:transparent; text-align:left; cursor:pointer; }
+    #agent-pivot-ai-final .row:hover, #agent-pivot-ai-final .row:focus-visible { background:var(--ap-hover); outline:none; }
+    #agent-pivot-ai-final .row-title { display:block; overflow:hidden; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    #agent-pivot-ai-final .row-detail { display:block; overflow:hidden; color:var(--ap-muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+    #agent-pivot-ai-final .use { padding:4px 5px; font-size:12px; font-weight:600; }
+    #agent-pivot-ai-final .more { width:22px; height:24px; border:0; color:var(--ap-muted); background:transparent; cursor:pointer; }
+    #agent-pivot-ai-final .disclosure { color:var(--ap-muted); font-size:14px; }
+    #agent-pivot-ai-final .back { padding:0 0 8px; border:0; color:var(--ap-accent); background:transparent; cursor:pointer; font-size:12px; }
+    #agent-pivot-ai-final .set-title { display:flex; align-items:center; justify-content:space-between; padding:0 2px 7px; }
+    #agent-pivot-ai-final .step { display:grid; width:20px; height:20px; place-items:center; border-radius:50%; color:var(--ap-accent); background:var(--ap-accent-fill); font-size:11px; font-weight:700; }
+    #agent-pivot-ai-final .step-row { grid-template-columns:20px minmax(0,1fr) auto; gap:8px; }
+    #agent-pivot-ai-final .segments { display:inline-flex; padding:2px; border:1px solid var(--ap-line); border-radius:5px; }
+    #agent-pivot-ai-final .segments button { padding:3px 6px; border:0; border-radius:3px; color:var(--ap-muted); background:transparent; font-size:11px; cursor:pointer; }
+    #agent-pivot-ai-final .segments button.active { color:var(--ap-text); background:var(--ap-hover); font-weight:600; }
+    #agent-pivot-ai-final .agent { color:var(--ap-muted); font-size:10px; white-space:nowrap; }
+    #agent-pivot-ai-final .prompt-main { min-width:0; padding:0; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+    #agent-pivot-ai-final .skill-main { min-width:0; padding:0; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+    #agent-pivot-ai-final .switch { width:25px; height:15px; padding:2px; border:0; border-radius:12px; background:var(--ap-line); cursor:pointer; }
+    #agent-pivot-ai-final .switch i { display:block; width:11px; height:11px; border-radius:50%; background:var(--ap-panel); transition:transform 120ms ease; }
+    #agent-pivot-ai-final .switch.on { background:var(--ap-accent); }
+    #agent-pivot-ai-final .switch.on i { transform:translateX(10px); }
+    #agent-pivot-ai-final .warning { color:var(--ap-warn); font-size:11px; white-space:nowrap; }
+    #agent-pivot-ai-final .menu { position:absolute; z-index:3; right:10px; top:40px; width:148px; padding:4px; border:1px solid var(--ap-line); border-radius:5px; background:var(--ap-panel); box-shadow:0 5px 14px rgba(0,0,0,.2); }
+    #agent-pivot-ai-final .menu[hidden] { display:none; }
+    #agent-pivot-ai-final .menu button { display:block; width:100%; padding:6px; border:0; color:var(--ap-text); background:transparent; text-align:left; cursor:pointer; }
+    #agent-pivot-ai-final .menu button:hover { background:var(--ap-hover); }
   </style>
-  <div class="surface">
-    <header class="top">
-      <div class="topline"><span>AI Hub</span><button class="new" data-new-prompt type="button">New prompt</button></div>
-      <nav class="tabs" aria-label="AI sections">
-        <button class="active" data-tab="prompts" type="button">Prompts</button>
-        <button data-tab="skills" type="button">Skills</button>
-        <button type="button">MCP</button>
-        <button type="button">Hooks</button>
-      </nav>
-    </header>
-    <section class="page" data-page="prompts">
-      <div data-prompt-home>
-        <div class="section">WORKFLOWS</div>
-        <button class="nav-row" data-open-workflow type="button"><span><span class="name">Feature · PR flow</span><span class="desc">Plan, implement, review</span></span><span class="count">3 ›</span></button>
-        <button class="nav-row" type="button"><span><span class="name">Bug triage</span><span class="desc">Reproduce, diagnose</span></span><span class="count">2 ›</span></button>
-        <button class="nav-row" type="button"><span><span class="name">Release note</span><span class="desc">Summarize, polish, publish</span></span><span class="count">3 ›</span></button>
-        <div class="section">PROMPT LIBRARY <span class="meta">12 templates</span></div>
-        <button class="nav-row" type="button"><span class="name">All prompts</span><span class="chevron">›</span></button>
-        <button class="nav-row" type="button"><span class="name">Unfiled</span><span class="count">4 ›</span></button>
-      </div>
-      <div data-workflow-detail hidden>
-        <button class="back" data-close-workflow type="button">← Workflows</button>
-        <div class="workflow-title"><span><strong>Feature · PR flow</strong><span class="desc">3 ordered steps</span></span><button class="more" type="button" aria-label="Workflow actions">⋯</button></div>
-        <button class="item" type="button"><span class="step">1</span><span><span class="name">Plan the feature</span><span class="desc">Architecture and acceptance criteria</span></span><span class="chevron">›</span></button>
-        <button class="item" type="button"><span class="step">2</span><span><span class="name">Implement the change</span><span class="desc">Focused implementation prompt</span></span><span class="chevron">›</span></button>
-        <button class="item" type="button"><span class="step">3</span><span><span class="name">Review and prepare PR</span><span class="desc">Checks, review, handoff</span></span><span class="chevron">›</span></button>
-      </div>
-    </section>
-    <section class="page" data-page="skills" hidden>
-      <div class="skills-head"><strong>Skills <span class="meta">18 available</span></strong><div class="segmented"><button class="active" type="button">Project</button><button type="button">Global</button></div></div>
-      <div class="section">ENABLED</div>
-      <button class="nav-row" type="button"><span><span class="name">fixing-regressions-with-ci</span><span class="desc">Test-first regression workflow</span></span><span class="agent">Codex · Claude</span></button>
-      <button class="nav-row" type="button"><span><span class="name">publishing-and-merging-github-prs</span><span class="desc">PR gates and merge workflow</span></span><span class="agent">Codex</span></button>
-      <div class="section">NEEDS ATTENTION</div>
-      <button class="nav-row" type="button"><span><span class="name">frontend-design</span><span class="desc">A newer Global copy exists</span></span><span class="warn">Duplicate ›</span></button>
-    </section>
+  <div class="chrome">
+    <nav class="nav" role="tablist" aria-label="AI assets">
+      <button class="active" id="ap-prompts-tab" type="button" role="tab" aria-controls="ap-prompts" aria-selected="true" data-tab="prompts">Prompts</button>
+      <button id="ap-skills-tab" type="button" role="tab" aria-controls="ap-skills" aria-selected="false" data-tab="skills">Skills</button>
+    </nav>
   </div>
+  <section class="view" id="ap-prompts" role="tabpanel" aria-labelledby="ap-prompts-tab" data-page="prompts">
+    <div data-prompt-home>
+      <div class="heading"><strong>Prompt library <span class="count">18</span></strong><button class="add" type="button" data-add="prompts">+ Add</button></div>
+      <input class="search" type="search" aria-label="Search prompts and prompt sets" placeholder="Search prompts & sets…">
+      <div class="section"><span>RECENT</span><button class="text-action" type="button">View all</button></div>
+      <div class="row"><button class="prompt-main" type="button"><span class="row-title">Review implementation</span><span class="row-detail">Review a focused code change</span></button><button class="use" type="button">Use</button><button class="more" type="button" aria-label="Review implementation actions">···</button></div>
+      <div class="row"><button class="prompt-main" type="button"><span class="row-title">Draft acceptance criteria</span><span class="row-detail">Turn an idea into testable outcomes</span></button><button class="use" type="button">Use</button><button class="more" type="button" aria-label="Draft acceptance criteria actions">···</button></div>
+      <div class="section"><span>PROMPT SETS</span><span class="count">3</span></div>
+      <button class="row" type="button" data-open-set><span><span class="row-title">Feature · PR flow</span><span class="row-detail">Plan, implement, review</span></span><span class="count">3 steps</span><span class="disclosure">›</span></button>
+      <button class="row" type="button"><span><span class="row-title">Bug triage</span><span class="row-detail">Reproduce, diagnose</span></span><span class="count">2 steps</span><span class="disclosure">›</span></button>
+    </div>
+    <div data-set-detail hidden>
+      <button class="back" type="button" data-close-set>← Prompt sets</button>
+      <div class="set-title"><span><strong>Feature · PR flow</strong><span class="row-detail">3 reusable steps</span></span><button class="more" type="button" aria-label="Prompt set actions">···</button></div>
+      <button class="row step-row" type="button"><span class="step">1</span><span><span class="row-title">Plan the feature</span><span class="row-detail">Architecture & acceptance criteria</span></span><span class="use">Use</span></button>
+      <button class="row step-row" type="button"><span class="step">2</span><span><span class="row-title">Implement the change</span><span class="row-detail">Focused implementation prompt</span></span><span class="use">Use</span></button>
+      <button class="row step-row" type="button"><span class="step">3</span><span><span class="row-title">Review and prepare PR</span><span class="row-detail">Checks, review & handoff</span></span><span class="use">Use</span></button>
+      <button class="text-action" type="button" style="margin-top:9px">+ Add prompt</button>
+    </div>
+  </section>
+  <section class="view" id="ap-skills" role="tabpanel" aria-labelledby="ap-skills-tab" data-page="skills" hidden>
+    <div class="heading"><strong>Skills <span class="count">24</span></strong><button class="add" type="button" data-add="skills">+ Add</button></div>
+    <div class="heading"><div class="segments" aria-label="Skill scope"><button class="active" type="button" data-scope="library">Global library</button><button type="button" data-scope="project">This project</button></div><span class="count" data-scope-label>Global assets</span></div>
+    <input class="search" type="search" aria-label="Search skills" placeholder="Search skills…">
+    <div data-library>
+      <div class="section"><span>INSTALLED</span><span class="count">21</span></div>
+      <button class="row" type="button"><span><span class="row-title">fixing-regressions-with-ci</span><span class="row-detail">Test-first regression workflow</span></span><span class="agent">Codex · Claude</span><span class="disclosure">›</span></button>
+      <button class="row" type="button"><span><span class="row-title">frontend-design</span><span class="row-detail">UI implementation guidance</span></span><span class="agent">Codex</span><span class="disclosure">›</span></button>
+      <div class="section"><span>NEEDS ATTENTION</span><span class="count">1</span></div>
+      <button class="row" type="button"><span><span class="row-title">release-helper</span><span class="row-detail">A newer version is available</span></span><span class="warning">Review</span><span class="disclosure">›</span></button>
+    </div>
+    <div data-project hidden>
+      <div class="section"><span>ENABLED IN THIS PROJECT</span><span class="count">4</span></div>
+      <div class="row"><button class="skill-main" type="button"><span class="row-title">fixing-regressions-with-ci</span><span class="row-detail">2 of 3 agents enabled</span></button><span class="agent">Codex · Claude</span><button class="switch on" type="button" aria-label="Disable fixing-regressions-with-ci for this project"><i></i></button></div>
+      <div class="row"><button class="skill-main" type="button"><span class="row-title">review-fix-commit-loop</span><span class="row-detail">Codex enabled</span></button><span class="agent">Codex</span><button class="switch on" type="button" aria-label="Disable review-fix-commit-loop for this project"><i></i></button></div>
+      <div class="section"><span>AVAILABLE FROM LIBRARY</span><span class="count">17</span></div>
+      <button class="row" type="button"><span><span class="row-title">frontend-design</span><span class="row-detail">UI implementation guidance</span></span><span class="use">Add</span><span class="disclosure">›</span></button>
+    </div>
+  </section>
+  <div class="menu" data-menu="prompts" hidden><button type="button">New prompt</button><button type="button">New prompt set</button></div>
+  <div class="menu" data-menu="skills" hidden><button type="button">Install skill</button><button type="button">Create skill</button></div>
   <script>
     (function () {
-      var root = document.getElementById('ai-hub-sidebar');
+      var root = document.getElementById('agent-pivot-ai-final');
       var tabs = root.querySelectorAll('[data-tab]');
       var pages = root.querySelectorAll('[data-page]');
+      var menus = root.querySelectorAll('[data-menu]');
       tabs.forEach(function (tab) { tab.addEventListener('click', function () {
         var page = tab.getAttribute('data-tab');
-        tabs.forEach(function (item) { item.classList.toggle('active', item === tab); });
+        tabs.forEach(function (item) { var active = item === tab; item.classList.toggle('active', active); item.setAttribute('aria-selected', active ? 'true' : 'false'); });
         pages.forEach(function (item) { item.hidden = item.getAttribute('data-page') !== page; });
-        root.querySelector('[data-new-prompt]').hidden = page !== 'prompts';
+        menus.forEach(function (menu) { menu.hidden = true; });
+      }); });
+      root.querySelectorAll('[data-add]').forEach(function (button) { button.addEventListener('click', function () {
+        var menu = root.querySelector('[data-menu="' + button.getAttribute('data-add') + '"]');
+        var open = menu.hidden;
+        menus.forEach(function (item) { item.hidden = true; });
+        menu.hidden = !open;
       }); });
       var home = root.querySelector('[data-prompt-home]');
-      var detail = root.querySelector('[data-workflow-detail]');
-      root.querySelector('[data-open-workflow]').addEventListener('click', function () { home.hidden = true; detail.hidden = false; });
-      root.querySelector('[data-close-workflow]').addEventListener('click', function () { home.hidden = false; detail.hidden = true; });
-      root.querySelectorAll('.segmented button').forEach(function (button) { button.addEventListener('click', function () {
-        root.querySelectorAll('.segmented button').forEach(function (item) { item.classList.toggle('active', item === button); });
+      var detail = root.querySelector('[data-set-detail]');
+      root.querySelector('[data-open-set]').addEventListener('click', function () { home.hidden = true; detail.hidden = false; });
+      root.querySelector('[data-close-set]').addEventListener('click', function () { home.hidden = false; detail.hidden = true; });
+      var library = root.querySelector('[data-library]');
+      var project = root.querySelector('[data-project]');
+      root.querySelectorAll('[data-scope]').forEach(function (button) { button.addEventListener('click', function () {
+        var isProject = button.getAttribute('data-scope') === 'project';
+        root.querySelectorAll('[data-scope]').forEach(function (item) { item.classList.toggle('active', item === button); });
+        library.hidden = isProject; project.hidden = !isProject;
+        root.querySelector('[data-scope-label]').textContent = isProject ? 'Workspace access' : 'Global assets';
       }); });
+      root.querySelectorAll('.switch').forEach(function (button) { button.addEventListener('click', function (event) { event.stopPropagation(); button.classList.toggle('on'); }); });
     }());
   </script>
 </div>

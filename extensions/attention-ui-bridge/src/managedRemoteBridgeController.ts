@@ -425,12 +425,17 @@ function copyFileTransferEntry(
         destination,
     ];
     return new Promise((resolve, reject) => {
-        const process = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-        active.process = process;
+        const child = spawn(executable, args, {
+            stdio: ['ignore', 'pipe', 'pipe'],
+            // SCP owns an SSH child on POSIX. A separate process group lets a
+            // cancellation terminate both without relying on shell commands.
+            detached: process.platform !== 'win32',
+        });
+        active.process = child;
         const stderr: Buffer[] = [];
-        process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
-        process.on('error', error => reject(new Error(`Could not start SCP: ${error.message}`)));
-        process.on('close', code => {
+        child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        child.on('error', error => reject(new Error(`Could not start SCP: ${error.message}`)));
+        child.on('close', code => {
             active.process = undefined;
             if (active.cancelled) {
                 reject(new Error('File copy was cancelled.'));
@@ -441,6 +446,18 @@ function copyFileTransferEntry(
             reject(new Error(message ? `File copy failed: ${message.slice(0, 320)}` : 'File copy failed.'));
         });
     });
+}
+
+function stopFileTransferProcess(child: ChildProcess): void {
+    if (process.platform !== 'win32' && Number.isSafeInteger(child.pid) && child.pid! > 0) {
+        try {
+            process.kill(-child.pid!, 'SIGTERM');
+            return;
+        } catch (_error) {
+            // The process may already have exited between cancellation and the signal.
+        }
+    }
+    child.kill();
 }
 
 export class ManagedRemoteBridgeController {
@@ -460,7 +477,7 @@ export class ManagedRemoteBridgeController {
     dispose(): void {
         for (const active of this.activeFileTransferCopies.values()) {
             active.cancelled = true;
-            active.process?.kill();
+            if (active.process) { stopFileTransferProcess(active.process); }
         }
     }
 
@@ -948,7 +965,7 @@ export class ManagedRemoteBridgeController {
         const active = this.activeFileTransferCopies.get(taskId);
         if (!active) { return { cancelled: false }; }
         active.cancelled = true;
-        active.process?.kill();
+        if (active.process) { stopFileTransferProcess(active.process); }
         return { cancelled: true };
     }
 

@@ -594,6 +594,7 @@ function initDashboard(options) {
         var review = panel.querySelector('[data-file-transfer-review]');
         var tasks = panel.querySelector('[data-file-transfer-tasks]');
         var taskStatus = panel.querySelector('[data-file-transfer-task-status]');
+        var retry = panel.querySelector('[data-file-transfer-retry]');
         var taskList = panel.querySelector('[data-file-transfer-task-list]');
         var historyList = panel.querySelector('[data-file-transfer-history-list]');
         var clearHistory = panel.querySelector('[data-file-transfer-clear-history]');
@@ -612,6 +613,8 @@ function initDashboard(options) {
         var pendingCopyRequestId = null;
         var activeCopyTaskId = null;
         var pendingCopyItemCount = 0;
+        var pendingCopyPlan = null;
+        var lastFailedCopyPlan = null;
         var transferTasks = {};
         var pendingHistoryClearRequestId = null;
 
@@ -1015,15 +1018,7 @@ function initDashboard(options) {
             var source = endpointReference(sourceSide);
             var destination = endpointReference(destinationSide);
             if (!source || !destination) return;
-            var requestId = 'file-transfer-copy-' + Date.now() + '-'
-                + Math.random().toString(16).slice(2, 18);
-            pendingCopyRequestId = requestId;
-            pendingCopyItemCount = selectedEntries[sourceSide].size;
-            if (startCopy) startCopy.disabled = true;
-            options.postMessage({
-                type: 'file-transfer-copy',
-                version: 1,
-                requestId: requestId,
+            submitCopyPlan({
                 source: source,
                 destination: destination,
                 entryIds: Array.from(selectedEntries[sourceSide]),
@@ -1031,12 +1026,38 @@ function initDashboard(options) {
             });
         }
 
+        function submitCopyPlan(plan) {
+            if (!plan || pendingCopyRequestId) return;
+            var requestId = 'file-transfer-copy-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingCopyRequestId = requestId;
+            pendingCopyItemCount = plan.entryIds.length;
+            pendingCopyPlan = {
+                source: plan.source, destination: plan.destination,
+                entryIds: plan.entryIds.slice(), conflictPolicy: plan.conflictPolicy,
+            };
+            if (startCopy) startCopy.disabled = true;
+            if (retry) retry.hidden = true;
+            options.postMessage({
+                type: 'file-transfer-copy',
+                version: 1,
+                requestId: requestId,
+                source: pendingCopyPlan.source,
+                destination: pendingCopyPlan.destination,
+                entryIds: pendingCopyPlan.entryIds,
+                conflictPolicy: pendingCopyPlan.conflictPolicy,
+            });
+        }
+
         function applyCopySettlement(message) {
             if (message.requestId !== pendingCopyRequestId && !transferTasks[message.requestId]) return false;
             var wasPending = message.requestId === pendingCopyRequestId;
+            var task = transferTasks[message.requestId]
+                || (wasPending ? { plan: pendingCopyPlan, itemCount: pendingCopyItemCount } : null);
             if (wasPending) {
                 pendingCopyRequestId = null;
                 pendingCopyItemCount = 0;
+                pendingCopyPlan = null;
             }
             if (activeCopyTaskId === message.requestId) activeCopyTaskId = null;
             delete transferTasks[message.requestId];
@@ -1050,6 +1071,10 @@ function initDashboard(options) {
                 renderTaskStatus('Copy complete: ' + completed + ' copied'
                     + (skipped ? ', ' + skipped + ' skipped.' : '.'));
                 if (wasPending) closeReview();
+                if (task && task.plan === lastFailedCopyPlan) {
+                    lastFailedCopyPlan = null;
+                    if (retry) retry.hidden = true;
+                }
                 updatePair();
             } else if (message.status === 'cancelled') {
                 var cancelledAfter = message.value && Number.isSafeInteger(message.value.completedItems)
@@ -1060,6 +1085,8 @@ function initDashboard(options) {
                 }
             } else {
                 renderTaskStatus('Copy failed: ' + (message.message || 'File copy failed.'));
+                lastFailedCopyPlan = task && task.plan ? task.plan : null;
+                if (retry) retry.hidden = !lastFailedCopyPlan;
                 if (wasPending && reviewSummary) {
                     reviewSummary.textContent = message.message || 'File copy failed.';
                 }
@@ -1081,9 +1108,12 @@ function initDashboard(options) {
 
         function applyCopyQueued(message) {
             if (message.requestId !== pendingCopyRequestId) return false;
-            transferTasks[message.requestId] = { status: 'queued', itemCount: pendingCopyItemCount };
+            transferTasks[message.requestId] = {
+                status: 'queued', itemCount: pendingCopyItemCount, plan: pendingCopyPlan,
+            };
             pendingCopyRequestId = null;
             pendingCopyItemCount = 0;
+            pendingCopyPlan = null;
             if (startCopy) startCopy.disabled = false;
             selectedEntries.left.clear();
             selectedEntries.right.clear();
@@ -1105,6 +1135,14 @@ function initDashboard(options) {
             options.postMessage({ type: 'file-transfer-cancel-copy', version: 1, taskId: taskId });
         }
 
+        function retryFailedCopy() {
+            if (!lastFailedCopyPlan || pendingCopyRequestId) return;
+            renderTaskStatus('Revalidating failed items before retry…');
+            var plan = lastFailedCopyPlan;
+            lastFailedCopyPlan = null;
+            submitCopyPlan(plan);
+        }
+
         selectors.forEach(function (selector) {
             selector.addEventListener('change', onEndpointChange);
         });
@@ -1112,6 +1150,7 @@ function initDashboard(options) {
         if (review) review.addEventListener('click', openReview);
         if (reviewCancel) reviewCancel.addEventListener('click', closeReview);
         if (startCopy) startCopy.addEventListener('click', startReviewedCopy);
+        if (retry) retry.addEventListener('click', retryFailedCopy);
         if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
         Array.from(panel.querySelectorAll('[data-file-transfer-refresh]')).forEach(function (button) {
             button.addEventListener('click', function () {

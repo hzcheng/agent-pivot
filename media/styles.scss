@@ -1835,6 +1835,12 @@ body .project {
     font-size: 12px;
 }
 
+.file-transfer-retry {
+    justify-self: start;
+    margin: -2px 0 5px;
+    font-size: 11px;
+}
+
 .file-transfer-task-list {
     display: grid;
     gap: 3px;

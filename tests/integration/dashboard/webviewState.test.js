@@ -445,6 +445,7 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(html, /data-file-transfer-clear-history/);
     assert.match(html, /data-file-transfer-review-size/);
     assert.match(html, /data-file-transfer-review-items/);
+    assert.match(html, /data-file-transfer-retry/);
     assert.match(dashboardSource, /displayPath/);
     assert.doesNotMatch(html, /Source endpoint|Destination endpoint/);
     assert.match(dashboardSource, /swapEndpointLayout/);
@@ -507,6 +508,13 @@ test('FILE-TRANSFER-UI-008 renders correlated queued copy tasks with cancellatio
     assert.match(dashboardSource, /Cancelling /);
     assert.match(dashboardSource, /if \(wasPending\) closeReview\(\);/);
     assert.match(dashboardSource, /file-transfer-task-list/);
+});
+
+test('FILE-TRANSFER-UI-009 retries failed copies only from a retained opaque plan', () => {
+    assert.match(dashboardSource, /lastFailedCopyPlan/);
+    assert.match(dashboardSource, /Revalidating failed items before retry/);
+    assert.match(dashboardSource, /var plan = lastFailedCopyPlan;/);
+    assert.match(dashboardSource, /submitCopyPlan\(plan\);/);
 });
 
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {

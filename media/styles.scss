@@ -1875,6 +1875,50 @@ body .project {
     background: var(--vscode-editor-inactiveSelectionBackground, transparent);
 }
 
+.file-transfer-saved-pairs {
+    margin: 7px 0 3px;
+}
+
+.file-transfer-saved-pairs h3 {
+    margin: 0 0 3px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.file-transfer-saved-pairs ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.file-transfer-saved-pairs li {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.file-transfer-saved-pairs button {
+    max-width: 260px;
+    overflow: hidden;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-button-secondaryBackground, transparent);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-transfer-saved-pairs button[data-file-transfer-saved-pair-pin] {
+    min-width: 22px;
+}
+
 .file-transfer-endpoint-picker {
     display: grid;
     flex: 1 1 0;

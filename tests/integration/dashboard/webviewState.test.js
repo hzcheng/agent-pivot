@@ -514,6 +514,10 @@ test('FILE-TRANSFER-UI-008 renders correlated queued copy tasks with cancellatio
     assert.match(dashboardSource, /function applyCopyProgress\(message\)/);
     assert.match(dashboardSource, /function revealCompletedTarget\(\)/);
     assert.match(dashboardSource, /data-file-transfer-reveal-target/);
+    assert.match(dashboardSource, /function validateFileTransferSavedPairs\(message\)/);
+    assert.match(dashboardSource, /function renderSavedPairs\(\)/);
+    assert.match(dashboardSource, /function selectSavedPair\(pair\)/);
+    assert.match(dashboardSource, /file-transfer-request-saved-pairs/);
     assert.match(dashboardSource, /if \(wasPending\) closeReview\(\);/);
     assert.match(dashboardSource, /file-transfer-task-list/);
 });
@@ -536,6 +540,8 @@ test('FILE-TRANSFER-UI-010 filters hidden entries and sorts each endpoint indepe
     assert.match(html, /data-file-transfer-show-hidden="right"/);
     assert.match(html, /data-file-transfer-sort="left"/);
     assert.match(html, /value="modified"/);
+    assert.match(html, /data-file-transfer-saved-pairs/);
+    assert.match(html, /Recent endpoint pairs/);
     assert.match(dashboardSource, /function sortFileTransferEntries/);
     assert.match(dashboardSource, /showHiddenEntries\[side\] \|\| entry\.name\.charAt\(0\) !== '\.'/);
     assert.match(dashboardSource, /sortFileTransferEntries\(visibleEntries, fileTransferSort\[side\]\)/);

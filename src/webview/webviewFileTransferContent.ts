@@ -98,6 +98,10 @@ export function getFileTransferContent(
             <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Swap the left and right endpoint layout" aria-label="Swap endpoint layout">↔</button>
             ${endpointPicker('right', options)}
         </div>
+        <section class="file-transfer-saved-pairs" data-file-transfer-saved-pairs aria-label="Recent endpoint pairs" hidden>
+            <h3>Recent endpoint pairs</h3>
+            <ul data-file-transfer-saved-pair-list></ul>
+        </section>
         <p class="file-transfer-pair-hint" data-file-transfer-pair-hint>Select two endpoints. They are equal until you select files to copy.</p>
         <div class="file-transfer-panes">
             ${pane('left')}

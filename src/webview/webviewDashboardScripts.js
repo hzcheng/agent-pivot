@@ -220,6 +220,54 @@ function validateFileTransferCopyProgress(message) {
             && !/[\0\r\n]/.test(progress.currentItemName)));
 }
 
+function validateFileTransferSavedPairs(message) {
+    if (!message || message.type !== 'file-transfer-saved-pairs' || message.version !== 1
+        || !Array.isArray(message.entries) || message.entries.length > 12
+        || !message.entries.every(validateFileTransferSavedPair)) {
+        return false;
+    }
+    var expected = message.requestId === undefined
+        ? ['entries', 'type', 'version'] : ['entries', 'requestId', 'type', 'version'];
+    return Object.keys(message).sort().join('\n') === expected.join('\n')
+        && (message.requestId === undefined || (typeof message.requestId === 'string'
+            && /^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)));
+}
+
+function validateFileTransferSavedPairsFailure(message) {
+    return !!message && message.type === 'file-transfer-saved-pairs-failed'
+        && message.version === 1
+        && typeof message.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        && typeof message.message === 'string' && message.message.length > 0 && message.message.length <= 320
+        && Object.keys(message).sort().join('\n') === [
+            'message', 'requestId', 'type', 'version',
+        ].join('\n');
+}
+
+function validateFileTransferSavedPair(pair) {
+    if (!pair || typeof pair !== 'object'
+        || Object.keys(pair).sort().join('\n') !== ['endpoints', 'lastUsedAt', 'pinned'].join('\n')
+        || !Array.isArray(pair.endpoints) || pair.endpoints.length !== 2
+        || !pair.endpoints.every(validateFileTransferSavedPairEndpoint)
+        || typeof pair.pinned !== 'boolean'
+        || !Number.isSafeInteger(pair.lastUsedAt) || pair.lastUsedAt <= 0) {
+        return false;
+    }
+    var keys = pair.endpoints.map(function (endpoint) {
+        return endpoint.kind === 'local' ? 'local' : 'managed:' + endpoint.machineId;
+    });
+    return new Set(keys).size === 2 && !(pair.endpoints[0].kind === 'local' && pair.endpoints[1].kind === 'local');
+}
+
+function validateFileTransferSavedPairEndpoint(endpoint) {
+    if (!endpoint || typeof endpoint !== 'object') return false;
+    if (endpoint.kind === 'local') return Object.keys(endpoint).length === 1;
+    return endpoint.kind === 'managedMachine'
+        && Object.keys(endpoint).sort().join('\n') === ['kind', 'machineId'].join('\n')
+        && typeof endpoint.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(endpoint.machineId);
+}
+
 function validateFileTransferCopyQueued(message) {
     return !!message && message.type === 'file-transfer-copy-queued'
         && message.version === 1
@@ -474,6 +522,7 @@ function initDashboard(options) {
             }
         } else if (activeTab === 'file-transfer' && tabChanged) {
             options.postMessage({ type: 'file-transfer-request-history', version: 1 });
+            options.postMessage({ type: 'file-transfer-request-saved-pairs', version: 1 });
         } else if (tabChanged) {
             restoreScroll(activeTab);
         }
@@ -686,6 +735,8 @@ function initDashboard(options) {
         };
         var hint = panel.querySelector('[data-file-transfer-pair-hint]');
         var summary = panel.querySelector('[data-file-transfer-summary]');
+        var savedPairsPanel = panel.querySelector('[data-file-transfer-saved-pairs]');
+        var savedPairList = panel.querySelector('[data-file-transfer-saved-pair-list]');
         var review = panel.querySelector('[data-file-transfer-review]');
         var tasks = panel.querySelector('[data-file-transfer-tasks]');
         var taskStatus = panel.querySelector('[data-file-transfer-task-status]');
@@ -722,6 +773,8 @@ function initDashboard(options) {
         var reviewPreflightResult = null;
         var lastFailedCopyPlan = null;
         var lastCompletedCopyPlan = null;
+        var savedPairs = [];
+        var lastRememberedPairKey = null;
         var transferTasks = {};
         var pendingHistoryClearRequestId = null;
         var draggedFileTransferEntry = null;
@@ -736,6 +789,52 @@ function initDashboard(options) {
             var count = tasks.querySelector ? tasks.querySelector('span') : null;
             if (count) count.textContent = String(Object.keys(transferTasks).length);
             renderTaskList();
+        }
+
+        function savedPairEndpointKey(endpoint) {
+            return endpoint.kind === 'local' ? 'local' : 'managed:' + endpoint.machineId;
+        }
+
+        function savedPairKey(endpoints) {
+            return endpoints.map(savedPairEndpointKey).sort().join('|');
+        }
+
+        function savedPairLabel(endpoint) {
+            if (endpoint.kind === 'local') return 'This Computer';
+            var selector = selectors.find(function (candidate) {
+                return candidate.value === 'managed:' + endpoint.machineId;
+            });
+            var option = selector && Array.from(selector.options || []).find(function (candidate) {
+                return candidate.value === 'managed:' + endpoint.machineId;
+            });
+            return option && option.textContent ? option.textContent : null;
+        }
+
+        function renderSavedPairs() {
+            if (!savedPairsPanel || !savedPairList) return;
+            savedPairList.textContent = '';
+            var visiblePairs = savedPairs.filter(function (pair) {
+                return pair.endpoints.every(function (endpoint) { return !!savedPairLabel(endpoint); });
+            });
+            savedPairsPanel.hidden = visiblePairs.length === 0;
+            visiblePairs.forEach(function (pair) {
+                var item = document.createElement('li');
+                var select = document.createElement('button');
+                select.type = 'button';
+                select.textContent = pair.endpoints.map(savedPairLabel).join(' ↔ ');
+                select.title = 'Select this endpoint pair';
+                select.addEventListener('click', function () { selectSavedPair(pair); });
+                item.appendChild(select);
+                var pin = document.createElement('button');
+                pin.type = 'button';
+                pin.setAttribute('data-file-transfer-saved-pair-pin', '');
+                pin.textContent = pair.pinned ? '★' : '☆';
+                pin.title = pair.pinned ? 'Unpin endpoint pair' : 'Pin endpoint pair';
+                pin.setAttribute('aria-label', pin.title + ': ' + select.textContent);
+                pin.addEventListener('click', function () { setSavedPairPinned(pair, !pair.pinned); });
+                item.appendChild(pin);
+                savedPairList.appendChild(item);
+            });
         }
 
         function renderTaskList() {
@@ -1125,18 +1224,14 @@ function initDashboard(options) {
             updatePair();
         }
 
-        function onEndpointChange(event) {
-            var selector = event.currentTarget;
-            var side = selector && selector.getAttribute
-                ? selector.getAttribute('data-file-transfer-endpoint') : null;
-            if (side !== 'left' && side !== 'right') {
-                return;
-            }
+        function activateEndpointSelection(side, selector) {
+            if (side !== 'left' && side !== 'right' || !selector) return;
             localRoots[side] = null;
             paneFailures[side] = null;
             pendingLocalRootRequests[side] = null;
             selectedEntries[side].clear();
             directoryHistory[side] = [];
+            lastRememberedPairKey = null;
             if (reviewSheet) reviewSheet.hidden = true;
             if (selector.value === 'local') {
                 requestLocalRoot(side);
@@ -1144,6 +1239,62 @@ function initDashboard(options) {
                 requestRemoteDirectory(side, selector.value.slice('managed:'.length));
             }
             updatePair();
+        }
+
+        function onEndpointChange(event) {
+            var selector = event.currentTarget;
+            var side = selector && selector.getAttribute
+                ? selector.getAttribute('data-file-transfer-endpoint') : null;
+            activateEndpointSelection(side, selector);
+        }
+
+        function selectSavedPair(pair) {
+            if (!pair || !Array.isArray(pair.endpoints) || pair.endpoints.length !== 2) return;
+            ['left', 'right'].forEach(function (side, index) {
+                var selector = selectorFor(side);
+                var endpoint = pair.endpoints[index];
+                var value = savedPairEndpointKey(endpoint);
+                if (!selector || selector.value === value) return;
+                selector.value = value;
+                activateEndpointSelection(side, selector);
+            });
+            rememberCurrentPair(true);
+        }
+
+        function pairEndpointsFromSelectors() {
+            var values = ['left', 'right'].map(function (side) {
+                var selector = selectorFor(side);
+                if (!selector || !selector.value) return null;
+                return selector.value === 'local' ? { kind: 'local' }
+                    : selector.value.indexOf('managed:') === 0
+                        ? { kind: 'managedMachine', machineId: selector.value.slice('managed:'.length) } : null;
+            });
+            return values.every(Boolean) && savedPairEndpointKey(values[0]) !== savedPairEndpointKey(values[1])
+                ? values : null;
+        }
+
+        function rememberCurrentPair(force) {
+            var endpoints = pairEndpointsFromSelectors();
+            if (!endpoints) return;
+            var key = savedPairKey(endpoints);
+            if (!force && key === lastRememberedPairKey) return;
+            lastRememberedPairKey = key;
+            options.postMessage({
+                type: 'file-transfer-save-pair', version: 1,
+                requestId: 'file-transfer-saved-pair-' + Date.now() + '-'
+                    + Math.random().toString(16).slice(2, 18),
+                endpoints: endpoints,
+            });
+        }
+
+        function setSavedPairPinned(pair, pinned) {
+            options.postMessage({
+                type: 'file-transfer-set-saved-pair-pinned', version: 1,
+                requestId: 'file-transfer-saved-pair-pin-' + Date.now() + '-'
+                    + Math.random().toString(16).slice(2, 18),
+                endpoints: pair.endpoints,
+                pinned: pinned,
+            });
         }
 
         function swapEndpointLayout() {
@@ -1196,7 +1347,20 @@ function initDashboard(options) {
                 localRoots[message.side] = null;
                 paneFailures[message.side] = null;
             }
+            if (localRoots.left && localRoots.right) rememberCurrentPair(false);
             updatePair();
+            return true;
+        }
+
+        function applySavedPairs(message) {
+            savedPairs = message.entries.slice();
+            renderSavedPairs();
+            return true;
+        }
+
+        function applySavedPairsFailure(message) {
+            lastRememberedPairKey = null;
+            renderTaskStatus(message.message || 'Could not update endpoint pairs locally.');
             return true;
         }
 
@@ -1671,6 +1835,8 @@ function initDashboard(options) {
             applyCopyQueued: applyCopyQueued,
             applyCopyPreflight: applyCopyPreflight,
             applyHistory: applyHistory,
+            applySavedPairs: applySavedPairs,
+            applySavedPairsFailure: applySavedPairsFailure,
             applyHistoryClearSettlement: applyHistoryClearSettlement,
         };
     }
@@ -1767,6 +1933,14 @@ function initDashboard(options) {
             && fileTransferPanel) {
             fileTransferPanel.applyCopyPreflight(event.data);
         }
+        if (event && event.data && validateFileTransferSavedPairs(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applySavedPairs(event.data);
+        }
+        if (event && event.data && validateFileTransferSavedPairsFailure(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applySavedPairsFailure(event.data);
+        }
         if (event && event.data && validateFileTransferHistory(event.data)
             && fileTransferPanel) {
             fileTransferPanel.applyHistory(event.data);
@@ -1830,6 +2004,7 @@ function initDashboard(options) {
         aiPanel.ensureAiPanel();
     } else if (activeTab === 'file-transfer') {
         options.postMessage({ type: 'file-transfer-request-history', version: 1 });
+        options.postMessage({ type: 'file-transfer-request-saved-pairs', version: 1 });
     }
     document.body.classList.remove('preload');
     notifyActiveTabChanged();
@@ -1852,6 +2027,10 @@ function initDashboard(options) {
             ? fileTransferPanel.applyCopyQueued : function () { return false; },
         applyFileTransferHistory: fileTransferPanel
             ? fileTransferPanel.applyHistory : function () { return false; },
+        applyFileTransferSavedPairs: fileTransferPanel
+            ? fileTransferPanel.applySavedPairs : function () { return false; },
+        applyFileTransferSavedPairsFailure: fileTransferPanel
+            ? fileTransferPanel.applySavedPairsFailure : function () { return false; },
         applyFileTransferHistoryClearSettlement: fileTransferPanel
             ? fileTransferPanel.applyHistoryClearSettlement : function () { return false; },
         ensureProjectsPanel: projectsPanel.ensureProjectsPanel,

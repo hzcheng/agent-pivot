@@ -2750,6 +2750,30 @@ async function initializeDashboard(
         const value = context.globalState.get<unknown>(fileTransferHistoryKey, []);
         return Array.isArray(value) ? value.filter(isFileTransferHistoryEntry).slice(0, 50) : [];
     };
+    const fileTransferSavedPairKey = 'fileTransferSavedPairsV1';
+    const readFileTransferSavedPairs = (): FileTransferSavedPair[] => {
+        const value = context.globalState.get<unknown>(fileTransferSavedPairKey, []);
+        return Array.isArray(value) ? value.filter(isFileTransferSavedPair).slice(0, 12) : [];
+    };
+    const writeFileTransferSavedPairs = async (pairs: FileTransferSavedPair[]): Promise<FileTransferSavedPair[]> => {
+        const bounded = pairs.slice().sort((left, right) => Number(right.pinned) - Number(left.pinned)
+            || right.lastUsedAt - left.lastUsedAt).slice(0, 12);
+        await context.globalState.update(fileTransferSavedPairKey, bounded);
+        return bounded;
+    };
+    const isCurrentFileTransferSavedPair = (endpoints: FileTransferSavedPairEndpoint[]): boolean => {
+        if (managedRemoteSnapshot.lifecycle !== 'active' || endpoints.length !== 2) { return false; }
+        const machineIds = new Set(managedRemoteSnapshot.catalog.machines.map(machine => machine.id));
+        const blockedMachineIds = new Set<string>();
+        for (const conflict of managedRemoteSnapshot.catalog.conflicts) {
+            blockedMachineIds.add(conflict.entityId);
+            for (const relatedId of conflict.relatedEntityIds || []) {
+                blockedMachineIds.add(relatedId);
+            }
+        }
+        return endpoints.every(endpoint => endpoint.kind === 'local'
+            || (machineIds.has(endpoint.machineId) && !blockedMachineIds.has(endpoint.machineId)));
+    };
     let activeFileTransferTaskId: string | undefined;
     const queuedFileTransferTasks: Record<string, unknown>[] = [];
     const runNextFileTransferTask = (): void => {
@@ -3086,6 +3110,71 @@ async function initializeDashboard(
                 await provider.postMessage({
                     type: 'file-transfer-history', version: 1, entries: readFileTransferHistory(),
                 });
+            },
+            'file-transfer-request-saved-pairs': async message => {
+                if (!isFileTransferSavedPairsRequest(message)) {
+                    return;
+                }
+                await provider.postMessage({
+                    type: 'file-transfer-saved-pairs', version: 1, entries: readFileTransferSavedPairs(),
+                });
+            },
+            'file-transfer-save-pair': async message => {
+                if (!isFileTransferSavedPairMutation(message)) {
+                    return;
+                }
+                const endpoints = normalizeFileTransferSavedPairEndpoints(message.endpoints as FileTransferSavedPairEndpoint[]);
+                if (!isCurrentFileTransferSavedPair(endpoints)) {
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs-failed', version: 1, requestId: message.requestId,
+                        message: 'The selected endpoint pair is no longer available. Refresh and choose it again.',
+                    });
+                    return;
+                }
+                try {
+                    const key = fileTransferSavedPairKeyFor(endpoints);
+                    const existing = readFileTransferSavedPairs();
+                    const prior = existing.find(pair => fileTransferSavedPairKeyFor(pair.endpoints) === key);
+                    const entries = await writeFileTransferSavedPairs([{
+                        endpoints, pinned: prior?.pinned === true, lastUsedAt: Date.now(),
+                    }, ...existing.filter(pair => fileTransferSavedPairKeyFor(pair.endpoints) !== key)]);
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs', version: 1, requestId: message.requestId, entries,
+                    });
+                } catch (_error) {
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs-failed', version: 1, requestId: message.requestId,
+                        message: 'Could not save this endpoint pair locally.',
+                    });
+                }
+            },
+            'file-transfer-set-saved-pair-pinned': async message => {
+                if (!isFileTransferSavedPairPinMutation(message)) {
+                    return;
+                }
+                const endpoints = normalizeFileTransferSavedPairEndpoints(message.endpoints as FileTransferSavedPairEndpoint[]);
+                if (!isCurrentFileTransferSavedPair(endpoints)) {
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs-failed', version: 1, requestId: message.requestId,
+                        message: 'The selected endpoint pair is no longer available. Refresh and choose it again.',
+                    });
+                    return;
+                }
+                try {
+                    const key = fileTransferSavedPairKeyFor(endpoints);
+                    const existing = readFileTransferSavedPairs();
+                    const entries = await writeFileTransferSavedPairs(existing.map(pair =>
+                        fileTransferSavedPairKeyFor(pair.endpoints) === key
+                            ? { ...pair, pinned: message.pinned === true, lastUsedAt: Date.now() } : pair));
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs', version: 1, requestId: message.requestId, entries,
+                    });
+                } catch (_error) {
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs-failed', version: 1, requestId: message.requestId,
+                        message: 'Could not update this endpoint pair locally.',
+                    });
+                }
             },
             'file-transfer-clear-history': async message => {
                 if (!isFileTransferHistoryClearRequest(message)) {
@@ -4972,6 +5061,88 @@ function isFileTransferHistoryClearRequest(value: Record<string, unknown>): bool
         && typeof value.requestId === 'string'
         && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
         && Object.keys(value).sort().join('\n') === ['requestId', 'type', 'version'].join('\n');
+}
+
+interface FileTransferSavedPairEndpoint {
+    kind: 'local' | 'managedMachine';
+    machineId?: string;
+}
+
+interface FileTransferSavedPair {
+    endpoints: FileTransferSavedPairEndpoint[];
+    pinned: boolean;
+    lastUsedAt: number;
+}
+
+function isFileTransferSavedPairEndpoint(value: unknown): value is FileTransferSavedPairEndpoint {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const endpoint = value as Record<string, unknown>;
+    if (endpoint.kind === 'local') {
+        return Object.keys(endpoint).length === 1;
+    }
+    return endpoint.kind === 'managedMachine'
+        && Object.keys(endpoint).sort().join('\n') === ['kind', 'machineId'].join('\n')
+        && typeof endpoint.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(endpoint.machineId);
+}
+
+function normalizeFileTransferSavedPairEndpoints(
+    endpoints: FileTransferSavedPairEndpoint[],
+): FileTransferSavedPairEndpoint[] {
+    return endpoints.slice().sort((left, right) => fileTransferSavedPairEndpointKey(left)
+        .localeCompare(fileTransferSavedPairEndpointKey(right)));
+}
+
+function fileTransferSavedPairEndpointKey(endpoint: FileTransferSavedPairEndpoint): string {
+    return endpoint.kind === 'local' ? 'local' : `managed:${endpoint.machineId}`;
+}
+
+function fileTransferSavedPairKeyFor(endpoints: FileTransferSavedPairEndpoint[]): string {
+    return normalizeFileTransferSavedPairEndpoints(endpoints).map(fileTransferSavedPairEndpointKey).join('|');
+}
+
+function hasValidFileTransferSavedPairEndpoints(value: unknown): value is FileTransferSavedPairEndpoint[] {
+    return Array.isArray(value)
+        && value.length === 2
+        && value.every(isFileTransferSavedPairEndpoint)
+        && new Set(value.map(fileTransferSavedPairEndpointKey)).size === 2
+        && !(value[0].kind === 'local' && value[1].kind === 'local');
+}
+
+function isFileTransferSavedPair(value: unknown): value is FileTransferSavedPair {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const pair = value as Record<string, unknown>;
+    return Object.keys(pair).sort().join('\n') === ['endpoints', 'lastUsedAt', 'pinned'].join('\n')
+        && hasValidFileTransferSavedPairEndpoints(pair.endpoints)
+        && typeof pair.pinned === 'boolean'
+        && Number.isSafeInteger(pair.lastUsedAt) && (pair.lastUsedAt as number) > 0;
+}
+
+function isFileTransferSavedPairsRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-request-saved-pairs'
+        && value.version === 1
+        && Object.keys(value).sort().join('\n') === ['type', 'version'].join('\n');
+}
+
+function isFileTransferSavedPairMutation(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-save-pair'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && hasValidFileTransferSavedPairEndpoints(value.endpoints)
+        && Object.keys(value).sort().join('\n') === ['endpoints', 'requestId', 'type', 'version'].join('\n');
+}
+
+function isFileTransferSavedPairPinMutation(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-set-saved-pair-pinned'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && hasValidFileTransferSavedPairEndpoints(value.endpoints)
+        && typeof value.pinned === 'boolean'
+        && Object.keys(value).sort().join('\n') === [
+            'endpoints', 'pinned', 'requestId', 'type', 'version',
+        ].join('\n');
 }
 
 

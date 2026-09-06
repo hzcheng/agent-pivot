@@ -1,0 +1,113 @@
+<div id="ai-hub-rethink" aria-label="AI Hub redesign mockup">
+  <style>
+    #ai-hub-rethink { color: light-dark(#1f2937,#e6edf3); font: 13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    #ai-hub-rethink * { box-sizing:border-box; }
+    #ai-hub-rethink .window { overflow:hidden; border:1px solid light-dark(#d6dbe2,#313946); border-radius:10px; background:light-dark(#f7f8fa,#171b22); box-shadow:0 14px 34px rgba(0,0,0,.16); }
+    #ai-hub-rethink .head { padding:14px 16px 0; background:light-dark(#fff,#1d232d); border-bottom:1px solid light-dark(#dfe3e8,#303946); }
+    #ai-hub-rethink .title { display:flex; align-items:center; justify-content:space-between; margin-bottom:13px; font-size:16px; font-weight:650; }
+    #ai-hub-rethink .title small { color:light-dark(#657080,#aab5c4); font-size:11px; font-weight:500; }
+    #ai-hub-rethink .tabs { display:flex; gap:18px; }
+    #ai-hub-rethink .tabs button { padding:0 1px 9px; border:0; border-bottom:2px solid transparent; color:light-dark(#687386,#a7b1c0); background:transparent; font:inherit; cursor:pointer; }
+    #ai-hub-rethink .tabs button[aria-selected="true"] { border-bottom-color:light-dark(#2563eb,#58a6ff); color:light-dark(#172554,#e6edf3); font-weight:650; }
+    #ai-hub-rethink .pane { padding:14px; }
+    #ai-hub-rethink .toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
+    #ai-hub-rethink .toolbar strong { font-size:14px; }
+    #ai-hub-rethink .muted { color:light-dark(#687386,#9da8b7); }
+    #ai-hub-rethink .primary { padding:6px 10px; border:1px solid light-dark(#1d4ed8,#388bfd); border-radius:5px; color:#fff; background:light-dark(#2563eb,#238636); font:inherit; cursor:pointer; }
+    #ai-hub-rethink .prompt-layout { display:grid; grid-template-columns:178px minmax(0,1fr); gap:12px; }
+    #ai-hub-rethink .rail, #ai-hub-rethink .list, #ai-hub-rethink .skill-list { border:1px solid light-dark(#dfe3e8,#303946); border-radius:7px; background:light-dark(#fff,#1d232d); }
+    #ai-hub-rethink .rail { padding:7px; }
+    #ai-hub-rethink .rail-label { padding:5px 7px 3px; color:light-dark(#687386,#9da8b7); font-size:10px; font-weight:700; letter-spacing:.07em; }
+    #ai-hub-rethink .collection { display:flex; align-items:center; justify-content:space-between; width:100%; margin:1px 0; padding:7px; border:0; border-radius:4px; color:inherit; background:transparent; text-align:left; font:inherit; cursor:pointer; }
+    #ai-hub-rethink .collection.active { color:light-dark(#172554,#fff); background:light-dark(#e8f0ff,#273b57); font-weight:600; }
+    #ai-hub-rethink .count { color:light-dark(#7b8491,#9da8b7); font-size:11px; font-weight:500; }
+    #ai-hub-rethink .add-link { display:block; width:100%; margin-top:5px; padding:6px 7px; border:0; color:light-dark(#2563eb,#58a6ff); background:transparent; text-align:left; font:inherit; cursor:pointer; }
+    #ai-hub-rethink .list-head { display:flex; align-items:baseline; justify-content:space-between; padding:10px 11px 8px; border-bottom:1px solid light-dark(#edf0f3,#29313d); }
+    #ai-hub-rethink .list-head span { color:light-dark(#687386,#9da8b7); font-size:11px; }
+    #ai-hub-rethink .prompt-row { display:grid; grid-template-columns:23px minmax(0,1fr) auto; align-items:center; gap:8px; min-height:45px; padding:7px 10px; border-bottom:1px solid light-dark(#eef0f3,#29313d); }
+    #ai-hub-rethink .prompt-row:last-child { border-bottom:0; }
+    #ai-hub-rethink .step { display:grid; width:21px; height:21px; place-items:center; border-radius:50%; color:light-dark(#2563eb,#7ab8ff); background:light-dark(#e9f1ff,#1d3652); font-size:11px; font-weight:700; }
+    #ai-hub-rethink .row-name { display:block; overflow:hidden; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    #ai-hub-rethink .row-meta { display:block; color:light-dark(#748092,#9da8b7); font-size:11px; }
+    #ai-hub-rethink .icon-action { padding:4px 6px; border:0; border-radius:4px; color:light-dark(#526174,#b5c1d0); background:transparent; font:inherit; cursor:pointer; }
+    #ai-hub-rethink .icon-action:hover { background:light-dark(#edf2fa,#2b3542); }
+    #ai-hub-rethink .skills-top { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+    #ai-hub-rethink .segmented { display:inline-flex; padding:2px; border:1px solid light-dark(#d7dce2,#394351); border-radius:6px; background:light-dark(#f7f8fa,#171b22); }
+    #ai-hub-rethink .segmented button { padding:4px 8px; border:0; border-radius:4px; color:light-dark(#6c7788,#aab5c4); background:transparent; font:inherit; cursor:pointer; }
+    #ai-hub-rethink .segmented button.active { color:light-dark(#1f2937,#f2f5f8); background:light-dark(#fff,#303a47); box-shadow:0 1px 2px rgba(0,0,0,.16); font-weight:600; }
+    #ai-hub-rethink .filters { display:flex; gap:5px; margin-bottom:9px; }
+    #ai-hub-rethink .filters button { padding:3px 7px; border:1px solid light-dark(#d9dfe7,#3a4554); border-radius:99px; color:light-dark(#687386,#aab5c4); background:transparent; font:11px inherit; cursor:pointer; }
+    #ai-hub-rethink .filters button.active { border-color:light-dark(#9dbcf5,#4d83be); color:light-dark(#194da1,#c6e2ff); background:light-dark(#e8f0ff,#203a58); }
+    #ai-hub-rethink .section-label { padding:7px 2px 5px; color:light-dark(#687386,#9da8b7); font-size:10px; font-weight:700; letter-spacing:.07em; }
+    #ai-hub-rethink .skill-list { overflow:hidden; }
+    #ai-hub-rethink .skill-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:8px; min-height:42px; padding:7px 10px; border-bottom:1px solid light-dark(#eef0f3,#29313d); }
+    #ai-hub-rethink .skill-row:last-child { border-bottom:0; }
+    #ai-hub-rethink .agent { display:inline-flex; align-items:center; gap:3px; color:light-dark(#657080,#aab5c4); font-size:10px; }
+    #ai-hub-rethink .dot { width:6px; height:6px; border-radius:50%; background:#30a46c; }
+    #ai-hub-rethink .warning { color:light-dark(#a65300,#f0b85a); font-size:11px; }
+    #ai-hub-rethink [data-page] { display:none; }
+    #ai-hub-rethink [data-page].shown { display:block; }
+    @media (max-width:520px) { #ai-hub-rethink .prompt-layout { grid-template-columns:1fr; } #ai-hub-rethink .rail { display:flex; gap:3px; overflow:auto; } #ai-hub-rethink .rail-label, #ai-hub-rethink .add-link { display:none; } #ai-hub-rethink .collection { width:auto; white-space:nowrap; } }
+  </style>
+  <div class="window">
+    <header class="head">
+      <div class="title"><span>AI Hub</span><small>把可复用资产和运行中的会话分开</small></div>
+      <nav class="tabs" aria-label="AI Hub sections">
+        <button type="button" data-tab="prompts" aria-selected="true">Prompts</button>
+        <button type="button" data-tab="skills" aria-selected="false">Skills</button>
+        <button type="button" aria-selected="false">MCP</button>
+        <button type="button" aria-selected="false">Hooks</button>
+      </nav>
+    </header>
+    <section class="pane shown" data-page="prompts">
+      <div class="toolbar"><div><strong>Prompt library</strong> <span class="muted">12 templates</span></div><button class="primary" type="button">New prompt</button></div>
+      <div class="prompt-layout">
+        <aside class="rail" aria-label="Prompt collections">
+          <div class="rail-label">WORKFLOWS</div>
+          <button class="collection active" type="button"><span>▾ Feature · PR flow</span><span class="count">3</span></button>
+          <button class="collection" type="button"><span>▸ Bug triage</span><span class="count">2</span></button>
+          <button class="collection" type="button"><span>▸ Release note</span><span class="count">3</span></button>
+          <button class="add-link" type="button">＋ New workflow</button>
+          <div class="rail-label">LIBRARY</div>
+          <button class="collection" type="button"><span>All prompts</span><span class="count">12</span></button>
+          <button class="collection" type="button"><span>Unfiled</span><span class="count">4</span></button>
+        </aside>
+        <div class="list">
+          <div class="list-head"><strong>Feature · PR flow</strong><span>3 steps · ordered</span></div>
+          <div class="prompt-row"><span class="step">1</span><span><span class="row-name">Plan the feature</span><span class="row-meta">Architecture and acceptance criteria</span></span><button class="icon-action" type="button" aria-label="Prompt actions">⋯</button></div>
+          <div class="prompt-row"><span class="step">2</span><span><span class="row-name">Implement the change</span><span class="row-meta">Focused implementation prompt</span></span><button class="icon-action" type="button" aria-label="Prompt actions">⋯</button></div>
+          <div class="prompt-row"><span class="step">3</span><span><span class="row-name">Review and prepare PR</span><span class="row-meta">Checks, review, and handoff</span></span><button class="icon-action" type="button" aria-label="Prompt actions">⋯</button></div>
+        </div>
+      </div>
+    </section>
+    <section class="pane" data-page="skills">
+      <div class="skills-top"><div><strong>Skills</strong> <span class="muted">18 available · 2 need attention</span></div><div class="segmented"><button class="active" type="button">This project</button><button type="button">Global library</button></div></div>
+      <div class="filters"><button class="active" type="button">All agents</button><button type="button">Codex</button><button type="button">Claude</button><button type="button">Kimi</button></div>
+      <div class="section-label">ENABLED IN THIS PROJECT</div>
+      <div class="skill-list">
+        <div class="skill-row"><span><span class="row-name">fixing-regressions-with-ci</span><span class="row-meta">Test-first regression workflow</span></span><span class="agent"><i class="dot"></i> Codex · Claude</span><button class="icon-action" type="button">⋯</button></div>
+        <div class="skill-row"><span><span class="row-name">publishing-and-merging-github-prs</span><span class="row-meta">PR gates and merge workflow</span></span><span class="agent"><i class="dot"></i> Codex</span><button class="icon-action" type="button">⋯</button></div>
+      </div>
+      <div class="section-label">NEEDS ATTENTION</div>
+      <div class="skill-list"><div class="skill-row"><span><span class="row-name">frontend-design</span><span class="row-meta">A newer copy exists in Global library</span></span><span class="warning">⚠ Duplicate</span><button class="icon-action" type="button">Review</button></div></div>
+    </section>
+  </div>
+  <script>
+    (function () {
+      var root = document.getElementById('ai-hub-rethink');
+      var tabs = root.querySelectorAll('[data-tab]');
+      var pages = root.querySelectorAll('[data-page]');
+      tabs.forEach(function (tab) { tab.addEventListener('click', function () {
+        var name = tab.getAttribute('data-tab');
+        tabs.forEach(function (item) { item.setAttribute('aria-selected', item === tab ? 'true' : 'false'); });
+        pages.forEach(function (page) { page.classList.toggle('shown', page.getAttribute('data-page') === name); });
+      }); });
+      root.querySelectorAll('.filters button').forEach(function (button) { button.addEventListener('click', function () {
+        root.querySelectorAll('.filters button').forEach(function (item) { item.classList.toggle('active', item === button); });
+      }); });
+      root.querySelectorAll('.segmented button').forEach(function (button) { button.addEventListener('click', function () {
+        root.querySelectorAll('.segmented button').forEach(function (item) { item.classList.toggle('active', item === button); });
+      }); });
+    }());
+  </script>
+</div>

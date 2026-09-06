@@ -136,9 +136,12 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     const remoteTwo = fs.mkdtempSync(path.join(os.homedir(), 'agent-pivot-file-transfer-ssh-two-'));
     fs.mkdirSync(localRoot);
     fs.writeFileSync(path.join(localRoot, 'local.txt'), 'from local\n', 'utf8');
+    const localSpecialFile = "-local #?% '雪.txt";
+    fs.writeFileSync(path.join(localRoot, localSpecialFile), 'from local special file\n', 'utf8');
     fs.mkdirSync(path.join(localRoot, 'local folder'));
     fs.writeFileSync(path.join(localRoot, 'local folder', 'nested.txt'), 'from local folder\n', 'utf8');
-    fs.writeFileSync(path.join(remoteOne, 'machine file.txt'), 'from first machine\n', 'utf8');
+    const remoteSpecialFile = "-machine #?% '雪.txt";
+    fs.writeFileSync(path.join(remoteOne, remoteSpecialFile), 'from first machine\n', 'utf8');
     const keyPath = path.join(root, 'client');
     childProcess.execFileSync(SSH_KEYGEN, ['-q', '-t', 'ed25519', '-N', '', '-f', keyPath]);
     const servers = [];
@@ -221,9 +224,11 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.equal(source.status, 'ok', source.message);
     assert.equal(destination.status, 'ok', destination.message);
     const localFile = local.value.entries.find(entry => entry.name === 'local.txt');
+    const localSpecial = local.value.entries.find(entry => entry.name === localSpecialFile);
     const localFolder = local.value.entries.find(entry => entry.name === 'local folder');
-    const remoteFile = source.value.entries.find(entry => entry.name === 'machine file.txt');
+    const remoteFile = source.value.entries.find(entry => entry.name === remoteSpecialFile);
     assert.ok(localFile);
+    assert.ok(localSpecial);
     assert.ok(localFolder);
     assert.ok(remoteFile);
 
@@ -239,6 +244,18 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.equal(copiedLocal.status, 'ok', copiedLocal.message);
     assert.deepEqual(copiedLocal.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
     assert.equal(fs.readFileSync(path.join(remoteTwo, 'renamed-local.txt'), 'utf8'), 'from local\n');
+
+    const copiedSpecialLocal = await controller.execute({
+        ...request('copyFileTransferEntries', slot.revisionId, 'local-special-copy'),
+        fileTransfer: {
+            kind: 'copy', taskId: 'file-transfer-e2e-local-special', conflictPolicy: 'fail',
+            source: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [localSpecial.id],
+        },
+    });
+    assert.equal(copiedSpecialLocal.status, 'ok', copiedSpecialLocal.message);
+    assert.equal(fs.readFileSync(path.join(remoteTwo, localSpecialFile), 'utf8'), 'from local special file\n');
 
     const copiedFolder = await controller.execute({
         ...request('copyFileTransferEntries', slot.revisionId, 'local-folder-copy'),
@@ -264,5 +281,5 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     });
     assert.equal(copiedRelay.status, 'ok', copiedRelay.message);
     assert.deepEqual(copiedRelay.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
-    assert.equal(fs.readFileSync(path.join(remoteTwo, 'machine file.txt'), 'utf8'), 'from first machine\n');
+    assert.equal(fs.readFileSync(path.join(remoteTwo, remoteSpecialFile), 'utf8'), 'from first machine\n');
 });

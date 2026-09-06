@@ -182,7 +182,7 @@ function scpUsesSftpByDefault(sshExecutable: string): Promise<boolean> {
 /** Legacy SCP executes the remote endpoint through a shell, so quote its path. */
 function scpRemotePath(alias: string, remotePath: string, legacyScp: boolean): string {
     return legacyScp
-        ? `${alias}:'${remotePath.replace(/'/gu, `"'"'`)}'`
+        ? `${alias}:${remotePath.replace(/([^A-Za-z0-9_./:@-])/gu, '\\$1')}`
         : `${alias}:${remotePath}`;
 }
 

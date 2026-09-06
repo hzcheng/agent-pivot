@@ -1,6 +1,7 @@
 'use strict';
 
 import { DevContainerLaunchAnchorV1 } from './types';
+import { encodeRemotePath } from '../projectPathUtils';
 import { isManagedSshAlias } from './sshConfigProjection';
 
 export interface ParsedManagedDevContainerProject {
@@ -118,5 +119,5 @@ export function rebuildManagedDevContainerProjectUri(
         return null;
     }
     const authority = `dev-container+${encodedPayload}@ssh-remote+${managedAlias}`;
-    return `vscode-remote://${encodeURIComponent(authority)}${remotePath}`;
+    return `vscode-remote://${encodeURIComponent(authority)}${encodeRemotePath(remotePath)}`;
 }

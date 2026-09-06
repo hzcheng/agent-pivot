@@ -131,3 +131,52 @@ test('MANAGED-REMOTE-SSH-FILES-001 recovers a fresh lock whose local process is 
     assert.equal(store.withLock(() => 'recovered'), 'recovered');
     assert.equal(fs.existsSync(store.getPaths().lock), false);
 });
+
+test('MANAGED-REMOTE-SSH-FILES-001 never removes a live lock that replaced the stale owner', t => {
+    const { store } = fixture(t);
+    const lockPath = store.getPaths().lock;
+    fs.mkdirSync(store.getPaths().root, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(lockPath, JSON.stringify({
+        schemaVersion: 1,
+        pid: 2147483647,
+        host: os.hostname(),
+        createdAtMs: Date.now(),
+        token: 'stale-owner',
+    }), { mode: 0o600 });
+    const live = JSON.stringify({
+        schemaVersion: 1,
+        pid: process.pid,
+        host: os.hostname(),
+        createdAtMs: Date.now(),
+        token: 'live-owner',
+    });
+    const originalRename = fs.renameSync;
+    const originalLink = fs.linkSync;
+    let injected = false;
+    const installLiveContender = () => {
+        fs.unlinkSync(lockPath);
+        fs.writeFileSync(lockPath, live, { mode: 0o600 });
+        injected = true;
+    };
+    fs.renameSync = (source, target) => {
+        if (!injected && source === lockPath) { installLiveContender(); }
+        return originalRename(source, target);
+    };
+    fs.linkSync = (source, target) => {
+        const result = originalLink(source, target);
+        if (!injected && source === lockPath) { installLiveContender(); }
+        return result;
+    };
+    try {
+        let entered = false;
+        assert.throws(
+            () => store.withLock(() => { entered = true; }),
+            /busy|changed|lock/i,
+        );
+        assert.equal(entered, false);
+        assert.equal(JSON.parse(fs.readFileSync(lockPath, 'utf8')).token, 'live-owner');
+    } finally {
+        fs.renameSync = originalRename;
+        fs.linkSync = originalLink;
+    }
+});

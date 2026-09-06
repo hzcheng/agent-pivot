@@ -127,6 +127,30 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 reconciles owned config only when connectio
     assert.equal(state.activeRevisionId, slot.revisionId);
 });
 
+test('MANAGED-REMOTE-SSH-CONSENT-001 resolves only the exact current catalog projection', async t => {
+    const { config, coordinator, catalog, machine } = fixture(t);
+    const first = createManagedRevisionSlot(catalog.getDocument());
+    await coordinator.beginEnable(first);
+    assert.equal(coordinator.isProjectionResolvable(first), true);
+
+    catalog.editMachine(machine.id, { host: 'next.example.com' });
+    const changed = createManagedRevisionSlot(catalog.getDocument());
+    assert.equal(
+        coordinator.isProjectionResolvable(changed),
+        false,
+        'an unchanged alias must not make a stale endpoint resolvable',
+    );
+
+    const currentPath = path.join(path.dirname(config), 'agent-pivot', 'current.conf');
+    fs.writeFileSync(currentPath, fs.readFileSync(currentPath, 'utf8')
+        .replace('build.example.com', 'redirect.example.com'), { mode: 0o600 });
+    assert.equal(
+        coordinator.isProjectionResolvable(first),
+        false,
+        'an externally redirected alias must not be resolvable',
+    );
+});
+
 test('MANAGED-REMOTE-SSH-CONSENT-001 rebuilds a malformed owned current.conf from catalog authority', async t => {
     const { config, coordinator, catalog } = fixture(t);
     const slot = createManagedRevisionSlot(catalog.getDocument());

@@ -77,10 +77,6 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-function escapeRegExpLiteral(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-}
-
 export function assertManagedSshMaterializerPlatform(platform: NodeJS.Platform): void {
     if (platform === 'win32') {
         throw new Error(
@@ -161,12 +157,11 @@ export class ManagedSshConsentCoordinator {
     /**
      * Whether Remote - SSH can already resolve this revision's aliases.
      *
-     * Remote - SSH only needs the alias present in the projected `current.conf`
-     * and reachable through the Include block. That is strictly weaker than
-     * `isProjectionReady`, which additionally requires the OpenSSH safety
-     * audit of the user's whole config to have succeeded. Navigation must not
-     * be vetoed by an audit of pre-existing configuration the user did not
-     * change, so the two questions are kept separate.
+     * Remote - SSH needs the exact projection for this catalog revision to be
+     * reachable through the Include block. This is still weaker than
+     * `isProjectionReady`, which additionally requires the OpenSSH safety audit
+     * and matching consent/manifest state. Navigation is not vetoed by an
+     * unrelated audit failure, but it can never fall back to stale endpoints.
      */
     isProjectionResolvable(slot: ManagedRevisionSlot): boolean {
         try {
@@ -180,9 +175,7 @@ export class ManagedSshConsentCoordinator {
             ) !== 'exact') {
                 return false;
             }
-            return projection.entries.every(entry =>
-                new RegExp(`^Host ${escapeRegExpLiteral(entry.alias)}$`, 'mu')
-                    .test(current.content));
+            return current.content === renderManagedSshConfig(projection);
         } catch (_error) {
             return false;
         }

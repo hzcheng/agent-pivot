@@ -82,6 +82,37 @@ test('MANAGED-REMOTE-ACTIONS-001 rebuilds a Dev Container Project for a non-ASCI
     );
 });
 
+test('MANAGED-REMOTE-ACTIONS-001 preserves URI-significant bytes in remote Project paths', () => {
+    const host = catalog();
+    host.projects[0].remotePath = '/work/repo#one?copy%done';
+    assert.equal(
+        resolveManagedProjectTarget(host, 'project:one').remoteUri,
+        `vscode-remote://ssh-remote%2Bbuild-${SUFFIX}/work/repo%23one%3Fcopy%25done`,
+    );
+
+    const container = catalog();
+    const payload = Buffer.from(JSON.stringify({
+        hostPath: '/work/container',
+        localDocker: false,
+    }), 'utf8').toString('hex');
+    container.environments[0] = {
+        id: 'environment:container', machineId: 'machine:one',
+        kind: 'devContainer', name: 'Dev Container',
+        devContainerAnchor: {
+            version: 1,
+            originalAuthority: `dev-container+${payload}@ssh-remote+legacy`,
+            sourceKind: 'workspace',
+            sourceLocator: '/work/container',
+        },
+    };
+    container.projects[0].environmentId = 'environment:container';
+    container.projects[0].remotePath = '/work/repo#one?copy%done';
+    assert.match(
+        resolveManagedProjectTarget(container, 'project:one').remoteUri,
+        /\/work\/repo%23one%3Fcopy%25done$/u,
+    );
+});
+
 test('MANAGED-REMOTE-ACTIONS-001 propagates related conflicts into target resolution', () => {
     const current = catalog();
     current.conflicts.push({

@@ -3,6 +3,7 @@
 import {
     rebuildManagedDevContainerProjectUri,
 } from './devContainerCodec';
+import { encodeRemotePath } from '../projectPathUtils';
 import { managedSshAlias } from './sshConfigProjection';
 import type {
     ManagedEnvironment,
@@ -49,7 +50,7 @@ function assertReady(blocked: Set<string>, ids: string[]): void {
 }
 
 function remoteUri(remoteAuthority: string, remotePath: string): string {
-    return `vscode-remote://${encodeURIComponent(remoteAuthority)}${remotePath}`;
+    return `vscode-remote://${encodeURIComponent(remoteAuthority)}${encodeRemotePath(remotePath)}`;
 }
 
 export function resolveManagedMachineTarget(

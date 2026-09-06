@@ -111,21 +111,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const managedRemoteSessionToken = crypto.randomBytes(32).toString('hex');
     const managedSshConsent = new ManagedSshConsentFileStore(bridgeRoot);
     const managedLegacySshInspector = new ManagedLegacySshInspector({});
-    const managedSshInputs = discoverManagedSshLocalInputs({
-        platform: process.platform,
-        homeDirectory: os.homedir(),
-        environmentPath: process.env.PATH || process.env.Path || '',
-        windowsDirectory: process.env.WINDIR,
-        remoteSshPath: vscode.workspace.getConfiguration('remote.SSH').get('path'),
-        remoteSshConfigFile: vscode.workspace.getConfiguration('remote.SSH').get('configFile'),
-    });
-    const managedSshCoordinator = Promise.resolve(new ManagedSshConsentCoordinator(
-        managedSshInputs.activeConfigPath,
-        managedSshInputs.executable,
-        managedSshConsent,
-    ));
+    const createManagedSshCoordinator = async (): Promise<ManagedSshConsentCoordinator> => {
+        const inputs = discoverManagedSshLocalInputs({
+            platform: process.platform,
+            homeDirectory: os.homedir(),
+            environmentPath: process.env.PATH || process.env.Path || '',
+            windowsDirectory: process.env.WINDIR,
+            remoteSshPath: vscode.workspace.getConfiguration('remote.SSH').get('path'),
+            remoteSshConfigFile: vscode.workspace.getConfiguration('remote.SSH').get('configFile'),
+        });
+        return new ManagedSshConsentCoordinator(
+            inputs.activeConfigPath,
+            inputs.executable,
+            managedSshConsent,
+        );
+    };
     const managedSshProjection = new ManagedSshProjectionWorker({
-        getCoordinator: () => managedSshCoordinator,
+        getCoordinator: createManagedSshCoordinator,
         reportError: error => outputChannel.appendLine(
             `[ManagedRemote] ${error.message}`,
         ),
@@ -154,7 +156,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             .getConfiguration('agentPivot')
             .get('managedRemoteCatalogData'),
     }, {
-        create: () => managedSshCoordinator,
+        create: createManagedSshCoordinator,
     }, managedRemoteSessionToken, {
         platform: process.platform,
         openTerminal: options => {

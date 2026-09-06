@@ -14,6 +14,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
     const root = makeTempDirectory(t, 'production-attention-bridge-');
     const registered = new Map();
     const executed = [];
+    let managedConfigPath = path.join(root, 'ssh-one', 'config');
     const vscode = {
         Uri: {
             parse: value => ({ value }),
@@ -23,13 +24,10 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
         },
         workspace: {
-            // Managed SSH discovery falls back to the real ~/.ssh/config when
-            // remote.SSH.configFile is unset, which makes this test depend on
-            // the runner's home directory and fail where it has no .ssh. Point
-            // it at this test's own temp root instead.
+            // Managed operations must reread the active Remote - SSH config.
             getConfiguration: section => ({
                 get: key => (section === 'remote.SSH' && key === 'configFile'
-                    ? path.join(root, 'ssh', 'config')
+                    ? managedConfigPath
                     : undefined),
             }),
             workspaceFolders: [{
@@ -102,6 +100,22 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             managedHandshake.capabilities,
             [...MANAGED_REMOTE_BRIDGE_CAPABILITIES],
         );
+        const managedExecute = registered.get('_agentPivotManagedRemote.bridge.execute');
+        const firstStatus = await managedExecute({
+            protocolVersion: 1,
+            requestId: 'managed-status-one',
+            sessionToken: managedHandshake.sessionToken,
+            operation: 'getStatus',
+        });
+        managedConfigPath = path.join(root, 'ssh-two', 'config');
+        const secondStatus = await managedExecute({
+            protocolVersion: 1,
+            requestId: 'managed-status-two',
+            sessionToken: managedHandshake.sessionToken,
+            operation: 'getStatus',
+        });
+        assert.equal(firstStatus.value.configPath, path.join(root, 'ssh-one', 'config'));
+        assert.equal(secondStatus.value.configPath, path.join(root, 'ssh-two', 'config'));
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');
         await openWorkspacePublish({
@@ -314,14 +328,11 @@ test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes t
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
         },
         workspace: {
-            // Managed SSH discovery falls back to the real ~/.ssh/config when
-            // remote.SSH.configFile is unset, which makes this test depend on
-            // the runner's home directory and fail where it has no .ssh. Point
-            // it at this test's own temp root instead.
+            // A broken Managed SSH setting must not block unrelated bridge activation.
             getConfiguration: section => ({
-                get: key => (section === 'remote.SSH' && key === 'configFile'
-                    ? path.join(root, 'ssh', 'config')
-                    : undefined),
+                get: key => section === 'remote.SSH' && key === 'path'
+                    ? path.join(root, 'missing-ssh')
+                    : undefined,
             }),
             workspaceFolders: [{
                 name: 'sensitive',

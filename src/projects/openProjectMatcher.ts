@@ -21,6 +21,7 @@ import {
 } from './managedRemote/sshConfigProjection';
 import {
     encodeRemoteAuthority,
+    encodeRemotePath,
     normalizePosixPath,
     normalizeRemoteAuthority,
 } from './projectPathUtils';
@@ -198,7 +199,7 @@ export function managedProjectUriFromCurrentMachine(
         if (!alias) { continue; }
         if (targetEnvironment.kind === 'host') {
             return vscode.Uri.parse(
-                `vscode-remote://${encodeRemoteAuthority(`ssh-remote+${alias}`)}${project.remotePath}`,
+                `vscode-remote://${encodeRemoteAuthority(`ssh-remote+${alias}`)}${encodeRemotePath(project.remotePath)}`,
             );
         }
         const rebuilt = rebuildManagedDevContainerProjectUri(

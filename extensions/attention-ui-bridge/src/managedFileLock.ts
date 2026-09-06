@@ -61,6 +61,32 @@ function processIsAlive(pid: number): boolean {
     }
 }
 
+function removeStaleLock(lockPath: string, expectedBytes: Buffer): void {
+    const abandoned = `${lockPath}.abandoned-${crypto.randomBytes(8).toString('hex')}`;
+    try {
+        fs.linkSync(lockPath, abandoned);
+        const linked = fs.lstatSync(abandoned);
+        const current = fs.lstatSync(lockPath);
+        const linkedBytes = fs.readFileSync(abandoned);
+        if (!linked.isFile() || linked.isSymbolicLink()
+            || linked.dev !== current.dev || linked.ino !== current.ino
+            || linked.nlink !== 2 || current.nlink !== 2
+            || !linkedBytes.equals(expectedBytes)) {
+            throw new Error('Managed SSH config is busy in another Agent Pivot window.');
+        }
+        fs.unlinkSync(lockPath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            throw new Error('Managed SSH lock changed during stale recovery.');
+        }
+        throw error;
+    } finally {
+        try { fs.unlinkSync(abandoned); } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') { throw error; }
+        }
+    }
+}
+
 export function withManagedFileLock<T>(lockPath: string, operation: () => T): T {
     ensureLockDirectory(path.dirname(lockPath));
     const token = crypto.randomBytes(16).toString('hex');
@@ -91,9 +117,10 @@ export function withManagedFileLock<T>(lockPath: string, operation: () => T): T 
             if (locallyAlive || (!localOwner && fresh)) {
                 throw new Error('Managed SSH config is busy in another Agent Pivot window.');
             }
-            const abandoned = `${lockPath}.abandoned-${crypto.randomBytes(8).toString('hex')}`;
-            fs.renameSync(lockPath, abandoned);
-            fs.unlinkSync(abandoned);
+            if (!bytes) {
+                throw new Error('Managed SSH lock changed during stale recovery.');
+            }
+            removeStaleLock(lockPath, bytes);
             return acquire();
         }
     };

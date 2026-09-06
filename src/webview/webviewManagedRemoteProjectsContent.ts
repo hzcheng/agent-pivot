@@ -32,6 +32,20 @@ function renderTagControls(tags: string[]): string {
     </div>`;
 }
 
+function renderAddMachineForm(): string {
+    return `<form id="managed-machine-form" class="managed-machine-form" data-managed-machine-form hidden>
+        <div class="managed-machine-form-heading"><strong>Add Machine</strong><span>Connection details are saved to your VS Code User settings.</span></div>
+        <div class="managed-machine-form-fields">
+            <label>Machine name<input name="name" autocomplete="off" required maxlength="256" placeholder="Build server"></label>
+            <label>Host<input name="host" autocomplete="off" required maxlength="256" placeholder="build.example.com"></label>
+            <label>SSH user<input name="user" autocomplete="username" required maxlength="256" placeholder="developer"></label>
+            <label>Port<input name="port" type="number" inputmode="numeric" required min="1" max="65535" value="22"></label>
+        </div>
+        <p class="managed-machine-form-error" data-managed-machine-form-error role="alert" hidden></p>
+        <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-add-machine-form">Cancel</button><button type="submit" class="managed-machine-form-submit" data-managed-operation="addMachine">Add Machine</button></div>
+    </form>`;
+}
+
 function renderProject(
     project: ManagedRemoteProjectRowViewModel,
     favorite: boolean,
@@ -113,8 +127,8 @@ export function renderManagedRemoteProjectsPanel(
     return `<section class="machine-projects managed-remote-projects" data-machine-projects data-managed-remote-projects data-managed-revision-id="${escapeAttribute(revision)}" data-managed-lifecycle="${escapeAttribute(model.lifecycle)}" data-machine-project-count="${projectCount}">
         <div class="machine-projects-toolbar">
             <div class="machine-projects-summary" data-machine-projects-summary role="status" aria-live="polite">${projectCount} project${projectCount === 1 ? '' : 's'} on ${machineCount} machine${machineCount === 1 ? '' : 's'}</div>
-            <div class="machine-projects-toolbar-actions">${renderTagControls(tags)}<button type="button" class="machine-toolbar-button" ${operationAttributes('addMachine')} aria-label="Add Machine" title="Add Machine">${Icons.add}</button></div>
-        </div>
+            <div class="machine-projects-toolbar-actions">${renderTagControls(tags)}<button type="button" class="machine-toolbar-button" data-action="show-add-machine-form" aria-expanded="false" aria-controls="managed-machine-form" aria-label="Add Machine" title="Add Machine">${Icons.add}</button></div>
+        </div>${renderAddMachineForm()}
         ${favoriteCount ? `<section class="machine-favorites" data-machine-favorites><h2 class="machine-section-heading"><button type="button" class="machine-disclosure" data-machine-disclosure="favorites" aria-expanded="true" aria-controls="managed-machine-favorites-list" aria-label="Collapse Favorites"><span class="machine-chevron" aria-hidden="true">${Icons.collapse}</span><span>FAVORITES</span><span class="machine-count">${favoriteCount}</span></button></h2><ul id="managed-machine-favorites-list" class="machine-favorite-list">${localModel.favorites.map(project => renderMachineProjectsProject(project, true)).join('\n')}${model.favorites.map(project => renderProject(project, true)).join('\n')}</ul></section>` : ''}
         <section class="machine-projects-directory" aria-labelledby="managed-machine-projects-directory-title"><h2 id="managed-machine-projects-directory-title" class="machine-projects-visually-hidden">Machines</h2>${machineCount ? `<ul class="machine-projects-machines">${localModel.machines.map(renderMachineProjectsMachine).join('\n')}${model.machines.map(machine => renderMachine(machine)).join('\n')}</ul>` : '<p class="managed-remote-empty">No Projects or managed Machines yet.</p>'}</section>
         <div class="machine-projects-announcer machine-projects-visually-hidden" data-machine-projects-announcer aria-live="polite"></div>

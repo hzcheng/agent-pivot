@@ -330,7 +330,7 @@ function createMachineProjectsUi() {
         if (announcer) announcer.textContent = message;
     }
 
-    function postManagedAction(control) {
+    function postManagedAction(control, input) {
         var operation = control.getAttribute('data-managed-operation');
         var targetId = control.getAttribute('data-managed-target-id') || '';
         var root = managedRoot();
@@ -363,7 +363,43 @@ function createMachineProjectsUi() {
             operation: operation,
             expectedRevisionId: root.getAttribute('data-managed-revision-id') || null,
             ...(targetId ? { targetId: targetId } : {}),
+            ...(input ? { input: input } : {}),
         });
+    }
+
+    function setAddMachineFormOpen(open, returnFocus) {
+        var form = panel && panel.querySelector('[data-managed-machine-form]');
+        var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+        if (!form) return;
+        form.hidden = !open;
+        if (trigger) trigger.setAttribute('aria-expanded', String(open));
+        if (open) {
+            var name = form.elements.name;
+            if (name && typeof name.focus === 'function') name.focus();
+        } else if (returnFocus && trigger && typeof trigger.focus === 'function') {
+            trigger.focus();
+        }
+    }
+
+    function submitAddMachineForm(form) {
+        var values = {
+            name: String(form.elements.name.value || '').trim(),
+            host: String(form.elements.host.value || '').trim(),
+            user: String(form.elements.user.value || '').trim(),
+            port: Number(form.elements.port.value),
+        };
+        var error = form.querySelector('[data-managed-machine-form-error]');
+        var message = !values.name ? 'Enter a Machine name.'
+            : !values.host ? 'Enter a Host.'
+            : !values.user ? 'Enter an SSH user.'
+            : !Number.isInteger(values.port) || values.port < 1 || values.port > 65535
+                ? 'Enter a port from 1 to 65535.' : '';
+        if (message) {
+            if (error) { error.textContent = message; error.hidden = false; }
+            return;
+        }
+        if (error) { error.hidden = true; error.textContent = ''; }
+        postManagedAction(form.querySelector('[data-managed-operation="addMachine"]'), values);
     }
 
     function postManagedClientAction(control) {
@@ -413,6 +449,15 @@ function createMachineProjectsUi() {
             return;
         }
         if (!panel.contains(control)) return;
+        if (control.getAttribute('data-action') === 'show-add-machine-form') {
+            setAddMachineFormOpen(true, false);
+            return;
+        }
+        if (control.getAttribute('data-action') === 'cancel-add-machine-form') {
+            setAddMachineFormOpen(false, true);
+            return;
+        }
+        if (control.closest('[data-managed-machine-form]')) return;
         if (control.hasAttribute('data-managed-operation')) {
             postManagedAction(control);
             return;
@@ -519,6 +564,14 @@ function createMachineProjectsUi() {
         applyFilters();
     }
 
+    function onSubmit(event) {
+        var form = event.target && event.target.closest
+            ? event.target.closest('[data-managed-machine-form]') : null;
+        if (!form || !panel || !panel.contains(form)) return;
+        event.preventDefault();
+        submitAddMachineForm(form);
+    }
+
     function onKeyDown(event) {
         if (event.key === 'Escape' && activeProjectMenuTrigger) {
             event.preventDefault();
@@ -609,6 +662,15 @@ function createMachineProjectsUi() {
         } else if (message.status === 'cancelled') {
             announceManaged('No changes were saved.');
         } else {
+            var form = panel && panel.querySelector('[data-managed-machine-form]');
+            if (form && !form.hidden) {
+                var error = form.querySelector('[data-managed-machine-form-error]');
+                if (error) {
+                    error.textContent = typeof message.message === 'string'
+                        ? message.message : 'Unable to add the Machine.';
+                    error.hidden = false;
+                }
+            }
             announceManaged(typeof message.message === 'string'
                 ? message.message : 'The Managed Remote action failed.');
         }
@@ -623,6 +685,7 @@ function createMachineProjectsUi() {
             panel.addEventListener('click', onClick);
             panel.addEventListener('auxclick', onAuxClick);
             panel.addEventListener('change', onChange);
+            panel.addEventListener('submit', onSubmit);
             panel.addEventListener('keydown', onKeyDown);
             panel.__agentPivotMachineProjectsBound = true;
         }

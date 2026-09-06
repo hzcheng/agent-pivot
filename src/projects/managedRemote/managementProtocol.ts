@@ -19,6 +19,14 @@ export interface ManagedRemoteManagementRequest {
     operation: ManagedRemoteManagementOperation;
     expectedRevisionId: string | null;
     targetId?: string;
+    input?: ManagedRemoteMachineInput;
+}
+
+export interface ManagedRemoteMachineInput {
+    name: string;
+    host: string;
+    user: string;
+    port: number;
 }
 
 export interface ManagedRemoteManagementSettlement {
@@ -56,6 +64,23 @@ function isRevisionId(value: unknown): value is string | null {
         && /^revision:[a-f0-9]{64}$/u.test(value);
 }
 
+function parseMachineInput(value: unknown): ManagedRemoteMachineInput | null {
+    if (!isRecord(value)
+        || Object.keys(value).length !== 4
+        || !['name', 'host', 'user', 'port'].every(key => Object.prototype.hasOwnProperty.call(value, key))
+        || !isBoundedIdentity(value.name)
+        || !isBoundedIdentity(value.host)
+        || !isBoundedIdentity(value.user)
+        || typeof value.port !== 'number' || !Number.isInteger(value.port)
+        || value.port < 1 || value.port > 65535) {
+        return null;
+    }
+    const name = value.name.trim();
+    const host = value.host.trim();
+    const user = value.user.trim();
+    return name && host && user ? { name, host, user, port: value.port } : null;
+}
+
 export function readManagedRemoteManagementCorrelation(
     value: unknown,
 ): { requestId: string; operation: string } | null {
@@ -91,8 +116,12 @@ export function parseManagedRemoteManagementRequest(
         'type', 'version', 'requestId', 'operation', 'expectedRevisionId',
     ];
     const acceptsTarget = TARGET_OPERATIONS.has(operation) || operation === 'addProject';
-    const allowedKeys = acceptsTarget
-        ? [...requiredKeys, 'targetId'] : requiredKeys;
+    const acceptsInput = operation === 'addMachine';
+    const allowedKeys = [
+        ...requiredKeys,
+        ...(acceptsTarget ? ['targetId'] : []),
+        ...(acceptsInput ? ['input'] : []),
+    ];
     if (Object.keys(value).some(key => !allowedKeys.includes(key))) { return null; }
     if (TARGET_OPERATIONS.has(operation) && !isBoundedIdentity(value.targetId)) {
         return null;
@@ -104,6 +133,11 @@ export function parseManagedRemoteManagementRequest(
         && value.targetId !== undefined
         && !isBoundedIdentity(value.targetId)) {
         return null;
+    }
+    if (acceptsInput && Object.prototype.hasOwnProperty.call(value, 'input')) {
+        const input = parseMachineInput(value.input);
+        if (!input) { return null; }
+        return { ...value, input } as ManagedRemoteManagementRequest;
     }
     return value as unknown as ManagedRemoteManagementRequest;
 }

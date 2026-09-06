@@ -52,6 +52,12 @@ export interface ManagedCatalogReconcileResult {
     repairedBackend: boolean;
     repairedReplica: boolean;
     recoveryRequired: boolean;
+    /**
+     * A stored value exists but no usable catalog could be read from it or any
+     * replica. There is nothing to reconcile against, so the next publication
+     * is allowed to overwrite it instead of refusing.
+     */
+    backendUnusable: boolean;
     issues: string[];
     recoveryCandidates: ManagedRevisionSlot[];
 }
@@ -144,7 +150,7 @@ export class ManagedCatalogCoordinator {
                     envelope.stagedRevisions[stageId] = createVersionedCandidates(slot, version);
                 },
             );
-            await this.publishCandidate(candidate);
+            await this.publishCandidate(candidate, reconciled.backendUnusable);
             return stageId;
         });
     }
@@ -186,7 +192,7 @@ export class ManagedCatalogCoordinator {
                     envelope.stagedRevisions[stageId] = createVersionedCandidates(null, version);
                 },
             );
-            await this.publishCandidate(candidate);
+            await this.publishCandidate(candidate, reconciled.backendUnusable);
             return cloneManagedValue(slot);
         });
     }
@@ -204,7 +210,7 @@ export class ManagedCatalogCoordinator {
                     envelope.stagedRevisions[stageId] = createVersionedCandidates(null, version);
                 },
             );
-            await this.publishCandidate(candidate);
+            await this.publishCandidate(candidate, reconciled.backendUnusable);
         });
     }
 
@@ -277,7 +283,10 @@ export class ManagedCatalogCoordinator {
                     }
                 },
             );
-            await this.publishCandidate(candidate, reconciled.recoveryRequired);
+            await this.publishCandidate(
+                candidate,
+                reconciled.recoveryRequired || reconciled.backendUnusable,
+            );
         });
     }
 
@@ -350,15 +359,35 @@ export class ManagedCatalogCoordinator {
             : null;
         const sources = [cleanBackendEnvelope, ...replicaEnvelopes, ...stagedEnvelopes]
             .filter((value): value is ManagedCatalogEnvelopeV1 => Boolean(value));
-        if (!sources.length && !backendParsed && issues.length) {
-            throw new Error('Managed catalog has no valid recovery source.');
-        }
+        // An unreadable stored value must not take the whole catalog down with
+        // it. Failing closed here leaves the Project tab permanently empty with
+        // no way back, which is strictly worse than starting from an empty
+        // catalog the user can populate. The unreadable payload is reported
+        // through `issues`, so recovery still surfaces rather than passing
+        // silently.
         let envelope = sources.length
             ? sources.slice(1).reduce(joinManagedCatalogEnvelopes, sources[0])
             : backendParsed?.envelope || createEmptyManagedCatalogEnvelope(this.actorId);
         envelope = mergeActiveAuthorityCandidates(envelope, this.actorId);
         const authorityValues = distinctCandidateValues(envelope.authority);
-        const recoveryRequired = issues.length > 0 || authorityValues.length > 1;
+        const recoveryCandidates = uniqueRevisionSlots([
+            ...(backendParsed?.recoveryCandidates || []),
+            ...parsedWriters.reduce<ManagedRevisionSlot[]>((result, entry) => {
+                result.push(...(entry.replica?.recoveryCandidates || []));
+                result.push(...(entry.staged?.recoveryCandidates || []));
+                return result;
+            }, []),
+        ]);
+        // Recovery is only meaningful when there is something to recover to: a
+        // usable source that may be losing data, a revision the user can roll
+        // back to, or conflicting authorities to choose between. A stored value
+        // that is simply unreadable offers no such choice, and demanding
+        // recovery for it strands the catalog with no way back.
+        const backendUnusable = issues.length > 0
+            && sources.length === 0
+            && recoveryCandidates.length === 0;
+        const recoveryRequired = (issues.length > 0 && !backendUnusable)
+            || authorityValues.length > 1;
         let repairedBackend = false;
         let repairedReplica = false;
         const hasPersistedSource = sources.length > 0;
@@ -388,15 +417,9 @@ export class ManagedCatalogCoordinator {
             repairedBackend,
             repairedReplica,
             recoveryRequired,
+            backendUnusable,
             issues: Array.from(new Set(issues)).sort(),
-            recoveryCandidates: uniqueRevisionSlots([
-                ...(backendParsed?.recoveryCandidates || []),
-                ...parsedWriters.reduce<ManagedRevisionSlot[]>((result, entry) => {
-                    result.push(...(entry.replica?.recoveryCandidates || []));
-                    result.push(...(entry.staged?.recoveryCandidates || []));
-                    return result;
-                }, []),
-            ]),
+            recoveryCandidates,
         };
     }
 

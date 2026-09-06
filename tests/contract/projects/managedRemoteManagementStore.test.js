@@ -210,3 +210,31 @@ test('MANAGED-REMOTE-MANAGEMENT-002 exposes the surviving side of a delete-updat
         ['other.example.com'],
     );
 });
+
+test('MANAGED-REMOTE-MANAGEMENT-002 recovers into a usable catalog from an unreadable stored value', async () => {
+    // A stored value the current schema cannot read must not take the whole
+    // catalog down. Failing closed here left the Project tab permanently empty
+    // with no way back, which is strictly worse than starting empty.
+    const backend = new MemoryBackend();
+    backend.value = { envelopeVersion: 99, totally: 'unreadable' };
+    const coordinator = await ManagedCatalogCoordinator.create(
+        backend,
+        new MemoryReplicas(),
+    );
+    let nextId = 0;
+    const store = new ManagedRemoteCatalogManagementStore(
+        coordinator,
+        'catalog:one',
+        prefix => `${prefix}:${++nextId}`,
+    );
+
+    const snapshot = await store.getSnapshot();
+    assert.equal(snapshot.catalog.machines.length, 0);
+
+    // And it must stay usable: adding a Machine has to succeed and activate.
+    const added = await store.addMachine(snapshot.revisionId, {
+        name: 'RedDev', host: 'reddev.example.com', user: 'dev', port: 22,
+    });
+    assert.equal(added.lifecycle, 'active');
+    assert.equal(added.catalog.machines[0].name, 'RedDev');
+});

@@ -108,10 +108,10 @@ function validateFileTransferCopySettlement(message) {
         || message.version !== 1
         || typeof message.requestId !== 'string'
         || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
-        || (message.status !== 'copied' && message.status !== 'failed')) {
+        || (message.status !== 'copied' && message.status !== 'cancelled' && message.status !== 'failed')) {
         return false;
     }
-    if (message.status === 'copied') {
+    if (message.status === 'copied' || message.status === 'cancelled') {
         return Object.keys(message).sort().join('\n') === [
             'requestId', 'status', 'type', 'value', 'version',
         ].join('\n');
@@ -143,7 +143,7 @@ function validateFileTransferHistory(message) {
                     return ['at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems'].includes(key);
                 })
                 && Number.isSafeInteger(entry.at) && entry.at > 0
-                && (entry.status === 'copied' || entry.status === 'failed')
+                && (entry.status === 'copied' || entry.status === 'cancelled' || entry.status === 'failed')
                 && Number.isSafeInteger(entry.itemCount) && entry.itemCount > 0
                 && ['fail', 'skip', 'replace'].includes(entry.conflictPolicy);
         });
@@ -536,6 +536,7 @@ function initDashboard(options) {
         var summary = panel.querySelector('[data-file-transfer-summary]');
         var review = panel.querySelector('[data-file-transfer-review]');
         var tasks = panel.querySelector('[data-file-transfer-tasks]');
+        var taskStatus = panel.querySelector('[data-file-transfer-task-status]');
         var historyList = panel.querySelector('[data-file-transfer-history-list]');
         var reviewSheet = panel.querySelector('[data-file-transfer-review-sheet]');
         var reviewSummary = panel.querySelector('[data-file-transfer-review-summary]');
@@ -547,17 +548,23 @@ function initDashboard(options) {
         var selectedEntries = { left: new Set(), right: new Set() };
         var directoryHistory = { left: [], right: [] };
         var pendingCopyRequestId = null;
-        var activeTransferCount = 0;
         var activeCopyTaskId = null;
+        var activeCopyItemCount = 0;
 
         function renderTaskCount() {
             if (!tasks) return;
-            tasks.disabled = activeTransferCount === 0;
-            tasks.title = activeTransferCount === 0
+            tasks.disabled = !activeCopyTaskId;
+            tasks.title = !activeCopyTaskId
                 ? 'Transfer tasks will appear here'
                 : 'Cancel the active file copy';
             var count = tasks.querySelector ? tasks.querySelector('span') : null;
-            if (count) count.textContent = String(activeTransferCount);
+            if (count) count.textContent = activeCopyTaskId ? '1' : '0';
+        }
+
+        function renderTaskStatus(message) {
+            if (!taskStatus) return;
+            taskStatus.hidden = !message;
+            taskStatus.textContent = message || '';
         }
 
         function applyHistory(message) {
@@ -574,6 +581,8 @@ function initDashboard(options) {
                 var detail = entry.status === 'copied'
                     ? 'Copied ' + (entry.completedItems === undefined ? entry.itemCount : entry.completedItems)
                         + (entry.skippedItems ? ', skipped ' + entry.skippedItems : '')
+                    : entry.status === 'cancelled'
+                        ? 'Cancelled after ' + (entry.completedItems || 0) + ' copied'
                     : 'Failed';
                 row.textContent = detail + ' · ' + entry.itemCount + ' item(s) · ' + entry.conflictPolicy;
                 historyList.appendChild(row);
@@ -664,7 +673,8 @@ function initDashboard(options) {
                 ? 'Copy ' + count + ' selected item' + (count === 1 ? '' : 's')
                     + ' to the ' + (sourceSide === 'left' ? 'right' : 'left') + ' endpoint.'
                 : 'Select files in either pane to choose a copy direction.';
-            if (review) review.disabled = !sourceSide || !left || !right || !left.value || !right.value;
+            if (review) review.disabled = !!activeCopyTaskId || !!pendingCopyRequestId
+                || !sourceSide || !left || !right || !left.value || !right.value;
         }
 
         function updateSelection(side, entryId, selected) {
@@ -814,7 +824,7 @@ function initDashboard(options) {
 
         function startReviewedCopy() {
             var sourceSide = selectedSourceSide();
-            if (!sourceSide) return;
+            if (!sourceSide || activeCopyTaskId || pendingCopyRequestId) return;
             var destinationSide = sourceSide === 'left' ? 'right' : 'left';
             var source = endpointReference(sourceSide);
             var destination = endpointReference(destinationSide);
@@ -837,17 +847,29 @@ function initDashboard(options) {
         function applyCopySettlement(message) {
             if (message.requestId !== pendingCopyRequestId) return false;
             pendingCopyRequestId = null;
-            activeTransferCount = Math.max(0, activeTransferCount - 1);
             activeCopyTaskId = null;
+            activeCopyItemCount = 0;
             renderTaskCount();
             if (startCopy) startCopy.disabled = false;
             if (message.status === 'copied') {
+                var completed = message.value && Number.isSafeInteger(message.value.completedItems)
+                    ? message.value.completedItems : 0;
+                var skipped = message.value && Number.isSafeInteger(message.value.skippedItems)
+                    ? message.value.skippedItems : 0;
+                renderTaskStatus('Copy complete: ' + completed + ' copied'
+                    + (skipped ? ', ' + skipped + ' skipped.' : '.'));
                 selectedEntries.left.clear();
                 selectedEntries.right.clear();
                 closeReview();
                 updatePair();
+            } else if (message.status === 'cancelled') {
+                var cancelledAfter = message.value && Number.isSafeInteger(message.value.completedItems)
+                    ? message.value.completedItems : 0;
+                renderTaskStatus('Copy cancelled after ' + cancelledAfter + ' item(s).');
+                if (reviewSummary) reviewSummary.textContent = 'Copy cancelled. Your selection is still available to retry.';
             } else if (reviewSummary) {
                 reviewSummary.textContent = message.message || 'File copy failed.';
+                renderTaskStatus('Copy failed: ' + (message.message || 'File copy failed.'));
             }
             options.postMessage({ type: 'file-transfer-request-history', version: 1 });
             return true;
@@ -855,9 +877,11 @@ function initDashboard(options) {
 
         function applyCopyStarted(message) {
             if (message.requestId !== pendingCopyRequestId) return false;
-            activeTransferCount += 1;
             activeCopyTaskId = message.requestId;
+            activeCopyItemCount = selectedSourceSide() ? selectedEntries[selectedSourceSide()].size : 0;
             renderTaskCount();
+            renderTaskStatus('Copying ' + activeCopyItemCount + ' item(s). Select Transfers to cancel.');
+            updatePair();
             return true;
         }
 
@@ -885,6 +909,7 @@ function initDashboard(options) {
         if (tasks) tasks.addEventListener('click', function () {
             if (!activeCopyTaskId) return;
             tasks.disabled = true;
+            renderTaskStatus('Cancelling copy…');
             options.postMessage({
                 type: 'file-transfer-cancel-copy',
                 version: 1,

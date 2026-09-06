@@ -10,6 +10,7 @@ import {
     FileTransferLocalRootRequest,
     FileTransferRemoteDirectoryRequest,
     FileTransferCopyRequest,
+    FileTransferCopyResult,
     FileTransferEndpointReference,
     FileTransferLocalRootResponse,
     ManagedRemoteBridgeRequest,
@@ -597,9 +598,12 @@ export class ManagedRemoteBridgeController {
         slot: ManagedRevisionSlot,
         coordinator: ManagedSshConsentCoordinator,
         request: FileTransferCopyRequest,
-    ): Promise<{ status: 'copied'; completedItems: number; skippedItems: number; totalItems: number }> {
+    ): Promise<FileTransferCopyResult> {
         if (this.activeFileTransferCopies.has(request.taskId)) {
             throw new Error('This File Transfer task is already running.');
+        }
+        if (this.activeFileTransferCopies.size > 0) {
+            throw new Error('Another File Transfer copy is already running. Cancel it or wait for it to finish.');
         }
         if (request.source.kind === 'local' && request.destination.kind === 'local') {
             throw new Error('File Transfer does not copy between two local folders.');
@@ -641,6 +645,13 @@ export class ManagedRemoteBridgeController {
                 );
                 completedItems += 1;
             }
+        } catch (error) {
+            if (active.cancelled) {
+                return {
+                    status: 'cancelled', completedItems, skippedItems, totalItems: request.entryIds.length,
+                };
+            }
+            throw error;
         } finally {
             this.activeFileTransferCopies.delete(request.taskId);
         }

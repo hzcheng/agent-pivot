@@ -1820,6 +1820,12 @@ body .project {
     color: var(--vscode-descriptionForeground);
 }
 
+.file-transfer-task-status {
+    margin: -4px 0 4px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
 .file-transfer-pair {
     justify-content: center;
     gap: 8px;

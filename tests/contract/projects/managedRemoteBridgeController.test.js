@@ -270,3 +270,20 @@ test('FILE-TRANSFER-COPY-001 rejects local-to-local copy even with approved hand
     assert.equal(copy.status, 'failed');
     assert.match(copy.message, /does not copy between two local folders/i);
 });
+
+test('FILE-TRANSFER-COPY-002 permits only one active relay copy in a UI Bridge session', async () => {
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { throw new Error('an active copy must be rejected before catalog access'); },
+    }, {
+        async create() { throw new Error('an active copy must be rejected before coordinator creation'); },
+    }, 'session-12345678');
+    controller.activeFileTransferCopies.set('running-task-123456', { cancelled: false });
+    await assert.rejects(
+        () => controller.copyFileTransferEntries(undefined, undefined, {
+            kind: 'copy', taskId: 'new-task-123456789', conflictPolicy: 'fail', entryIds: ['a'.repeat(32)],
+            source: { kind: 'local', rootId: 'b'.repeat(32), directoryId: 'c'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'd'.repeat(32) },
+        }),
+        /another file transfer copy is already running/i,
+    );
+});

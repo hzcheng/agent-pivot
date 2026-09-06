@@ -2750,9 +2750,10 @@ async function initializeDashboard(
         const value = context.globalState.get<unknown>(fileTransferHistoryKey, []);
         return Array.isArray(value) ? value.filter(isFileTransferHistoryEntry).slice(0, 50) : [];
     };
+    let activeFileTransferTaskId: string | undefined;
     const appendFileTransferHistory = async (
         request: Record<string, unknown>,
-        status: 'copied' | 'failed',
+        status: FileTransferHistoryEntry['status'],
         value: unknown,
     ): Promise<void> => {
         const entry: FileTransferHistoryEntry = {
@@ -2760,7 +2761,7 @@ async function initializeDashboard(
             status,
             itemCount: Array.isArray(request.entryIds) ? request.entryIds.length : 0,
             conflictPolicy: String(request.conflictPolicy),
-            ...(status === 'copied' && isRecordFileTransferCopyResult(value)
+            ...((status === 'copied' || status === 'cancelled') && isRecordFileTransferCopyResult(value)
                 ? { completedItems: value.completedItems, skippedItems: value.skippedItems }
                 : {}),
         };
@@ -2947,6 +2948,12 @@ async function initializeDashboard(
                         'Managed Machines are unavailable. Refresh and try again.'));
                     return;
                 }
+                if (activeFileTransferTaskId) {
+                    await provider.postMessage(fileTransferCopySettlement(message, 'failed',
+                        'Another File Transfer copy is already running. Cancel it or wait for it to finish.'));
+                    return;
+                }
+                activeFileTransferTaskId = message.requestId as string;
                 await provider.postMessage({
                     type: 'file-transfer-copy-started',
                     version: 1,
@@ -2964,8 +2971,10 @@ async function initializeDashboard(
                         },
                     ).then(
                     async result => {
-                        await appendFileTransferHistory(message, 'copied', result);
-                        return provider.postMessage(fileTransferCopySettlement(message, 'copied', result));
+                        const status = isRecordFileTransferCopyResult(result) && result.status === 'cancelled'
+                            ? 'cancelled' : 'copied';
+                        await appendFileTransferHistory(message, status, result);
+                        return provider.postMessage(fileTransferCopySettlement(message, status, result));
                     },
                     error => {
                         const rawMessage = error instanceof Error ? error.message : String(error);
@@ -2973,7 +2982,11 @@ async function initializeDashboard(
                             message, 'failed', rawMessage.slice(0, 320),
                         )));
                     },
-                );
+                ).finally(() => {
+                    if (activeFileTransferTaskId === message.requestId) {
+                        activeFileTransferTaskId = undefined;
+                    }
+                });
             },
             'file-transfer-request-history': async message => {
                 if (!isFileTransferHistoryRequest(message)) {
@@ -4670,10 +4683,10 @@ function isFileTransferEndpointReference(value: unknown): boolean {
 
 function fileTransferCopySettlement(
     request: Record<string, unknown>,
-    status: 'copied' | 'failed',
+    status: 'copied' | 'cancelled' | 'failed',
     value: unknown,
 ): Record<string, unknown> {
-    return status === 'copied'
+    return status === 'copied' || status === 'cancelled'
         ? { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, value }
         : { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, message: value };
 }
@@ -4688,7 +4701,7 @@ function isFileTransferCancelRequest(value: Record<string, unknown>): boolean {
 
 interface FileTransferHistoryEntry {
     at: number;
-    status: 'copied' | 'failed';
+    status: 'copied' | 'cancelled' | 'failed';
     itemCount: number;
     conflictPolicy: string;
     completedItems?: number;
@@ -4702,7 +4715,7 @@ function isFileTransferHistoryEntry(value: unknown): value is FileTransferHistor
         'at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems',
     ].includes(key))
         && Number.isSafeInteger(entry.at) && (entry.at as number) > 0
-        && (entry.status === 'copied' || entry.status === 'failed')
+        && (entry.status === 'copied' || entry.status === 'cancelled' || entry.status === 'failed')
         && Number.isSafeInteger(entry.itemCount) && (entry.itemCount as number) > 0
         && typeof entry.conflictPolicy === 'string'
         && ['fail', 'skip', 'replace'].includes(entry.conflictPolicy)
@@ -4713,10 +4726,13 @@ function isFileTransferHistoryEntry(value: unknown): value is FileTransferHistor
 }
 
 function isRecordFileTransferCopyResult(value: unknown): value is {
+    status: 'copied' | 'cancelled';
     completedItems: number;
     skippedItems: number;
 } {
     return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+        && ((value as Record<string, unknown>).status === 'copied'
+            || (value as Record<string, unknown>).status === 'cancelled')
         && Number.isSafeInteger((value as Record<string, unknown>).completedItems)
         && Number.isSafeInteger((value as Record<string, unknown>).skippedItems);
 }

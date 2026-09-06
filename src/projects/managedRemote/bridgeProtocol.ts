@@ -58,6 +58,13 @@ export interface FileTransferCopyRequest {
     conflictPolicy: 'fail' | 'skip' | 'replace';
 }
 
+export interface FileTransferCopyResult {
+    status: 'copied' | 'cancelled';
+    completedItems: number;
+    skippedItems: number;
+    totalItems: number;
+}
+
 export interface FileTransferCancelRequest {
     kind: 'cancel';
     taskId: string;

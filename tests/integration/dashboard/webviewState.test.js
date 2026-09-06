@@ -439,7 +439,16 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(html, /data-file-transfer-endpoint="right"/);
     assert.match(html, /This Computer…/);
     assert.match(html, /Build &amp; Test/);
+    assert.match(html, /data-file-transfer-task-status/);
+    assert.match(html, /data-file-transfer-conflict-policy/);
     assert.doesNotMatch(html, /Source endpoint|Destination endpoint/);
+});
+
+test('FILE-TRANSFER-UI-002 treats cancellation as a terminal transfer result', () => {
+    assert.match(dashboardSource, /message\.status !== 'copied' && message\.status !== 'cancelled' && message\.status !== 'failed'/);
+    assert.match(dashboardSource, /Copy cancelled after/);
+    assert.match(dashboardSource, /Cancelling copy…/);
+    assert.match(generatedDashboardSource, /Copy cancelled after/);
 });
 
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {

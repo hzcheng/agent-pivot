@@ -36,12 +36,13 @@ function createFixture(initial, options = {}) {
 
 function readyData(overrides = {}) {
     return {
-        version: 1,
+        version: 2,
         revision: 2,
         selectedPromptId: null,
+        groups: [{ id: 'general', name: 'General', kind: 'general' }],
         prompts: [
-            { id: 'prompt-a', name: 'Alpha', text: 'First body' },
-            { id: 'prompt-b', name: 'Bravo', text: 'Second body' },
+            { id: 'prompt-a', name: 'Alpha', text: 'First body', groupId: 'general' },
+            { id: 'prompt-b', name: 'Bravo', text: 'Second body', groupId: 'general' },
         ],
         ...overrides,
     };
@@ -80,13 +81,32 @@ test('PERSIST-AI-PROMPT-STORE-001 migrates Prompt data into synchronized extensi
     assert.deepEqual(writes.at(-1), ['promptData.v1', next]);
 });
 
-test('PERSIST-AI-PROMPT-STORE-001 starts with immutable empty V1 data', () => {
+test('PERSIST-AI-PROMPT-STORE-001 starts with immutable General tree data', () => {
     const fixture = createFixture(undefined);
     const snapshot = fixture.service.getSnapshot();
     assert.deepEqual(snapshot, {
-        version: 1, revision: 0, selectedPromptId: null, prompts: [],
+        version: 2, revision: 0, selectedPromptId: null,
+        groups: [{ id: 'general', name: 'General', kind: 'general' }], prompts: [],
     });
     assert.throws(() => snapshot.prompts.push({}));
+});
+
+test('PERSIST-AI-PROMPT-STORE-001 migrates V1 Prompts into General and keeps one group owner', async () => {
+    const fixture = createFixture({
+        version: 1, revision: 4, selectedPromptId: 'prompt-a',
+        prompts: [{ id: 'prompt-a', name: 'Legacy', text: 'Legacy body' }],
+    }, { ids: ['feature', 'prompt-b'] });
+    const migrated = fixture.service.getSnapshot();
+    assert.deepEqual(migrated.groups, [{ id: 'general', name: 'General', kind: 'general' }]);
+    assert.equal(migrated.prompts[0].groupId, 'general');
+    await fixture.service.createGroup(4, 'Feature work');
+    await fixture.service.createPrompt(5, { name: 'Scoped', text: 'Scoped body', groupId: 'feature' });
+    assert.equal(fixture.service.getSnapshot().prompts.find(prompt => prompt.id === 'prompt-b').groupId, 'feature');
+    await fixture.service.movePrompt(6, 'prompt-a', 'feature');
+    const deleted = await fixture.service.deleteGroup(7, 'feature');
+    assert.deepEqual(deleted.groups, [{ id: 'general', name: 'General', kind: 'general' }]);
+    assert.equal(deleted.prompts[0].groupId, 'general');
+    assert.equal(fixture.getStored().version, 2);
 });
 
 test('PERSIST-AI-PROMPT-STORE-001 creates, edits, reorders, selects, and deletes atomically', async () => {
@@ -100,10 +120,11 @@ test('PERSIST-AI-PROMPT-STORE-001 creates, edits, reorders, selects, and deletes
     await fixture.service.selectDefault(4, 'prompt-a');
     const result = await fixture.service.deletePrompt(5, 'prompt-a');
     assert.deepEqual(result, {
-        version: 1,
+        version: 2,
         revision: 6,
         selectedPromptId: null,
-        prompts: [{ id: 'prompt-b', name: 'Explain', text: 'Explain\ncarefully.' }],
+        groups: [{ id: 'general', name: 'General', kind: 'general' }],
+        prompts: [{ id: 'prompt-b', name: 'Explain', text: 'Explain\ncarefully.', groupId: 'general' }],
     });
     assert.equal(fixture.writes.length, 6);
     assert.deepEqual(fixture.getStored(), result);
@@ -113,12 +134,13 @@ test('PERSIST-AI-PROMPT-STORE-001 trims names and preserves nonblank Prompt bodi
     const fixture = createFixture(undefined);
     const body = '  Preserve leading and trailing whitespace.\n\nExactly.  ';
     const result = await fixture.service.createPrompt(0, { name: '  Review  ', text: body });
-    assert.deepEqual(result.prompts, [{ id: 'prompt-a', name: 'Review', text: body }]);
+    assert.deepEqual(result.prompts, [{ id: 'prompt-a', name: 'Review', text: body, groupId: 'general' }]);
     assert.deepEqual(fixture.writes[0], {
-        version: 1,
+        version: 2,
         revision: 1,
         selectedPromptId: null,
-        prompts: [{ id: 'prompt-a', name: 'Review', text: body }],
+        groups: [{ id: 'general', name: 'General', kind: 'general' }],
+        prompts: [{ id: 'prompt-a', name: 'Review', text: body, groupId: 'general' }],
     });
 });
 
@@ -163,12 +185,13 @@ test('PERSIST-AI-PROMPT-STORE-001 rejects invalid stored records but repairs onl
     assert.deepEqual(recovered, {
         status: 'ready',
         snapshot: {
-            version: 1,
+            version: 2,
             revision: 2,
             selectedPromptId: null,
+            groups: [{ id: 'general', name: 'General', kind: 'general' }],
             prompts: [
-                { id: 'prompt-a', name: 'Alpha', text: 'First body' },
-                { id: 'prompt-b', name: 'Bravo', text: 'Second body' },
+                { id: 'prompt-a', name: 'Alpha', text: 'First body', groupId: 'general' },
+                { id: 'prompt-b', name: 'Bravo', text: 'Second body', groupId: 'general' },
             ],
         },
     });
@@ -178,7 +201,7 @@ test('PERSIST-AI-PROMPT-STORE-001 diagnoses a repaired stale selection without P
     const fixture = createFixture(readyData({
         selectedPromptId: `missing-${'x'.repeat(150)}`,
         prompts: [
-            { id: 'prompt-a', name: 'Private', text: 'body that must not be logged' },
+            { id: 'prompt-a', name: 'Private', text: 'body that must not be logged', groupId: 'general' },
         ],
     }));
 
@@ -212,11 +235,12 @@ test('PERSIST-AI-PROMPT-STORE-001 uses locale-independent Prompt-name identity',
 });
 
 test('PERSIST-AI-PROMPT-STORE-001 exposes positive unsupported versions as read-only', async () => {
-    const fixture = createFixture({ version: 2, revision: 0, selectedPromptId: null, prompts: [] });
+    const fixture = createFixture({ version: 3, revision: 0, selectedPromptId: null, groups: [], prompts: [] });
     assert.deepEqual(fixture.service.getSnapshot(), {
-        version: 1,
+        version: 2,
         revision: 0,
         selectedPromptId: null,
+        groups: [{ id: 'general', name: 'General', kind: 'general' }],
         prompts: [],
         readOnlyReason: 'unsupported-version',
     });
@@ -288,12 +312,13 @@ test('PERSIST-AI-PROMPT-STORE-001 serializes local mutations and re-reads before
     releaseFirstWrite();
     await Promise.all([first, second]);
     assert.deepEqual(fixture.getStored(), {
-        version: 1,
+        version: 2,
         revision: 2,
         selectedPromptId: null,
+        groups: [{ id: 'general', name: 'General', kind: 'general' }],
         prompts: [
-            { id: 'prompt-a', name: 'First', text: 'one' },
-            { id: 'prompt-b', name: 'Second', text: 'two' },
+            { id: 'prompt-a', name: 'First', text: 'one', groupId: 'general' },
+            { id: 'prompt-b', name: 'Second', text: 'two', groupId: 'general' },
         ],
     });
 });
@@ -335,7 +360,8 @@ test('PERSIST-AI-PROMPT-STORE-001 wraps failed writes, refreshes afterwards, and
         assertErrorCode('storage')
     );
     assert.deepEqual(failed.service.getSnapshot(), {
-        version: 1, revision: 0, selectedPromptId: null, prompts: [],
+        version: 2, revision: 0, selectedPromptId: null,
+        groups: [{ id: 'general', name: 'General', kind: 'general' }], prompts: [],
     });
     assert.equal(failed.service.consumeCurrentSettingsDataLocalWriteEcho(), false);
 

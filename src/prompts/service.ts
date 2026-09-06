@@ -1,15 +1,19 @@
 import {
     PromptDataV1,
+    PromptDataV2,
+    PromptGroupV1,
     PromptMutationErrorCode,
     PromptMutationOperation,
     PromptPanelSnapshot,
     PromptReadResult,
     PromptV1,
+    PromptV2,
+    GENERAL_PROMPT_GROUP_ID,
 } from './types';
 
 export interface PromptServiceOptions {
     readSetting: () => unknown;
-    writeGlobalSetting: (data: PromptDataV1) => Promise<void>;
+    writeGlobalSetting: (data: PromptDataV2) => Promise<void>;
     createId: () => string;
     logDiagnostic?: (event: {
         category: string;
@@ -34,7 +38,7 @@ export interface PromptMementoStoreOptions {
 
 export interface PromptMementoStore {
     readSetting: () => unknown;
-    writeGlobalSetting: (data: PromptDataV1) => Promise<void>;
+    writeGlobalSetting: (data: PromptDataV2) => Promise<void>;
 }
 
 export async function initializePromptMementoStore(
@@ -66,17 +70,24 @@ export class PromptMutationError extends Error {
     }
 }
 
-type PromptMutation = (data: PromptDataV1) => PromptDataV1;
+type PromptMutation = (data: PromptDataV2) => PromptDataV2;
 
 interface PendingLocalWriteEcho {
     id: number;
     fingerprint: string;
 }
 
-const EMPTY_PROMPT_DATA: PromptDataV1 = {
-    version: 1,
+const GENERAL_GROUP: PromptGroupV1 = Object.freeze({
+    id: GENERAL_PROMPT_GROUP_ID,
+    name: 'General',
+    kind: 'general',
+});
+
+const EMPTY_PROMPT_DATA: PromptDataV2 = {
+    version: 2,
     revision: 0,
     selectedPromptId: null,
+    groups: [GENERAL_GROUP],
     prompts: [],
 };
 
@@ -108,18 +119,26 @@ function isNonNegativeInteger(value: unknown): value is number {
 }
 
 function cloneAndFreezeSnapshot(
-    data: PromptDataV1,
+    data: PromptDataV2,
     readOnlyReason?: 'invalid-data' | 'unsupported-version'
 ): PromptPanelSnapshot {
     const prompts = data.prompts.map(prompt => Object.freeze({
         id: prompt.id,
         name: prompt.name,
+        ...(prompt.description === undefined ? {} : { description: prompt.description }),
         text: prompt.text,
+        groupId: prompt.groupId,
+    }));
+    const groups = data.groups.map(group => Object.freeze({
+        id: group.id,
+        name: group.name,
+        kind: group.kind,
     }));
     const snapshot: PromptPanelSnapshot = {
-        version: 1,
+        version: 2,
         revision: data.revision,
         selectedPromptId: data.selectedPromptId,
+        groups: Object.freeze(groups),
         prompts: Object.freeze(prompts),
     };
     if (readOnlyReason) {
@@ -128,7 +147,7 @@ function cloneAndFreezeSnapshot(
     return Object.freeze(snapshot);
 }
 
-function readyResult(data: PromptDataV1): PromptReadResult {
+function readyResult(data: PromptDataV2): PromptReadResult {
     return { status: 'ready', snapshot: cloneAndFreezeSnapshot(data) };
 }
 
@@ -155,7 +174,7 @@ function isPromptId(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0;
 }
 
-function normalizePrompt(value: unknown): PromptV1 | undefined {
+function normalizePromptV1(value: unknown): PromptV1 | undefined {
     if (!isRecord(value) || !hasOnlyKeys(value, ['id', 'name', 'text'])) {
         return undefined;
     }
@@ -164,6 +183,57 @@ function normalizePrompt(value: unknown): PromptV1 | undefined {
         return undefined;
     }
     return { id: value.id, name, text: value.text };
+}
+
+function normalizeOptionalDescription(value: unknown): string | undefined | null {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const description = value.trim();
+    return description || undefined;
+}
+
+function normalizePromptV2(value: unknown): PromptV2 | undefined {
+    if (!isRecord(value)) {
+        return undefined;
+    }
+    const keys = value.description === undefined
+        ? ['id', 'name', 'text', 'groupId']
+        : ['id', 'name', 'description', 'text', 'groupId'];
+    if (!hasOnlyKeys(value, keys)) {
+        return undefined;
+    }
+    const name = normalizeName(value.name);
+    const description = normalizeOptionalDescription(value.description);
+    if (!isPromptId(value.id) || !name || description === null
+        || !hasNonBlankText(value.text) || !isPromptId(value.groupId)) {
+        return undefined;
+    }
+    return {
+        id: value.id,
+        name,
+        ...(description === undefined ? {} : { description }),
+        text: value.text,
+        groupId: value.groupId,
+    };
+}
+
+function normalizeGroup(value: unknown): PromptGroupV1 | undefined {
+    if (!isRecord(value) || !hasOnlyKeys(value, ['id', 'name', 'kind'])) {
+        return undefined;
+    }
+    const name = normalizeName(value.name);
+    if (!isPromptId(value.id) || !name || (value.kind !== 'general' && value.kind !== 'custom')) {
+        return undefined;
+    }
+    if (value.kind === 'general'
+        && (value.id !== GENERAL_PROMPT_GROUP_ID || value.name !== 'General')) {
+        return undefined;
+    }
+    return { id: value.id, name, kind: value.kind };
 }
 
 function promptNameKey(name: string): string {
@@ -175,7 +245,7 @@ function namesEqual(left: string, right: string): boolean {
     return promptNameKey(left) === promptNameKey(right);
 }
 
-function hasDuplicateNames(prompts: readonly PromptV1[]): boolean {
+function hasDuplicateNames(prompts: readonly (PromptV1 | PromptV2)[]): boolean {
     const names = new Set<string>();
     for (const prompt of prompts) {
         const key = promptNameKey(prompt.name);
@@ -187,7 +257,7 @@ function hasDuplicateNames(prompts: readonly PromptV1[]): boolean {
     return false;
 }
 
-function isExactPermutation(candidate: readonly string[], prompts: readonly PromptV1[]): boolean {
+function isExactPermutation(candidate: readonly string[], prompts: readonly PromptV2[]): boolean {
     if (candidate.length !== prompts.length) {
         return false;
     }
@@ -202,8 +272,38 @@ function isExactPermutation(candidate: readonly string[], prompts: readonly Prom
     return true;
 }
 
-function fingerprint(data: PromptDataV1): string {
+function fingerprint(data: PromptDataV2): string {
     return JSON.stringify(data);
+}
+
+function promptsOrderedByGroups(
+    groups: readonly PromptGroupV1[],
+    prompts: readonly PromptV2[],
+): PromptV2[] {
+    const ordered: PromptV2[] = [];
+    for (const group of groups) {
+        for (const prompt of prompts) {
+            if (prompt.groupId === group.id) {
+                ordered.push(prompt);
+            }
+        }
+    }
+    return ordered;
+}
+
+function migrateV1(data: PromptDataV1): PromptDataV2 {
+    return {
+        version: 2,
+        revision: data.revision,
+        selectedPromptId: data.selectedPromptId,
+        groups: [GENERAL_GROUP],
+        prompts: data.prompts.map(prompt => ({
+            id: prompt.id,
+            name: prompt.name,
+            text: prompt.text,
+            groupId: GENERAL_PROMPT_GROUP_ID,
+        })),
+    };
 }
 
 export function normalizePromptSetting(value: unknown): PromptReadResult {
@@ -216,23 +316,67 @@ export function normalizePromptSetting(value: unknown): PromptReadResult {
 
     if (typeof value.version === 'number'
         && Number.isSafeInteger(value.version)
-        && value.version > 1) {
+        && value.version > 2) {
         return readOnlyResult('unsupported-version');
     }
 
-    if (!hasOnlyKeys(value, ['version', 'revision', 'selectedPromptId', 'prompts'])
-        || value.version !== 1
+    if (value.version === 1) {
+        if (!hasOnlyKeys(value, ['version', 'revision', 'selectedPromptId', 'prompts'])
+            || !isNonNegativeInteger(value.revision)
+            || (value.selectedPromptId !== null && typeof value.selectedPromptId !== 'string')
+            || !Array.isArray(value.prompts)) {
+            return readOnlyResult('invalid-data');
+        }
+        const prompts: PromptV1[] = [];
+        const promptIds = new Set<string>();
+        for (const valuePrompt of value.prompts) {
+            const prompt = normalizePromptV1(valuePrompt);
+            if (!prompt || promptIds.has(prompt.id)) {
+                return readOnlyResult('invalid-data');
+            }
+            promptIds.add(prompt.id);
+            prompts.push(prompt);
+        }
+        if (hasDuplicateNames(prompts)) {
+            return readOnlyResult('invalid-data');
+        }
+        const selectedPromptId = value.selectedPromptId !== null && promptIds.has(value.selectedPromptId)
+            ? value.selectedPromptId
+            : null;
+        return readyResult(migrateV1({
+            version: 1, revision: value.revision, selectedPromptId, prompts,
+        }));
+    }
+
+    if (!hasOnlyKeys(value, ['version', 'revision', 'selectedPromptId', 'groups', 'prompts'])
+        || value.version !== 2
         || !isNonNegativeInteger(value.revision)
         || (value.selectedPromptId !== null && typeof value.selectedPromptId !== 'string')
+        || !Array.isArray(value.groups)
         || !Array.isArray(value.prompts)) {
         return readOnlyResult('invalid-data');
     }
 
-    const prompts: PromptV1[] = [];
+    const groups: PromptGroupV1[] = [];
+    const groupIds = new Set<string>();
+    for (const valueGroup of value.groups) {
+        const group = normalizeGroup(valueGroup);
+        if (!group || groupIds.has(group.id)) {
+            return readOnlyResult('invalid-data');
+        }
+        groupIds.add(group.id);
+        groups.push(group);
+    }
+    if (groups.length === 0 || groups[0].id !== GENERAL_PROMPT_GROUP_ID
+        || groups[0].kind !== 'general' || groups.filter(group => group.kind === 'general').length !== 1) {
+        return readOnlyResult('invalid-data');
+    }
+
+    const prompts: PromptV2[] = [];
     const promptIds = new Set<string>();
     for (const valuePrompt of value.prompts) {
-        const prompt = normalizePrompt(valuePrompt);
-        if (!prompt || promptIds.has(prompt.id)) {
+        const prompt = normalizePromptV2(valuePrompt);
+        if (!prompt || promptIds.has(prompt.id) || !groupIds.has(prompt.groupId)) {
             return readOnlyResult('invalid-data');
         }
         promptIds.add(prompt.id);
@@ -246,9 +390,10 @@ export function normalizePromptSetting(value: unknown): PromptReadResult {
         ? value.selectedPromptId
         : null;
     return readyResult({
-        version: 1,
+        version: 2,
         revision: value.revision,
         selectedPromptId,
+        groups,
         prompts,
     });
 }
@@ -266,11 +411,13 @@ export class PromptService {
 
     createPrompt(
         expectedRevision: number,
-        input: { name: string; text: string },
+        input: { name: string; description?: string; text: string; groupId?: string },
     ): Promise<PromptPanelSnapshot> {
         return this.mutate(expectedRevision, 'create', data => {
             const name = this.requireName(input && input.name);
+            const description = this.requireOptionalDescription(input && input.description);
             const text = this.requireText(input && input.text);
+            const groupId = this.requireGroupId(data, input && input.groupId || GENERAL_PROMPT_GROUP_ID);
             if (data.prompts.some(prompt => namesEqual(prompt.name, name))) {
                 throw new PromptMutationError('invalid', 'A Prompt with that name already exists.');
             }
@@ -279,17 +426,20 @@ export class PromptService {
                 throw new PromptMutationError('invalid', 'Could not create a unique Prompt ID.');
             }
             return {
-                version: 1,
+                version: 2,
                 revision: data.revision + 1,
                 selectedPromptId: data.selectedPromptId,
-                prompts: [...data.prompts, { id, name, text }],
+                groups: data.groups,
+                prompts: [...data.prompts, {
+                    id, name, ...(description === undefined ? {} : { description }), text, groupId,
+                }],
             };
         });
     }
 
     updatePrompt(
         expectedRevision: number,
-        input: { promptId: string; name: string; text: string },
+        input: { promptId: string; name: string; description?: string; text: string },
     ): Promise<PromptPanelSnapshot> {
         return this.mutate(expectedRevision, 'update', data => {
             const promptId = this.requirePromptId(input && input.promptId);
@@ -298,15 +448,20 @@ export class PromptService {
                 throw new PromptMutationError('not-found', 'The Prompt no longer exists.');
             }
             const name = this.requireName(input && input.name);
+            const description = this.requireOptionalDescription(input && input.description);
             const text = this.requireText(input && input.text);
             if (data.prompts.some(prompt => prompt.id !== promptId && namesEqual(prompt.name, name))) {
                 throw new PromptMutationError('invalid', 'A Prompt with that name already exists.');
             }
             return {
-                version: 1,
+                version: 2,
                 revision: data.revision + 1,
                 selectedPromptId: data.selectedPromptId,
-                prompts: data.prompts.map(prompt => prompt.id === promptId ? { id: prompt.id, name, text } : prompt),
+                groups: data.groups,
+                prompts: data.prompts.map(prompt => prompt.id === promptId ? {
+                    id: prompt.id, name, ...(description === undefined ? {} : { description }),
+                    text, groupId: prompt.groupId,
+                } : prompt),
             };
         });
     }
@@ -318,25 +473,44 @@ export class PromptService {
                 throw new PromptMutationError('not-found', 'The Prompt no longer exists.');
             }
             return {
-                version: 1,
+                version: 2,
                 revision: data.revision + 1,
                 selectedPromptId: data.selectedPromptId === id ? null : data.selectedPromptId,
+                groups: data.groups,
                 prompts: data.prompts.filter(prompt => prompt.id !== id),
             };
         });
     }
 
-    reorderPrompts(expectedRevision: number, promptIds: readonly string[]): Promise<PromptPanelSnapshot> {
+    reorderPrompts(
+        expectedRevision: number,
+        groupIdOrPromptIds: string | readonly string[],
+        promptIdsArg?: readonly string[],
+    ): Promise<PromptPanelSnapshot> {
         return this.mutate(expectedRevision, 'reorder', data => {
-            if (!Array.isArray(promptIds) || !isExactPermutation(promptIds, data.prompts)) {
-                throw new PromptMutationError('invalid', 'Prompt order must include every Prompt exactly once.');
+            const groupId = typeof groupIdOrPromptIds === 'string'
+                ? groupIdOrPromptIds
+                : GENERAL_PROMPT_GROUP_ID;
+            const promptIds = typeof groupIdOrPromptIds === 'string'
+                ? promptIdsArg
+                : groupIdOrPromptIds;
+            const targetGroupId = this.requireGroupId(data, groupId);
+            const groupPrompts = data.prompts.filter(prompt => prompt.groupId === targetGroupId);
+            if (!Array.isArray(promptIds) || !isExactPermutation(promptIds, groupPrompts)) {
+                throw new PromptMutationError('invalid', 'Prompt order must include every Prompt in the group exactly once.');
             }
             const promptsById = new Map(data.prompts.map(prompt => [prompt.id, prompt]));
             return {
-                version: 1,
+                version: 2,
                 revision: data.revision + 1,
                 selectedPromptId: data.selectedPromptId,
-                prompts: promptIds.map(id => promptsById.get(id) as PromptV1),
+                groups: data.groups,
+                prompts: promptsOrderedByGroups(data.groups, data.groups.reduce((all, group) => {
+                    const groupItems = group.id === targetGroupId
+                        ? promptIds.map(id => promptsById.get(id) as PromptV2)
+                        : data.prompts.filter(prompt => prompt.groupId === group.id);
+                    return all.concat(groupItems);
+                }, [] as PromptV2[])),
             };
         });
     }
@@ -350,10 +524,94 @@ export class PromptService {
                 throw new PromptMutationError('not-found', 'The Prompt no longer exists.');
             }
             return {
-                version: 1,
+                version: 2,
                 revision: data.revision + 1,
                 selectedPromptId: data.selectedPromptId === promptId ? null : promptId,
+                groups: data.groups,
                 prompts: data.prompts,
+            };
+        });
+    }
+
+    createGroup(expectedRevision: number, name: string): Promise<PromptPanelSnapshot> {
+        return this.mutate(expectedRevision, 'create-group', data => {
+            const normalizedName = this.requireName(name);
+            if (data.groups.some(group => namesEqual(group.name, normalizedName))) {
+                throw new PromptMutationError('invalid', 'A Prompt group with that name already exists.');
+            }
+            const id = this.options.createId();
+            if (!isPromptId(id) || data.groups.some(group => group.id === id)
+                || data.prompts.some(prompt => prompt.id === id)) {
+                throw new PromptMutationError('invalid', 'Could not create a unique Prompt group ID.');
+            }
+            return {
+                version: 2, revision: data.revision + 1, selectedPromptId: data.selectedPromptId,
+                groups: [...data.groups, { id, name: normalizedName, kind: 'custom' }],
+                prompts: data.prompts,
+            };
+        });
+    }
+
+    renameGroup(expectedRevision: number, groupId: string, name: string): Promise<PromptPanelSnapshot> {
+        return this.mutate(expectedRevision, 'rename-group', data => {
+            const group = this.requireCustomGroup(data, groupId);
+            const normalizedName = this.requireName(name);
+            if (data.groups.some(candidate => candidate.id !== group.id && namesEqual(candidate.name, normalizedName))) {
+                throw new PromptMutationError('invalid', 'A Prompt group with that name already exists.');
+            }
+            return {
+                version: 2, revision: data.revision + 1, selectedPromptId: data.selectedPromptId,
+                groups: data.groups.map(candidate => candidate.id === group.id
+                    ? { ...candidate, name: normalizedName } : candidate),
+                prompts: data.prompts,
+            };
+        });
+    }
+
+    deleteGroup(expectedRevision: number, groupId: string): Promise<PromptPanelSnapshot> {
+        return this.mutate(expectedRevision, 'delete-group', data => {
+            const group = this.requireCustomGroup(data, groupId);
+            const moved = data.prompts.filter(prompt => prompt.groupId === group.id)
+                .map(prompt => ({ ...prompt, groupId: GENERAL_PROMPT_GROUP_ID }));
+            const remaining = data.prompts.filter(prompt => prompt.groupId !== group.id);
+            const generalPrompts = remaining.filter(prompt => prompt.groupId === GENERAL_PROMPT_GROUP_ID);
+            const otherPrompts = remaining.filter(prompt => prompt.groupId !== GENERAL_PROMPT_GROUP_ID);
+            return {
+                version: 2, revision: data.revision + 1, selectedPromptId: data.selectedPromptId,
+                groups: data.groups.filter(candidate => candidate.id !== group.id),
+                prompts: [...generalPrompts, ...moved, ...otherPrompts],
+            };
+        });
+    }
+
+    movePrompt(
+        expectedRevision: number,
+        promptId: string,
+        targetGroupId: string,
+    ): Promise<PromptPanelSnapshot> {
+        return this.mutate(expectedRevision, 'move', data => {
+            const id = this.requirePromptId(promptId);
+            const target = this.requireGroupId(data, targetGroupId);
+            const prompt = data.prompts.find(candidate => candidate.id === id);
+            if (!prompt) {
+                throw new PromptMutationError('not-found', 'The Prompt no longer exists.');
+            }
+            if (prompt.groupId === target) {
+                return data;
+            }
+            const moved = { ...prompt, groupId: target };
+            const unchanged = data.prompts.filter(candidate => candidate.id !== id);
+            const beforeTarget = unchanged.filter(candidate => candidate.groupId !== target);
+            const targetItems = unchanged.filter(candidate => candidate.groupId === target);
+            return {
+                version: 2, revision: data.revision + 1, selectedPromptId: data.selectedPromptId,
+                groups: data.groups,
+                prompts: promptsOrderedByGroups(data.groups, data.groups.reduce((all, group) => {
+                    const groupItems = group.id === target
+                        ? targetItems.concat([moved])
+                        : beforeTarget.filter(candidate => candidate.groupId === group.id);
+                    return all.concat(groupItems);
+                }, [] as PromptV2[])),
             };
         });
     }
@@ -456,11 +714,38 @@ export class PromptService {
         return value;
     }
 
+    private requireOptionalDescription(value: unknown): string | undefined {
+        const description = normalizeOptionalDescription(value);
+        if (description === null) {
+            throw new PromptMutationError('invalid', 'Prompt description must be text.');
+        }
+        return description;
+    }
+
     private requirePromptId(value: unknown): string {
         if (!isPromptId(value)) {
             throw new PromptMutationError('invalid', 'Prompt ID must be a non-empty string.');
         }
         return value;
+    }
+
+    private requireGroupId(data: PromptDataV2, value: unknown): string {
+        if (!isPromptId(value)) {
+            throw new PromptMutationError('invalid', 'Prompt group ID must be a non-empty string.');
+        }
+        if (!data.groups.some(group => group.id === value)) {
+            throw new PromptMutationError('not-found', 'The Prompt group no longer exists.');
+        }
+        return value;
+    }
+
+    private requireCustomGroup(data: PromptDataV2, value: unknown): PromptGroupV1 {
+        const id = this.requireGroupId(data, value);
+        const group = data.groups.find(candidate => candidate.id === id) as PromptGroupV1;
+        if (group.kind !== 'custom') {
+            throw new PromptMutationError('invalid', 'The General Prompt group cannot be changed.');
+        }
+        return group;
     }
 
     private readCurrentSetting(): PromptReadResult {

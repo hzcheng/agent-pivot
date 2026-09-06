@@ -172,10 +172,11 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 executes every operation against Host-resol
     assert.equal(deleted.success, true);
     assert.deepEqual(fixture.confirmations, [{ id: 'prompt-a', name: 'Alpha edited' }]);
     assert.deepEqual(deleted.snapshot, {
-        version: 1,
+        version: 2,
         revision: 6,
         selectedPromptId: 'prompt-b',
-        prompts: [{ id: 'prompt-b', name: 'Bravo', text: 'Second body' }],
+        groups: [{ id: 'general', name: 'General', kind: 'general' }],
+        prompts: [{ id: 'prompt-b', name: 'Bravo', text: 'Second body', groupId: 'general' }],
     });
     assert.deepEqual(deleted.snapshot, fixture.service.getSnapshot());
 });
@@ -367,7 +368,7 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 ignores a reused request ID without a secon
     assert.equal(duplicate, undefined);
     assert.equal(fixture.writes.length, 1);
     assert.deepEqual(fixture.service.getSnapshot().prompts, [
-        { id: 'prompt-a', name: 'First', text: 'First body' },
+        { id: 'prompt-a', name: 'First', text: 'First body', groupId: 'general' },
     ]);
 });
 
@@ -431,7 +432,7 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 keeps double-read recovery monotonic with t
 
 test('WEBVIEW-AI-PROMPT-MUTATION-001 maps unsupported stored data to a read-only settlement', async () => {
     const fixture = createController({
-        initial: { version: 2, revision: 7, selectedPromptId: null, prompts: [] },
+        initial: { version: 3, revision: 7, selectedPromptId: null, groups: [], prompts: [] },
     });
     const result = await fixture.controller.handle(
         command('create', { name: 'Review', text: 'Body' })

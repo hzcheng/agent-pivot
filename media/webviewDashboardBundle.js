@@ -12114,10 +12114,10 @@ function hasExactObjectKeys(value, requiredKeys, optionalKeys) {
 function validatePromptPanelSnapshot(snapshot) {
     if (!hasExactObjectKeys(
         snapshot,
-        ['version', 'revision', 'selectedPromptId', 'prompts'],
+        ['version', 'revision', 'selectedPromptId', 'groups', 'prompts'],
         ['readOnlyReason']
     )
-        || snapshot.version !== 1
+        || snapshot.version !== 2
         || !Number.isSafeInteger(snapshot.revision)
         || snapshot.revision < 0
         || (snapshot.selectedPromptId !== null
@@ -12129,16 +12129,30 @@ function validatePromptPanelSnapshot(snapshot) {
         return false;
     }
 
+    var groupIds = new Set();
+    for (var group of snapshot.groups) {
+        if (!hasExactObjectKeys(group, ['id', 'name', 'kind'])
+            || typeof group.id !== 'string' || !group.id
+            || typeof group.name !== 'string' || !group.name.trim()
+            || (group.kind !== 'general' && group.kind !== 'custom')
+            || groupIds.has(group.id)) return false;
+        groupIds.add(group.id);
+    }
+    if (!snapshot.groups.length || snapshot.groups[0].id !== 'general'
+        || snapshot.groups[0].name !== 'General' || snapshot.groups[0].kind !== 'general') return false;
     var promptIds = new Set();
     var promptNames = new Set();
     for (var prompt of snapshot.prompts) {
-        if (!hasExactObjectKeys(prompt, ['id', 'name', 'text'])
+        if (!hasExactObjectKeys(prompt, ['id', 'name', 'text', 'groupId'], ['description'])
             || typeof prompt.id !== 'string'
             || !prompt.id
             || typeof prompt.name !== 'string'
             || !prompt.name.trim()
             || typeof prompt.text !== 'string'
             || !prompt.text.trim()
+            || typeof prompt.groupId !== 'string'
+            || !groupIds.has(prompt.groupId)
+            || (prompt.description !== undefined && typeof prompt.description !== 'string')
             || promptIds.has(prompt.id)
             || promptNames.has(prompt.name.toLowerCase())) {
             return false;
@@ -13253,6 +13267,7 @@ function initDashboard(options) {
 
 /* src/webview/webviewPromptProtocolScripts.js */
 var PROMPT_VERSION = 1;
+var PROMPT_DATA_VERSION = 2;
 
 var PROMPT_TARGET = 'global-prompt-library';
 
@@ -13264,6 +13279,10 @@ var OPERATIONS = new Set([
     'delete',
     'reorder',
     'select-default',
+    'create-group',
+    'rename-group',
+    'delete-group',
+    'move',
 ]);
 
 var ERROR_CODES = new Set([
@@ -13332,12 +13351,18 @@ function isAuthoritySequence(value) {
 }
 
 function isPromptSnapshot(snapshot) {
-    if (!hasExactKeys(
+    var isLegacySnapshot = hasExactKeys(
         snapshot,
         ['version', 'revision', 'selectedPromptId', 'prompts'],
         ['readOnlyReason']
+    ) && snapshot && snapshot.version === 1;
+    if (!hasExactKeys(
+        snapshot,
+        ['version', 'revision', 'selectedPromptId', 'groups', 'prompts'],
+        ['readOnlyReason']
     )
-        || snapshot.version !== PROMPT_VERSION
+        && !isLegacySnapshot
+        || (!isLegacySnapshot && snapshot.version !== PROMPT_DATA_VERSION)
         || !Number.isSafeInteger(snapshot.revision)
         || snapshot.revision < 0
         || (snapshot.selectedPromptId !== null
@@ -13350,16 +13375,52 @@ function isPromptSnapshot(snapshot) {
         return false;
     }
 
+    var groupIds = new Set(['general']);
+    if (isLegacySnapshot) {
+        var legacyIds = new Set();
+        var legacyNames = new Set();
+        for (var legacyPromptIndex = 0; legacyPromptIndex < snapshot.prompts.length; legacyPromptIndex += 1) {
+            var legacyPrompt = snapshot.prompts[legacyPromptIndex];
+            if (!hasExactKeys(legacyPrompt, ['id', 'name', 'text'])
+                || typeof legacyPrompt.id !== 'string' || !legacyPrompt.id
+                || typeof legacyPrompt.name !== 'string' || !legacyPrompt.name.trim()
+                || typeof legacyPrompt.text !== 'string' || !legacyPrompt.text.trim()
+                || legacyIds.has(legacyPrompt.id) || legacyNames.has(legacyPrompt.name.toLowerCase())) return false;
+            legacyIds.add(legacyPrompt.id); legacyNames.add(legacyPrompt.name.toLowerCase());
+        }
+        return snapshot.selectedPromptId === null || legacyIds.has(snapshot.selectedPromptId);
+    }
+    groupIds = new Set();
+    for (var groupIndex = 0; groupIndex < snapshot.groups.length; groupIndex += 1) {
+        var group = snapshot.groups[groupIndex];
+        if (!hasExactKeys(group, ['id', 'name', 'kind'])
+            || typeof group.id !== 'string' || !group.id
+            || typeof group.name !== 'string' || !group.name.trim()
+            || (group.kind !== 'general' && group.kind !== 'custom')
+            || groupIds.has(group.id)) {
+            return false;
+        }
+        groupIds.add(group.id);
+    }
+    if (snapshot.groups.length === 0
+        || snapshot.groups[0].id !== 'general'
+        || snapshot.groups[0].name !== 'General'
+        || snapshot.groups[0].kind !== 'general') {
+        return false;
+    }
     var ids = new Set();
     var names = new Set();
     for (var prompt of snapshot.prompts) {
-        if (!hasExactKeys(prompt, ['id', 'name', 'text'])
+        if (!hasExactKeys(prompt, ['id', 'name', 'text', 'groupId'], ['description'])
             || typeof prompt.id !== 'string'
             || prompt.id.length === 0
             || typeof prompt.name !== 'string'
             || prompt.name.trim().length === 0
             || typeof prompt.text !== 'string'
             || prompt.text.trim().length === 0
+            || typeof prompt.groupId !== 'string'
+            || !groupIds.has(prompt.groupId)
+            || (prompt.description !== undefined && typeof prompt.description !== 'string')
             || ids.has(prompt.id)
             || names.has(prompt.name.toLowerCase())) {
             return false;
@@ -13449,6 +13510,10 @@ function mutationAnnouncement(operation) {
     if (operation === 'update') return 'Saving Prompt changes…';
     if (operation === 'delete') return 'Waiting for Prompt deletion confirmation…';
     if (operation === 'reorder') return 'Saving Prompt order…';
+    if (operation === 'create-group') return 'Creating Prompt group…';
+    if (operation === 'rename-group') return 'Renaming Prompt group…';
+    if (operation === 'delete-group') return 'Moving Prompts to General…';
+    if (operation === 'move') return 'Moving Prompt…';
     return 'Saving default Prompt…';
 }
 
@@ -13457,6 +13522,10 @@ function successAnnouncement(operation) {
     if (operation === 'update') return 'Prompt updated.';
     if (operation === 'delete') return 'Prompt deleted.';
     if (operation === 'reorder') return 'Prompt order saved.';
+    if (operation === 'create-group') return 'Prompt group created.';
+    if (operation === 'rename-group') return 'Prompt group renamed.';
+    if (operation === 'delete-group') return 'Prompt group deleted. Its Prompts moved to General.';
+    if (operation === 'move') return 'Prompt moved.';
     return 'Default Prompt updated.';
 }
 
@@ -13753,7 +13822,7 @@ function tabName(tab) {
                 : null;
             if ((formKind === 'create' || formKind === 'edit')
                 && (formKind === 'create' || formPromptId)
-                && (fieldName === 'name' || fieldName === 'text')) {
+                && (fieldName === 'name' || fieldName === 'description' || fieldName === 'text')) {
                 return {
                     formKind: formKind,
                     promptId: formPromptId,
@@ -13856,11 +13925,12 @@ function tabName(tab) {
         }
     }
 
-    function getPromptList() {
+    function getPromptList(groupId) {
         var surface = getSurface();
-        return surface && typeof surface.querySelector === 'function'
-            ? surface.querySelector('[data-prompt-list]')
-            : null;
+        if (!surface || typeof surface.querySelectorAll !== 'function') return null;
+        return Array.from(surface.querySelectorAll('[data-prompt-list]')).find(function (list) {
+            return !groupId || list.getAttribute('data-prompt-group-id') === groupId;
+        }) || null;
     }
 
     function getPromptPanelScrollPort() {
@@ -13980,9 +14050,13 @@ function tabName(tab) {
         });
         form.hidden = false;
         var name = form.querySelector('[name="name"]');
+        var description = form.querySelector('[name="description"]');
         var text = form.querySelector('[name="text"]');
+        var groupId = form.querySelector('[name="groupId"]');
         if (name) name.value = draft.name;
+        if (description) description.value = draft.description || '';
         if (text) text.value = draft.text;
+        if (groupId) groupId.value = draft.groupId || 'general';
         return true;
     }
 
@@ -14234,6 +14308,7 @@ function tabName(tab) {
             return false;
         }
         var name = readField(form, 'name');
+        var description = readField(form, 'description');
         var text = readField(form, 'text');
         clearFieldError(form, 'name');
         clearFieldError(form, 'text');
@@ -14254,18 +14329,21 @@ function tabName(tab) {
             kind: kind,
             promptId: kind === 'edit' ? form.getAttribute('data-prompt-id') : null,
             name: name,
+            description: description,
             text: text,
+            groupId: readField(form, 'groupId') || 'general',
         };
         return kind === 'create'
-            ? dispatch('create', { name: name, text: text })
+            ? dispatch('create', { name: name, description: description, text: text, groupId: state.draft.groupId })
             : dispatch('update', {
                 promptId: state.draft.promptId,
                 name: name,
+                description: description,
                 text: text,
             });
     }
 
-    function showCreateForm() {
+    function showCreateForm(groupId) {
         var surface = getSurface();
         var form = surface && surface.querySelector('[data-prompt-form="create"]');
         if (!form) {
@@ -14273,7 +14351,7 @@ function tabName(tab) {
         }
         var retained = state.blockedDraft && state.draft && state.draft.kind === 'create'
             ? clonePromptValue(state.draft)
-            : { kind: 'create', promptId: null, name: '', text: '' };
+            : { kind: 'create', promptId: null, name: '', description: '', text: '', groupId: groupId || 'general' };
         resetOpenDraft();
         state.draft = retained;
         applyDraft(retained);
@@ -14312,7 +14390,9 @@ function tabName(tab) {
             kind: 'create',
             promptId: null,
             name: nextCopyName(prompt.name),
+            description: prompt.description || '',
             text: prompt.text,
+            groupId: prompt.groupId,
         };
         applyDraft(state.draft);
         var name = form.querySelector('[name="name"]');
@@ -14338,7 +14418,9 @@ function tabName(tab) {
             kind: 'edit',
             promptId: promptId,
             name: readField(form, 'name'),
+            description: readField(form, 'description'),
             text: readField(form, 'text'),
+            groupId: readField(form, 'groupId'),
         };
         state.draft = retained;
         applyDraft(retained);
@@ -14370,7 +14452,21 @@ function tabName(tab) {
         var action = actionTarget.getAttribute('data-action');
         var promptId = actionTarget.getAttribute('data-prompt-id');
         if (action === 'prompt-new') {
-            showCreateForm();
+            showCreateForm(actionTarget.getAttribute('data-prompt-group-id'));
+        } else if (action === 'prompt-group-new') {
+            var groupForm = getSurface() && getSurface().querySelector('[data-prompt-group-form]');
+            if (groupForm) { groupForm.hidden = false; var groupName = groupForm.querySelector('[name="name"]'); if (groupName) groupName.focus(); }
+        } else if (action === 'prompt-group-cancel') {
+            var cancelledGroupForm = closest(actionTarget, '[data-prompt-group-form]');
+            if (cancelledGroupForm) { cancelledGroupForm.reset(); cancelledGroupForm.hidden = true; }
+        } else if (action === 'prompt-toggle-group') {
+            var header = closest(actionTarget, '.prompt-group-header');
+            var group = header && closest(header, '[data-prompt-group-id]');
+            var groupList = group && group.querySelector('[data-prompt-list]');
+            var expanded = actionTarget.getAttribute('aria-expanded') === 'true';
+            actionTarget.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            actionTarget.textContent = expanded ? '▸' : '▾';
+            if (groupList) groupList.hidden = expanded;
         } else if (action === 'prompt-cancel-create') {
             closeDraft(closest(actionTarget, '[data-prompt-form]'));
         } else if (action === 'prompt-copy') {
@@ -14387,12 +14483,26 @@ function tabName(tab) {
             dispatch('select-default', {
                 promptId: actionTarget.getAttribute('aria-pressed') === 'true'
                     ? null
-                    : promptId,
+                : promptId,
             });
+        } else if (action === 'prompt-delete-group') {
+            dispatch('delete-group', { groupId: actionTarget.getAttribute('data-prompt-group-id') });
+        } else if (action === 'prompt-move') {
+            dispatch('move', { promptId: promptId, groupId: actionTarget.getAttribute('data-prompt-group-id') });
+        } else if (action === 'prompt-rename-group') {
+            announce('Rename group is coming next.');
         }
     }
 
     function onSubmit(event) {
+        var groupForm = closest(event.target, '[data-prompt-group-form]');
+        if (groupForm) {
+            event.preventDefault();
+            var groupName = readField(groupForm, 'name');
+            if (!groupName.trim()) { announce('Enter a group name.'); return; }
+            dispatch('create-group', { name: groupName });
+            return;
+        }
         var form = closest(event.target, '[data-prompt-form]');
         if (!form) {
             return;
@@ -14409,7 +14519,7 @@ function tabName(tab) {
             return;
         }
         var name = field.getAttribute && field.getAttribute('name');
-        if (name !== 'name' && name !== 'text') {
+        if (name !== 'name' && name !== 'description' && name !== 'text') {
             return;
         }
         var kind = form.getAttribute('data-prompt-form');
@@ -14424,7 +14534,7 @@ function tabName(tab) {
 
 
     function activateSubtab(name, focus) {
-        if (!root || ['prompts', 'skills', 'mcp', 'hooks'].indexOf(name) < 0) {
+        if (!root || ['prompts', 'skills'].indexOf(name) < 0) {
             return false;
         }
         var tabs = typeof root.querySelectorAll === 'function'
@@ -14474,7 +14584,7 @@ function tabName(tab) {
             return;
         }
         draggedPromptId = handle.getAttribute('data-drag-prompt-id');
-        dragOriginList = getPromptList();
+        dragOriginList = closest(handle, '[data-prompt-list]');
         dragOriginNodes = dragOriginList && typeof dragOriginList.querySelectorAll === 'function'
             ? Array.from(dragOriginList.querySelectorAll(':scope > [data-prompt-id]'))
             : [];
@@ -14497,7 +14607,7 @@ function tabName(tab) {
         var targetPromptId = targetElement && targetElement.getAttribute('data-prompt-id');
         var draggedItem = findPromptItem(draggedPromptId);
         var targetItem = targetPromptId ? findPromptItem(targetPromptId) : null;
-        var list = getPromptList();
+        var list = closest(targetElement, '[data-prompt-list]');
         if (!list
             || !draggedItem
             || !targetItem
@@ -14519,7 +14629,7 @@ function tabName(tab) {
             return;
         }
         event.preventDefault();
-        var list = getPromptList();
+        var list = dragOriginList;
         var items = list && typeof list.querySelectorAll === 'function'
             ? Array.from(list.querySelectorAll(':scope > [data-prompt-id]'))
             : [];
@@ -14533,12 +14643,11 @@ function tabName(tab) {
             announce('Could not save Prompt order. Reload the Agent Pivot view and try again.');
             return;
         }
-        dispatch('reorder', { promptIds: promptIds });
+        dispatch('reorder', { groupId: list.getAttribute('data-prompt-group-id'), promptIds: promptIds });
     }
 
     function restoreDragOrigin() {
         if (dragOriginList
-            && dragOriginList === getPromptList()
             && typeof dragOriginList.appendChild === 'function') {
             dragOriginNodes.forEach(function (item) {
                 if (item.parentElement === dragOriginList) {

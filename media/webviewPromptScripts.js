@@ -157,7 +157,7 @@
                 : null;
             if ((formKind === 'create' || formKind === 'edit')
                 && (formKind === 'create' || formPromptId)
-                && (fieldName === 'name' || fieldName === 'text')) {
+                && (fieldName === 'name' || fieldName === 'description' || fieldName === 'text')) {
                 return {
                     formKind: formKind,
                     promptId: formPromptId,
@@ -260,11 +260,12 @@
         }
     }
 
-    function getPromptList() {
+    function getPromptList(groupId) {
         var surface = getSurface();
-        return surface && typeof surface.querySelector === 'function'
-            ? surface.querySelector('[data-prompt-list]')
-            : null;
+        if (!surface || typeof surface.querySelectorAll !== 'function') return null;
+        return Array.from(surface.querySelectorAll('[data-prompt-list]')).find(function (list) {
+            return !groupId || list.getAttribute('data-prompt-group-id') === groupId;
+        }) || null;
     }
 
     function getPromptPanelScrollPort() {
@@ -384,9 +385,13 @@
         });
         form.hidden = false;
         var name = form.querySelector('[name="name"]');
+        var description = form.querySelector('[name="description"]');
         var text = form.querySelector('[name="text"]');
+        var groupId = form.querySelector('[name="groupId"]');
         if (name) name.value = draft.name;
+        if (description) description.value = draft.description || '';
         if (text) text.value = draft.text;
+        if (groupId) groupId.value = draft.groupId || 'general';
         return true;
     }
 
@@ -638,6 +643,7 @@
             return false;
         }
         var name = readField(form, 'name');
+        var description = readField(form, 'description');
         var text = readField(form, 'text');
         clearFieldError(form, 'name');
         clearFieldError(form, 'text');
@@ -658,18 +664,21 @@
             kind: kind,
             promptId: kind === 'edit' ? form.getAttribute('data-prompt-id') : null,
             name: name,
+            description: description,
             text: text,
+            groupId: readField(form, 'groupId') || 'general',
         };
         return kind === 'create'
-            ? dispatch('create', { name: name, text: text })
+            ? dispatch('create', { name: name, description: description, text: text, groupId: state.draft.groupId })
             : dispatch('update', {
                 promptId: state.draft.promptId,
                 name: name,
+                description: description,
                 text: text,
             });
     }
 
-    function showCreateForm() {
+    function showCreateForm(groupId) {
         var surface = getSurface();
         var form = surface && surface.querySelector('[data-prompt-form="create"]');
         if (!form) {
@@ -677,7 +686,7 @@
         }
         var retained = state.blockedDraft && state.draft && state.draft.kind === 'create'
             ? clonePromptValue(state.draft)
-            : { kind: 'create', promptId: null, name: '', text: '' };
+            : { kind: 'create', promptId: null, name: '', description: '', text: '', groupId: groupId || 'general' };
         resetOpenDraft();
         state.draft = retained;
         applyDraft(retained);
@@ -716,7 +725,9 @@
             kind: 'create',
             promptId: null,
             name: nextCopyName(prompt.name),
+            description: prompt.description || '',
             text: prompt.text,
+            groupId: prompt.groupId,
         };
         applyDraft(state.draft);
         var name = form.querySelector('[name="name"]');
@@ -742,7 +753,9 @@
             kind: 'edit',
             promptId: promptId,
             name: readField(form, 'name'),
+            description: readField(form, 'description'),
             text: readField(form, 'text'),
+            groupId: readField(form, 'groupId'),
         };
         state.draft = retained;
         applyDraft(retained);
@@ -774,7 +787,21 @@
         var action = actionTarget.getAttribute('data-action');
         var promptId = actionTarget.getAttribute('data-prompt-id');
         if (action === 'prompt-new') {
-            showCreateForm();
+            showCreateForm(actionTarget.getAttribute('data-prompt-group-id'));
+        } else if (action === 'prompt-group-new') {
+            var groupForm = getSurface() && getSurface().querySelector('[data-prompt-group-form]');
+            if (groupForm) { groupForm.hidden = false; var groupName = groupForm.querySelector('[name="name"]'); if (groupName) groupName.focus(); }
+        } else if (action === 'prompt-group-cancel') {
+            var cancelledGroupForm = closest(actionTarget, '[data-prompt-group-form]');
+            if (cancelledGroupForm) { cancelledGroupForm.reset(); cancelledGroupForm.hidden = true; }
+        } else if (action === 'prompt-toggle-group') {
+            var header = closest(actionTarget, '.prompt-group-header');
+            var group = header && closest(header, '[data-prompt-group-id]');
+            var groupList = group && group.querySelector('[data-prompt-list]');
+            var expanded = actionTarget.getAttribute('aria-expanded') === 'true';
+            actionTarget.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            actionTarget.textContent = expanded ? '▸' : '▾';
+            if (groupList) groupList.hidden = expanded;
         } else if (action === 'prompt-cancel-create') {
             closeDraft(closest(actionTarget, '[data-prompt-form]'));
         } else if (action === 'prompt-copy') {
@@ -791,12 +818,26 @@
             dispatch('select-default', {
                 promptId: actionTarget.getAttribute('aria-pressed') === 'true'
                     ? null
-                    : promptId,
+                : promptId,
             });
+        } else if (action === 'prompt-delete-group') {
+            dispatch('delete-group', { groupId: actionTarget.getAttribute('data-prompt-group-id') });
+        } else if (action === 'prompt-move') {
+            dispatch('move', { promptId: promptId, groupId: actionTarget.getAttribute('data-prompt-group-id') });
+        } else if (action === 'prompt-rename-group') {
+            announce('Rename group is coming next.');
         }
     }
 
     function onSubmit(event) {
+        var groupForm = closest(event.target, '[data-prompt-group-form]');
+        if (groupForm) {
+            event.preventDefault();
+            var groupName = readField(groupForm, 'name');
+            if (!groupName.trim()) { announce('Enter a group name.'); return; }
+            dispatch('create-group', { name: groupName });
+            return;
+        }
         var form = closest(event.target, '[data-prompt-form]');
         if (!form) {
             return;
@@ -813,7 +854,7 @@
             return;
         }
         var name = field.getAttribute && field.getAttribute('name');
-        if (name !== 'name' && name !== 'text') {
+        if (name !== 'name' && name !== 'description' && name !== 'text') {
             return;
         }
         var kind = form.getAttribute('data-prompt-form');
@@ -828,7 +869,7 @@
 
 
     function activateSubtab(name, focus) {
-        if (!root || ['prompts', 'skills', 'mcp', 'hooks'].indexOf(name) < 0) {
+        if (!root || ['prompts', 'skills'].indexOf(name) < 0) {
             return false;
         }
         var tabs = typeof root.querySelectorAll === 'function'
@@ -878,7 +919,7 @@
             return;
         }
         draggedPromptId = handle.getAttribute('data-drag-prompt-id');
-        dragOriginList = getPromptList();
+        dragOriginList = closest(handle, '[data-prompt-list]');
         dragOriginNodes = dragOriginList && typeof dragOriginList.querySelectorAll === 'function'
             ? Array.from(dragOriginList.querySelectorAll(':scope > [data-prompt-id]'))
             : [];
@@ -901,7 +942,7 @@
         var targetPromptId = targetElement && targetElement.getAttribute('data-prompt-id');
         var draggedItem = findPromptItem(draggedPromptId);
         var targetItem = targetPromptId ? findPromptItem(targetPromptId) : null;
-        var list = getPromptList();
+        var list = closest(targetElement, '[data-prompt-list]');
         if (!list
             || !draggedItem
             || !targetItem
@@ -923,7 +964,7 @@
             return;
         }
         event.preventDefault();
-        var list = getPromptList();
+        var list = dragOriginList;
         var items = list && typeof list.querySelectorAll === 'function'
             ? Array.from(list.querySelectorAll(':scope > [data-prompt-id]'))
             : [];
@@ -937,12 +978,11 @@
             announce('Could not save Prompt order. Reload the Agent Pivot view and try again.');
             return;
         }
-        dispatch('reorder', { promptIds: promptIds });
+        dispatch('reorder', { groupId: list.getAttribute('data-prompt-group-id'), promptIds: promptIds });
     }
 
     function restoreDragOrigin() {
         if (dragOriginList
-            && dragOriginList === getPromptList()
             && typeof dragOriginList.appendChild === 'function') {
             dragOriginNodes.forEach(function (item) {
                 if (item.parentElement === dragOriginList) {

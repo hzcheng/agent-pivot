@@ -140,8 +140,12 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     fs.writeFileSync(path.join(localRoot, localSpecialFile), 'from local special file\n', 'utf8');
     fs.mkdirSync(path.join(localRoot, 'local folder'));
     fs.writeFileSync(path.join(localRoot, 'local folder', 'nested.txt'), 'from local folder\n', 'utf8');
+    fs.mkdirSync(path.join(localRoot, 'unsafe local folder'));
+    fs.symlinkSync(path.join(localRoot, 'local.txt'), path.join(localRoot, 'unsafe local folder', 'link'));
     const remoteSpecialFile = "-machine #?% '雪.txt";
     fs.writeFileSync(path.join(remoteOne, remoteSpecialFile), 'from first machine\n', 'utf8');
+    fs.mkdirSync(path.join(remoteOne, 'unsafe remote folder'));
+    fs.symlinkSync(path.join(remoteOne, remoteSpecialFile), path.join(remoteOne, 'unsafe remote folder', 'link'));
     const keyPath = path.join(root, 'client');
     childProcess.execFileSync(SSH_KEYGEN, ['-q', '-t', 'ed25519', '-N', '', '-f', keyPath]);
     const servers = [];
@@ -223,14 +227,42 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     });
     assert.equal(source.status, 'ok', source.message);
     assert.equal(destination.status, 'ok', destination.message);
+    const unsafeRemoteDirectory = source.value.entries.find(entry => entry.name === 'unsafe remote folder');
     const localFile = local.value.entries.find(entry => entry.name === 'local.txt');
     const localSpecial = local.value.entries.find(entry => entry.name === localSpecialFile);
     const localFolder = local.value.entries.find(entry => entry.name === 'local folder');
+    const unsafeLocalFolder = local.value.entries.find(entry => entry.name === 'unsafe local folder');
     const remoteFile = source.value.entries.find(entry => entry.name === remoteSpecialFile);
     assert.ok(localFile);
     assert.ok(localSpecial);
     assert.ok(localFolder);
+    assert.ok(unsafeLocalFolder);
+    assert.ok(unsafeRemoteDirectory);
     assert.ok(remoteFile);
+
+    const unsafeLocalPreflight = await controller.execute({
+        ...request('preflightFileTransfer', slot.revisionId, 'unsafe-local-preflight'),
+        fileTransfer: {
+            kind: 'preflight',
+            source: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [unsafeLocalFolder.id],
+        },
+    });
+    assert.equal(unsafeLocalPreflight.status, 'failed');
+    assert.match(unsafeLocalPreflight.message, /folder containing a symlink/i);
+
+    const unsafeRemotePreflight = await controller.execute({
+        ...request('preflightFileTransfer', slot.revisionId, 'unsafe-remote-preflight'),
+        fileTransfer: {
+            kind: 'preflight',
+            source: { kind: 'managedMachine', machineId: machines[0].id, directoryId: source.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [unsafeRemoteDirectory.id],
+        },
+    });
+    assert.equal(unsafeRemotePreflight.status, 'failed');
+    assert.match(unsafeRemotePreflight.message, /folder containing a symlink/i);
 
     const copiedLocal = await controller.execute({
         ...request('copyFileTransferEntries', slot.revisionId, 'local-copy'),

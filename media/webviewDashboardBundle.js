@@ -12943,6 +12943,23 @@ function validateFileTransferCopySettlement(message) {
             'requestId', 'status', 'type', 'value', 'version',
         ].join('\n');
     }
+    if (message.status === 'failed' && message.value && typeof message.value === 'object'
+        && !Array.isArray(message.value)) {
+        var result = message.value;
+        return Object.keys(message).sort().join('\n') === [
+            'requestId', 'status', 'type', 'value', 'version',
+        ].join('\n')
+            && Object.keys(result).sort().join('\n') === [
+                'completedItems', 'message', 'skippedItems', 'status', 'totalItems',
+            ].join('\n')
+            && result.status === 'failed'
+            && Number.isSafeInteger(result.completedItems) && result.completedItems >= 0
+            && Number.isSafeInteger(result.skippedItems) && result.skippedItems >= 0
+            && Number.isSafeInteger(result.totalItems) && result.totalItems > 0
+            && result.completedItems + result.skippedItems <= result.totalItems
+            && typeof result.message === 'string' && result.message.length > 0
+            && result.message.length <= 320 && !/[\0\r\n]/.test(result.message);
+    }
     return Object.keys(message).sort().join('\n') === [
         'message', 'requestId', 'status', 'type', 'version',
     ].join('\n') && typeof message.message === 'string' && message.message.length <= 320;
@@ -13658,7 +13675,8 @@ function initDashboard(options) {
                         + (entry.skippedItems ? ', skipped ' + entry.skippedItems : '')
                     : entry.status === 'cancelled'
                         ? 'Cancelled after ' + (entry.completedItems || 0) + ' copied'
-                    : 'Failed';
+                    : 'Failed after ' + (entry.completedItems || 0) + ' copied'
+                        + (entry.skippedItems ? ', skipped ' + entry.skippedItems : '');
                 if (entry.source && entry.destination) {
                     detail += ' · ' + savedPairLabel(entry.source) + ' → ' + savedPairLabel(entry.destination);
                 }
@@ -14395,11 +14413,18 @@ function initDashboard(options) {
                     reviewSummary.textContent = 'Copy cancelled. Your selection is still available to retry.';
                 }
             } else {
-                renderTaskStatus('Copy failed: ' + (message.message || 'File copy failed.'));
+                var failedAfter = message.value && Number.isSafeInteger(message.value.completedItems)
+                    ? message.value.completedItems : 0;
+                var failedSkipped = message.value && Number.isSafeInteger(message.value.skippedItems)
+                    ? message.value.skippedItems : 0;
+                var failureMessage = message.value && typeof message.value.message === 'string'
+                    ? message.value.message : (message.message || 'File copy failed.');
+                renderTaskStatus('Copy failed after ' + failedAfter + ' copied'
+                    + (failedSkipped ? ', ' + failedSkipped + ' skipped' : '') + ': ' + failureMessage);
                 lastFailedCopyPlan = task && task.plan ? task.plan : null;
                 if (retry) retry.hidden = !lastFailedCopyPlan;
                 if (wasPending && reviewSummary) {
-                    reviewSummary.textContent = message.message || 'File copy failed.';
+                    reviewSummary.textContent = failureMessage;
                 }
             }
             options.postMessage({ type: 'file-transfer-request-history', version: 1 });

@@ -456,6 +456,8 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
 test('FILE-TRANSFER-UI-002 treats cancellation as a terminal transfer result', () => {
     assert.match(dashboardSource, /message\.status !== 'copied' && message\.status !== 'cancelled' && message\.status !== 'failed'/);
     assert.match(dashboardSource, /Copy cancelled after/);
+    assert.match(dashboardSource, /Copy failed after/);
+    assert.match(dashboardSource, /result\.status === 'failed'/);
     assert.match(dashboardSource, /Cancelling copy…/);
     assert.match(generatedDashboardSource, /Copy cancelled after/);
 });

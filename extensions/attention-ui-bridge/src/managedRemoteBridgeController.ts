@@ -110,6 +110,11 @@ interface FileTransferTreeFile {
 
 const FILE_TRANSFER_TREE_MAX_ENTRIES = 10_000;
 
+function boundedFileTransferFailureMessage(error: unknown): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.replace(/[\0\r\n]+/gu, ' ').trim().slice(0, 320) || 'File copy failed.';
+}
+
 export function formatManagedSshCommand(
     executable: string,
     args: string[],
@@ -254,18 +259,35 @@ function remotePathKind(
     return new Promise((resolve, reject) => {
         const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
         const stdout: Buffer[] = [];
+        const stderr: Buffer[] = [];
         process.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
+        process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
         process.on('error', error => reject(new Error(`Could not start SFTP: ${error.message}`)));
         process.on('close', code => {
             if (code !== 0) {
                 reject(new Error('Could not inspect the remote copy destination.'));
                 return;
             }
-            const entry = parseSftpLongListing(Buffer.concat(stdout).toString('utf8'))[0];
-            resolve(entry?.kind || null);
+            const kind = parseSftpPathKind(Buffer.concat([...stdout, ...stderr]).toString('utf8'));
+            if (kind) {
+                resolve(kind);
+                return;
+            }
+            // Some OpenSSH releases omit a stable type line for batch `stat`.
+            // Fall back to the already-validated directory listing parser so
+            // an existing empty directory cannot be mistaken for a missing
+            // target. This remains a non-recursive, local-UI-host operation.
+            const parent = path.posix.dirname(targetPath) || '.';
+            const name = path.posix.basename(targetPath);
+            void listRemoteDirectory(sshExecutable, alias, parent).then(
+                rows => resolve(rows.find(row => row.name === name)?.kind || null),
+                reject,
+            );
         });
+        // `stat` checks the requested path itself, unlike `ls`, which lists
+        // children and would make an existing empty directory look absent.
         // The leading dash keeps a missing path from failing the whole batch.
-        process.stdin.end(`-ls -ld ${quoteSftpPath(targetPath)}\n`);
+        process.stdin.end(`-stat ${quoteSftpPath(targetPath)}\n`);
     });
 }
 
@@ -495,6 +517,18 @@ export function parseSftpLongListing(output: string): RemoteDirectoryRow[] {
         return left.name.localeCompare(right.name);
     });
     return rows.slice(0, 1_000);
+}
+
+/** Parse the bounded type-only portion of OpenSSH SFTP's `stat` output. */
+export function parseSftpPathKind(output: string): FileTransferDirectoryEntry['kind'] | null {
+    const filetype = /^Filetype:\s*(regular file|directory|symbolic link|block special|character special|fifo|socket)\s*$/imu.exec(output);
+    const access = /^Access:\s*\(\d+\/([bcdlps-])/imu.exec(output);
+    const marker = filetype?.[1] === 'regular file' ? '-'
+        : filetype?.[1] === 'directory' ? 'd'
+            : filetype?.[1] === 'symbolic link' ? 'l'
+                : filetype ? 'x' : access?.[1];
+    return marker === '-' ? 'file' : marker === 'd' ? 'directory'
+        : marker === 'l' ? 'symlink' : marker ? 'unsupported' : null;
 }
 
 function copyFileTransferEntry(
@@ -1019,7 +1053,10 @@ export class ManagedRemoteBridgeController {
                     status: 'cancelled', completedItems, skippedItems, totalItems: request.entryIds.length,
                 };
             }
-            throw error;
+            return {
+                status: 'failed', completedItems, skippedItems, totalItems: request.entryIds.length,
+                message: boundedFileTransferFailureMessage(error),
+            };
         } finally {
             this.activeFileTransferCopies.delete(request.taskId);
         }

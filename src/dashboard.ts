@@ -2833,8 +2833,7 @@ async function initializeDashboard(
             });
         }).then(
             async result => {
-                const status = isRecordFileTransferCopyResult(result) && result.status === 'cancelled'
-                    ? 'cancelled' : 'copied';
+                const status = isRecordFileTransferCopyResult(result) ? result.status : 'failed';
                 await appendFileTransferHistorySafely(task, status, result);
                 return provider.postMessage(fileTransferCopySettlement(task, status, result));
             },
@@ -2867,7 +2866,7 @@ async function initializeDashboard(
                     source: compactFileTransferHistoryEndpoint(request.source)!,
                     destination: compactFileTransferHistoryEndpoint(request.destination)!,
                 } : {}),
-            ...((status === 'copied' || status === 'cancelled') && isRecordFileTransferCopyResult(value)
+            ...(isRecordFileTransferCopyResult(value)
                 ? { completedItems: value.completedItems, skippedItems: value.skippedItems }
                 : {}),
         };
@@ -4949,7 +4948,7 @@ function fileTransferCopySettlement(
     status: 'copied' | 'cancelled' | 'failed',
     value: unknown,
 ): Record<string, unknown> {
-    return status === 'copied' || status === 'cancelled'
+    return status === 'copied' || status === 'cancelled' || isRecordFileTransferCopyResult(value)
         ? { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, value }
         : { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, message: value };
 }
@@ -5034,15 +5033,26 @@ function isFileTransferHistoryEntry(value: unknown): value is FileTransferHistor
 }
 
 function isRecordFileTransferCopyResult(value: unknown): value is {
-    status: 'copied' | 'cancelled';
+    status: 'copied' | 'cancelled' | 'failed';
     completedItems: number;
     skippedItems: number;
+    totalItems: number;
+    message?: string;
 } {
-    return Boolean(value && typeof value === 'object' && !Array.isArray(value))
-        && ((value as Record<string, unknown>).status === 'copied'
-            || (value as Record<string, unknown>).status === 'cancelled')
-        && Number.isSafeInteger((value as Record<string, unknown>).completedItems)
-        && Number.isSafeInteger((value as Record<string, unknown>).skippedItems);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const result = value as Record<string, unknown>;
+    const failed = result.status === 'failed';
+    return Object.keys(result).every(key => [
+        'status', 'completedItems', 'skippedItems', 'totalItems', 'message',
+    ].includes(key))
+        && (result.status === 'copied' || result.status === 'cancelled' || failed)
+        && Number.isSafeInteger(result.completedItems) && (result.completedItems as number) >= 0
+        && Number.isSafeInteger(result.skippedItems) && (result.skippedItems as number) >= 0
+        && Number.isSafeInteger(result.totalItems) && (result.totalItems as number) > 0
+        && (result.completedItems as number) + (result.skippedItems as number) <= (result.totalItems as number)
+        && (!failed || (typeof result.message === 'string' && result.message.length > 0
+            && result.message.length <= 320 && !/[\0\r\n]/u.test(result.message)))
+        && (failed || result.message === undefined);
 }
 
 function isRecordFileTransferCopyStatus(value: unknown): value is {

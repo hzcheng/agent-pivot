@@ -11,6 +11,7 @@ import {
     FileTransferPreflightRequest,
     FileTransferPreflightResult,
     FileTransferCopyRequest,
+    FileTransferCopyResult,
     FileTransferCopyStatus,
     ManagedRemoteBridgeOperation,
     ManagedRemoteBridgeResponse,
@@ -133,10 +134,16 @@ export class ManagedRemoteBridgeClient {
     copyFileTransferEntries(
         expectedRevisionId: string,
         request: FileTransferCopyRequest,
-    ): Promise<unknown> {
+    ): Promise<FileTransferCopyResult> {
         return this.executeAttempt(
             'copyFileTransferEntries', expectedRevisionId, undefined, undefined, request, true,
-        );
+        ).then(value => {
+            const parsed = parseFileTransferCopyResult(value);
+            if (!parsed) {
+                throw new Error('Agent Pivot UI Bridge returned an invalid File Transfer result.');
+            }
+            return parsed;
+        });
     }
 
     preflightFileTransfer(
@@ -318,6 +325,28 @@ function validFileTransferNames(value: unknown): value is string[] {
             && name.length <= 255
             && !/[\0\r\n]/u.test(name))
         && new Set(value).size === value.length;
+}
+
+function parseFileTransferCopyResult(value: unknown): FileTransferCopyResult | null {
+    if (!isRecord(value)) { return null; }
+    const failed = value.status === 'failed';
+    const expectedKeys = [
+        'status', 'completedItems', 'skippedItems', 'totalItems',
+    ].concat(failed ? ['message'] : []);
+    if (!hasExactKeys(value, expectedKeys)
+        || (value.status !== 'copied' && value.status !== 'cancelled' && !failed)
+        || typeof value.completedItems !== 'number' || !Number.isSafeInteger(value.completedItems)
+        || value.completedItems < 0
+        || typeof value.skippedItems !== 'number' || !Number.isSafeInteger(value.skippedItems)
+        || value.skippedItems < 0
+        || typeof value.totalItems !== 'number' || !Number.isSafeInteger(value.totalItems)
+        || value.totalItems < 1
+        || value.completedItems + value.skippedItems > value.totalItems
+        || (failed && (typeof value.message !== 'string' || value.message.length < 1
+            || value.message.length > 320 || /[\0\r\n]/u.test(value.message)))) {
+        return null;
+    }
+    return value as unknown as FileTransferCopyResult;
 }
 
 function parseFileTransferCopyStatus(value: unknown): FileTransferCopyStatus | { status: 'unknown' } | null {

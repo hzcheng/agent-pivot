@@ -85,10 +85,12 @@ export interface FileTransferPreflightResult {
 }
 
 export interface FileTransferCopyResult {
-    status: 'copied' | 'cancelled';
+    status: 'copied' | 'cancelled' | 'failed';
     completedItems: number;
     skippedItems: number;
     totalItems: number;
+    /** Bounded, redacted reason for a terminal failed copy. */
+    message?: string;
 }
 
 export interface FileTransferCancelRequest {

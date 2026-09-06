@@ -14,6 +14,7 @@ const {
     formatManagedSshCommand,
     ManagedRemoteBridgeController,
     parseSftpLongListing,
+    parseSftpPathKind,
     verifyCopiedFileTransferTree,
 } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedRemoteBridgeController');
 
@@ -384,6 +385,13 @@ test('FILE-TRANSFER-COPY-003 retains SFTP file sizes for post-copy verification'
         { name: 'artifacts', kind: 'directory', modifiedAt: new Date(2026, 0, 1).getTime() },
         { name: 'report.txt', kind: 'file', size: 4096, modifiedAt: new Date(2026, 0, 1).getTime() },
     ]);
+});
+
+test('FILE-TRANSFER-COPY-003D reads exact SFTP stat types, including empty directories', () => {
+    assert.equal(parseSftpPathKind('File: /tmp/empty\nFiletype: directory\n'), 'directory');
+    assert.equal(parseSftpPathKind('File: /tmp/report\nFiletype: regular file\n'), 'file');
+    assert.equal(parseSftpPathKind('Access: (0777/lrwxrwxrwx)\n'), 'symlink');
+    assert.equal(parseSftpPathKind('stat /missing: No such file or directory\n'), null);
 });
 
 test('FILE-TRANSFER-COPY-003C rejects a corrupted regular file inside a copied directory', async t => {

@@ -140,8 +140,13 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     fs.utimesSync(path.join(localRoot, 'local.txt'), new Date('2023-05-06T07:08:09.000Z'), new Date('2023-05-06T07:08:09.000Z'));
     const localSpecialFile = "-local #?% '雪.txt";
     fs.writeFileSync(path.join(localRoot, localSpecialFile), 'from local special file\n', 'utf8');
+    const localConflictFile = 'already-there.txt';
+    fs.writeFileSync(path.join(localRoot, localConflictFile), 'from local conflict file\n', 'utf8');
     fs.mkdirSync(path.join(localRoot, 'local folder'));
     fs.writeFileSync(path.join(localRoot, 'local folder', 'nested.txt'), 'from local folder\n', 'utf8');
+    fs.mkdirSync(path.join(localRoot, 'empty-directory-conflict'));
+    fs.writeFileSync(path.join(localRoot, 'empty-directory-conflict', 'nested.txt'), 'must not replace an empty directory\n', 'utf8');
+    fs.mkdirSync(path.join(remoteTwo, 'empty-directory-conflict'));
     fs.mkdirSync(path.join(localRoot, 'unsafe local folder'));
     fs.symlinkSync(path.join(localRoot, 'local.txt'), path.join(localRoot, 'unsafe local folder', 'link'));
     const remoteSpecialFile = "-machine #?% '雪.txt";
@@ -240,12 +245,16 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     const unsafeRemoteDirectory = source.value.entries.find(entry => entry.name === 'unsafe remote folder');
     const localFile = local.value.entries.find(entry => entry.name === 'local.txt');
     const localSpecial = local.value.entries.find(entry => entry.name === localSpecialFile);
+    const localConflict = local.value.entries.find(entry => entry.name === localConflictFile);
     const localFolder = local.value.entries.find(entry => entry.name === 'local folder');
+    const emptyDirectoryConflict = local.value.entries.find(entry => entry.name === 'empty-directory-conflict');
     const unsafeLocalFolder = local.value.entries.find(entry => entry.name === 'unsafe local folder');
     const remoteFile = source.value.entries.find(entry => entry.name === remoteSpecialFile);
     assert.ok(localFile);
     assert.ok(localSpecial);
+    assert.ok(localConflict);
     assert.ok(localFolder);
+    assert.ok(emptyDirectoryConflict);
     assert.ok(unsafeLocalFolder);
     assert.ok(unsafeRemoteDirectory);
     assert.ok(remoteFile);
@@ -302,6 +311,49 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     });
     assert.equal(copiedSpecialLocal.status, 'ok', copiedSpecialLocal.message);
     assert.equal(fs.readFileSync(path.join(remoteTwo, localSpecialFile), 'utf8'), 'from local special file\n');
+
+    const copiedConflictLocal = await controller.execute({
+        ...request('copyFileTransferEntries', slot.revisionId, 'local-conflict-copy'),
+        fileTransfer: {
+            kind: 'copy', taskId: 'file-transfer-e2e-local-conflict', conflictPolicy: 'fail',
+            source: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [localConflict.id],
+        },
+    });
+    assert.equal(copiedConflictLocal.status, 'ok', copiedConflictLocal.message);
+    assert.equal(fs.readFileSync(path.join(remoteTwo, localConflictFile), 'utf8'), 'from local conflict file\n');
+
+    const partialFailure = await controller.execute({
+        ...request('copyFileTransferEntries', slot.revisionId, 'partial-failure'),
+        fileTransfer: {
+            kind: 'copy', taskId: 'file-transfer-e2e-partial-failure', conflictPolicy: 'fail',
+            source: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [localFile.id, localConflict.id],
+        },
+    });
+    assert.equal(partialFailure.status, 'ok', partialFailure.message);
+    assert.deepEqual(partialFailure.value, {
+        status: 'failed', completedItems: 1, skippedItems: 0, totalItems: 2,
+        message: `Copy target already exists: ${localConflictFile}. Choose another folder or select a conflict policy.`,
+    });
+    assert.equal(fs.readFileSync(path.join(remoteTwo, 'local.txt'), 'utf8'), 'from local\n');
+
+    const emptyDirectoryCollision = await controller.execute({
+        ...request('copyFileTransferEntries', slot.revisionId, 'empty-directory-collision'),
+        fileTransfer: {
+            kind: 'copy', taskId: 'file-transfer-e2e-empty-directory-collision', conflictPolicy: 'fail',
+            source: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [emptyDirectoryConflict.id],
+        },
+    });
+    assert.equal(emptyDirectoryCollision.status, 'ok', emptyDirectoryCollision.message);
+    assert.deepEqual(emptyDirectoryCollision.value, {
+        status: 'failed', completedItems: 0, skippedItems: 0, totalItems: 1,
+        message: 'Copy target already exists: empty-directory-conflict. Choose another folder or select a conflict policy.',
+    });
 
     const copiedFolder = await controller.execute({
         ...request('copyFileTransferEntries', slot.revisionId, 'local-folder-copy'),

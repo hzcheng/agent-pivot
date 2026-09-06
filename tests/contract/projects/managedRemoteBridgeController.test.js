@@ -14,6 +14,7 @@ const {
     formatManagedSshCommand,
     ManagedRemoteBridgeController,
     parseSftpLongListing,
+    verifyCopiedFileTransferTree,
 } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedRemoteBridgeController');
 
 function activeEnvelope(lifecycle = 'active') {
@@ -383,6 +384,20 @@ test('FILE-TRANSFER-COPY-003 retains SFTP file sizes for post-copy verification'
         { name: 'artifacts', kind: 'directory', modifiedAt: new Date(2026, 0, 1).getTime() },
         { name: 'report.txt', kind: 'file', size: 4096, modifiedAt: new Date(2026, 0, 1).getTime() },
     ]);
+});
+
+test('FILE-TRANSFER-COPY-003C rejects a corrupted regular file inside a copied directory', async t => {
+    const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-verify-'));
+    t.after(() => fs.rmSync(destination, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(destination, 'nested.txt'), 'short', 'utf8');
+    await assert.rejects(
+        () => verifyCopiedFileTransferTree({
+            knownBytes: 12,
+            unknownSizeItems: 0,
+            files: [{ relativePath: 'nested.txt', size: 12 }],
+        }, { kind: 'local', path: destination }, destination, '/unused/ssh'),
+        /size verification: nested\.txt/i,
+    );
 });
 
 test('FILE-TRANSFER-COPY-003A retains hidden SFTP entries but omits dot navigation rows', () => {

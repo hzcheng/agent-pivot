@@ -95,6 +95,17 @@ interface ActiveFileTransferCopy {
 interface FileTransferTreeSummary {
     knownBytes: number;
     unknownSizeItems: number;
+    /**
+     * The bounded, source-relative regular-file manifest used to verify a
+     * recursive copy. This stays entirely inside the UI Bridge; it is never
+     * returned through the Webview protocol.
+     */
+    files: FileTransferTreeFile[];
+}
+
+interface FileTransferTreeFile {
+    relativePath: string;
+    size?: number;
 }
 
 const FILE_TRANSFER_TREE_MAX_ENTRIES = 10_000;
@@ -283,11 +294,12 @@ function unsupportedFileTransferTreeEntry(entryPath: string): Error {
 }
 
 async function inspectLocalFileTransferTree(rootPath: string): Promise<FileTransferTreeSummary> {
-    const summary: FileTransferTreeSummary = { knownBytes: 0, unknownSizeItems: 0 };
-    const pending = [rootPath];
+    const summary: FileTransferTreeSummary = { knownBytes: 0, unknownSizeItems: 0, files: [] };
+    const pending = [{ path: rootPath, relativePath: '' }];
     let inspectedEntries = 0;
     while (pending.length) {
-        const entryPath = pending.pop()!;
+        const entry = pending.pop()!;
+        const entryPath = entry.path;
         const details = await lstat(entryPath);
         inspectedEntries += 1;
         if (inspectedEntries > FILE_TRANSFER_TREE_MAX_ENTRIES) {
@@ -298,11 +310,15 @@ async function inspectLocalFileTransferTree(rootPath: string): Promise<FileTrans
         }
         if (details.isFile()) {
             addKnownFileTransferBytes(summary, details.size);
+            summary.files.push({ relativePath: entry.relativePath, size: details.size });
             continue;
         }
         const directory = await opendir(entryPath);
         for await (const child of directory) {
-            pending.push(path.join(entryPath, child.name));
+            pending.push({
+                path: path.join(entryPath, child.name),
+                relativePath: entry.relativePath ? `${entry.relativePath}/${child.name}` : child.name,
+            });
         }
     }
     return summary;
@@ -313,11 +329,12 @@ async function inspectRemoteFileTransferTree(
     alias: string,
     rootPath: string,
 ): Promise<FileTransferTreeSummary> {
-    const summary: FileTransferTreeSummary = { knownBytes: 0, unknownSizeItems: 0 };
-    const pending = [rootPath];
+    const summary: FileTransferTreeSummary = { knownBytes: 0, unknownSizeItems: 0, files: [] };
+    const pending = [{ path: rootPath, relativePath: '' }];
     let inspectedEntries = 0;
     while (pending.length) {
-        const directoryPath = pending.pop()!;
+        const directory = pending.pop()!;
+        const directoryPath = directory.path;
         const rows = await listRemoteDirectory(sshExecutable, alias, directoryPath);
         if (rows.length >= 1_000) {
             throw new Error('File Transfer folder is too large to inspect safely. Choose a smaller folder.');
@@ -332,9 +349,18 @@ async function inspectRemoteFileTransferTree(
                 throw unsupportedFileTransferTreeEntry(entryPath);
             }
             if (row.kind === 'directory') {
-                pending.push(entryPath);
+                pending.push({
+                    path: entryPath,
+                    relativePath: directory.relativePath
+                        ? `${directory.relativePath}/${row.name}` : row.name,
+                });
             } else {
                 addKnownFileTransferBytes(summary, row.size);
+                summary.files.push({
+                    relativePath: directory.relativePath
+                        ? `${directory.relativePath}/${row.name}` : row.name,
+                    ...(row.size === undefined ? {} : { size: row.size }),
+                });
             }
         }
     }
@@ -390,6 +416,29 @@ function remoteFileSize(
         });
         process.stdin.end(`ls -l ${quoteSftpPath(targetPath)}\n`);
     });
+}
+
+function fileTransferChildPath(parent: string, relativePath: string): string {
+    return relativePath.split('/').reduce((current, segment) => remoteChildPath(current, segment), parent);
+}
+
+export async function verifyCopiedFileTransferTree(
+    tree: FileTransferTreeSummary,
+    destination: { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string },
+    destinationPath: string,
+    sshExecutable: string,
+): Promise<void> {
+    for (const file of tree.files) {
+        const targetPath = destination.kind === 'local'
+            ? path.join(destinationPath, ...file.relativePath.split('/'))
+            : fileTransferChildPath(destinationPath, file.relativePath);
+        const copiedSize = destination.kind === 'local'
+            ? await localFileSize(targetPath)
+            : await remoteFileSize(sshExecutable, destination.alias, targetPath);
+        if (Number.isSafeInteger(file.size) && copiedSize !== file.size) {
+            throw new Error(`File copy did not pass size verification: ${path.basename(file.relativePath)}.`);
+        }
+    }
 }
 
 function parseSftpModifiedAt(monthLabel: string, dayLabel: string, timeOrYear: string): number | undefined {
@@ -906,14 +955,13 @@ export class ManagedRemoteBridgeController {
                 if (active.cancelled) { throw new Error('File copy was cancelled.'); }
                 active.currentItemName = path.basename(entry.path).slice(0, 255);
                 active.phase = 'preparing';
+                let entryTree: FileTransferTreeSummary | undefined;
                 if (entry.kind === 'directory') {
-                    if (source.kind === 'local') {
-                        await inspectLocalFileTransferTree(entry.path);
-                    } else {
-                        await inspectRemoteFileTransferTree(
+                    entryTree = source.kind === 'local'
+                        ? await inspectLocalFileTransferTree(entry.path)
+                        : await inspectRemoteFileTransferTree(
                             coordinator.getExecutable(), source.alias, entry.path,
                         );
-                    }
                 }
                 const destinationPath = destination.kind === 'local'
                     ? path.join(destination.path, targetName || path.basename(entry.path))
@@ -948,13 +996,17 @@ export class ManagedRemoteBridgeController {
                         ? scpRemotePath(destination.alias, destinationPath, legacyScp) : destinationPath,
                     active,
                 );
-                if (entry.kind === 'file' && Number.isSafeInteger(entry.size)) {
+                if (entry.kind === 'directory' && entryTree) {
+                    await verifyCopiedFileTransferTree(
+                        entryTree, destination, destinationPath, coordinator.getExecutable(),
+                    );
+                } else if (entry.kind === 'file') {
                     const copiedSize = destination.kind === 'local'
                         ? await localFileSize(destinationPath)
                         : await remoteFileSize(
                             coordinator.getExecutable(), destination.alias, destinationPath,
                         );
-                    if (copiedSize !== entry.size) {
+                    if (Number.isSafeInteger(entry.size) && copiedSize !== entry.size) {
                         throw new Error(`File copy did not pass size verification: ${path.basename(entry.path)}.`);
                     }
                 }
@@ -1011,7 +1063,7 @@ export class ManagedRemoteBridgeController {
                 }
                 unknownSizeItems += entryTree.unknownSizeItems;
             } else {
-                const summary: FileTransferTreeSummary = { knownBytes, unknownSizeItems };
+                const summary: FileTransferTreeSummary = { knownBytes, unknownSizeItems, files: [] };
                 addKnownFileTransferBytes(summary, entry.size);
                 knownBytes = summary.knownBytes;
                 unknownSizeItems = summary.unknownSizeItems;

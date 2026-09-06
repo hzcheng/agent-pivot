@@ -378,7 +378,9 @@ function parseFileTransferCopyStatus(value: unknown): FileTransferCopyStatus | {
 
 function parseFileTransferLocalRootResponse(value: unknown): FileTransferLocalRootResponse | null {
     if (!isRecord(value)
-        || !hasExactKeys(value, ['rootId', 'directoryId', 'label', 'displayPath', 'entries'])
+        || !hasExactKeys(value, value.hasMore === undefined
+            ? ['rootId', 'directoryId', 'label', 'displayPath', 'entries']
+            : ['rootId', 'directoryId', 'label', 'displayPath', 'entries', 'hasMore'])
         || !validFileTransferHandle(value.rootId)
         || !validFileTransferHandle(value.directoryId)
         || typeof value.label !== 'string'
@@ -390,6 +392,7 @@ function parseFileTransferLocalRootResponse(value: unknown): FileTransferLocalRo
         || /[\0\r\n]/u.test(value.displayPath)
         || !Array.isArray(value.entries)
         || value.entries.length > 1_000
+        || (value.hasMore !== undefined && typeof value.hasMore !== 'boolean')
         || !value.entries.every(validFileTransferDirectoryEntry)) {
         return null;
     }

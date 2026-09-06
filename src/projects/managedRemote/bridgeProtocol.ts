@@ -121,6 +121,8 @@ export interface FileTransferLocalRootResponse {
     /** A bounded display-only path relative to the approved endpoint root. */
     displayPath: string;
     entries: FileTransferDirectoryEntry[];
+    /** The current bounded listing omitted additional entries. */
+    hasMore?: boolean;
 }
 
 export interface FileTransferDirectoryEntry {

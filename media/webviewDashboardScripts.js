@@ -131,9 +131,9 @@ function validateFileTransferLocalRootMessage(message) {
 
 function validateFileTransferLocalRoot(root) {
     return !!root && typeof root === 'object'
-        && Object.keys(root).sort().join('\n') === [
-            'directoryId', 'displayPath', 'entries', 'label', 'rootId',
-        ].join('\n')
+        && Object.keys(root).sort().join('\n') === (root.hasMore === undefined
+            ? ['directoryId', 'displayPath', 'entries', 'label', 'rootId']
+            : ['directoryId', 'displayPath', 'entries', 'hasMore', 'label', 'rootId']).join('\n')
         && /^[a-f0-9]{32}$/.test(root.rootId)
         && /^[a-f0-9]{32}$/.test(root.directoryId)
         && typeof root.label === 'string'
@@ -145,6 +145,7 @@ function validateFileTransferLocalRoot(root) {
         && !/[\0\r\n]/.test(root.displayPath)
         && Array.isArray(root.entries)
         && root.entries.length <= 1000
+        && (root.hasMore === undefined || typeof root.hasMore === 'boolean')
         && root.entries.every(validateFileTransferDirectoryEntry);
 }
 
@@ -1071,7 +1072,8 @@ function initDashboard(options) {
                     : directoryView
                     ? (showHiddenEntries[side] || visibleEntries.length === directoryView.entries.length
                         ? visibleEntries.length + ' items'
-                        : visibleEntries.length + ' of ' + directoryView.entries.length + ' items') + (value === 'local'
+                        : visibleEntries.length + ' of ' + directoryView.entries.length + ' items')
+                        + (directoryView.hasMore ? ' (showing the first 1,000; enter a narrower path to browse more).' : '') + (value === 'local'
                         ? ' in this approved local folder.'
                         : ' in this Managed Machine directory.')
                     : value === 'local' && pendingLocalRootRequests[side]

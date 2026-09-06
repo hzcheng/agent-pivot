@@ -516,7 +516,7 @@ export function parseSftpLongListing(output: string): RemoteDirectoryRow[] {
         if (left.kind !== 'directory' && right.kind === 'directory') { return 1; }
         return left.name.localeCompare(right.name);
     });
-    return rows.slice(0, 1_000);
+    return rows;
 }
 
 /** Parse the bounded type-only portion of OpenSSH SFTP's `stat` output. */
@@ -843,7 +843,7 @@ export class ManagedRemoteBridgeController {
         const entries: FileTransferDirectoryEntry[] = [];
         const directory = await opendir(currentPath);
         for await (const child of directory) {
-                if (entries.length >= 1_000) { break; }
+                if (entries.length >= 1_001) { break; }
                 if (child.name.length > 255) { continue; }
                 const childPath = path.join(currentPath, child.name);
                 const childStat = await lstat(childPath);
@@ -875,6 +875,7 @@ export class ManagedRemoteBridgeController {
                         ? { modifiedAt: Math.max(0, Math.floor(childStat.mtimeMs)) } : {}),
                 });
         }
+        const hasMore = entries.length > 1_000;
         entries.sort((left, right) => {
             if (left.kind === 'directory' && right.kind !== 'directory') { return -1; }
             if (left.kind !== 'directory' && right.kind === 'directory') { return 1; }
@@ -883,7 +884,8 @@ export class ManagedRemoteBridgeController {
         const relativePath = path.relative(root.path, currentPath).split(path.sep).join('/') || '.';
         return {
             rootId, directoryId: resolvedDirectoryId, label: root.label,
-            displayPath: relativePath, entries,
+            displayPath: relativePath, entries: entries.slice(0, 1_000),
+            ...(hasMore ? { hasMore: true } : {}),
         };
     }
 
@@ -926,7 +928,8 @@ export class ManagedRemoteBridgeController {
             this.fileTransferRemoteDirectories.set(resolvedDirectoryId, directory);
         }
         const rows = await listRemoteDirectory(coordinator.getExecutable(), target.alias, directory.path);
-        const entries: FileTransferDirectoryEntry[] = rows.map(row => {
+        const hasMore = rows.length > 1_000;
+        const entries: FileTransferDirectoryEntry[] = rows.slice(0, 1_000).map(row => {
             const id = this.fileTransferHandle();
             const entryPath = remoteChildPath(directory!.path, row.name);
             this.fileTransferRemoteEntries.set(id, {
@@ -954,6 +957,7 @@ export class ManagedRemoteBridgeController {
             label: target.machine.name,
             displayPath: directory.path,
             entries,
+            ...(hasMore ? { hasMore: true } : {}),
         };
     }
 

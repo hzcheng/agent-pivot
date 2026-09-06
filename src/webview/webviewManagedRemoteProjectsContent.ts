@@ -41,7 +41,7 @@ function renderAddMachineForm(): string {
             <label>SSH user<input name="user" autocomplete="username" required maxlength="256" placeholder="developer"></label>
             <label>Port<input name="port" type="number" inputmode="numeric" required min="1" max="65535" value="22"></label>
         </div>
-        <p class="managed-machine-form-error" data-managed-machine-form-error role="alert" hidden></p>
+        <p id="managed-add-machine-form-error" class="managed-machine-form-error" data-managed-machine-form-error role="alert" hidden></p>
         <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-managed-machine-form">Cancel</button><button type="submit" class="managed-machine-form-submit" data-managed-operation="addMachine">Add Machine</button></div>
     </form>`;
 }
@@ -56,7 +56,7 @@ function renderEditMachineForm(machine: ManagedRemoteMachineViewModel): string {
             <label>SSH user<input name="user" autocomplete="username" required maxlength="256" value="${escapeAttribute(machine.connection.user)}"></label>
             <label>Port<input name="port" type="number" inputmode="numeric" required min="1" max="65535" value="${machine.connection.port}"></label>
         </div>
-        <p class="managed-machine-form-error" data-managed-machine-form-error role="alert" hidden></p>
+        <p id="managed-edit-machine-form-error-${escapeAttribute(machine.id)}" class="managed-machine-form-error" data-managed-machine-form-error role="alert" hidden></p>
         <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-managed-machine-form">Cancel</button><button type="submit" class="managed-machine-form-submit" data-managed-operation="editMachine" data-managed-target-id="${escapeAttribute(machine.id)}">Save changes</button></div>
     </form>`;
 }

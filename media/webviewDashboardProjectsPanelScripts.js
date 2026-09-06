@@ -101,6 +101,12 @@ function createDashboardProjectsPanel(injected) {
         }
         restoreProjectsPanelAnchors(panels.projects, panelState);
         restoreProjectsFocus(panels.projects, panelState.focus);
+        if (panelState.managedMachineForm && window.__agentPivotMachineProjects
+            && typeof window.__agentPivotMachineProjects.restoreManagedMachineFormState === 'function') {
+            window.__agentPivotMachineProjects.restoreManagedMachineFormState(
+                panelState.managedMachineForm
+            );
+        }
         if (panelState.inlineEdit && window.__agentPivotProjectInlineEdit) {
             window.__agentPivotProjectInlineEdit.restoreState(panelState.inlineEdit);
         }

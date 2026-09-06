@@ -92,6 +92,10 @@ function captureProjectsPanelState(panel) {
             && typeof window.__agentPivotProjectInlineEdit.captureState === 'function'
             ? window.__agentPivotProjectInlineEdit.captureState()
             : null,
+        managedMachineForm: window.__agentPivotMachineProjects
+            && typeof window.__agentPivotMachineProjects.captureManagedMachineFormState === 'function'
+            ? window.__agentPivotMachineProjects.captureManagedMachineFormState()
+            : null,
         groups: Array.from(panel.querySelectorAll(
             '.group[data-group-id]'
         )).map(function (group) {

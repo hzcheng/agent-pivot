@@ -414,6 +414,8 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
         } }));
     }, { html: managedMarkup(), requestId: request.requestId });
     assert.equal(await page.locator('[data-managed-operation="addMachine"]').isEnabled(), true);
+    assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isHidden(), true,
+        'a successful add must close the preserved inline form');
     assert.equal(await page.locator('[data-action="show-add-machine-form"]')
         .evaluate(node => document.activeElement === node), true,
     'the replacement panel must return focus to Add Machine after a successful add');
@@ -436,6 +438,10 @@ test('MANAGED-REMOTE-MANAGEMENT-003 validates inline Machine drafts before posti
     assert.equal(await page.evaluate(() => window.messages.length), 0);
     assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"] [data-managed-machine-form-error]').textContent(),
         'Enter a valid DNS name or IP address.');
+    const invalidHost = page.locator('[data-managed-machine-form-operation="addMachine"] input[name="host"]');
+    assert.equal(await invalidHost.getAttribute('aria-invalid'), 'true');
+    assert.equal(await invalidHost.getAttribute('aria-describedby'), 'managed-add-machine-form-error');
+    assert.equal(await invalidHost.evaluate(node => document.activeElement === node), true);
     const geometry = await page.locator('[data-managed-machine-form-operation="addMachine"]').evaluate(form => ({
         scrollWidth: form.scrollWidth,
         clientWidth: form.clientWidth,
@@ -469,6 +475,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus af
     assert.equal(await form.locator('input[name="host"]').inputValue(), 'build.example.com');
     assert.equal(await form.getByText('Changing this connection affects 1 Project.').count(), 1);
     assert.equal(await form.locator('input[name="name"]').evaluate(node => document.activeElement === node), true);
+    await form.locator('input[name="name"]').fill('Cancelled draft');
     await form.getByRole('button', { name: 'Cancel' }).click();
     assert.equal(await form.isHidden(), true);
     assert.equal(await page.locator('[data-machine-row] .machine-row-primary')
@@ -476,6 +483,27 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus af
 
     await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
     await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
+    assert.equal(await form.locator('input[name="name"]').inputValue(), 'Build',
+        'Cancel must discard an unsaved edit draft');
+    await form.locator('input[name="name"]').fill('Escaped draft');
+    await page.keyboard.press('Escape');
+    await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
+    await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
+    assert.equal(await form.locator('input[name="name"]').inputValue(), 'Build',
+        'Escape must discard an unsaved edit draft');
+    await form.locator('input[name="name"]').fill('Replacement draft');
+    await page.evaluate(html => {
+        const panel = document.getElementById('panel');
+        const state = captureProjectsPanelState(panel);
+        panel.innerHTML = html;
+        window.machineUi.mount(panel);
+        restoreProjectsFocus(panel, state.focus);
+        window.machineUi.restoreManagedMachineFormState(state.managedMachineForm);
+    }, managedMarkup());
+    assert.equal(await form.isVisible(), true,
+        'an authoritative replacement must retain an open Machine edit');
+    assert.equal(await form.locator('input[name="name"]').inputValue(), 'Replacement draft');
+    assert.equal(await form.locator('input[name="name"]').evaluate(node => document.activeElement === node), true);
     await form.locator('input[name="name"]').fill('Build 2');
     await form.locator('input[name="host"]').fill('next.example.com');
     await form.locator('input[name="user"]').fill('ops');
@@ -491,16 +519,44 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus af
     await page.keyboard.press('Escape');
     assert.equal(await form.isVisible(), true, 'Escape must not hide a pending Machine edit');
 
-    await page.evaluate(({ html, requestId }) => {
-        document.getElementById('panel').innerHTML = html;
-        window.machineUi.mount(document.getElementById('panel'));
+    await page.evaluate(html => {
+        const panel = document.getElementById('panel');
+        const state = captureProjectsPanelState(panel);
+        panel.innerHTML = html;
+        window.machineUi.mount(panel);
+        restoreProjectsFocus(panel, state.focus);
+        window.machineUi.restoreManagedMachineFormState(state.managedMachineForm);
+    }, managedMarkup());
+    assert.equal(await form.isVisible(), true,
+        'a pending edit must stay visible through an authoritative replacement');
+    assert.equal(await form.locator('button[type="submit"]').isDisabled(), true);
+    await page.evaluate(requestId => {
         window.dispatchEvent(new MessageEvent('message', { data: {
             type: 'managed-remote-settlement', version: 1, requestId,
             operation: 'editMachine', status: 'applied',
         } }));
-    }, { html: managedMarkup(), requestId: request.requestId });
+    }, request.requestId);
+    assert.equal(await form.isHidden(), true,
+        'a successful edit must close the preserved inline form');
     assert.equal(await page.locator('[data-machine-row] .machine-row-primary')
         .evaluate(node => document.activeElement === node), true);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 reports an edit-specific fallback error', async t => {
+    const page = await openPage(t, 360, managedMarkup());
+    await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
+    await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
+    const form = page.locator('[data-managed-machine-form-operation="editMachine"]');
+    await form.evaluate(node => node.requestSubmit());
+    const request = await page.evaluate(() => window.messages.at(-1));
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'managed-remote-settlement', version: 1, requestId,
+            operation: 'editMachine', status: 'failed',
+        } }));
+    }, request.requestId);
+    assert.equal(await form.locator('[data-managed-machine-form-error]').textContent(),
+        'Unable to save Machine changes.');
 });
 
 test('MANAGED-REMOTE-SSH-COMMAND-001 sends a strict row-menu SSH identity intent', async t => {

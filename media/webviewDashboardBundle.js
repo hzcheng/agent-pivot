@@ -9524,11 +9524,15 @@ function createMachineProjectsUi() {
         if (open && hasPendingManagedMachineForm()) return;
         if (open) {
             panel.querySelectorAll('[data-managed-machine-form]').forEach(function (other) {
-                if (other !== form) other.hidden = true;
+                if (other !== form) {
+                    other.hidden = true;
+                    resetDismissedManagedMachineForm(other);
+                }
             });
             if (trigger) trigger.setAttribute('aria-expanded', 'false');
         }
         form.hidden = !open;
+        if (!open) resetDismissedManagedMachineForm(form);
         if (trigger && form.getAttribute('data-managed-machine-form-operation') === 'addMachine') {
             trigger.setAttribute('aria-expanded', String(open));
         }
@@ -9540,6 +9544,21 @@ function createMachineProjectsUi() {
                 ? trigger : form.closest('[data-machine-row]') && form.closest('[data-machine-row]').querySelector('.machine-row-primary');
             if (focusReturn && typeof focusReturn.focus === 'function') focusReturn.focus();
         }
+    }
+
+    function resetDismissedManagedMachineForm(form) {
+        if (form.getAttribute('data-managed-machine-form-operation') !== 'editMachine') return;
+        resetManagedMachineForm(form);
+    }
+
+    function resetManagedMachineForm(form) {
+        form.reset();
+        form.querySelectorAll('input[aria-invalid]').forEach(function (input) {
+            input.removeAttribute('aria-invalid');
+            input.removeAttribute('aria-describedby');
+        });
+        var error = form.querySelector('[data-managed-machine-form-error]');
+        if (error) { error.hidden = true; error.textContent = ''; }
     }
 
     function setAddMachineFormOpen(open, returnFocus) {
@@ -9558,17 +9577,66 @@ function createMachineProjectsUi() {
             port: Number(form.elements.port.value),
         };
         var error = form.querySelector('[data-managed-machine-form-error]');
-        var message = !isValidMachineName(values.name) ? 'Enter a Machine name of up to 128 characters.'
-            : !isValidHost(values.host) ? 'Enter a valid DNS name or IP address.'
-            : !isValidSshUser(values.user) ? 'Enter a valid SSH user.'
-            : !Number.isInteger(values.port) || values.port < 1 || values.port > 65535
-                ? 'Enter a port from 1 to 65535.' : '';
+        var invalidField = !isValidMachineName(values.name) ? 'name'
+            : !isValidHost(values.host) ? 'host'
+            : !isValidSshUser(values.user) ? 'user'
+            : !Number.isInteger(values.port) || values.port < 1 || values.port > 65535 ? 'port' : '';
+        var message = invalidField === 'name' ? 'Enter a Machine name of up to 128 characters.'
+            : invalidField === 'host' ? 'Enter a valid DNS name or IP address.'
+            : invalidField === 'user' ? 'Enter a valid SSH user.'
+            : invalidField === 'port' ? 'Enter a port from 1 to 65535.' : '';
         if (message) {
+            var invalidInput = form.elements[invalidField];
+            if (invalidInput) {
+                invalidInput.setAttribute('aria-invalid', 'true');
+                if (error && error.id) invalidInput.setAttribute('aria-describedby', error.id);
+                invalidInput.focus();
+            }
             if (error) { error.textContent = message; error.hidden = false; }
             return;
         }
+        form.querySelectorAll('input[aria-invalid]').forEach(function (input) {
+            input.removeAttribute('aria-invalid');
+            input.removeAttribute('aria-describedby');
+        });
         if (error) { error.hidden = true; error.textContent = ''; }
         postManagedAction(form.querySelector('[data-managed-operation]'), values);
+    }
+
+    function captureManagedMachineFormState() {
+        var form = Array.from(panel ? panel.querySelectorAll('[data-managed-machine-form]') : [])
+            .find(function (candidate) { return !candidate.hidden; });
+        if (!form) return null;
+        var activeElement = document.activeElement;
+        return {
+            operation: form.getAttribute('data-managed-machine-form-operation') || '',
+            targetId: form.getAttribute('data-managed-target-id') || '',
+            values: {
+                name: String(form.elements.name.value || ''),
+                host: String(form.elements.host.value || ''),
+                user: String(form.elements.user.value || ''),
+                port: String(form.elements.port.value || ''),
+            },
+            focusField: activeElement && form.contains(activeElement)
+                ? activeElement.getAttribute('name') || '' : '',
+        };
+    }
+
+    function restoreManagedMachineFormState(state) {
+        if (!state || (state.operation !== 'addMachine' && state.operation !== 'editMachine')
+            || !state.values) return;
+        var form = findManagedMachineForm(state.operation, state.targetId || '');
+        if (!form) return;
+        ['name', 'host', 'user', 'port'].forEach(function (field) {
+            if (typeof state.values[field] === 'string') form.elements[field].value = state.values[field];
+        });
+        form.hidden = false;
+        if (state.operation === 'addMachine') {
+            var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+            if (trigger) trigger.setAttribute('aria-expanded', 'true');
+        }
+        var focusField = state.focusField && form.elements[state.focusField];
+        if (focusField && typeof focusField.focus === 'function') focusField.focus();
     }
 
     function isValidMachineName(value) {
@@ -9857,7 +9925,13 @@ function createMachineProjectsUi() {
 
     function onDocumentScroll(event) {
         if (!activeProjectMenuTrigger) return;
-        var row = activeProjectMenuTrigger.closest('[data-machine-project-row]');
+        var row = activeProjectMenuTrigger.closest(
+            '[data-machine-project-row], [data-machine-row]'
+        );
+        if (event.target === document
+            && activeProjectMenuTrigger.getAttribute('data-action') === 'toggle-machine-menu') {
+            return;
+        }
         if (!row || !row.contains(event.target)) closeProjectMenu(false);
     }
 
@@ -9882,6 +9956,15 @@ function createMachineProjectsUi() {
             false
         );
         if (message.status === 'applied') {
+            var submittedForm = findManagedMachineForm(pending.operation, pending.targetId);
+            if (submittedForm) {
+                submittedForm.hidden = true;
+                resetManagedMachineForm(submittedForm);
+                if (pending.operation === 'addMachine') {
+                    var addTrigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+                    if (addTrigger) addTrigger.setAttribute('aria-expanded', 'false');
+                }
+            }
             if (pending.focusAddMachine) {
                 var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
                 if (trigger) trigger.focus();
@@ -9901,7 +9984,8 @@ function createMachineProjectsUi() {
                 var error = form.querySelector('[data-managed-machine-form-error]');
                 if (error) {
                     error.textContent = typeof message.message === 'string'
-                        ? message.message : 'Unable to add the Machine.';
+                        ? message.message : pending.operation === 'editMachine'
+                            ? 'Unable to save Machine changes.' : 'Unable to add the Machine.';
                     error.hidden = false;
                 }
             }
@@ -9938,6 +10022,8 @@ function createMachineProjectsUi() {
         isMounted: function () { return Boolean(panel); },
         getDisclosureCollapsedStates: getDisclosureCollapsedStates,
         setAllDisclosuresCollapsed: setAllDisclosuresCollapsed,
+        captureManagedMachineFormState: captureManagedMachineFormState,
+        restoreManagedMachineFormState: restoreManagedMachineFormState,
         applyTextFilter: function (value) {
             textQuery = String(value || '').trim().toLocaleLowerCase();
             applyFilters();
@@ -11421,6 +11507,10 @@ function captureProjectsPanelState(panel) {
             && typeof window.__agentPivotProjectInlineEdit.captureState === 'function'
             ? window.__agentPivotProjectInlineEdit.captureState()
             : null,
+        managedMachineForm: window.__agentPivotMachineProjects
+            && typeof window.__agentPivotMachineProjects.captureManagedMachineFormState === 'function'
+            ? window.__agentPivotMachineProjects.captureManagedMachineFormState()
+            : null,
         groups: Array.from(panel.querySelectorAll(
             '.group[data-group-id]'
         )).map(function (group) {
@@ -11986,6 +12076,12 @@ function createDashboardProjectsPanel(injected) {
         }
         restoreProjectsPanelAnchors(panels.projects, panelState);
         restoreProjectsFocus(panels.projects, panelState.focus);
+        if (panelState.managedMachineForm && window.__agentPivotMachineProjects
+            && typeof window.__agentPivotMachineProjects.restoreManagedMachineFormState === 'function') {
+            window.__agentPivotMachineProjects.restoreManagedMachineFormState(
+                panelState.managedMachineForm
+            );
+        }
         if (panelState.inlineEdit && window.__agentPivotProjectInlineEdit) {
             window.__agentPivotProjectInlineEdit.restoreState(panelState.inlineEdit);
         }

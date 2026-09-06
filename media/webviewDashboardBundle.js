@@ -12788,7 +12788,15 @@ function formatFileTransferBytes(bytes) {
     return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
 }
 
-function renderLocalFileTransferEntries(fileList, entries, selectedIds, onChange, onOpenDirectory) {
+function renderLocalFileTransferEntries(
+    fileList,
+    entries,
+    selectedIds,
+    onChange,
+    onOpenDirectory,
+    onDragStart,
+    onDragEnd,
+) {
     fileList.textContent = '';
     entries.forEach(function (entry) {
         var row = document.createElement('li');
@@ -12800,6 +12808,11 @@ function renderLocalFileTransferEntries(fileList, entries, selectedIds, onChange
         if (entry.kind === 'directory') {
             row.title = 'Double-click to open this folder';
             row.addEventListener('dblclick', function () { onOpenDirectory(entry.id); });
+        }
+        if (entry.kind === 'directory' || entry.kind === 'file') {
+            row.draggable = true;
+            row.addEventListener('dragstart', function (event) { onDragStart(entry.id, event); });
+            row.addEventListener('dragend', onDragEnd);
         }
         var label = document.createElement('label');
         var checkbox = document.createElement('input');
@@ -13445,6 +13458,7 @@ function initDashboard(options) {
         var lastFailedCopyPlan = null;
         var transferTasks = {};
         var pendingHistoryClearRequestId = null;
+        var draggedFileTransferEntry = null;
 
         function renderTaskCount() {
             if (!tasks) return;
@@ -13669,6 +13683,8 @@ function initDashboard(options) {
                     selectedEntries[side],
                     function (entryId, selected) { updateSelection(side, entryId, selected); },
                     function (directoryId) { openDirectory(side, directoryId); },
+                    function (entryId, event) { beginFileTransferDrag(side, entryId, event); },
+                    function () { draggedFileTransferEntry = null; },
                 );
                 fileList.hidden = !directoryView;
             }
@@ -13706,6 +13722,30 @@ function initDashboard(options) {
             if (selected) selectedEntries[side].add(entryId);
             else selectedEntries[side].delete(entryId);
             updatePair();
+        }
+
+        function beginFileTransferDrag(side, entryId, event) {
+            if (!selectedEntries[side].has(entryId)) {
+                selectedEntries.left.clear();
+                selectedEntries.right.clear();
+                selectedEntries[side].add(entryId);
+            }
+            draggedFileTransferEntry = { side: side, entryId: entryId };
+            if (event.dataTransfer) {
+                event.dataTransfer.effectAllowed = 'copy';
+                event.dataTransfer.setData('text/plain', 'agent-pivot-file-transfer');
+            }
+        }
+
+        function dropFileTransferEntry(destinationSide, event) {
+            if (!draggedFileTransferEntry || draggedFileTransferEntry.side === destinationSide
+                || !localRoots[destinationSide]) return;
+            event.preventDefault();
+            selectedEntries[destinationSide].clear();
+            selectedEntries[draggedFileTransferEntry.side].add(draggedFileTransferEntry.entryId);
+            draggedFileTransferEntry = null;
+            updatePair();
+            openReview();
         }
 
         function requestLocalRoot(side) {
@@ -14141,6 +14181,17 @@ function initDashboard(options) {
         if (conflictPolicy) conflictPolicy.addEventListener('change', updateReviewStartAvailability);
         if (retry) retry.addEventListener('click', retryFailedCopy);
         if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
+        ['left', 'right'].forEach(function (side) {
+            var pane = panes[side];
+            if (!pane) return;
+            pane.addEventListener('dragover', function (event) {
+                if (draggedFileTransferEntry && draggedFileTransferEntry.side !== side && localRoots[side]) {
+                    event.preventDefault();
+                    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+                }
+            });
+            pane.addEventListener('drop', function (event) { dropFileTransferEntry(side, event); });
+        });
         Array.from(panel.querySelectorAll('[data-file-transfer-filter]')).forEach(function (input) {
             input.addEventListener('input', function () {
                 var side = input.getAttribute('data-file-transfer-filter');

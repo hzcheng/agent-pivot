@@ -568,6 +568,14 @@ test('FILE-TRANSFER-UI-014 filters only the files already loaded in each pane', 
     assert.match(dashboardSource, /fileTransferFilter\[side\] = input\.value\.slice\(0, 255\)\.toLocaleLowerCase\(\);/);
 });
 
+test('FILE-TRANSFER-UI-015 routes a cross-pane drag through the reviewed copy flow', () => {
+    assert.match(dashboardSource, /function beginFileTransferDrag/);
+    assert.match(dashboardSource, /function dropFileTransferEntry/);
+    assert.match(dashboardSource, /event\.dataTransfer\.effectAllowed = 'copy';/);
+    assert.match(dashboardSource, /openReview\(\);/);
+    assert.match(dashboardSource, /row\.draggable = true;/);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

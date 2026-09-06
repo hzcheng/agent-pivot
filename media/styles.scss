@@ -2074,6 +2074,14 @@ body .project {
     white-space: nowrap;
 }
 
+.file-transfer-file-row[draggable="true"] {
+    cursor: grab;
+}
+
+.file-transfer-file-row[draggable="true"]:active {
+    cursor: grabbing;
+}
+
 .file-transfer-file-row label {
     display: flex;
     align-items: center;

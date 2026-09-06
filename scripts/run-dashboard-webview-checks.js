@@ -1643,6 +1643,7 @@ async function runDashboardCommandRegistrationChecks() {
         'switchToOpenWindow',
         'sshToManagedMachine',
         'copyManagedSshCommand',
+        'importLegacyProjects',
     ];
     const registration = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {
@@ -1677,6 +1678,7 @@ async function runDashboardCommandRegistrationChecks() {
         'agentPivot.switchToOpenWindow',
         'agentPivot.sshToMachine',
         'agentPivot.copySshCommand',
+        'agentPivot.importLegacyProjects',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
 
@@ -1714,6 +1716,7 @@ async function runDashboardCommandRegistrationChecks() {
         'switchToOpenWindow',
         'sshToManagedMachine',
         'copyManagedSshCommand',
+        'importLegacyProjects',
     ]);
 
     registration.dispose();

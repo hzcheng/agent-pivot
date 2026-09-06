@@ -10,6 +10,7 @@ import type {
 import {
     createManagedRemoteManagementSettlement,
     ManagedRemoteMachineInput,
+    ManagedRemoteProjectInput,
     ManagedRemoteManagementOperation,
     ManagedRemoteManagementSettlement,
     parseManagedRemoteManagementRequest,
@@ -187,10 +188,10 @@ export class ManagedRemoteManagementController {
         operation: ManagedRemoteManagementOperation,
         targetId: string | undefined,
         snapshot: ManagedRemoteManagementSnapshot,
-        input: ManagedRemoteMachineInput | undefined,
+        input: ManagedRemoteMachineInput | ManagedRemoteProjectInput | undefined,
     ): Promise<ManagedRemoteManagementSnapshot | null> {
         if (operation === 'addMachine') {
-            const machine = input || await this.options.prompts.addMachine();
+            const machine = input as ManagedRemoteMachineInput | undefined || await this.options.prompts.addMachine();
             return machine
                 ? this.options.store.addMachine(snapshot.revisionId, machine) : null;
         }
@@ -208,7 +209,7 @@ export class ManagedRemoteManagementController {
         if (!targetId) { throw new Error('The Managed Remote target is missing.'); }
         if (operation === 'editMachine') {
             const machine = findMachine(snapshot, targetId);
-            const machineInput = input || await this.options.prompts.editMachine(
+            const machineInput = input as ManagedRemoteMachineInput | undefined || await this.options.prompts.editMachine(
                 machine,
                 affectedProjectCount(snapshot, targetId),
             );
@@ -222,9 +223,9 @@ export class ManagedRemoteManagementController {
         }
         if (operation === 'editProject') {
             const project = findProject(snapshot, targetId);
-            const input = await this.options.prompts.editProject(project);
-            return input
-                ? this.options.store.editProject(snapshot.revisionId, targetId, input) : null;
+            const projectInput = input as ManagedRemoteProjectInput | undefined || await this.options.prompts.editProject(project);
+            return projectInput
+                ? this.options.store.editProject(snapshot.revisionId, targetId, projectInput) : null;
         }
         if (operation === 'removeProject') {
             const project = findProject(snapshot, targetId);

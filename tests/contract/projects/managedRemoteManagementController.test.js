@@ -144,6 +144,16 @@ test('MANAGED-REMOTE-MANAGEMENT-001 edits a Machine from a validated inline draf
     }]);
 });
 
+test('MANAGED-REMOTE-MANAGEMENT-001 edits a Project from a validated inline draft', async () => {
+    const { controller, calls } = fixture({ prompts: { async editProject() { throw new Error('prompt must not open'); } } });
+    await controller.handle({ ...request('editProject', 'project:one'), input: {
+        name: 'API 2', remotePath: '/work/api-2', description: '', tags: 'backend', color: '',
+    } });
+    assert.deepEqual(calls[0], ['editProject', revisionId, 'project:one', {
+        name: 'API 2', remotePath: '/work/api-2', description: null, tags: ['backend'], color: null,
+    }]);
+});
+
 test('MANAGED-REMOTE-MANAGEMENT-001 resolves targets from the authoritative snapshot', async () => {
     const seen = [];
     const { controller, calls } = fixture({

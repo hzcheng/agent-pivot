@@ -752,7 +752,8 @@ body .project {
 .managed-machine-form-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
 .managed-machine-form label { display: grid; gap: 3px; color: var(--vscode-descriptionForeground); font-size: 11px; }
 .managed-machine-form input { min-width: 0; height: 26px; box-sizing: border-box; padding: 3px 6px; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 3px; color: var(--vscode-input-foreground, var(--vscode-foreground)); background: var(--vscode-input-background); font: inherit; }
-.managed-machine-form input:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.managed-machine-form textarea { min-width: 0; min-height: 52px; box-sizing: border-box; padding: 3px 6px; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 3px; color: var(--vscode-input-foreground, var(--vscode-foreground)); background: var(--vscode-input-background); font: inherit; resize: vertical; }
+.managed-machine-form input:focus-visible, .managed-machine-form textarea:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .managed-machine-form-error { margin: 0; color: var(--vscode-errorForeground); font-size: 11px; }
 .managed-machine-form-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .managed-machine-form-submit { min-height: 24px; padding: 2px 9px; border: 1px solid var(--vscode-button-border, transparent); border-radius: 3px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; font: inherit; }

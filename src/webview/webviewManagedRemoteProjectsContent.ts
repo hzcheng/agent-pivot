@@ -61,6 +61,22 @@ function renderEditMachineForm(machine: ManagedRemoteMachineViewModel): string {
     </form>`;
 }
 
+function renderEditProjectForm(project: ManagedRemoteProjectRowViewModel, favorite: boolean): string {
+    const source = favorite ? 'favorite' : 'directory';
+    return `<form class="managed-machine-form managed-project-form" data-managed-project-form data-managed-project-form-source="${source}" data-managed-target-id="${escapeAttribute(project.id)}" hidden>
+        <div class="managed-machine-form-heading"><strong>Edit ${escapeAttribute(project.name)}</strong><span>Update this Project in ${escapeAttribute(project.environmentName)}.</span></div>
+        <div class="managed-machine-form-fields">
+            <label>Project name<input name="name" autocomplete="off" required maxlength="256" value="${escapeAttribute(project.name)}"></label>
+            <label>Absolute path<input name="remotePath" autocomplete="off" required maxlength="8192" value="${escapeAttribute(project.remotePath)}"></label>
+            <label>Description<textarea name="description" maxlength="8192">${escapeAttribute(project.description || '')}</textarea></label>
+            <label>Tags<input name="tags" autocomplete="off" maxlength="8192" value="${escapeAttribute((project.tags || []).join(', '))}" placeholder="backend, api"></label>
+            <label>Color<input name="color" autocomplete="off" maxlength="256" value="${escapeAttribute(project.color || '')}" placeholder="#ef4444"></label>
+        </div>
+        <p id="managed-edit-project-form-error-${escapeAttribute(project.id)}-${source}" class="managed-machine-form-error" data-managed-project-form-error role="alert" hidden></p>
+        <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-managed-project-form">Cancel</button><button type="submit" class="managed-machine-form-submit" data-managed-operation="editProject" data-managed-target-id="${escapeAttribute(project.id)}">Save changes</button></div>
+    </form>`;
+}
+
 function renderProject(
     project: ManagedRemoteProjectRowViewModel,
     favorite: boolean,
@@ -78,11 +94,12 @@ function renderProject(
             <div class="machine-project-actions">
                 <button type="button" class="machine-pointer-action machine-favorite-action${project.favorite ? ' is-active' : ''}" ${operationAttributes('toggleFavorite', project.id)} aria-label="${project.favorite ? 'Remove' : 'Add'} ${escapeAttribute(project.name)} ${project.favorite ? 'from' : 'to'} Favorites" title="${project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}">${project.favorite ? Icons.starFilled : Icons.star}</button>
                 <div class="machine-project-menu-shell"><button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-project-menu" aria-label="More actions for ${escapeAttribute(project.name)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button><div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
-                    <button type="button" role="menuitem" tabindex="-1" ${operationAttributes('editProject', project.id)}>Edit Project…</button>
+                    <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-project-form" data-managed-target-id="${escapeAttribute(project.id)}">Edit Project…</button>
                     <button type="button" role="menuitem" tabindex="-1" class="danger" ${operationAttributes('removeProject', project.id)}>Remove Project…</button>
                 </div></div>
             </div>
         </div>
+        ${renderEditProjectForm(project, favorite)}
     </li>`;
 }
 

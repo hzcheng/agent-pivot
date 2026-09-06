@@ -39,6 +39,11 @@ test('MANAGED-REMOTE-MANAGEMENT-001 accepts strict management intents and a boun
         input: { name: ' Build ', host: ' build.example.com ', user: ' dev ', port: 22022 },
     }).input, { name: 'Build', host: 'build.example.com', user: 'dev', port: 22022 });
     assert.deepEqual(parseManagedRemoteManagementRequest({
+        type: 'managed-remote-action', version: 1, requestId, operation: 'editProject',
+        expectedRevisionId: null, targetId: 'project:one',
+        input: { name: ' API ', remotePath: ' /work/api ', description: ' Useful ', tags: 'backend, #api', color: ' #ef4444 ' },
+    }).input, { name: 'API', remotePath: '/work/api', description: 'Useful', tags: ['backend', 'api'], color: '#ef4444' });
+    assert.deepEqual(parseManagedRemoteManagementRequest({
         type: 'managed-remote-action', version: 1, requestId, operation: 'editMachine',
         expectedRevisionId: null, targetId: 'machine:one',
         input: { name: ' Build ', host: ' build.example.com ', user: ' dev ', port: 22022 },
@@ -103,6 +108,20 @@ test('MANAGED-REMOTE-MANAGEMENT-001 rejects payload injection and target-shape d
             expectedRevisionId: null, input,
         }), null, `must reject invalid persisted Machine input: ${JSON.stringify(input)}`);
     }
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-001 bounds inline Project tag input', () => {
+    const base = {
+        type: 'managed-remote-action', version: 1, requestId, operation: 'editProject',
+        expectedRevisionId: null, targetId: 'project:one',
+        input: { name: 'API', remotePath: '/work/api', description: '', tags: '', color: '' },
+    };
+    assert.equal(parseManagedRemoteManagementRequest({
+        ...base, input: { ...base.input, tags: 'a'.repeat(8193) },
+    }), null);
+    assert.equal(parseManagedRemoteManagementRequest({
+        ...base, input: { ...base.input, tags: Array(65).fill('tag').join(',') },
+    }), null);
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-001 creates bounded correlated settlements', () => {

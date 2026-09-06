@@ -12,6 +12,7 @@ export type MachineEnvironmentKind = 'host' | 'devContainer';
 
 export interface MachineProjectRowViewModel {
     id: string;
+    groupId: string;
     environmentId: string;
     machineId: string;
     machineName: string;
@@ -231,6 +232,7 @@ export function buildMachineProjectsViewModel(groups: readonly Group[]): Machine
             }
             const row: MachineProjectRowViewModel = {
                 id: project.id,
+                groupId: group.id,
                 environmentId: environment.id,
                 machineId: machine.id,
                 machineName: machine.displayName,

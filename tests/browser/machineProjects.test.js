@@ -26,7 +26,7 @@ const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), '
 
 function project(id, name, tags, favorite = false) {
     return {
-        id, environmentId: 'host', machineId: 'machine',
+        id, groupId: 'group', environmentId: 'host', machineId: 'machine',
         machineName: 'devbox', environmentName: 'Host', name, description: null,
         path: `vscode-remote://ssh-remote%2Bdevbox/work/${id}`,
         tags, favorite, color: id === 'api' ? '#c586c0' : null,
@@ -212,10 +212,9 @@ test('MACHINE-PROJECTS-ACTIONS-001 exposes a dismissible Project actions menu', 
 
     await page.click(`${row} [data-action="toggle-machine-project-menu"]`);
     assert.equal(await page.locator(`${row} [data-machine-project-menu]`).isVisible(), true);
-    await page.click(`${row} [data-action="edit-machine-project"]`);
-    assert.deepEqual(await page.evaluate(() => window.messages.at(-1)), {
-        type: 'edit-project', projectId: 'api',
-    });
+    await page.click(`${row} [data-action="show-edit-local-project-form"]`);
+    assert.equal(await page.locator(`${row} [data-local-project-form]`).isVisible(), true);
+    assert.deepEqual(await page.evaluate(() => window.messages), []);
     assert.equal(await page.locator(`${row} [data-machine-project-menu]`).isHidden(), true);
 
     for (const [action, expected] of [
@@ -237,6 +236,75 @@ test('MACHINE-PROJECTS-ACTIONS-001 exposes a dismissible Project actions menu', 
     await page.click(`${row} [data-action="toggle-machine-project-menu"]`);
     await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     assert.equal(await page.locator(`${row} [data-machine-project-menu]`).isHidden(), true);
+});
+
+test('MACHINE-PROJECTS-ACTIONS-001 edits a local Favorite Project inline and preserves its draft', async t => {
+    const page = await openPage(t, 360, markup());
+    const favorite = page.locator('.machine-favorite-row[data-machine-project-id="api"]');
+    const directory = page.locator('[data-machine-environment-row] [data-machine-project-id="api"]');
+    const favoriteForm = favorite.locator('[data-local-project-form]');
+    const directoryForm = directory.locator('[data-local-project-form]');
+
+    await favorite.locator('[data-action="toggle-machine-project-menu"]').click();
+    await favorite.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    assert.equal(await favoriteForm.isVisible(), true);
+    assert.equal(await directoryForm.isHidden(), true);
+    assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'API');
+    assert.equal(await favoriteForm.locator('input[name="tags"]').inputValue(), 'active, api');
+
+    await favoriteForm.locator('input[name="name"]').fill('Discarded draft');
+    await favoriteForm.getByRole('button', { name: 'Cancel' }).click();
+    assert.equal(await favoriteForm.isHidden(), true);
+    assert.equal(await favorite.locator('.machine-project-primary')
+        .evaluate(node => document.activeElement === node), true);
+
+    await favorite.locator('[data-action="toggle-machine-project-menu"]').click();
+    await favorite.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    await favoriteForm.locator('input[name="name"]').fill('');
+    await favoriteForm.evaluate(node => { node.noValidate = true; node.requestSubmit(); });
+    assert.equal(await favoriteForm.locator('[data-local-project-form-error]').textContent(),
+        'Enter a Project name.');
+
+    await favoriteForm.locator('input[name="name"]').fill('API 2');
+    await favoriteForm.locator('textarea[name="description"]').fill('Updated API');
+    await favoriteForm.locator('input[name="tags"]').fill('backend, api');
+    await page.evaluate(html => {
+        const panel = document.getElementById('panel');
+        const state = captureProjectsPanelState(panel);
+        panel.innerHTML = html;
+        window.machineUi.mount(panel);
+        restoreProjectsFocus(panel, state.focus);
+        window.machineUi.restoreManagedMachineFormState(state.managedMachineForm);
+    }, markup());
+    assert.equal(await favoriteForm.isVisible(), true);
+    assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'API 2');
+    await favoriteForm.evaluate(node => node.requestSubmit());
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.deepEqual(request, {
+        type: 'save-project-inline', version: 1, requestId: request.requestId,
+        projectId: 'api', groupId: 'group', name: 'API 2',
+        description: 'Updated API', tags: 'backend, api',
+    });
+    assert.match(request.requestId, /^machine-project-inline-/);
+    assert.equal(await favoriteForm.locator('button[type="submit"]').isDisabled(), true);
+
+    await page.evaluate(html => {
+        const panel = document.getElementById('panel');
+        const state = captureProjectsPanelState(panel);
+        panel.innerHTML = html;
+        window.machineUi.mount(panel);
+        restoreProjectsFocus(panel, state.focus);
+        window.machineUi.restoreManagedMachineFormState(state.managedMachineForm);
+    }, markup());
+    assert.equal(await favoriteForm.locator('button[type="submit"]').isDisabled(), true,
+        'a pending local save must remain disabled through replacement');
+    await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'project-inline-edit-settlement', version: 1, requestId,
+        projectId: 'api', status: 'saved',
+    } })), request.requestId);
+    assert.equal(await favoriteForm.isHidden(), true);
+    assert.equal(await favorite.locator('.machine-project-primary')
+        .evaluate(node => document.activeElement === node), true);
 });
 
 test('MACHINE-PROJECTS-RENAME-001 exposes Rename and Reset from the Machine actions menu', async t => {
@@ -297,7 +365,7 @@ test('MACHINE-PROJECTS-HOST-NAVIGATION-001 opens a derived Host without setup or
 test('MACHINE-PROJECTS-KEYBOARD-001 exposes disclosure, Machine, Project, Favorite, and menu actions to the keyboard', async t => {
     const page = await openPage(t);
     const tabStops = await page.locator('[data-machine-row] button').evaluateAll(buttons =>
-        buttons.filter(button => button.tabIndex === 0).map(button => button.getAttribute('data-action')
+        buttons.filter(button => button.tabIndex === 0 && !button.closest('[hidden]')).map(button => button.getAttribute('data-action')
             || button.getAttribute('data-machine-disclosure')));
     assert.deepEqual(tabStops, [
         'machine', 'open-machine-host', 'toggle-machine-menu', 'environment',
@@ -539,6 +607,90 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus af
     assert.equal(await form.isHidden(), true,
         'a successful edit must close the preserved inline form');
     assert.equal(await page.locator('[data-machine-row] .machine-row-primary')
+        .evaluate(node => document.activeElement === node), true);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 edits a favorite Project inline and preserves its draft', async t => {
+    const page = await openPage(t, 360, managedMarkup('ready'));
+    const favoriteRow = page.locator('.machine-favorite-row[data-machine-project-id="project:managed"]');
+    const directoryRow = page.locator('[data-managed-project-row]:not(.machine-favorite-row)');
+    const favoriteForm = favoriteRow.locator('[data-managed-project-form]');
+    const directoryForm = directoryRow.locator('[data-managed-project-form]');
+
+    await favoriteRow.locator('[data-action="toggle-machine-project-menu"]').click();
+    await favoriteRow.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    assert.equal(await favoriteForm.isVisible(), true);
+    assert.equal(await directoryForm.isHidden(), true,
+        'editing a Favorite must open the inline form next to that Favorite');
+    assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'Managed API');
+    assert.equal(await favoriteForm.locator('input[name="remotePath"]').inputValue(), '/work/api');
+    assert.equal(await favoriteForm.locator('textarea[name="description"]').inputValue(), '');
+    assert.equal(await favoriteForm.locator('input[name="tags"]').inputValue(), 'backend');
+
+    await favoriteForm.locator('input[name="name"]').fill('Discarded draft');
+    await favoriteForm.getByRole('button', { name: 'Cancel' }).click();
+    assert.equal(await favoriteForm.isHidden(), true);
+    assert.equal(await favoriteRow.locator('.machine-project-primary')
+        .evaluate(node => document.activeElement === node), true);
+
+    await favoriteRow.locator('[data-action="toggle-machine-project-menu"]').click();
+    await favoriteRow.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'Managed API',
+        'Cancel must discard an unsaved Project draft');
+    await favoriteForm.locator('input[name="remotePath"]').fill('relative/path');
+    await favoriteForm.evaluate(node => { node.noValidate = true; node.requestSubmit(); });
+    assert.equal(await favoriteForm.locator('[data-managed-project-form-error]').textContent(),
+        'Enter an absolute Project path.');
+    assert.equal(await favoriteForm.locator('input[name="remotePath"]').getAttribute('aria-invalid'), 'true');
+
+    await favoriteForm.locator('input[name="name"]').fill('Managed API 2');
+    await favoriteForm.locator('input[name="remotePath"]').fill('/work/api-2');
+    await favoriteForm.locator('textarea[name="description"]').fill('Deployment API');
+    await favoriteForm.locator('input[name="tags"]').fill('backend, #api');
+    await favoriteForm.locator('input[name="color"]').fill('#ef4444');
+    await page.evaluate(html => {
+        const panel = document.getElementById('panel');
+        const state = captureProjectsPanelState(panel);
+        panel.innerHTML = html;
+        window.machineUi.mount(panel);
+        restoreProjectsFocus(panel, state.focus);
+        window.machineUi.restoreManagedMachineFormState(state.managedMachineForm);
+    }, managedMarkup('ready'));
+    assert.equal(await favoriteForm.isVisible(), true,
+        'an authoritative replacement must retain the Favorite Project form');
+    assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'Managed API 2');
+    assert.equal(await favoriteForm.locator('textarea[name="description"]').inputValue(), 'Deployment API');
+
+    await favoriteForm.evaluate(node => node.requestSubmit());
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.operation, 'editProject');
+    assert.equal(request.targetId, 'project:managed');
+    assert.deepEqual(request.input, {
+        name: 'Managed API 2', remotePath: '/work/api-2', description: 'Deployment API',
+        tags: 'backend, #api', color: '#ef4444',
+    });
+    assert.equal(await favoriteForm.locator('button[type="submit"]').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await favoriteForm.isVisible(), true, 'Escape must not hide a pending Project edit');
+
+    await page.evaluate(html => {
+        const panel = document.getElementById('panel');
+        const state = captureProjectsPanelState(panel);
+        panel.innerHTML = html;
+        window.machineUi.mount(panel);
+        restoreProjectsFocus(panel, state.focus);
+        window.machineUi.restoreManagedMachineFormState(state.managedMachineForm);
+    }, managedMarkup('ready'));
+    assert.equal(await favoriteForm.isVisible(), true,
+        'a pending Project edit must stay visible through an authoritative replacement');
+    await page.evaluate(requestId => {
+        window.dispatchEvent(new MessageEvent('message', { data: {
+            type: 'managed-remote-settlement', version: 1, requestId,
+            operation: 'editProject', status: 'applied',
+        } }));
+    }, request.requestId);
+    assert.equal(await favoriteForm.isHidden(), true);
+    assert.equal(await favoriteRow.locator('.machine-project-primary')
         .evaluate(node => document.activeElement === node), true);
 });
 

@@ -7,7 +7,7 @@ const { renderMachineProjectsPanel } = require('../../../out/webview/webviewMach
 
 function viewModel() {
     const project = {
-        id: 'project-v1', environmentId: 'host', machineId: 'machine',
+        id: 'project-v1', groupId: 'group-v1', environmentId: 'host', machineId: 'machine',
         machineName: 'devbox', environmentName: 'Host',
         name: 'API <unsafe>', description: null,
         path: 'vscode-remote://ssh-remote%2Bdevbox/work/api',
@@ -44,7 +44,8 @@ test('MACHINE-PROJECTS-ARIA-001 renders a plain derived hierarchy with directly 
     assert.match(html, /data-action="rename-machine"/);
     assert.doesNotMatch(html, /data-action="reset-machine-name"/);
     assert.match(html, /data-action="toggle-machine-project-menu"/);
-    assert.match(html, /data-action="edit-machine-project"/);
+    assert.match(html, /data-action="show-edit-local-project-form"/);
+    assert.match(html, /data-local-project-form/);
     assert.match(html, /data-action="color-machine-project"/);
     assert.match(html, /data-action="remove-machine-project"/);
     assert.match(html, /class="machine-project-color" style="background: #123456"/);

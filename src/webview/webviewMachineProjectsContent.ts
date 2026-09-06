@@ -145,6 +145,7 @@ export function renderMachineProjectsProject(project: MachineProjectRowViewModel
         : `Open ${project.name} on ${project.machineName}, ${project.environmentName}`;
     const tags = project.tags.map(tag => tag.toLocaleLowerCase());
     const color = sanitizeCssColor(project.color);
+    const source = favorite ? 'favorite' : 'directory';
     return `<li class="machine-project-row${favorite ? ' machine-favorite-row' : ''}" data-machine-project-row data-machine-project-id="${escapeAttribute(project.id)}" data-machine-id="${escapeAttribute(project.machineId)}" data-environment-id="${escapeAttribute(project.environmentId)}" data-machine-project-tags="${escapeAttribute(JSON.stringify(tags))}" data-machine-search="${escapeAttribute(project.searchText)}">
         <div class="machine-row-line">
             <button type="button" class="machine-project-primary" data-action="open-machine-project" aria-label="${escapeAttribute(identityName)}" title="${escapeAttribute(project.path)}">
@@ -161,13 +162,23 @@ export function renderMachineProjectsProject(project: MachineProjectRowViewModel
                     <div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
                         <button type="button" role="menuitem" tabindex="-1" data-action="open-machine-project-current">Open in Current Window</button>
                         <div class="machine-project-menu-separator" role="separator"></div>
-                        <button type="button" role="menuitem" tabindex="-1" data-action="edit-machine-project">Edit Project…</button>
+                        <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-local-project-form">Edit Project…</button>
                         <button type="button" role="menuitem" tabindex="-1" data-action="color-machine-project">Edit Color…</button>
                         <button type="button" role="menuitem" tabindex="-1" class="danger" data-action="remove-machine-project">Remove Project…</button>
                     </div>
                 </div>
             </div>
         </div>
+        <form class="managed-machine-form managed-project-form" data-local-project-form data-local-project-form-source="${source}" data-local-project-id="${escapeAttribute(project.id)}" data-local-group-id="${escapeAttribute(project.groupId)}" hidden>
+            <div class="managed-machine-form-heading"><strong>Edit ${escapeAttribute(project.name)}</strong><span>Update this local Project.</span></div>
+            <div class="managed-machine-form-fields">
+                <label>Project name<input name="name" autocomplete="off" required maxlength="256" value="${escapeAttribute(project.name)}"></label>
+                <label>Description<textarea name="description" maxlength="8192">${escapeAttribute(project.description || '')}</textarea></label>
+                <label>Tags<input name="tags" autocomplete="off" maxlength="8192" value="${escapeAttribute(project.tags.join(', '))}" placeholder="frontend, urgent"></label>
+            </div>
+            <p id="local-edit-project-form-error-${escapeAttribute(project.id)}-${source}" class="managed-machine-form-error" data-local-project-form-error role="alert" hidden></p>
+            <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-local-project-form">Cancel</button><button type="submit" class="managed-machine-form-submit">Save changes</button></div>
+        </form>
     </li>`;
 }
 

@@ -1,6 +1,6 @@
 'use strict';
 
-import { isManagedMachine } from './validation';
+import { isManagedMachine, isManagedProject } from './validation';
 
 export const MANAGED_REMOTE_MANAGEMENT_PROTOCOL_VERSION = 1;
 
@@ -21,7 +21,7 @@ export interface ManagedRemoteManagementRequest {
     operation: ManagedRemoteManagementOperation;
     expectedRevisionId: string | null;
     targetId?: string;
-    input?: ManagedRemoteMachineInput;
+    input?: ManagedRemoteMachineInput | ManagedRemoteProjectInput;
 }
 
 export interface ManagedRemoteMachineInput {
@@ -29,6 +29,14 @@ export interface ManagedRemoteMachineInput {
     host: string;
     user: string;
     port: number;
+}
+
+export interface ManagedRemoteProjectInput {
+    name: string;
+    remotePath: string;
+    description: string | null;
+    tags: string[] | null;
+    color: string | null;
 }
 
 export interface ManagedRemoteManagementSettlement {
@@ -88,6 +96,24 @@ function parseMachineInput(value: unknown): ManagedRemoteMachineInput | null {
     }) ? input : null;
 }
 
+function parseProjectInput(value: unknown): ManagedRemoteProjectInput | null {
+    if (!isRecord(value) || Object.keys(value).length !== 5
+        || !['name', 'remotePath', 'description', 'tags', 'color'].every(key => Object.prototype.hasOwnProperty.call(value, key))
+        || typeof value.name !== 'string' || typeof value.remotePath !== 'string'
+        || typeof value.description !== 'string' || typeof value.tags !== 'string'
+        || typeof value.color !== 'string') { return null; }
+    if (value.tags.length > 8192) { return null; }
+    const name = value.name.trim();
+    const remotePath = value.remotePath.trim();
+    const description = value.description.trim() || null;
+    const tags = value.tags.split(',').map(tag => tag.trim().replace(/^#+/, '').trim()).filter(Boolean);
+    if (tags.length > 64) { return null; }
+    const color = value.color.trim() || null;
+    return isManagedProject({ id: 'project:inline-input', environmentId: 'environment:inline-input', name, remotePath,
+        ...(description ? { description } : {}), ...(tags.length ? { tags } : {}), ...(color ? { color } : {}) })
+        ? { name, remotePath, description, tags: tags.length ? tags : null, color } : null;
+}
+
 export function readManagedRemoteManagementCorrelation(
     value: unknown,
 ): { requestId: string; operation: string } | null {
@@ -123,7 +149,7 @@ export function parseManagedRemoteManagementRequest(
         'type', 'version', 'requestId', 'operation', 'expectedRevisionId',
     ];
     const acceptsTarget = TARGET_OPERATIONS.has(operation) || operation === 'addProject';
-    const acceptsInput = operation === 'addMachine' || operation === 'editMachine';
+    const acceptsInput = operation === 'addMachine' || operation === 'editMachine' || operation === 'editProject';
     const allowedKeys = [
         ...requiredKeys,
         ...(acceptsTarget ? ['targetId'] : []),
@@ -142,7 +168,7 @@ export function parseManagedRemoteManagementRequest(
         return null;
     }
     if (acceptsInput && Object.prototype.hasOwnProperty.call(value, 'input')) {
-        const input = parseMachineInput(value.input);
+        const input = operation === 'editProject' ? parseProjectInput(value.input) : parseMachineInput(value.input);
         if (!input) { return null; }
         return { ...value, input } as ManagedRemoteManagementRequest;
     }

@@ -81,8 +81,24 @@ export function canonicalizeManagedSshConfigPath(configPath: string): string {
         return fs.realpathSync.native(configPath);
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') { throw error; }
-        const parent = fs.realpathSync.native(path.dirname(configPath));
-        return path.join(parent, path.basename(configPath));
+        const missingSegments = [path.basename(configPath)];
+        let ancestor = path.dirname(configPath);
+        while (true) {
+            try {
+                return path.join(
+                    fs.realpathSync.native(ancestor),
+                    ...missingSegments.reverse(),
+                );
+            } catch (ancestorError) {
+                if ((ancestorError as NodeJS.ErrnoException).code !== 'ENOENT') {
+                    throw ancestorError;
+                }
+                const parent = path.dirname(ancestor);
+                if (parent === ancestor) { throw ancestorError; }
+                missingSegments.push(path.basename(ancestor));
+                ancestor = parent;
+            }
+        }
     }
 }
 

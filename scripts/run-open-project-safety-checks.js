@@ -3781,8 +3781,13 @@ async function runCoordinatorWiringChecks() {
                     toString: () => 'vscode-remote://dev-container%2Btarget%40ssh-remote%2Bhome-book/workspaces/AiToEarn',
                 },
             }],
-            getConfiguration: () => ({
-                get: (_key, fallback) => fallback,
+            getConfiguration: section => ({
+                // Managed SSH discovery joins the real home directory when
+                // remote.SSH.configFile is unset, so this check would depend on
+                // the runner having a ~/.ssh. Keep it inside the temp root.
+                get: (key, fallback) => (section === 'remote.SSH' && key === 'configFile'
+                    ? path.join(tempRoot, 'ssh', 'config')
+                    : fallback),
                 update: async () => undefined,
             }),
         },

@@ -23,7 +23,15 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
         },
         workspace: {
-            getConfiguration: () => ({ get: () => undefined }),
+            // Managed SSH discovery falls back to the real ~/.ssh/config when
+            // remote.SSH.configFile is unset, which makes this test depend on
+            // the runner's home directory and fail where it has no .ssh. Point
+            // it at this test's own temp root instead.
+            getConfiguration: section => ({
+                get: key => (section === 'remote.SSH' && key === 'configFile'
+                    ? path.join(root, 'ssh', 'config')
+                    : undefined),
+            }),
             workspaceFolders: [{
                 name: 'sensitive',
                 uri: {
@@ -306,7 +314,15 @@ test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes t
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
         },
         workspace: {
-            getConfiguration: () => ({ get: () => undefined }),
+            // Managed SSH discovery falls back to the real ~/.ssh/config when
+            // remote.SSH.configFile is unset, which makes this test depend on
+            // the runner's home directory and fail where it has no .ssh. Point
+            // it at this test's own temp root instead.
+            getConfiguration: section => ({
+                get: key => (section === 'remote.SSH' && key === 'configFile'
+                    ? path.join(root, 'ssh', 'config')
+                    : undefined),
+            }),
             workspaceFolders: [{
                 name: 'sensitive',
                 uri: {

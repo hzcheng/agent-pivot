@@ -49,6 +49,25 @@ test('MANAGED-REMOTE-SSH-DISCOVERY-001 rejects relative config paths and missing
     }), /not found/);
 });
 
+test('MANAGED-REMOTE-SSH-DISCOVERY-001 keeps a canonical config path when .ssh is absent', t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-ssh-discovery-empty-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const bin = path.join(root, 'bin');
+    const ssh = path.join(bin, 'ssh');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(ssh, '#!/bin/sh\n', { mode: 0o700 });
+
+    const result = discoverManagedSshLocalInputs({
+        platform: 'linux',
+        homeDirectory: root,
+        environmentPath: bin,
+        remoteSshPath: 'ssh',
+    });
+
+    assert.equal(result.executable, fs.realpathSync.native(ssh));
+    assert.equal(result.activeConfigPath, path.join(fs.realpathSync.native(root), '.ssh/config'));
+});
+
 test('MANAGED-REMOTE-SSH-DISCOVERY-001 derives Windows OpenSSH and config defaults without local substitution', () => {
     assert.deepEqual(managedSshConfiguredPaths({
         platform: 'win32',

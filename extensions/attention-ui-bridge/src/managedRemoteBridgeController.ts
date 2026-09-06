@@ -8,6 +8,9 @@ import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemo
 import {
     FileTransferDirectoryEntry,
     FileTransferLocalRootRequest,
+    FileTransferRemoteDirectoryRequest,
+    FileTransferCopyRequest,
+    FileTransferEndpointReference,
     FileTransferLocalRootResponse,
     ManagedRemoteBridgeRequest,
     ManagedRemoteBridgeResponse,
@@ -59,9 +62,15 @@ interface FileTransferLocalRoot {
     path: string;
     label: string;
     directories: Map<string, string>;
+    entries: Map<string, FileTransferEntry>;
 }
 
-interface FileTransferRemoteDirectory {
+interface FileTransferEntry {
+    path: string;
+    kind: FileTransferDirectoryEntry['kind'];
+}
+
+interface FileTransferRemoteDirectory extends FileTransferEntry {
     machineId: string;
     path: string;
 }
@@ -195,9 +204,38 @@ function parseSftpLongListing(output: string): RemoteDirectoryRow[] {
     return rows.slice(0, 1_000);
 }
 
+function copyFileTransferEntry(
+    sshExecutable: string,
+    relay: boolean,
+    recursive: boolean,
+    source: string,
+    destination: string,
+): Promise<void> {
+    const executable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'scp.exe' : 'scp');
+    const args = [
+        ...(relay ? ['-3'] : []),
+        ...(recursive ? ['-r'] : []),
+        '--',
+        source,
+        destination,
+    ];
+    return new Promise((resolve, reject) => {
+        const process = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+        const stderr: Buffer[] = [];
+        process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        process.on('error', error => reject(new Error(`Could not start SCP: ${error.message}`)));
+        process.on('close', code => {
+            if (code === 0) { resolve(); return; }
+            const message = Buffer.concat(stderr).toString('utf8').trim();
+            reject(new Error(message ? `File copy failed: ${message.slice(0, 320)}` : 'File copy failed.'));
+        });
+    });
+}
+
 export class ManagedRemoteBridgeController {
     private readonly fileTransferRoots = new Map<string, FileTransferLocalRoot>();
     private readonly fileTransferRemoteDirectories = new Map<string, FileTransferRemoteDirectory>();
+    private readonly fileTransferRemoteEntries = new Map<string, FileTransferRemoteDirectory>();
     constructor(
         private readonly catalog: ManagedRemoteBridgeCatalogReader,
         private readonly coordinators: ManagedRemoteBridgeCoordinatorFactory,
@@ -228,12 +266,21 @@ export class ManagedRemoteBridgeController {
             }
             const coordinator = await this.coordinators.create();
             if (request.operation === 'listFileTransferRemoteDirectory') {
+                const remoteDirectory = request.fileTransfer as FileTransferRemoteDirectoryRequest;
                 const slot = this.readExpectedSlot(request);
                 return response(request.requestId, 'ok', await this.listFileTransferRemoteDirectory(
                     slot,
                     coordinator,
                     request.targetId!,
-                    request.fileTransfer!.directoryId,
+                    remoteDirectory.directoryId,
+                ));
+            }
+            if (request.operation === 'copyFileTransferEntries') {
+                const slot = this.readExpectedSlot(request);
+                return response(request.requestId, 'ok', await this.copyFileTransferEntries(
+                    slot,
+                    coordinator,
+                    request.fileTransfer as FileTransferCopyRequest,
                 ));
             }
             if (request.operation === 'inspectLegacySshTarget') {
@@ -375,6 +422,7 @@ export class ManagedRemoteBridgeController {
             path: rootPath,
             label,
             directories: new Map([[directoryId, rootPath]]),
+            entries: new Map(),
         });
         return this.listFileTransferLocalDirectory(rootId, directoryId);
     }
@@ -413,6 +461,7 @@ export class ManagedRemoteBridgeController {
                             ? 'file'
                             : 'unsupported';
                 const id = this.fileTransferHandle();
+                root.entries.set(id, { path: childPath, kind });
                 if (kind === 'directory') {
                     const realChildPath = await realpath(childPath);
                     if (this.isWithinLocalRoot(root.path, realChildPath)) {
@@ -464,16 +513,19 @@ export class ManagedRemoteBridgeController {
             }
         } else {
             resolvedDirectoryId = this.fileTransferHandle();
-            directory = { machineId, path: '.' };
+            directory = { machineId, path: '.', kind: 'directory' };
             this.fileTransferRemoteDirectories.set(resolvedDirectoryId, directory);
         }
         const rows = await listRemoteDirectory(coordinator.getExecutable(), target.alias, directory.path);
         const entries: FileTransferDirectoryEntry[] = rows.map(row => {
             const id = this.fileTransferHandle();
+            const entryPath = remoteChildPath(directory!.path, row.name);
+            this.fileTransferRemoteEntries.set(id, { machineId, path: entryPath, kind: row.kind });
             if (row.kind === 'directory') {
                 this.fileTransferRemoteDirectories.set(id, {
                     machineId,
-                    path: remoteChildPath(directory!.path, row.name),
+                    path: entryPath,
+                    kind: 'directory',
                 });
             }
             return { id, name: row.name, kind: row.kind, ...(row.size === undefined ? {} : { size: row.size }) };
@@ -484,6 +536,86 @@ export class ManagedRemoteBridgeController {
             label: target.machine.name,
             entries,
         };
+    }
+
+    private async copyFileTransferEntries(
+        slot: ManagedRevisionSlot,
+        coordinator: ManagedSshConsentCoordinator,
+        request: FileTransferCopyRequest,
+    ): Promise<{ status: 'copied'; completedItems: number; totalItems: number }> {
+        if (request.source.kind === 'local' && request.destination.kind === 'local') {
+            throw new Error('File Transfer does not copy between two local folders.');
+        }
+        const source = await this.resolveFileTransferSource(slot, request.source, request.entryIds);
+        const destination = await this.resolveFileTransferDestination(slot, request.destination);
+        for (const entry of source.entries) {
+            await copyFileTransferEntry(
+                coordinator.getExecutable(),
+                source.kind === 'managedMachine' && destination.kind === 'managedMachine',
+                entry.kind === 'directory',
+                source.kind === 'managedMachine' ? `${source.alias}:${entry.path}` : entry.path,
+                destination.kind === 'managedMachine'
+                    ? `${destination.alias}:${destination.path}` : destination.path,
+            );
+        }
+        return { status: 'copied', completedItems: source.entries.length, totalItems: source.entries.length };
+    }
+
+    private async resolveFileTransferSource(
+        slot: ManagedRevisionSlot,
+        endpoint: FileTransferEndpointReference,
+        entryIds: string[],
+    ): Promise<{ kind: 'local'; entries: FileTransferEntry[] } | {
+        kind: 'managedMachine'; alias: string; entries: FileTransferEntry[];
+    }> {
+        if (endpoint.kind === 'local') {
+            const root = this.fileTransferRoots.get(endpoint.rootId);
+            if (!root || !root.directories.has(endpoint.directoryId)) {
+                throw new Error('The selected local source is no longer available. Browse it again.');
+            }
+            const entries = entryIds.map(id => root.entries.get(id));
+            if (entries.some(entry => !entry || entry.kind === 'symlink' || entry.kind === 'unsupported')) {
+                throw new Error('Select only regular files or folders from the current local directory.');
+            }
+            return { kind: 'local', entries: entries as FileTransferEntry[] };
+        }
+        const target = resolveManagedMachineTarget(
+            materializeManagedRemoteCatalog(slot.document), endpoint.machineId,
+        );
+        await this.ensureProjectionReady(slot);
+        const entries = entryIds.map(id => this.fileTransferRemoteEntries.get(id));
+        if (entries.some(entry => !entry || entry.machineId !== endpoint.machineId
+            || entry.kind === 'symlink' || entry.kind === 'unsupported')) {
+            throw new Error('Select only regular files or folders from the current Managed Machine directory.');
+        }
+        return { kind: 'managedMachine', alias: target.alias, entries: entries as FileTransferEntry[] };
+    }
+
+    private async resolveFileTransferDestination(
+        slot: ManagedRevisionSlot,
+        endpoint: FileTransferEndpointReference,
+    ): Promise<{ kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string }> {
+        if (endpoint.kind === 'local') {
+            const root = this.fileTransferRoots.get(endpoint.rootId);
+            const directoryPath = root?.directories.get(endpoint.directoryId);
+            if (!root || !directoryPath) {
+                throw new Error('The selected local destination is no longer available. Browse it again.');
+            }
+            const resolvedPath = await realpath(directoryPath);
+            if (!this.isWithinLocalRoot(root.path, resolvedPath) || !(await stat(resolvedPath)).isDirectory()) {
+                throw new Error('The selected local destination is outside the approved folder.');
+            }
+            return { kind: 'local', path: resolvedPath };
+        }
+        const directory = this.fileTransferRemoteDirectories.get(endpoint.directoryId);
+        if (!directory || directory.machineId !== endpoint.machineId) {
+            throw new Error('The selected Managed Machine destination is no longer available. Browse it again.');
+        }
+        const target = resolveManagedMachineTarget(
+            materializeManagedRemoteCatalog(slot.document), endpoint.machineId,
+        );
+        await this.ensureProjectionReady(slot);
+        return { kind: 'managedMachine', alias: target.alias, path: directory.path };
     }
 
     private readExpectedSlot(request: ManagedRemoteBridgeRequest): ManagedRevisionSlot {

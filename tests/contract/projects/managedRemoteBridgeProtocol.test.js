@@ -90,6 +90,25 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
         operation: 'selectFileTransferLocalRoot',
     });
 
+    const copy = {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'copyFileTransferEntries',
+        expectedRevisionId: `revision:${'a'.repeat(64)}`,
+        fileTransfer: {
+            kind: 'copy',
+            source: { kind: 'local', rootId: 'a'.repeat(32), directoryId: 'b'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'c'.repeat(32) },
+            entryIds: ['d'.repeat(32)],
+        },
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(copy), copy);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...copy,
+        fileTransfer: { ...copy.fileTransfer, entryIds: ['d'.repeat(32), 'd'.repeat(32)] },
+    }), null);
+
 });
 
 test('MANAGED-REMOTE-BRIDGE-001 correlates the strict capability handshake', () => {

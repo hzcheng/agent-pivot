@@ -8,6 +8,7 @@ import {
     MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND,
     MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
     FileTransferLocalRootResponse,
+    FileTransferCopyRequest,
     ManagedRemoteBridgeOperation,
     ManagedRemoteBridgeResponse,
 } from './bridgeProtocol';
@@ -116,6 +117,15 @@ export class ManagedRemoteBridgeClient {
         });
     }
 
+    copyFileTransferEntries(
+        expectedRevisionId: string,
+        request: FileTransferCopyRequest,
+    ): Promise<unknown> {
+        return this.executeAttempt(
+            'copyFileTransferEntries', expectedRevisionId, undefined, undefined, request, true,
+        );
+    }
+
     private async executeAttempt(
         operation: ManagedRemoteBridgeOperation,
         expectedRevisionId: string | undefined,
@@ -124,6 +134,7 @@ export class ManagedRemoteBridgeClient {
         fileTransfer: (
             | { kind: 'localRoot'; rootId: string; directoryId?: string }
             | { kind: 'managedMachine'; directoryId?: string }
+            | FileTransferCopyRequest
         ) | undefined,
         retryExpiredSession: boolean,
     ): Promise<unknown> {

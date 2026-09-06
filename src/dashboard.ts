@@ -2876,6 +2876,32 @@ async function initializeDashboard(
                         rawMessage.slice(0, 320)));
                 }
             },
+            'file-transfer-copy': async message => {
+                if (!isFileTransferCopyRequest(message)) {
+                    return;
+                }
+                if (managedRemoteSnapshot.lifecycle !== 'active'
+                    || !managedRemoteSnapshot.revisionId) {
+                    await provider.postMessage(fileTransferCopySettlement(message, 'failed',
+                        'Managed Machines are unavailable. Refresh and try again.'));
+                    return;
+                }
+                try {
+                    const result = await managedRemoteBridgeClient.copyFileTransferEntries(
+                        managedRemoteSnapshot.revisionId,
+                        {
+                            kind: 'copy',
+                            source: message.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                            destination: message.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                            entryIds: message.entryIds as string[],
+                        },
+                    );
+                    await provider.postMessage(fileTransferCopySettlement(message, 'copied', result));
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    await provider.postMessage(fileTransferCopySettlement(message, 'failed', rawMessage.slice(0, 320)));
+                }
+            },
         },
         createAiSession: async e => {
             const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
@@ -4501,6 +4527,51 @@ function fileTransferDirectoryFailure(
         side: request.side,
         message,
     };
+}
+
+function isFileTransferCopyRequest(value: Record<string, unknown>): boolean {
+    if (value.type !== 'file-transfer-copy'
+        || value.version !== 1
+        || typeof value.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        || !Array.isArray(value.entryIds)
+        || value.entryIds.length < 1
+        || value.entryIds.length > 100
+        || !value.entryIds.every(entry => typeof entry === 'string' && /^[a-f0-9]{32}$/u.test(entry))
+        || new Set(value.entryIds).size !== value.entryIds.length
+        || !isFileTransferEndpointReference(value.source)
+        || !isFileTransferEndpointReference(value.destination)
+        || Object.keys(value).sort().join('\n') !== [
+            'destination', 'entryIds', 'requestId', 'source', 'type', 'version',
+        ].join('\n')) {
+        return false;
+    }
+    return true;
+}
+
+function isFileTransferEndpointReference(value: unknown): boolean {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const endpoint = value as Record<string, unknown>;
+    if (endpoint.kind === 'local') {
+        return Object.keys(endpoint).sort().join('\n') === ['directoryId', 'kind', 'rootId'].join('\n')
+            && typeof endpoint.rootId === 'string' && /^[a-f0-9]{32}$/u.test(endpoint.rootId)
+            && typeof endpoint.directoryId === 'string' && /^[a-f0-9]{32}$/u.test(endpoint.directoryId);
+    }
+    return endpoint.kind === 'managedMachine'
+        && Object.keys(endpoint).sort().join('\n') === ['directoryId', 'kind', 'machineId'].join('\n')
+        && typeof endpoint.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(endpoint.machineId)
+        && typeof endpoint.directoryId === 'string' && /^[a-f0-9]{32}$/u.test(endpoint.directoryId);
+}
+
+function fileTransferCopySettlement(
+    request: Record<string, unknown>,
+    status: 'copied' | 'failed',
+    value: unknown,
+): Record<string, unknown> {
+    return status === 'copied'
+        ? { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, value }
+        : { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, message: value };
 }
 
 

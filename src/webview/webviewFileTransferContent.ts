@@ -68,5 +68,14 @@ export function getFileTransferContent(
             <span data-file-transfer-summary>Select files in either pane to choose a copy direction.</span>
             <button type="button" data-file-transfer-review disabled>Review copy ${Icons.handoff}</button>
         </footer>
+        <section class="file-transfer-review" data-file-transfer-review-sheet role="dialog" aria-modal="true" aria-label="Review file copy" hidden>
+            <h3>Review copy</h3>
+            <p data-file-transfer-review-summary></p>
+            <p class="file-transfer-review-note">Copy will begin only after you select Start copy.</p>
+            <div class="file-transfer-review-actions">
+                <button type="button" data-file-transfer-review-cancel>Back</button>
+                <button type="button" data-file-transfer-start-copy>Start copy</button>
+            </div>
+        </section>
     </section>`;
 }

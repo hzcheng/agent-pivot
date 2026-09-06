@@ -12780,6 +12780,78 @@ function writeDashboardSessionValue(key, value) {
     }
 }
 
+function renderLocalFileTransferEntries(fileList, entries) {
+    fileList.textContent = '';
+    entries.forEach(function (entry) {
+        var row = document.createElement('li');
+        row.className = 'file-transfer-file-row';
+        row.setAttribute('data-file-transfer-entry-id', entry.id);
+        var kind = entry.kind === 'directory' ? 'Folder' : entry.kind === 'file' ? 'File' : entry.kind;
+        row.textContent = kind + '  ' + entry.name;
+        fileList.appendChild(row);
+    });
+}
+
+function validateFileTransferLocalRootMessage(message) {
+    if (!message || typeof message !== 'object'
+        || message.version !== 1
+        || typeof message.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        || (message.side !== 'left' && message.side !== 'right')) {
+        return false;
+    }
+    if (message.type === 'file-transfer-local-root-selected' && message.root) {
+        return Object.keys(message).sort().join('\n') === [
+            'requestId', 'root', 'side', 'type', 'version',
+        ].join('\n') && validateFileTransferLocalRoot(message.root);
+    }
+    if (message.type === 'file-transfer-local-root-failed') {
+        return Object.keys(message).sort().join('\n') === [
+            'message', 'requestId', 'side', 'type', 'version',
+        ].join('\n')
+            && typeof message.message === 'string'
+            && message.message.length > 0
+            && message.message.length <= 320;
+    }
+    return Object.keys(message).sort().join('\n') === [
+        'cancelled', 'requestId', 'side', 'type', 'version',
+    ].join('\n') && message.type === 'file-transfer-local-root-selected'
+        && message.cancelled === true;
+}
+
+function validateFileTransferLocalRoot(root) {
+    return !!root && typeof root === 'object'
+        && Object.keys(root).sort().join('\n') === [
+            'directoryId', 'entries', 'label', 'rootId',
+        ].join('\n')
+        && /^[a-f0-9]{32}$/.test(root.rootId)
+        && /^[a-f0-9]{32}$/.test(root.directoryId)
+        && typeof root.label === 'string'
+        && root.label.length > 0
+        && root.label.length <= 255
+        && Array.isArray(root.entries)
+        && root.entries.length <= 1000
+        && root.entries.every(validateFileTransferDirectoryEntry);
+}
+
+function validateFileTransferDirectoryEntry(entry) {
+    return !!entry && typeof entry === 'object'
+        && Object.keys(entry).every(function (key) {
+            return ['id', 'name', 'kind', 'size', 'modifiedAt'].includes(key);
+        })
+        && ['id', 'name', 'kind'].every(function (key) {
+            return Object.prototype.hasOwnProperty.call(entry, key);
+        })
+        && /^[a-f0-9]{32}$/.test(entry.id)
+        && typeof entry.name === 'string'
+        && entry.name.length > 0
+        && entry.name.length <= 255
+        && ['directory', 'file', 'symlink', 'unsupported'].includes(entry.kind)
+        && (entry.size === undefined || (Number.isSafeInteger(entry.size) && entry.size >= 0))
+        && (entry.modifiedAt === undefined
+            || (Number.isSafeInteger(entry.modifiedAt) && entry.modifiedAt >= 0));
+}
+
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'agentPivot.activeDashboardTab';
@@ -13164,6 +13236,8 @@ function initDashboard(options) {
         var hint = panel.querySelector('[data-file-transfer-pair-hint]');
         var summary = panel.querySelector('[data-file-transfer-summary]');
         var review = panel.querySelector('[data-file-transfer-review]');
+        var localRoots = { left: null, right: null };
+        var pendingLocalRootRequests = { left: null, right: null };
 
         function selectorFor(side) {
             return selectors.find(function (selector) {
@@ -13180,6 +13254,7 @@ function initDashboard(options) {
             var path = pane.querySelector('[data-file-transfer-pane-path]');
             var status = pane.querySelector('[data-file-transfer-pane-status]');
             var refresh = pane.querySelector('[data-file-transfer-refresh]');
+            var fileList = pane.querySelector('[data-file-transfer-file-list]');
             var option = selector.options && selector.selectedIndex >= 0
                 ? selector.options[selector.selectedIndex] : null;
             var value = selector.value || '';
@@ -13188,16 +13263,30 @@ function initDashboard(options) {
                 if (path) path.textContent = '—';
                 if (status) status.textContent = 'Choose an endpoint to browse its files.';
                 if (refresh) refresh.disabled = true;
+                if (fileList) {
+                    fileList.textContent = '';
+                    fileList.hidden = true;
+                }
                 return;
             }
             if (name) name.textContent = option ? option.textContent : 'Selected endpoint';
-            if (path) path.textContent = value === 'local' ? 'Choose a local folder' : 'Managed Machine';
+            var localRoot = value === 'local' ? localRoots[side] : null;
+            if (path) path.textContent = localRoot ? localRoot.label
+                : value === 'local' ? 'Choose a local folder' : 'Managed Machine';
             if (status) {
-                status.textContent = value === 'local'
-                    ? 'Choose a local folder to begin browsing.'
+                status.textContent = localRoot
+                    ? localRoot.entries.length + ' items in this approved local folder.'
+                    : value === 'local' && pendingLocalRootRequests[side]
+                        ? 'Opening the local folder chooser…'
+                    : value === 'local'
+                        ? 'Choose a local folder to begin browsing.'
                     : 'Managed Machine selected. File browsing will be enabled by the local UI Bridge.';
             }
-            if (refresh) refresh.disabled = true;
+            if (fileList) {
+                renderLocalFileTransferEntries(fileList, localRoot ? localRoot.entries : []);
+                fileList.hidden = !localRoot;
+            }
+            if (refresh) refresh.disabled = !localRoot;
         }
 
         function updatePair() {
@@ -13217,12 +13306,58 @@ function initDashboard(options) {
             if (review) review.disabled = true;
         }
 
+        function requestLocalRoot(side) {
+            var requestId = 'file-transfer-' + side + '-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingLocalRootRequests[side] = requestId;
+            options.postMessage({
+                type: 'file-transfer-select-local-root',
+                version: 1,
+                requestId: requestId,
+                side: side,
+            });
+        }
+
+        function onEndpointChange(event) {
+            var selector = event.currentTarget;
+            var side = selector && selector.getAttribute
+                ? selector.getAttribute('data-file-transfer-endpoint') : null;
+            if (side !== 'left' && side !== 'right') {
+                return;
+            }
+            localRoots[side] = null;
+            pendingLocalRootRequests[side] = null;
+            if (selector.value === 'local') {
+                requestLocalRoot(side);
+            }
+            updatePair();
+        }
+
+        function applyLocalRootMessage(message) {
+            if (!message || (message.side !== 'left' && message.side !== 'right')
+                || pendingLocalRootRequests[message.side] !== message.requestId) {
+                return false;
+            }
+            pendingLocalRootRequests[message.side] = null;
+            if (message.type === 'file-transfer-local-root-selected' && message.root) {
+                localRoots[message.side] = message.root;
+            } else {
+                var selector = selectorFor(message.side);
+                if (selector) selector.value = '';
+                localRoots[message.side] = null;
+            }
+            updatePair();
+            return true;
+        }
+
         selectors.forEach(function (selector) {
-            selector.addEventListener('change', updatePair);
+            selector.addEventListener('change', onEndpointChange);
         });
         updatePair();
+
+        return { applyLocalRootMessage: applyLocalRootMessage };
     }
-    initializeFileTransferPanel();
+    var fileTransferPanel = initializeFileTransferPanel();
 
 
 
@@ -13291,6 +13426,10 @@ function initDashboard(options) {
         if (event && event.data && event.data.type === 'skill-scope-action-result') {
             skillPanel.settleSkillScopeActionWithoutHtml(event.data);
         }
+        if (event && event.data && validateFileTransferLocalRootMessage(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyLocalRootMessage(event.data);
+        }
         if (event && event.data
             && event.data.type === 'select-dashboard-tab'
             && event.data.version === 1
@@ -13354,6 +13493,8 @@ function initDashboard(options) {
         applyProjectsPanelUpdatedMessage: projectsPanel.applyProjectsPanelUpdatedMessage,
         applyAiPanelMessage: aiPanel.applyAiPanelMessage,
         applyPromptPanelUpdatedMessage: aiPanel.applyPromptPanelUpdatedMessage,
+        applyFileTransferLocalRootMessage: fileTransferPanel
+            ? fileTransferPanel.applyLocalRootMessage : function () { return false; },
         ensureProjectsPanel: projectsPanel.ensureProjectsPanel,
         ensureAiPanel: aiPanel.ensureAiPanel,
         getActiveTab: () => activeTab,

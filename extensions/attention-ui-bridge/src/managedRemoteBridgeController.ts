@@ -1,7 +1,12 @@
 'use strict';
 
+import { randomBytes } from 'crypto';
+import { lstat, opendir, realpath, stat } from 'fs/promises';
+import * as path from 'path';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
+    FileTransferDirectoryEntry,
+    FileTransferLocalRootResponse,
     ManagedRemoteBridgeRequest,
     ManagedRemoteBridgeResponse,
     MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
@@ -45,6 +50,13 @@ export interface ManagedRemoteBridgeLocalActions {
         activeConfigPath: string,
         target: string,
     ): Promise<unknown>;
+    selectLocalDirectory(): Promise<string | undefined>;
+}
+
+interface FileTransferLocalRoot {
+    path: string;
+    label: string;
+    directories: Map<string, string>;
 }
 
 export function formatManagedSshCommand(
@@ -106,6 +118,7 @@ function authorityFromRemoteUri(uri: string): string {
 }
 
 export class ManagedRemoteBridgeController {
+    private readonly fileTransferRoots = new Map<string, FileTransferLocalRoot>();
     constructor(
         private readonly catalog: ManagedRemoteBridgeCatalogReader,
         private readonly coordinators: ManagedRemoteBridgeCoordinatorFactory,
@@ -124,6 +137,15 @@ export class ManagedRemoteBridgeController {
             return response(request.requestId, 'failed', 'Managed Remote bridge session expired.');
         }
         try {
+            if (request.operation === 'selectFileTransferLocalRoot') {
+                return response(request.requestId, 'ok', await this.selectFileTransferLocalRoot());
+            }
+            if (request.operation === 'listFileTransferLocalDirectory') {
+                return response(request.requestId, 'ok', await this.listFileTransferLocalDirectory(
+                    request.fileTransfer!.rootId,
+                    request.fileTransfer!.directoryId,
+                ));
+            }
             const coordinator = await this.coordinators.create();
             if (request.operation === 'inspectLegacySshTarget') {
                 if (!this.localActions || !request.legacySshTarget) {
@@ -245,6 +267,94 @@ export class ManagedRemoteBridgeController {
             throw new Error('Managed SSH projection worker is unavailable.');
         }
         return this.projection.ensureReady(slot);
+    }
+
+    private async selectFileTransferLocalRoot(): Promise<FileTransferLocalRootResponse | null> {
+        if (!this.localActions) {
+            throw new Error('Local folder selection is unavailable.');
+        }
+        const selected = await this.localActions.selectLocalDirectory();
+        if (!selected) { return null; }
+        const rootPath = await realpath(selected);
+        if (!(await stat(rootPath)).isDirectory()) {
+            throw new Error('The selected local path is not a directory.');
+        }
+        const rootId = this.fileTransferHandle();
+        const directoryId = this.fileTransferHandle();
+        const label = path.basename(rootPath) || rootPath;
+        this.fileTransferRoots.set(rootId, {
+            path: rootPath,
+            label,
+            directories: new Map([[directoryId, rootPath]]),
+        });
+        return this.listFileTransferLocalDirectory(rootId, directoryId);
+    }
+
+    private async listFileTransferLocalDirectory(
+        rootId: string,
+        directoryId: string | undefined,
+    ): Promise<FileTransferLocalRootResponse> {
+        const root = this.fileTransferRoots.get(rootId);
+        if (!root) {
+            throw new Error('The selected local folder is no longer available. Choose it again.');
+        }
+        const resolvedDirectoryId = directoryId || Array.from(root.directories.keys())[0];
+        const directoryPath = resolvedDirectoryId ? root.directories.get(resolvedDirectoryId) : undefined;
+        if (!directoryPath) {
+            throw new Error('The selected local directory is no longer available. Refresh the folder.');
+        }
+        const currentPath = await realpath(directoryPath);
+        if (!this.isWithinLocalRoot(root.path, currentPath)
+            || !(await stat(currentPath)).isDirectory()) {
+            throw new Error('The selected local directory is outside the approved folder.');
+        }
+        root.directories.set(resolvedDirectoryId, currentPath);
+        const entries: FileTransferDirectoryEntry[] = [];
+        const directory = await opendir(currentPath);
+        for await (const child of directory) {
+                if (entries.length >= 1_000) { break; }
+                if (child.name.length > 255) { continue; }
+                const childPath = path.join(currentPath, child.name);
+                const childStat = await lstat(childPath);
+                const kind = childStat.isSymbolicLink()
+                    ? 'symlink'
+                    : childStat.isDirectory()
+                        ? 'directory'
+                        : childStat.isFile()
+                            ? 'file'
+                            : 'unsupported';
+                const id = this.fileTransferHandle();
+                if (kind === 'directory') {
+                    const realChildPath = await realpath(childPath);
+                    if (this.isWithinLocalRoot(root.path, realChildPath)) {
+                        root.directories.set(id, realChildPath);
+                    }
+                }
+                entries.push({
+                    id,
+                    name: child.name,
+                    kind,
+                    ...(kind === 'file' ? { size: childStat.size } : {}),
+                    ...(Number.isSafeInteger(Math.floor(childStat.mtimeMs))
+                        ? { modifiedAt: Math.max(0, Math.floor(childStat.mtimeMs)) } : {}),
+                });
+        }
+        entries.sort((left, right) => {
+            if (left.kind === 'directory' && right.kind !== 'directory') { return -1; }
+            if (left.kind !== 'directory' && right.kind === 'directory') { return 1; }
+            return left.name.localeCompare(right.name);
+        });
+        return { rootId, directoryId: resolvedDirectoryId, label: root.label, entries };
+    }
+
+    private isWithinLocalRoot(rootPath: string, candidatePath: string): boolean {
+        const relative = path.relative(rootPath, candidatePath);
+        return relative === '' || (!relative.startsWith(`..${path.sep}`)
+            && relative !== '..' && !path.isAbsolute(relative));
+    }
+
+    private fileTransferHandle(): string {
+        return randomBytes(16).toString('hex');
     }
 
     private readExpectedSlot(request: ManagedRemoteBridgeRequest): ManagedRevisionSlot {

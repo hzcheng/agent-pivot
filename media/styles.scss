@@ -1919,6 +1919,16 @@ body .project {
     list-style: none;
 }
 
+.file-transfer-file-row {
+    overflow: hidden;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    color: var(--vscode-foreground);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .file-transfer-action-bar {
     position: sticky;
     bottom: 0;

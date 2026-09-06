@@ -2824,6 +2824,30 @@ async function initializeDashboard(
             'managed-remote-client-action': async message => {
                 await managedRemoteActions.handleMessage(message);
             },
+            'file-transfer-select-local-root': async message => {
+                if (!isFileTransferLocalRootRequest(message)) {
+                    return;
+                }
+                try {
+                    const root = await managedRemoteBridgeClient.selectFileTransferLocalRoot();
+                    await provider.postMessage({
+                        type: 'file-transfer-local-root-selected',
+                        version: 1,
+                        requestId: message.requestId,
+                        side: message.side,
+                        ...(root ? { root } : { cancelled: true }),
+                    });
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    await provider.postMessage({
+                        type: 'file-transfer-local-root-failed',
+                        version: 1,
+                        requestId: message.requestId,
+                        side: message.side,
+                        message: rawMessage.slice(0, 320),
+                    });
+                }
+            },
         },
         createAiSession: async e => {
             const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
@@ -4412,6 +4436,17 @@ async function initializeDashboard(
 
 }
 
+}
+
+function isFileTransferLocalRootRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-select-local-root'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && (value.side === 'left' || value.side === 'right')
+        && Object.keys(value).sort().join('\n') === [
+            'requestId', 'side', 'type', 'version',
+        ].join('\n');
 }
 
 

@@ -12,6 +12,7 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'managedNavigationV1',
     'managedActionProjectionV2',
     'localSshEndpointV1',
+    'fileTransferLocalBrowseV1',
 ] as const;
 
 export type ManagedRemoteBridgeOperation =
@@ -23,7 +24,30 @@ export type ManagedRemoteBridgeOperation =
     | 'openManagedMachine'
     | 'openManagedProject'
     | 'openManagedEnvironment'
-    | 'inspectLegacySshTarget';
+    | 'inspectLegacySshTarget'
+    | 'selectFileTransferLocalRoot'
+    | 'listFileTransferLocalDirectory';
+
+export interface FileTransferLocalRootRequest {
+    kind: 'localRoot';
+    rootId: string;
+    directoryId?: string;
+}
+
+export interface FileTransferLocalRootResponse {
+    rootId: string;
+    directoryId: string;
+    label: string;
+    entries: FileTransferDirectoryEntry[];
+}
+
+export interface FileTransferDirectoryEntry {
+    id: string;
+    name: string;
+    kind: 'directory' | 'file' | 'symlink' | 'unsupported';
+    size?: number;
+    modifiedAt?: number;
+}
 
 export interface ManagedRemoteBridgeHandshakeRequest {
     protocolVersion: 1;
@@ -48,6 +72,7 @@ export interface ManagedRemoteBridgeRequest {
     targetId?: string;
     /** An SSH host alias to resolve against this computer's own SSH config. */
     legacySshTarget?: string;
+    fileTransfer?: FileTransferLocalRootRequest;
 }
 
 export type ManagedRemoteBridgeResponse =
@@ -99,7 +124,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         || !hasExactKeys(
             value,
             ['protocolVersion', 'requestId', 'sessionToken', 'operation'],
-            ['expectedRevisionId', 'targetId', 'legacySshTarget'],
+            ['expectedRevisionId', 'targetId', 'legacySshTarget', 'fileTransfer'],
         )
         || value.protocolVersion !== MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION
         || !isCorrelationValue(value.requestId)
@@ -114,6 +139,8 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             'openManagedProject',
             'openManagedEnvironment',
             'inspectLegacySshTarget',
+            'selectFileTransferLocalRoot',
+            'listFileTransferLocalDirectory',
         ].includes(value.operation as string)
         || (value.expectedRevisionId !== undefined
             && (typeof value.expectedRevisionId !== 'string'
@@ -152,5 +179,29 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         || (!requiresLegacyTarget && value.legacySshTarget !== undefined)) {
         return null;
     }
+    const requiresFileTransfer = value.operation === 'listFileTransferLocalDirectory';
+    if (value.operation === 'selectFileTransferLocalRoot') {
+        if (value.fileTransfer !== undefined) { return null; }
+    } else if (requiresFileTransfer) {
+        if (!validFileTransferLocalRootRequest(value.fileTransfer)) { return null; }
+    } else if (value.fileTransfer !== undefined) {
+        return null;
+    }
     return value as unknown as ManagedRemoteBridgeRequest;
+}
+
+function validFileTransferLocalRootRequest(value: unknown): value is FileTransferLocalRootRequest {
+    if (!isRecord(value)
+        || !hasExactKeys(value, ['kind', 'rootId'], ['directoryId'])
+        || value.kind !== 'localRoot'
+        || !validFileTransferHandle(value.rootId)
+        || (value.directoryId !== undefined && !validFileTransferHandle(value.directoryId))) {
+        return false;
+    }
+    return true;
+}
+
+function validFileTransferHandle(value: unknown): value is string {
+    return typeof value === 'string'
+        && /^[a-f0-9]{32}$/u.test(value);
 }

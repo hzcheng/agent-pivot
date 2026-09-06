@@ -62,6 +62,34 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
     };
     assert.deepEqual(parseManagedRemoteBridgeRequest(project), project);
 
+    const localDirectory = {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'listFileTransferLocalDirectory',
+        fileTransfer: {
+            kind: 'localRoot',
+            rootId: 'a'.repeat(32),
+            directoryId: 'b'.repeat(32),
+        },
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(localDirectory), localDirectory);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...localDirectory,
+        fileTransfer: { ...localDirectory.fileTransfer, path: '/outside' },
+    }), null);
+    assert.deepEqual(parseManagedRemoteBridgeRequest({
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'selectFileTransferLocalRoot',
+    }), {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'selectFileTransferLocalRoot',
+    });
+
 });
 
 test('MANAGED-REMOTE-BRIDGE-001 correlates the strict capability handshake', () => {

@@ -1,6 +1,9 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const test = require('node:test');
 
 const { createCausalVersion, createVersionedCandidates, joinVersionVectors, vectorIncludingVersion } = require('../../../out/projects/managedRemote/causal');
@@ -187,4 +190,47 @@ test('MANAGED-REMOTE-NAVIGATION-001 resolves Machine and Project identities insi
         `vscode-remote://${encodeURIComponent(`ssh-remote+${alias}`)}/work/api`,
     );
     assert.doesNotMatch(`${windows[0]} ${folders[0]}`, /build\.example\.com|dev@/u);
+});
+
+test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never accepts paths', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(root, 'folder'));
+    fs.writeFileSync(path.join(root, 'notes.txt'), 'hello', 'utf8');
+    let coordinatorCreates = 0;
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { throw new Error('local browsing must not read catalog'); },
+    }, {
+        async create() { coordinatorCreates += 1; return {}; },
+    }, 'session-12345678', {
+        platform: 'linux',
+        openTerminal() {},
+        async writeClipboard() {},
+        async selectLocalDirectory() { return root; },
+    });
+    const selected = await controller.execute(request('selectFileTransferLocalRoot'));
+    assert.equal(selected.status, 'ok');
+    assert.equal(coordinatorCreates, 0);
+    assert.equal(selected.value.label, path.basename(root));
+    assert.deepEqual(selected.value.entries.map(entry => [entry.name, entry.kind]), [
+        ['folder', 'directory'], ['notes.txt', 'file'],
+    ]);
+    assert.doesNotMatch(JSON.stringify(selected.value), new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+
+    const listed = await controller.execute({
+        ...request('listFileTransferLocalDirectory'),
+        fileTransfer: {
+            kind: 'localRoot',
+            rootId: selected.value.rootId,
+            directoryId: selected.value.directoryId,
+        },
+    });
+    assert.equal(listed.status, 'ok');
+    const rejected = await controller.execute({
+        ...request('listFileTransferLocalDirectory'),
+        fileTransfer: {
+            kind: 'localRoot', rootId: selected.value.rootId, directoryId: '../outside',
+        },
+    });
+    assert.equal(rejected.status, 'failed');
 });

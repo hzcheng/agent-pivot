@@ -7,6 +7,7 @@ import {
     MANAGED_REMOTE_BRIDGE_EXECUTE_COMMAND,
     MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND,
     MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
+    FileTransferLocalRootResponse,
     ManagedRemoteBridgeOperation,
     ManagedRemoteBridgeResponse,
 } from './bridgeProtocol';
@@ -59,7 +60,9 @@ export class ManagedRemoteBridgeClient {
         expectedRevisionId?: string,
         targetId?: string,
     ): Promise<unknown> {
-        return this.executeAttempt(operation, expectedRevisionId, targetId, undefined, true);
+        return this.executeAttempt(
+            operation, expectedRevisionId, targetId, undefined, undefined, true,
+        );
     }
 
     /**
@@ -70,8 +73,30 @@ export class ManagedRemoteBridgeClient {
      */
     inspectLegacySshTarget(target: string): Promise<unknown> {
         return this.executeAttempt(
-            'inspectLegacySshTarget', undefined, undefined, target, true,
+            'inspectLegacySshTarget', undefined, undefined, target, undefined, true,
         );
+    }
+
+    selectFileTransferLocalRoot(): Promise<FileTransferLocalRootResponse | null> {
+        return this.executeAttempt(
+            'selectFileTransferLocalRoot', undefined, undefined, undefined, undefined, true,
+        ).then(value => parseFileTransferLocalRootResponse(value));
+    }
+
+    listFileTransferLocalDirectory(
+        rootId: string,
+        directoryId?: string,
+    ): Promise<FileTransferLocalRootResponse> {
+        return this.executeAttempt(
+            'listFileTransferLocalDirectory', undefined, undefined, undefined,
+            { kind: 'localRoot', rootId, ...(directoryId ? { directoryId } : {}) }, true,
+        ).then(value => {
+            const parsed = parseFileTransferLocalRootResponse(value);
+            if (!parsed) {
+                throw new Error('Agent Pivot UI Bridge returned an invalid File Transfer directory.');
+            }
+            return parsed;
+        });
     }
 
     private async executeAttempt(
@@ -79,6 +104,7 @@ export class ManagedRemoteBridgeClient {
         expectedRevisionId: string | undefined,
         targetId: string | undefined,
         legacySshTarget: string | undefined,
+        fileTransfer: { kind: 'localRoot'; rootId: string; directoryId?: string } | undefined,
         retryExpiredSession: boolean,
     ): Promise<unknown> {
         const requestId = correlation('managed-remote');
@@ -92,6 +118,7 @@ export class ManagedRemoteBridgeClient {
                 ...(expectedRevisionId ? { expectedRevisionId } : {}),
                 ...(targetId ? { targetId } : {}),
                 ...(legacySshTarget ? { legacySshTarget } : {}),
+                ...(fileTransfer ? { fileTransfer } : {}),
             },
         ));
         if (!isRecord(response)
@@ -115,7 +142,7 @@ export class ManagedRemoteBridgeClient {
                 && /session expired/iu.test(response.message)) {
                 this.session = undefined;
                 return this.executeAttempt(
-                    operation, expectedRevisionId, targetId, legacySshTarget, false,
+                    operation, expectedRevisionId, targetId, legacySshTarget, fileTransfer, false,
                 );
             }
             throw new ManagedRemoteBridgeClientError(
@@ -179,4 +206,48 @@ export class ManagedRemoteBridgeClient {
             );
         });
     }
+}
+
+function parseFileTransferLocalRootResponse(value: unknown): FileTransferLocalRootResponse | null {
+    if (!isRecord(value)
+        || !hasExactKeys(value, ['rootId', 'directoryId', 'label', 'entries'])
+        || !validFileTransferHandle(value.rootId)
+        || !validFileTransferHandle(value.directoryId)
+        || typeof value.label !== 'string'
+        || value.label.length < 1
+        || value.label.length > 255
+        || !Array.isArray(value.entries)
+        || value.entries.length > 1_000
+        || !value.entries.every(validFileTransferDirectoryEntry)) {
+        return null;
+    }
+    return value as unknown as FileTransferLocalRootResponse;
+}
+
+function validFileTransferDirectoryEntry(value: unknown): boolean {
+    if (!isRecord(value)
+        || !hasAllowedFileTransferEntryKeys(value)
+        || !validFileTransferHandle(value.id)
+        || typeof value.name !== 'string'
+        || value.name.length < 1
+        || value.name.length > 255
+        || !['directory', 'file', 'symlink', 'unsupported'].includes(String(value.kind))
+        || (value.size !== undefined && (!Number.isSafeInteger(value.size) || value.size < 0))
+        || (value.modifiedAt !== undefined
+            && (!Number.isSafeInteger(value.modifiedAt) || value.modifiedAt < 0))) {
+        return false;
+    }
+    return true;
+}
+
+function hasAllowedFileTransferEntryKeys(value: Record<string, unknown>): boolean {
+    const required = ['id', 'name', 'kind'];
+    const allowed = required.concat(['size', 'modifiedAt']);
+    const keys = Object.keys(value);
+    return required.every(key => Object.prototype.hasOwnProperty.call(value, key))
+        && keys.every(key => allowed.includes(key));
+}
+
+function validFileTransferHandle(value: unknown): boolean {
+    return typeof value === 'string' && /^[a-f0-9]{32}$/u.test(value);
 }

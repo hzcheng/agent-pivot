@@ -7,6 +7,14 @@ import {
     PENDING_WORKSPACE_SAVE_TTL_MS,
 } from './pendingWorkspaceSaveStore';
 
+export type WorkspaceSaveProgressStage =
+    | 'resolving-workspace'
+    | 'awaiting-workspace-location'
+    | 'preparing-project'
+    | 'persisting-project';
+
+export type WorkspaceSaveProgressReporter = (stage: WorkspaceSaveProgressStage) => void;
+
 export interface SavedWorkspaceProjectAdapterOptions {
     getCurrentWorkspace: () => OpenWorkspace | null;
     pendingStore: PendingWorkspaceSaveStore;
@@ -21,18 +29,19 @@ export class SavedWorkspaceProjectAdapter {
 
     constructor(private readonly options: SavedWorkspaceProjectAdapterOptions) { }
 
-    saveCurrentWorkspace(): Promise<boolean> {
-        return this.runTransaction(() => this.saveCurrentWorkspaceUnlocked());
+    saveCurrentWorkspace(reportProgress?: WorkspaceSaveProgressReporter): Promise<boolean> {
+        return this.runTransaction(() => this.saveCurrentWorkspaceUnlocked(reportProgress));
     }
 
-    completePendingWorkspaceSave(): Promise<boolean> {
-        return this.runTransaction(() => this.completePendingWorkspaceSaveUnlocked());
+    completePendingWorkspaceSave(reportProgress?: WorkspaceSaveProgressReporter): Promise<boolean> {
+        return this.runTransaction(() => this.completePendingWorkspaceSaveUnlocked(reportProgress));
     }
 
-    private async saveCurrentWorkspaceUnlocked(): Promise<boolean> {
+    private async saveCurrentWorkspaceUnlocked(reportProgress?: WorkspaceSaveProgressReporter): Promise<boolean> {
+        reportProgress?.('resolving-workspace');
         const workspace = this.options.getCurrentWorkspace();
         if (this.options.pendingStore.read()
-            && await this.completePendingWorkspaceSaveUnlocked()) {
+            && await this.completePendingWorkspaceSaveUnlocked(reportProgress)) {
             return true;
         }
         if (!workspace) {
@@ -40,7 +49,7 @@ export class SavedWorkspaceProjectAdapter {
         }
 
         if (workspace.kind !== 'untitledMultiRoot') {
-            return this.saveWorkspace(workspace);
+            return this.saveWorkspace(workspace, reportProgress);
         }
 
         const createdAtMs = this.nowMs();
@@ -51,6 +60,7 @@ export class SavedWorkspaceProjectAdapter {
         );
 
         try {
+            reportProgress?.('awaiting-workspace-location');
             await this.options.executeSaveWorkspaceAs();
         } catch (error) {
             await this.options.pendingStore.clear();
@@ -60,14 +70,16 @@ export class SavedWorkspaceProjectAdapter {
         const transitioned = this.options.getCurrentWorkspace();
         if (transitioned?.kind === 'savedMultiRoot'
             && transitioned.scopeIdentity === workspace.scopeIdentity) {
-            return this.completePendingWorkspaceSaveUnlocked();
+            return this.completePendingWorkspaceSaveUnlocked(reportProgress);
         }
 
         await this.options.pendingStore.clear();
         return false;
     }
 
-    private async completePendingWorkspaceSaveUnlocked(): Promise<boolean> {
+    private async completePendingWorkspaceSaveUnlocked(
+        reportProgress?: WorkspaceSaveProgressReporter
+    ): Promise<boolean> {
         const intent = this.options.pendingStore.read();
         await this.options.pendingStore.clear();
         if (!intent || !this.options.pendingStore.isValidAt(intent, this.nowMs())) {
@@ -81,11 +93,16 @@ export class SavedWorkspaceProjectAdapter {
             return false;
         }
 
-        return this.saveWorkspace(workspace);
+        return this.saveWorkspace(workspace, reportProgress);
     }
 
-    private async saveWorkspace(workspace: OpenWorkspace): Promise<boolean> {
+    private async saveWorkspace(
+        workspace: OpenWorkspace,
+        reportProgress?: WorkspaceSaveProgressReporter
+    ): Promise<boolean> {
+        reportProgress?.('preparing-project');
         const details = await this.options.getProjectDetailsForSave(workspace.navigationUri);
+        reportProgress?.('persisting-project');
         return (await this.options.saveWorkspaceProject(details)) !== false;
     }
 

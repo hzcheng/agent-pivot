@@ -141,6 +141,27 @@ test('PERSIST-WORKSPACE-SAVE-001 serializes duplicate save requests into one mut
     assert.equal(mutations, 1);
 });
 
+test('PERSIST-WORKSPACE-SAVE-001 reports the workspace save stages in order', async () => {
+    const current = workspace('savedMultiRoot');
+    const stages = [];
+    const adapter = new SavedWorkspaceProjectAdapter({
+        getCurrentWorkspace: () => current,
+        pendingStore: new PendingWorkspaceSaveStore(memoryMemento()),
+        getProjectDetailsForSave: async navigationUri => detailsFor(navigationUri),
+        saveWorkspaceProject: async () => undefined,
+        executeSaveWorkspaceAs: async () => assert.fail('saved workspace must not invoke Save Workspace As'),
+        nowMs: () => NOW,
+    });
+
+    await adapter.saveCurrentWorkspace(stage => stages.push(stage));
+
+    assert.deepEqual(stages, [
+        'resolving-workspace',
+        'preparing-project',
+        'persisting-project',
+    ]);
+});
+
 test('PERSIST-WORKSPACE-SAVE-001 completes a pending save at startup and preserves fixture bytes', async () => {
     const fixturePath = path.resolve(
         __dirname,

@@ -284,7 +284,10 @@ import { OpenWorkspaceController } from './openWorkspaces/workspaceController';
 import { WorkspaceContextResolver } from './workspaces/contextResolver';
 import { WorkspacePrimaryRootStore } from './workspaces/primaryRootStore';
 import { PendingWorkspaceSaveStore } from './workspaces/pendingWorkspaceSaveStore';
-import { SavedWorkspaceProjectAdapter } from './workspaces/savedWorkspaceProjectAdapter';
+import {
+    SavedWorkspaceProjectAdapter,
+    WorkspaceSaveProgressStage,
+} from './workspaces/savedWorkspaceProjectAdapter';
 import { WorkspacePendingSessionPromotionController } from './workspaces/pendingSessionPromotionController';
 import {
     CurrentWorkspaceSessionAuthority,
@@ -2750,8 +2753,38 @@ async function initializeDashboard(
                 ? message.requestId : null;
             const projectId = typeof message.projectId === 'string'
                 && message.projectId.length <= 256 ? message.projectId : null;
+            const startedAtMs = monotonicNowMs();
+            const elapsedMs = () => Math.max(0, Math.round(monotonicNowMs() - startedAtMs));
+            const reportProgress = (stage: WorkspaceSaveProgressStage) => {
+                logDashboardDiagnostic({
+                    event: 'save-current-workspace-progress',
+                    requestId,
+                    projectId,
+                    stage,
+                    elapsedMs: elapsedMs(),
+                });
+                if (requestId && projectId) {
+                    void provider.postMessage({
+                        type: 'save-current-workspace-progress', version: 1, requestId, projectId,
+                        operation: 'save-current-workspace', stage,
+                    }).then(undefined, error => logError(
+                        'Could not report the current workspace save progress.', error));
+                }
+            };
+            logDashboardDiagnostic({
+                event: 'save-current-workspace-started',
+                requestId,
+                projectId,
+            });
             try {
-                const saved = await savedWorkspaceProjectAdapter.saveCurrentWorkspace();
+                const saved = await savedWorkspaceProjectAdapter.saveCurrentWorkspace(reportProgress);
+                logDashboardDiagnostic({
+                    event: 'save-current-workspace-settled',
+                    requestId,
+                    projectId,
+                    status: saved ? 'saved' : 'cancelled',
+                    elapsedMs: elapsedMs(),
+                });
                 if (requestId && projectId) {
                     await provider.postMessage({
                         type: 'save-current-workspace-result', version: 1, requestId, projectId,
@@ -2761,6 +2794,13 @@ async function initializeDashboard(
                 }
             } catch (error) {
                 logError('Could not save the current workspace.', error);
+                logDashboardDiagnostic({
+                    event: 'save-current-workspace-settled',
+                    requestId,
+                    projectId,
+                    status: 'failed',
+                    elapsedMs: elapsedMs(),
+                });
                 if (requestId && projectId) {
                     await provider.postMessage({
                         type: 'save-current-workspace-result', version: 1, requestId, projectId,

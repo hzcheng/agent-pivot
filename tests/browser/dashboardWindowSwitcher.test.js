@@ -216,6 +216,19 @@ test('OPEN-WINDOW-SWITCHER-UI-001 visibly holds one Window save pending until it
 
     await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', {
         data: {
+            type: 'save-current-workspace-progress', version: 1, requestId,
+            projectId: '__currentWorkspace-' + 'a'.repeat(24),
+            operation: 'save-current-workspace', stage: 'persisting-project',
+        },
+    })), request.requestId);
+    assert.equal(await button.getAttribute('aria-label'), 'Saving…');
+    assert.equal(await page.locator('[data-open-window-row][data-window-kind="current"] .open-window-save-phase').textContent(),
+        'Saving…');
+    assert.equal(await page.locator('[data-open-window-nav-live-region]').textContent(),
+        'Saving… alpha');
+
+    await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', {
+        data: {
             type: 'save-current-workspace-result', version: 1, requestId,
             projectId: '__currentWorkspace-' + 'a'.repeat(24),
             operation: 'save-current-workspace', status: 'cancelled',

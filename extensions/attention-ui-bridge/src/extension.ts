@@ -565,6 +565,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openWorkspacePinCoordinator,
         openWorkspaceRunningFocusCoordinator,
         openWorkspaceAttentionFocusCoordinator,
+        { dispose: () => managedRemoteController.dispose() },
         {
             dispose: () => {
                 if (scanTimer !== null) {

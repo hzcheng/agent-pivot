@@ -301,3 +301,17 @@ test('FILE-TRANSFER-COPY-003 retains SFTP file sizes for post-copy verification'
         { name: 'report.txt', kind: 'file', size: 4096 },
     ]);
 });
+
+test('FILE-TRANSFER-COPY-004 stops active relay processes when the UI Bridge disposes', () => {
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { return null; },
+    }, {
+        async create() { return {}; },
+    }, 'session-12345678');
+    let killed = 0;
+    const active = { cancelled: false, process: { kill() { killed += 1; } } };
+    controller.activeFileTransferCopies.set('running-task-123456', active);
+    controller.dispose();
+    assert.equal(active.cancelled, true);
+    assert.equal(killed, 1);
+});

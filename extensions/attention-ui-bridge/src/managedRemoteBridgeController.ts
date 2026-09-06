@@ -333,6 +333,13 @@ export class ManagedRemoteBridgeController {
     ) {
     }
 
+    dispose(): void {
+        for (const active of this.activeFileTransferCopies.values()) {
+            active.cancelled = true;
+            active.process?.kill();
+        }
+    }
+
     async execute(raw: unknown): Promise<ManagedRemoteBridgeResponse> {
         const request = parseManagedRemoteBridgeRequest(raw);
         if (!request) {

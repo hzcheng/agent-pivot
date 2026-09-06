@@ -93,15 +93,15 @@ export function getFileTransferContent(
         <button type="button" class="file-transfer-reveal-target" data-file-transfer-reveal-target hidden>Reveal target</button>
         <button type="button" class="file-transfer-retry" data-file-transfer-retry hidden>Retry failed items</button>
         <ul class="file-transfer-task-list" data-file-transfer-task-list aria-label="Transfer tasks" hidden></ul>
+        <section class="file-transfer-saved-pairs" data-file-transfer-saved-pairs aria-label="Recent endpoint pairs" hidden>
+            <h3>Recent endpoint pairs</h3>
+            <ul data-file-transfer-saved-pair-list></ul>
+        </section>
         <div class="file-transfer-pair" role="group" aria-label="Choose transfer endpoints">
             ${endpointPicker('left', options)}
             <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Swap the left and right endpoint layout" aria-label="Swap endpoint layout">↔</button>
             ${endpointPicker('right', options)}
         </div>
-        <section class="file-transfer-saved-pairs" data-file-transfer-saved-pairs aria-label="Recent endpoint pairs" hidden>
-            <h3>Recent endpoint pairs</h3>
-            <ul data-file-transfer-saved-pair-list></ul>
-        </section>
         <p class="file-transfer-pair-hint" data-file-transfer-pair-hint>Select two endpoints. They are equal until you select files to copy.</p>
         <div class="file-transfer-panes">
             ${pane('left')}

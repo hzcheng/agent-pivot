@@ -545,6 +545,7 @@ test('FILE-TRANSFER-UI-010 filters hidden entries and sorts each endpoint indepe
     assert.match(html, /value="modified"/);
     assert.match(html, /data-file-transfer-saved-pairs/);
     assert.match(html, /Recent endpoint pairs/);
+    assert.ok(html.indexOf('data-file-transfer-saved-pairs') < html.indexOf('data-file-transfer-endpoint="left"'));
     assert.match(dashboardSource, /function sortFileTransferEntries/);
     assert.match(dashboardSource, /showHiddenEntries\[side\] \|\| entry\.name\.charAt\(0\) !== '\.'/);
     assert.match(dashboardSource, /sortFileTransferEntries\(visibleEntries, fileTransferSort\[side\]\)/);

@@ -174,8 +174,8 @@ review sheet that remains visibly tied to both pane headers and contains:
 - item count and calculated total size (or `Calculating…` until known);
 - discovered collisions grouped as new, same, changed, and inaccessible;
 - conflict policy, initially **Ask before replacing**;
-- any warning about insufficient target space, unsupported file types,
-  inaccessible child paths, or an unavailable integrity check.
+- any warning about unsupported file types, inaccessible child paths, or an
+  unavailable integrity check.
 
 Permitted release-one collision policies are `Ask`, `Skip existing`, and
 `Replace existing`. `Replace existing` is a deliberate per-task choice and must
@@ -211,11 +211,14 @@ resume is a later feature, not an implied guarantee.
   read access to its starting directory before it is marked ready.
 - This Computer becomes ready only after the user selects a local root with the
   native directory picker and the UI Bridge proves read access to that root.
-- Starting a task also proves target-directory write access and obtains target
-  free-space information where the platform supplies it.
+- Starting a task proves target-directory write access. It does not query or
+  reserve target free space as a precondition for transfer.
 - A stale revision, endpoint conflict, missing SSH dependency, host-key prompt,
   access denial, or unavailable Machine disables the affected action with a
   specific recovery path.
+- A target disk-full error is reported as a transfer failure at the affected
+  item/path, with truthful completed and failed counts; it is not converted into
+  a preflight warning or a global success.
 
 ### 8.2 File browser
 
@@ -293,7 +296,7 @@ resume is a later feature, not an implied guarantee.
 | Review before effects | Drag/drop, button, AI hand-off, retry, and saved plan all route through the same review policy. |
 | Local is first-class but scoped | This Computer can be paired with any Managed Machine in P0. Native folder selection establishes an explicit local root, so the transfer UI cannot browse the user's whole disk by default. |
 | Convenient recurrence | Recent/pinned symmetric pairs and locally remembered folders speed repeated workflows without synchronizing operational paths. |
-| Explicit uncertainty | Unknown size, unavailable free-space, partial directory access, or unsupported entries appear as warnings, never as deceptive success. |
+| Explicit uncertainty | Unknown size, partial directory access, or unsupported entries appear as warnings, never as deceptive success. Target free space is not queried before copy; a disk-full error is reported at transfer time. |
 | Agent assistance is bounded | Conversation can prefill a draft only from user-visible Managed Machine/project context or a locally selected root. It cannot select an unshown path, set Replace Existing, or start transfer. |
 
 ## 10. Technical implementation path
@@ -489,8 +492,10 @@ behavior; cancellation; and Machines that cannot reach one another.
 - [ ] Process arguments resist shell/path/option injection for spaces, Unicode,
       `#`, `?`, `%`, quotes, leading dashes, and directory traversal attempts.
 - [ ] Preflight prevents start when source is unreadable or destination is
-      unwritable; insufficient-space and unknown-space conditions are shown
-      before the final confirmation.
+      unwritable; it does not query or block on target free space.
+- [ ] A target disk-full error produces a truthful partial/failed task result
+      with the affected path, completed-item count, and retry/review path; it
+      never produces a false full-success result.
 - [ ] The final target remains beneath the reviewed target root for every copied
       path, including nested directories and adversarial names.
 - [ ] Completion only reports full success after required size/integrity checks;
@@ -527,8 +532,7 @@ behavior; cancellation; and Machines that cannot reach one another.
 2. Set concrete limits for directory page size, selected item count, total task
    size warning, preview size, history retention, retry attempts, and diagnostic
    truncation.
-3. Decide whether a user can override an unknown free-space result after an
-   explicit warning, and which protected target roots require extra confirmation.
+3. Decide which protected target roots require extra confirmation.
 4. Confirm whether preserving symlinks, POSIX modes, timestamps, extended
    attributes, and ACLs is supported, skipped, or best-effort per platform.
 5. Confirm telemetry approval and retention; the product must function with no

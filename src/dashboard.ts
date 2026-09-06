@@ -2968,9 +2968,11 @@ async function initializeDashboard(
                 }
                 try {
                     const endpoint = message.endpoint as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference;
+                    const navigationPath = typeof message.path === 'string' ? message.path : undefined;
                     if (endpoint.kind === 'local') {
                         const root = await managedRemoteBridgeClient.listFileTransferLocalDirectory(
-                            endpoint.rootId, endpoint.directoryId,
+                            endpoint.rootId, navigationPath === undefined ? endpoint.directoryId : undefined,
+                            navigationPath,
                         );
                         await provider.postMessage({
                             type: 'file-transfer-local-root-selected',
@@ -2986,7 +2988,8 @@ async function initializeDashboard(
                         const root = await managedRemoteBridgeClient.listFileTransferRemoteDirectory(
                             managedRemoteSnapshot.revisionId,
                             endpoint.machineId,
-                            endpoint.directoryId,
+                            navigationPath === undefined ? endpoint.directoryId : undefined,
+                            navigationPath,
                         );
                         await provider.postMessage({
                             type: 'file-transfer-remote-directory-listed',
@@ -4783,9 +4786,28 @@ function isFileTransferOpenDirectoryRequest(value: Record<string, unknown>): boo
         && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
         && (value.side === 'left' || value.side === 'right')
         && isFileTransferEndpointReference(value.endpoint)
-        && Object.keys(value).sort().join('\n') === [
-            'endpoint', 'requestId', 'side', 'type', 'version',
-        ].join('\n');
+        && (value.path === undefined || isFileTransferNavigationPath(value.path, value.endpoint))
+        && Object.keys(value).every(key => [
+            'endpoint', 'path', 'requestId', 'side', 'type', 'version',
+        ].includes(key))
+        && ['endpoint', 'requestId', 'side', 'type', 'version']
+            .every(key => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function isFileTransferNavigationPath(value: unknown, endpoint: unknown): boolean {
+    if (typeof value !== 'string' || value.length < 1 || value.length > 1024 || /[\0\r\n]/u.test(value)) {
+        return false;
+    }
+    const kind = endpoint && typeof endpoint === 'object'
+        ? (endpoint as Record<string, unknown>).kind : undefined;
+    if (kind === 'local') {
+        return !/[\\]/u.test(value)
+            && (value === '.' || (!value.startsWith('/') && value.split('/').every(segment =>
+                segment.length > 0 && segment !== '.' && segment !== '..')));
+    }
+    return kind === 'managedMachine'
+        && (value === '.' || value === '/' || (value.startsWith('/') && value.split('/').every((segment, index) =>
+            index === 0 || (segment.length > 0 && segment !== '.' && segment !== '..'))));
 }
 
 function isFileTransferEndpointReference(value: unknown): boolean {

@@ -236,6 +236,13 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
         },
     });
     assert.equal(rejected.status, 'failed');
+
+    const byPath = await controller.execute({
+        ...request('listFileTransferLocalDirectory'),
+        fileTransfer: { kind: 'localRoot', rootId: selected.value.rootId, path: 'folder' },
+    });
+    assert.equal(byPath.status, 'ok');
+    assert.equal(byPath.value.displayPath, 'folder');
 });
 
 test('FILE-TRANSFER-LOCAL-BROWSE-002 binds selected file handles to the reviewed source directory', async t => {

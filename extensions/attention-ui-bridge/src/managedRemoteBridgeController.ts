@@ -496,8 +496,9 @@ export class ManagedRemoteBridgeController {
             if (request.operation === 'listFileTransferLocalDirectory') {
                 const localRoot = request.fileTransfer as FileTransferLocalRootRequest;
                 return response(request.requestId, 'ok', await this.listFileTransferLocalDirectory(
-                    localRoot.rootId,
-                    localRoot.directoryId,
+                localRoot.rootId,
+                localRoot.directoryId,
+                localRoot.path,
                 ));
             }
             if (request.operation === 'cancelFileTransferCopy') {
@@ -520,6 +521,7 @@ export class ManagedRemoteBridgeController {
                     coordinator,
                     request.targetId!,
                     remoteDirectory.directoryId,
+                    remoteDirectory.path,
                 ));
             }
             if (request.operation === 'copyFileTransferEntries') {
@@ -687,13 +689,18 @@ export class ManagedRemoteBridgeController {
     private async listFileTransferLocalDirectory(
         rootId: string,
         directoryId: string | undefined,
+        navigationPath?: string,
     ): Promise<FileTransferLocalRootResponse> {
         const root = this.fileTransferRoots.get(rootId);
         if (!root) {
             throw new Error('The selected local folder is no longer available. Choose it again.');
         }
-        const resolvedDirectoryId = directoryId || Array.from(root.directories.keys())[0];
-        const directoryPath = resolvedDirectoryId ? root.directories.get(resolvedDirectoryId) : undefined;
+        const resolvedDirectoryId = navigationPath === undefined
+            ? directoryId || Array.from(root.directories.keys())[0]
+            : this.fileTransferHandle();
+        const directoryPath = navigationPath === undefined
+            ? resolvedDirectoryId ? root.directories.get(resolvedDirectoryId) : undefined
+            : path.join(root.path, navigationPath);
         if (!directoryPath) {
             throw new Error('The selected local directory is no longer available. Refresh the folder.');
         }
@@ -765,13 +772,20 @@ export class ManagedRemoteBridgeController {
         coordinator: ManagedSshConsentCoordinator,
         machineId: string,
         directoryId: string | undefined,
+        navigationPath?: string,
     ): Promise<FileTransferLocalRootResponse> {
         const view = materializeManagedRemoteCatalog(slot.document);
         const target = resolveManagedMachineTarget(view, machineId);
         await this.ensureProjectionReady(slot);
         let resolvedDirectoryId = directoryId;
         let directory: FileTransferRemoteDirectory | undefined;
-        if (resolvedDirectoryId) {
+        if (navigationPath !== undefined) {
+            resolvedDirectoryId = this.fileTransferHandle();
+            directory = {
+                machineId, path: navigationPath, kind: 'directory', directoryId: resolvedDirectoryId,
+            };
+            this.fileTransferRemoteDirectories.set(resolvedDirectoryId, directory);
+        } else if (resolvedDirectoryId) {
             directory = this.fileTransferRemoteDirectories.get(resolvedDirectoryId);
             if (!directory || directory.machineId !== machineId) {
                 throw new Error('The selected remote directory is no longer available. Refresh the Machine.');

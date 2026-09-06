@@ -552,9 +552,11 @@ test('FILE-TRANSFER-UI-013 navigates known directories through opaque breadcrumb
             conflicts: [] },
     });
     assert.match(html, /data-file-transfer-pane-path aria-label="Current directory"/);
+    assert.match(html, /data-file-transfer-path-input="left"/);
     assert.match(dashboardSource, /function renderPaneBreadcrumbs/);
     assert.match(dashboardSource, /directoryHistory\[side\] = trail\.slice\(0, index\);/);
     assert.match(dashboardSource, /openDirectory\(side, directory\.directoryId, false\);/);
+    assert.match(dashboardSource, /function openPath\(side, navigationPath\)/);
 });
 
 test('FILE-TRANSFER-UI-014 filters only the files already loaded in each pane', () => {

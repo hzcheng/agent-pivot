@@ -1943,6 +1943,28 @@ body .project {
     white-space: nowrap;
 }
 
+.file-transfer-path-input {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    margin-top: 5px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 10px;
+}
+
+.file-transfer-path-input input {
+    min-width: 0;
+    flex: 1 1 auto;
+    height: 22px;
+    padding: 1px 4px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 3px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    font: inherit;
+}
+
 .file-transfer-pane-header > div:first-child {
     min-width: 0;
     flex: 1 1 auto;

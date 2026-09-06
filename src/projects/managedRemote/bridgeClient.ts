@@ -89,10 +89,15 @@ export class ManagedRemoteBridgeClient {
     listFileTransferLocalDirectory(
         rootId: string,
         directoryId?: string,
+        navigationPath?: string,
     ): Promise<FileTransferLocalRootResponse> {
         return this.executeAttempt(
             'listFileTransferLocalDirectory', undefined, undefined, undefined,
-            { kind: 'localRoot', rootId, ...(directoryId ? { directoryId } : {}) }, true,
+            {
+                kind: 'localRoot', rootId,
+                ...(directoryId ? { directoryId } : {}),
+                ...(navigationPath ? { path: navigationPath } : {}),
+            }, true,
         ).then(value => {
             const parsed = parseFileTransferLocalRootResponse(value);
             if (!parsed) {
@@ -106,10 +111,15 @@ export class ManagedRemoteBridgeClient {
         expectedRevisionId: string,
         machineId: string,
         directoryId?: string,
+        navigationPath?: string,
     ): Promise<FileTransferLocalRootResponse> {
         return this.executeAttempt(
             'listFileTransferRemoteDirectory', expectedRevisionId, machineId, undefined,
-            { kind: 'managedMachine', ...(directoryId ? { directoryId } : {}) }, true,
+            {
+                kind: 'managedMachine',
+                ...(directoryId ? { directoryId } : {}),
+                ...(navigationPath ? { path: navigationPath } : {}),
+            }, true,
         ).then(value => {
             const parsed = parseFileTransferLocalRootResponse(value);
             if (!parsed) {
@@ -156,8 +166,8 @@ export class ManagedRemoteBridgeClient {
         targetId: string | undefined,
         legacySshTarget: string | undefined,
         fileTransfer: (
-            | { kind: 'localRoot'; rootId: string; directoryId?: string }
-            | { kind: 'managedMachine'; directoryId?: string }
+            | { kind: 'localRoot'; rootId: string; directoryId?: string; path?: string }
+            | { kind: 'managedMachine'; directoryId?: string; path?: string }
             | FileTransferPreflightRequest
             | FileTransferCopyRequest
             | { kind: 'cancel'; taskId: string }

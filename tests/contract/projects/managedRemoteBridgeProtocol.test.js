@@ -79,6 +79,30 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
         fileTransfer: { ...localDirectory.fileTransfer, path: '/outside' },
     }), null);
     assert.deepEqual(parseManagedRemoteBridgeRequest({
+        ...localDirectory,
+        fileTransfer: { kind: 'localRoot', rootId: 'a'.repeat(32), path: 'reports/2026' },
+    })?.fileTransfer.path, 'reports/2026');
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...localDirectory,
+        fileTransfer: { kind: 'localRoot', rootId: 'a'.repeat(32), path: '../outside' },
+    }), null);
+    const remoteDirectory = {
+        ...localDirectory,
+        operation: 'listFileTransferRemoteDirectory',
+        expectedRevisionId: `revision:${'a'.repeat(64)}`,
+        targetId: 'machine:one',
+        fileTransfer: { kind: 'managedMachine', path: '/opt/releases' },
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(remoteDirectory), remoteDirectory);
+    assert.deepEqual(parseManagedRemoteBridgeRequest({
+        ...remoteDirectory,
+        fileTransfer: { kind: 'managedMachine', path: '/' },
+    })?.fileTransfer.path, '/');
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...remoteDirectory,
+        fileTransfer: { kind: 'managedMachine', path: '/opt/../secrets' },
+    }), null);
+    assert.deepEqual(parseManagedRemoteBridgeRequest({
         protocolVersion: 1,
         requestId: 'request-12345678',
         sessionToken: 'session-12345678',

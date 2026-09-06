@@ -849,6 +849,7 @@ function initDashboard(options) {
             }
             var name = pane.querySelector('[data-file-transfer-pane-name]');
             var path = pane.querySelector('[data-file-transfer-pane-path]');
+            var pathInput = pane.querySelector('[data-file-transfer-path-input]');
             var status = pane.querySelector('[data-file-transfer-pane-status]');
             var refresh = pane.querySelector('[data-file-transfer-refresh]');
             var up = pane.querySelector('[data-file-transfer-up]');
@@ -868,6 +869,10 @@ function initDashboard(options) {
                 if (filter) filter.disabled = true;
                 if (showHidden) showHidden.disabled = true;
                 if (sort) sort.disabled = true;
+                if (pathInput) {
+                    pathInput.disabled = true;
+                    pathInput.value = '';
+                }
                 if (fileList) {
                     fileList.textContent = '';
                     fileList.hidden = true;
@@ -891,6 +896,10 @@ function initDashboard(options) {
             if (sort) {
                 sort.disabled = !directoryView;
                 sort.value = fileTransferSort[side];
+            }
+            if (pathInput) {
+                pathInput.disabled = !directoryView;
+                pathInput.value = directoryView ? directoryView.displayPath : '';
             }
             renderPaneBreadcrumbs(
                 side,
@@ -1053,6 +1062,31 @@ function initDashboard(options) {
                     },
                 });
             }
+            updatePair();
+        }
+
+        function openPath(side, navigationPath) {
+            var selector = selectorFor(side);
+            var root = localRoots[side];
+            if (!selector || !root || !navigationPath) return;
+            var requestId = 'file-transfer-path-' + side + '-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingLocalRootRequests[side] = requestId;
+            selectedEntries[side].clear();
+            directoryHistory[side] = [];
+            var endpoint = selector.value === 'local'
+                ? { kind: 'local', rootId: root.rootId, directoryId: root.directoryId }
+                : selector.value.indexOf('managed:') === 0
+                    ? {
+                        kind: 'managedMachine',
+                        machineId: selector.value.slice('managed:'.length),
+                        directoryId: root.directoryId,
+                    } : null;
+            if (!endpoint) return;
+            options.postMessage({
+                type: 'file-transfer-open-directory', version: 1, requestId: requestId,
+                side: side, endpoint: endpoint, path: navigationPath,
+            });
             updatePair();
         }
 
@@ -1475,6 +1509,18 @@ function initDashboard(options) {
                 if (side !== 'left' && side !== 'right') return;
                 fileTransferFilter[side] = input.value.slice(0, 255).toLocaleLowerCase();
                 updatePair();
+            });
+        });
+        Array.from(panel.querySelectorAll('[data-file-transfer-path-input]')).forEach(function (input) {
+            input.addEventListener('change', function () {
+                var side = input.getAttribute('data-file-transfer-path-input');
+                if (side === 'left' || side === 'right') openPath(side, input.value);
+            });
+            input.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                var side = input.getAttribute('data-file-transfer-path-input');
+                if (side === 'left' || side === 'right') openPath(side, input.value);
             });
         });
         Array.from(panel.querySelectorAll('[data-file-transfer-show-hidden]')).forEach(function (checkbox) {

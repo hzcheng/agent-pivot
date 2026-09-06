@@ -209,8 +209,16 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
         targetId: machines[1].id,
         fileTransfer: { kind: 'managedMachine' },
     });
+    const sourceByAbsolutePath = await controller.execute({
+        ...request('listFileTransferRemoteDirectory', slot.revisionId, 'source-path'),
+        targetId: machines[0].id,
+        fileTransfer: { kind: 'managedMachine', path: remoteOne },
+    });
     assert.equal(sourceRoot.status, 'ok', sourceRoot.message);
     assert.equal(destinationRoot.status, 'ok', destinationRoot.message);
+    assert.equal(sourceByAbsolutePath.status, 'ok', sourceByAbsolutePath.message);
+    assert.equal(sourceByAbsolutePath.value.displayPath, remoteOne);
+    assert.ok(sourceByAbsolutePath.value.entries.some(entry => entry.name === remoteSpecialFile));
     const sourceDirectory = sourceRoot.value.entries.find(entry => entry.name === path.basename(remoteOne));
     const destinationDirectory = destinationRoot.value.entries.find(entry => entry.name === path.basename(remoteTwo));
     assert.ok(sourceDirectory);

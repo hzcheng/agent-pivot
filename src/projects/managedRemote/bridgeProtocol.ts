@@ -40,11 +40,15 @@ export interface FileTransferLocalRootRequest {
     kind: 'localRoot';
     rootId: string;
     directoryId?: string;
+    /** A display-relative path below the opaque root, never a local absolute path. */
+    path?: string;
 }
 
 export interface FileTransferRemoteDirectoryRequest {
     kind: 'managedMachine';
     directoryId?: string;
+    /** A bounded absolute POSIX path or the remote home-directory shorthand. */
+    path?: string;
 }
 
 export type FileTransferEndpointReference =
@@ -336,20 +340,40 @@ function validFileTransferRemoteDirectoryRequest(
     value: unknown,
 ): value is FileTransferRemoteDirectoryRequest {
     return isRecord(value)
-        && hasExactKeys(value, ['kind'], ['directoryId'])
+        && hasExactKeys(value, ['kind'], ['directoryId', 'path'])
         && value.kind === 'managedMachine'
-        && (value.directoryId === undefined || validFileTransferHandle(value.directoryId));
+        && (value.directoryId === undefined || validFileTransferHandle(value.directoryId))
+        && (value.path === undefined || validFileTransferRemoteNavigationPath(value.path))
+        && !(value.directoryId !== undefined && value.path !== undefined);
 }
 
 function validFileTransferLocalRootRequest(value: unknown): value is FileTransferLocalRootRequest {
     if (!isRecord(value)
-        || !hasExactKeys(value, ['kind', 'rootId'], ['directoryId'])
+        || !hasExactKeys(value, ['kind', 'rootId'], ['directoryId', 'path'])
         || value.kind !== 'localRoot'
         || !validFileTransferHandle(value.rootId)
-        || (value.directoryId !== undefined && !validFileTransferHandle(value.directoryId))) {
+        || (value.directoryId !== undefined && !validFileTransferHandle(value.directoryId))
+        || (value.path !== undefined && !validFileTransferLocalNavigationPath(value.path))
+        || (value.directoryId !== undefined && value.path !== undefined)) {
         return false;
     }
     return true;
+}
+
+function validFileTransferLocalNavigationPath(value: unknown): boolean {
+    return typeof value === 'string'
+        && value.length > 0 && value.length <= 1024
+        && !/[\\\0\r\n]/u.test(value)
+        && (value === '.' || (!value.startsWith('/') && value.split('/').every(segment =>
+            segment.length > 0 && segment !== '.' && segment !== '..')));
+}
+
+function validFileTransferRemoteNavigationPath(value: unknown): boolean {
+    return typeof value === 'string'
+        && value.length > 0 && value.length <= 1024
+        && !/[\0\r\n]/u.test(value)
+        && (value === '.' || value === '/' || (value.startsWith('/') && value.split('/').every((segment, index) =>
+            index === 0 || (segment.length > 0 && segment !== '.' && segment !== '..'))));
 }
 
 function validFileTransferHandle(value: unknown): value is string {

@@ -39,6 +39,10 @@ function pane(side: 'left' | 'right'): string {
                 <strong data-file-transfer-pane-name>Choose an endpoint</strong>
                 <span class="file-transfer-pane-copy-state" data-file-transfer-pane-copy-state hidden>Copying from here</span>
                 <nav class="file-transfer-pane-path" data-file-transfer-pane-path aria-label="Current directory">—</nav>
+                <label class="file-transfer-path-input">
+                    <span>Path</span>
+                    <input type="text" data-file-transfer-path-input="${side}" aria-label="Open path in ${label}" disabled>
+                </label>
             </div>
             <div class="file-transfer-pane-actions">
                 <button type="button" data-file-transfer-up="${side}" aria-label="Go up in ${label}" title="Up" disabled>↑</button>

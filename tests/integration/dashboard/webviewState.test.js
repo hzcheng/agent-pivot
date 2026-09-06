@@ -482,6 +482,17 @@ test('FILE-TRANSFER-UI-003 clears local history only after a correlated settleme
     assert.match(generatedDashboardSource, /file-transfer-history-cleared/);
 });
 
+test('FILE-TRANSFER-UI-005 keeps a failed endpoint selected so it can be refreshed', () => {
+    assert.match(dashboardSource, /paneFailures/);
+    assert.match(dashboardSource, /Select Refresh to try again/);
+    assert.match(dashboardSource, /file-transfer-remote-directory-failed/);
+});
+
+test('FILE-TRANSFER-UI-006 renders a directory response for either endpoint kind', () => {
+    assert.match(dashboardSource, /var directoryView = localRoots\[side\];/);
+    assert.doesNotMatch(dashboardSource, /var localRoot = value === 'local' \? localRoots\[side\] : null;/);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

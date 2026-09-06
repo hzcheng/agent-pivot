@@ -24,7 +24,7 @@ export function renderMachineProjectsPanel(
         return `<section class="machine-projects machine-projects-empty" data-machine-projects${managedAttributes} data-machine-project-count="0">
             <div class="machine-projects-toolbar">
                 <span class="machine-projects-summary">0 projects</span>
-                <div class="machine-projects-toolbar-actions">${addManagedMachine}<button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button></div>
+                <div class="machine-projects-toolbar-actions"><button type="button" class="machine-toolbar-button" data-action="save-current-project" aria-label="Save Current Project" title="Save Current Project">${Icons.save}</button>${addManagedMachine}</div>
             </div>
             <p>No projects have been added yet.</p>
         </section>`;
@@ -37,7 +37,7 @@ export function renderMachineProjectsPanel(
             <div class="machine-projects-toolbar-actions">
                 ${renderTagControls(model.tags)}
                 ${addManagedMachine}
-                <button type="button" class="machine-toolbar-button machine-projects-add" data-action="add-project" aria-label="Add Project" title="Add Project">${Icons.add}</button>
+                <button type="button" class="machine-toolbar-button" data-action="save-current-project" aria-label="Save Current Project" title="Save Current Project">${Icons.save}</button>
             </div>
         </div>
         ${renderFavorites(model.favorites)}

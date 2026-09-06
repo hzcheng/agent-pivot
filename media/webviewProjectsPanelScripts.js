@@ -229,7 +229,7 @@ function restoreMachineProjectsFocus(panel, target) {
 
 function focusProjectsPanelFallback(panel) {
     var fallback = panel && panel.querySelector(
-        '[data-managed-operation="addMachine"], [data-action="add-project"], button:not(:disabled)'
+        '[data-action="save-current-project"], [data-managed-operation="addMachine"], button:not(:disabled)'
     );
     if (fallback && typeof fallback.focus === 'function') {
         fallback.focus({ preventScroll: true });

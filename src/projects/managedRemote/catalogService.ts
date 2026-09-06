@@ -60,6 +60,11 @@ export interface AddManagedDevContainerProjectInput {
     project: Omit<AddManagedProjectInput, 'environmentId'>;
 }
 
+export interface AddManagedMachineProjectInput {
+    machine: AddManagedMachineInput;
+    project: Omit<AddManagedProjectInput, 'environmentId'>;
+}
+
 export interface EditManagedProjectInput {
     name?: string;
     remotePath?: string;
@@ -289,6 +294,19 @@ export class ManagedRemoteCatalogService {
         }
         this.commit({ projects: { [projectId]: project }, layout });
         return cloneManagedValue(project);
+    }
+
+    /**
+     * The current workspace has already proved both the SSH connection and its
+     * path. Persist its newly adopted Machine, fixed Host Environment, and
+     * Project through the single surrounding catalog transaction.
+     */
+    addMachineProject(input: AddManagedMachineProjectInput): ManagedRemoteProject {
+        const machine = this.addMachine(input.machine);
+        return this.addProject({
+            ...input.project,
+            environmentId: hostEnvironmentId(machine.id),
+        });
     }
 
     addDevContainerProject(

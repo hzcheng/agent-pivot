@@ -9984,8 +9984,8 @@ function createMachineProjectsUi() {
             });
             writeArray(storageKeys.tags, selectedTags);
             applyFilters();
-        } else if (action === 'add-project') {
-            window.vscode.postMessage({ type: 'add-project' });
+        } else if (action === 'save-current-project') {
+            window.vscode.postMessage({ type: 'save-current-workspace' });
         } else if (action === 'toggle-machine-favorite') {
             var favoriteRow = control.closest('[data-machine-project-row]');
             if (favoriteRow) {
@@ -11914,7 +11914,7 @@ function restoreMachineProjectsFocus(panel, target) {
 
 function focusProjectsPanelFallback(panel) {
     var fallback = panel && panel.querySelector(
-        '[data-managed-operation="addMachine"], [data-action="add-project"], button:not(:disabled)'
+        '[data-action="save-current-project"], [data-managed-operation="addMachine"], button:not(:disabled)'
     );
     if (fallback && typeof fallback.focus === 'function') {
         fallback.focus({ preventScroll: true });

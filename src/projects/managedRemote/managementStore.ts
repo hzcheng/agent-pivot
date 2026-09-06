@@ -2,6 +2,7 @@
 
 import {
     AddManagedMachineInput,
+    AddManagedMachineProjectInput,
     AddManagedDevContainerProjectInput,
     AddManagedProjectInput,
     EditManagedMachineInput,
@@ -61,6 +62,15 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         input: AddManagedMachineInput,
     ): Promise<ManagedRemoteManagementSnapshot> {
         return this.mutate(expectedRevisionId, service => { service.addMachine(input); });
+    }
+
+    addMachineProject(
+        expectedRevisionId: string | null,
+        input: AddManagedMachineProjectInput,
+    ): Promise<ManagedRemoteManagementSnapshot> {
+        return this.mutate(expectedRevisionId, service => {
+            service.addMachineProject(input);
+        });
     }
 
     editMachine(

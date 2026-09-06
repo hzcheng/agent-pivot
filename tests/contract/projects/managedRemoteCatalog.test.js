@@ -53,6 +53,25 @@ test('MANAGED-REMOTE-CATALOG-001 creates a Machine and its fixed Host atomically
     assert.ok(parseManagedRemoteCatalog(catalog.getDocument()));
 });
 
+test('MANAGED-REMOTE-CATALOG-001 adopts an open SSH workspace in one catalog document', () => {
+    const catalog = service();
+    const project = catalog.addMachineProject({
+        machine: { name: 'API host', host: 'api.example.com', user: 'dev', port: 2222 },
+        project: { name: 'API', remotePath: '/work/api' },
+    });
+    const view = catalog.getCatalog();
+
+    assert.equal(view.machines.length, 1);
+    assert.equal(view.environments.length, 1);
+    assert.deepEqual(project, {
+        id: 'project:2',
+        environmentId: hostEnvironmentId('machine:1'),
+        name: 'API',
+        remotePath: '/work/api',
+    });
+    assert.ok(parseManagedRemoteCatalog(catalog.getDocument()));
+});
+
 test('MANAGED-REMOTE-CATALOG-001 supports custom SSH ports and rejects credentials', () => {
     const catalog = service();
     const machine = addMachine(catalog, 'Remote WSL', { port: 22022 });

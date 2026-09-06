@@ -4182,7 +4182,6 @@ async function initializeDashboard(
     async function saveWorkspaceIntoManagedCatalog(
         details: ProjectDetailsForSave,
     ): Promise<boolean> {
-        if (managedRemoteSnapshot.lifecycle !== 'active') { return false; }
         const workspaceUri = vscode.Uri.parse(details.path);
         const context = {
             remoteName: vscode.env.remoteName,
@@ -4209,12 +4208,25 @@ async function initializeDashboard(
             managedRemoteSnapshot,
             workspaceUri,
         );
-        if (!target) { return false; }
-        await capability.controller.addDevContainerProjectDirectly({
-            machineId: target.machine.id,
-            environmentName: `${projectName} Container`,
-            anchor: target.anchor,
-            project: { name: projectName, remotePath: target.remotePath },
+        if (target) {
+            await capability.controller.addDevContainerProjectDirectly({
+                machineId: target.machine.id,
+                environmentName: `${projectName} Container`,
+                anchor: target.anchor,
+                project: { name: projectName, remotePath: target.remotePath },
+            });
+            return true;
+        }
+        if (workspaceUri.scheme !== 'vscode-remote'
+            || !workspaceUri.authority.startsWith('ssh-remote+')) {
+            return false;
+        }
+        // The user has already opened this SSH workspace successfully. Let them
+        // explicitly adopt its Machine instead of sending them to a separate
+        // setup flow, then persist the complete hierarchy in one mutation.
+        await capability.controller.addCurrentSshProject({
+            name: projectName,
+            remotePath,
         });
         return true;
     }

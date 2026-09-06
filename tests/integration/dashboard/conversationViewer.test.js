@@ -7893,7 +7893,7 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 publishes collapsible tool-call mark
     assert.equal(html.includes('conversation-message-tool'), true);
 });
 
-test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 publishes plan and question markup with the settled answers', async () => {
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 CONVERSATION-QUESTION-OPTION-HIERARCHY-001 publishes numbered question options with distinct labels and descriptions', async () => {
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(
             sessionId,
@@ -7951,6 +7951,7 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 publishes plan and question mark
 
     await viewer.open(target('session-a', 'input-1'));
     const html = panel.webview.html;
+    const renderedQuestion = decodeInitialPublication(html).html;
     assert.equal(html.includes('conversation-message-plan'), true);
     assert.equal(html.includes('conversation-plan-label'), true);
     assert.equal(html.includes('Rollout Plan'), true);
@@ -7959,6 +7960,14 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 publishes plan and question mark
     assert.equal(html.includes('Plan approval'), true);
     assert.equal(html.includes('Approve this plan'), true);
     assert.equal(html.includes('Full refactor'), true);
+    assert.match(
+        renderedQuestion,
+        /<li class="conversation-question-option conversation-question-option-selected"><span class="conversation-question-option-index">1\.<\/span><span class="conversation-question-option-check">✓<\/span><span class="conversation-question-option-status">Selected<\/span><span class="conversation-question-option-label">Full refactor<\/span><span class="conversation-question-option-description">All at once<\/span><\/li>/
+    );
+    assert.match(
+        renderedQuestion,
+        /<li class="conversation-question-option"><span class="conversation-question-option-index">2\.<\/span><span class="conversation-question-option-check"><\/span><span class="conversation-question-option-label">Reject<\/span><\/li>/
+    );
     assert.equal(
         html.includes('conversation-question-option-selected'),
         true

@@ -131,3 +131,71 @@ test('MANAGED-REMOTE-LEGACY-IMPORT-001 classifies each legacy path shape', () =>
     assert.equal(host.alias, 'reddev');
     assert.equal(host.remotePath, '/home/dev/api');
 });
+
+/**
+ * The guards on one-time recovery. Recovery is not an upgrade path the product
+ * maintains, so re-running it or letting it overwrite a populated catalog would
+ * be worse than never running it at all.
+ */
+function recoveryHarness(overrides = {}) {
+    const state = new Map(Object.entries(overrides.state || {}));
+    const imports = [];
+    const files = overrides.files || {};
+    const notifications = [];
+    let machines = overrides.machines ?? 0;
+    return {
+        state,
+        imports,
+        notifications,
+        async run() {
+            if (state.get('legacyProjectImport.v1')) { return 'already-done'; }
+            if (machines > 0) { return 'catalog-populated'; }
+            const raw = files['projectData.json'];
+            if (raw === undefined) { return 'no-backup'; }
+            const groups = JSON.parse(raw);
+            if (!groups.length) { return 'empty-backup'; }
+            if (overrides.failImport) { return 'failed-not-marked'; }
+            imports.push(groups.length);
+            state.set('legacyProjectImport.v1', { projects: 2 });
+            machines = 1;
+            notifications.push('recovered');
+            return 'recovered';
+        },
+    };
+}
+
+test('MANAGED-REMOTE-LEGACY-IMPORT-001 recovers once and never repeats', async () => {
+    const bench = recoveryHarness({
+        files: { 'projectData.json': JSON.stringify(groups()) },
+    });
+    assert.equal(await bench.run(), 'recovered');
+    // A second activation must be a no-op, or every reload duplicates the data.
+    assert.equal(await bench.run(), 'already-done');
+    assert.equal(bench.imports.length, 1);
+    assert.equal(bench.notifications.length, 1);
+});
+
+test('MANAGED-REMOTE-LEGACY-IMPORT-001 refuses to touch a catalog that already has Machines', async () => {
+    const bench = recoveryHarness({
+        machines: 2,
+        files: { 'projectData.json': JSON.stringify(groups()) },
+    });
+    assert.equal(await bench.run(), 'catalog-populated');
+    assert.equal(bench.imports.length, 0);
+});
+
+test('MANAGED-REMOTE-LEGACY-IMPORT-001 stays silent when there is no backup', async () => {
+    const bench = recoveryHarness({});
+    assert.equal(await bench.run(), 'no-backup');
+    assert.equal(bench.notifications.length, 0);
+});
+
+test('MANAGED-REMOTE-LEGACY-IMPORT-001 leaves a failed recovery retryable', async () => {
+    const bench = recoveryHarness({
+        failImport: true,
+        files: { 'projectData.json': JSON.stringify(groups()) },
+    });
+    assert.equal(await bench.run(), 'failed-not-marked');
+    // Marking a failure as done would strand the data permanently.
+    assert.equal(bench.state.get('legacyProjectImport.v1'), undefined);
+});

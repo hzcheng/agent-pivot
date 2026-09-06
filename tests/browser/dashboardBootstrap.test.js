@@ -161,21 +161,28 @@ test('WEBVIEW-DASHBOARD-BOOTSTRAP-001 binds the Managed Remote toolbar after a p
     const { page, consoleErrors } = await openDashboard(t);
     await deliverProjectsPanel(page, emptySnapshot());
 
-    const button = page.locator('[data-managed-operation="addMachine"]');
+    const button = page.locator('[data-action="show-add-machine-form"]');
     assert.equal(await button.count(), 1, 'the Add Machine control must render');
 
-    // The real proof: a click has to reach the extension. Without mount() this
-    // silently does nothing and the whole tab is inert.
+    // The real proof: opening and submitting the inline form has to reach the
+    // extension. Without mount() the whole tab is inert.
     await button.click();
+    await page.locator('[data-managed-machine-form] input[name="name"]').fill('Build');
+    await page.locator('[data-managed-machine-form] input[name="host"]').fill('build.example.com');
+    await page.locator('[data-managed-machine-form] input[name="user"]').fill('dev');
+    await page.locator('[data-managed-machine-form]').evaluate(form => form.requestSubmit());
     const posted = await page.evaluate(() => window.__posted);
     const action = posted.filter(item => item?.type === 'managed-remote-action').at(-1);
 
     assert.ok(action,
-        'clicking Add Machine must post a managed-remote-action; '
+        'submitting Add Machine must post a managed-remote-action; '
         + `posted instead: ${JSON.stringify(posted)} | errors: ${consoleErrors.join(' | ')}`);
     assert.equal(action.operation, 'addMachine');
     assert.equal(action.version, 1);
     // An empty catalog has no revision yet; sending anything else strands the
     // very first action a new user takes.
     assert.equal(action.expectedRevisionId, null);
+    assert.deepEqual(action.input, {
+        name: 'Build', host: 'build.example.com', user: 'dev', port: 22,
+    });
 });

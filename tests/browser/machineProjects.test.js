@@ -366,7 +366,7 @@ test('MACHINE-PROJECTS-FOCUS-001 restores focus to the toolbar after the focused
         restoreProjectsFocus(panel, state.focus);
     }, emptyMarkup);
 
-    assert.equal(await page.locator('[data-managed-operation="addMachine"]')
+    assert.equal(await page.locator('[data-action="show-add-machine-form"]')
         .evaluate(node => document.activeElement === node), true);
 });
 
@@ -382,14 +382,28 @@ test('MACHINE-PROJECTS-NARROW-001 avoids horizontal scrolling at 260px', async t
 
 test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after replacement', async t => {
     const page = await openPage(t, 360, managedMarkup());
-    await page.click('[data-managed-operation="addMachine"]');
+    await page.click('[data-action="show-add-machine-form"]');
+    assert.equal(await page.locator('[data-managed-machine-form]').isVisible(), true);
+    assert.equal(await page.locator('[data-managed-machine-form] input[name="name"]')
+        .evaluate(node => document.activeElement === node), true);
+    await page.locator('[data-managed-machine-form] input[name="name"]').fill('Build');
+    await page.locator('[data-managed-machine-form] input[name="host"]').fill('build.example.com');
+    await page.locator('[data-managed-machine-form] input[name="user"]').fill('dev');
+    await page.locator('[data-managed-machine-form] input[name="port"]').fill('22022');
+    await page.locator('[data-managed-machine-form]').evaluate(form => form.requestSubmit());
     const request = await page.evaluate(() => window.messages.at(-1));
     assert.equal(request.type, 'managed-remote-action');
     assert.equal(request.version, 1);
     assert.equal(request.operation, 'addMachine');
     assert.equal(request.expectedRevisionId, `revision:${'a'.repeat(64)}`);
     assert.match(request.requestId, /^managed-/);
+    assert.deepEqual(request.input, {
+        name: 'Build', host: 'build.example.com', user: 'dev', port: 22022,
+    });
     assert.equal(await page.locator('[data-managed-operation="addMachine"]').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('[data-managed-machine-form]').isVisible(), true,
+        'Escape must not hide a form whose add request is still pending');
 
     await page.evaluate(({ html, requestId }) => {
         document.getElementById('panel').innerHTML = html;
@@ -400,8 +414,33 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
         } }));
     }, { html: managedMarkup(), requestId: request.requestId });
     assert.equal(await page.locator('[data-managed-operation="addMachine"]').isEnabled(), true);
+    assert.equal(await page.locator('[data-action="show-add-machine-form"]')
+        .evaluate(node => document.activeElement === node), true,
+    'the replacement panel must return focus to Add Machine after a successful add');
     assert.equal(await page.locator('[data-machine-projects-announcer]').textContent(),
         'Changes saved to your VS Code User settings.');
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 validates inline Machine drafts before posting', async t => {
+    const page = await openPage(t, 260, managedMarkup());
+    await page.click('[data-action="show-add-machine-form"]');
+    const fieldPositions = await page.locator('[data-managed-machine-form] input').evaluateAll(inputs =>
+        inputs.map(input => input.getBoundingClientRect().top),
+    );
+    assert.ok(fieldPositions.every((top, index) => index === 0 || top > fieldPositions[index - 1]),
+        'each Machine input must occupy its own row');
+    await page.locator('[data-managed-machine-form] input[name="name"]').fill('Build');
+    await page.locator('[data-managed-machine-form] input[name="host"]').fill('not a host');
+    await page.locator('[data-managed-machine-form] input[name="user"]').fill('dev');
+    await page.locator('[data-managed-machine-form]').evaluate(form => form.requestSubmit());
+    assert.equal(await page.evaluate(() => window.messages.length), 0);
+    assert.equal(await page.locator('[data-managed-machine-form-error]').textContent(),
+        'Enter a valid DNS name or IP address.');
+    const geometry = await page.locator('[data-managed-machine-form]').evaluate(form => ({
+        scrollWidth: form.scrollWidth,
+        clientWidth: form.clientWidth,
+    }));
+    assert.equal(geometry.scrollWidth, geometry.clientWidth);
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-003 keeps direct management without a migration button in the derived view', async t => {
@@ -559,7 +598,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 stays within 260px with endpoint-qualified r
         clientWidth: document.documentElement.clientWidth,
     }));
     assert.equal(geometry.scrollWidth, geometry.clientWidth);
-    assert.equal(await page.locator('[data-managed-operation="addMachine"]').getAttribute('aria-label'), 'Add Machine');
+    assert.equal(await page.locator('[data-action="show-add-machine-form"]').getAttribute('aria-label'), 'Add Machine');
     assert.equal(await page.locator('.machine-projects-toolbar-actions [data-managed-operation="addProject"]').count(), 0);
     assert.equal(await page.locator('.managed-machine-endpoint').count(), 0);
     assert.equal(await page.locator('[data-managed-machine-row] .machine-row-primary').getAttribute('title'), 'Build — dev@build.example.com:22022');

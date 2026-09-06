@@ -9,6 +9,7 @@ import type {
 } from './catalogService';
 import {
     createManagedRemoteManagementSettlement,
+    ManagedRemoteMachineInput,
     ManagedRemoteManagementOperation,
     ManagedRemoteManagementSettlement,
     parseManagedRemoteManagementRequest,
@@ -151,7 +152,7 @@ export class ManagedRemoteManagementController {
             if (current.revisionId !== request.expectedRevisionId) {
                 throw new Error('The Managed Remote catalog changed. Refresh and try again.');
             }
-            const result = await this.run(request.operation, request.targetId, current);
+            const result = await this.run(request.operation, request.targetId, current, request.input);
             if (!result) {
                 await this.options.postSettlement(createManagedRemoteManagementSettlement({
                     requestId: request.requestId,
@@ -186,11 +187,12 @@ export class ManagedRemoteManagementController {
         operation: ManagedRemoteManagementOperation,
         targetId: string | undefined,
         snapshot: ManagedRemoteManagementSnapshot,
+        input: ManagedRemoteMachineInput | undefined,
     ): Promise<ManagedRemoteManagementSnapshot | null> {
         if (operation === 'addMachine') {
-            const input = await this.options.prompts.addMachine();
-            return input
-                ? this.options.store.addMachine(snapshot.revisionId, input) : null;
+            const machine = input || await this.options.prompts.addMachine();
+            return machine
+                ? this.options.store.addMachine(snapshot.revisionId, machine) : null;
         }
         if (operation === 'addProject') {
             const machine = targetId

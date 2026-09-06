@@ -118,6 +118,19 @@ test('MANAGED-REMOTE-MANAGEMENT-001 refreshes authoritative HTML before success 
     assert.equal(settlements[0].authoritativeRevisionId, nextRevisionId);
 });
 
+test('MANAGED-REMOTE-MANAGEMENT-001 uses a validated inline Machine draft without opening a prompt', async () => {
+    const { controller, calls } = fixture({
+        prompts: { async addMachine() { throw new Error('prompt must not open'); } },
+    });
+    await controller.handle({
+        ...request('addMachine'),
+        input: { name: 'Build', host: 'build.example.com', user: 'dev', port: 22022 },
+    });
+    assert.deepEqual(calls[0], ['addMachine', revisionId, {
+        name: 'Build', host: 'build.example.com', user: 'dev', port: 22022,
+    }]);
+});
+
 test('MANAGED-REMOTE-MANAGEMENT-001 resolves targets from the authoritative snapshot', async () => {
     const seen = [];
     const { controller, calls } = fixture({

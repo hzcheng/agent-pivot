@@ -9440,6 +9440,13 @@ function createMachineProjectsUi() {
                 control.disabled = false;
             }
         });
+        if (operation === 'addMachine') {
+            var form = panel && panel.querySelector('[data-managed-machine-form]');
+            if (form) {
+                form.setAttribute('aria-busy', String(pending));
+                form.querySelectorAll('input, button').forEach(function (item) { item.disabled = pending; });
+            }
+        }
     }
 
     function restoreManagedPendingControls() {
@@ -9458,7 +9465,7 @@ function createMachineProjectsUi() {
         if (announcer) announcer.textContent = message;
     }
 
-    function postManagedAction(control) {
+    function postManagedAction(control, input) {
         var operation = control.getAttribute('data-managed-operation');
         var targetId = control.getAttribute('data-managed-target-id') || '';
         var root = managedRoot();
@@ -9481,6 +9488,7 @@ function createMachineProjectsUi() {
             key: key,
             operation: operation,
             targetId: targetId,
+            focusAddMachine: operation === 'addMachine',
         });
         setManagedControlsPending(operation, targetId, requestId, true);
         announceManaged('Working…');
@@ -9491,7 +9499,87 @@ function createMachineProjectsUi() {
             operation: operation,
             expectedRevisionId: root.getAttribute('data-managed-revision-id') || null,
             ...(targetId ? { targetId: targetId } : {}),
+            ...(input ? { input: input } : {}),
         });
+    }
+
+    function setAddMachineFormOpen(open, returnFocus) {
+        var form = panel && panel.querySelector('[data-managed-machine-form]');
+        var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+        if (!form || (!open && form.getAttribute('aria-busy') === 'true')) return;
+        form.hidden = !open;
+        if (trigger) trigger.setAttribute('aria-expanded', String(open));
+        if (open) {
+            var name = form.elements.name;
+            if (name && typeof name.focus === 'function') name.focus();
+        } else if (returnFocus && trigger && typeof trigger.focus === 'function') {
+            trigger.focus();
+        }
+    }
+
+    function submitAddMachineForm(form) {
+        var values = {
+            name: String(form.elements.name.value || '').trim(),
+            host: String(form.elements.host.value || '').trim(),
+            user: String(form.elements.user.value || '').trim(),
+            port: Number(form.elements.port.value),
+        };
+        var error = form.querySelector('[data-managed-machine-form-error]');
+        var message = !isValidMachineName(values.name) ? 'Enter a Machine name of up to 128 characters.'
+            : !isValidHost(values.host) ? 'Enter a valid DNS name or IP address.'
+            : !isValidSshUser(values.user) ? 'Enter a valid SSH user.'
+            : !Number.isInteger(values.port) || values.port < 1 || values.port > 65535
+                ? 'Enter a port from 1 to 65535.' : '';
+        if (message) {
+            if (error) { error.textContent = message; error.hidden = false; }
+            return;
+        }
+        if (error) { error.hidden = true; error.textContent = ''; }
+        postManagedAction(form.querySelector('[data-managed-operation="addMachine"]'), values);
+    }
+
+    function isValidMachineName(value) {
+        return value.length > 0 && value.length <= 128 && !/[\u0000-\u001f\u007f]/.test(value);
+    }
+
+    function isValidSshUser(value) {
+        return /^[A-Za-z0-9][A-Za-z0-9._@\\-]{0,255}$/.test(value);
+    }
+
+    function isValidIpv4(value) {
+        var parts = value.split('.');
+        return parts.length === 4 && parts.every(function (part) {
+            return /^(?:0|[1-9][0-9]{0,2})$/.test(part) && Number(part) <= 255;
+        });
+    }
+
+    function isValidIpv6(value) {
+        if (value.indexOf(':') === -1 || /[^0-9a-fA-F:.]/.test(value)) return false;
+        var normalized = value.replace(/(^|:)([0-9.]+)$/u, function (_match, prefix, ipv4) {
+            return isValidIpv4(ipv4) ? prefix + 'ipv4:ipv4' : 'invalid';
+        });
+        if (normalized === 'invalid') return false;
+        var halves = normalized.split('::');
+        if (halves.length > 2) return false;
+        var units = 0;
+        for (var index = 0; index < halves.length; index++) {
+            var half = halves[index];
+            if (!half) continue;
+            var groups = half.split(':');
+            if (!groups.every(function (group) {
+                return group === 'ipv4' || /^[0-9a-fA-F]{1,4}$/.test(group);
+            })) return false;
+            units += groups.reduce(function (count, group) {
+                return count + (group === 'ipv4' ? 2 : 1);
+            }, 0);
+        }
+        return halves.length === 2 ? units < 8 : units === 8;
+    }
+
+    function isValidHost(value) {
+        return isValidIpv4(value)
+            || isValidIpv6(value)
+            || /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(value);
     }
 
     function postManagedClientAction(control) {
@@ -9541,6 +9629,15 @@ function createMachineProjectsUi() {
             return;
         }
         if (!panel.contains(control)) return;
+        if (control.getAttribute('data-action') === 'show-add-machine-form') {
+            setAddMachineFormOpen(true, false);
+            return;
+        }
+        if (control.getAttribute('data-action') === 'cancel-add-machine-form') {
+            setAddMachineFormOpen(false, true);
+            return;
+        }
+        if (control.closest('[data-managed-machine-form]')) return;
         if (control.hasAttribute('data-managed-operation')) {
             postManagedAction(control);
             return;
@@ -9647,10 +9744,24 @@ function createMachineProjectsUi() {
         applyFilters();
     }
 
+    function onSubmit(event) {
+        var form = event.target && event.target.closest
+            ? event.target.closest('[data-managed-machine-form]') : null;
+        if (!form || !panel || !panel.contains(form)) return;
+        event.preventDefault();
+        submitAddMachineForm(form);
+    }
+
     function onKeyDown(event) {
         if (event.key === 'Escape' && activeProjectMenuTrigger) {
             event.preventDefault();
             closeProjectMenu(true);
+            return;
+        }
+        if (event.key === 'Escape' && event.target && event.target.closest
+            && event.target.closest('[data-managed-machine-form]')) {
+            event.preventDefault();
+            setAddMachineFormOpen(false, true);
             return;
         }
         var menu = event.target && event.target.closest
@@ -9733,10 +9844,23 @@ function createMachineProjectsUi() {
             false
         );
         if (message.status === 'applied') {
+            if (pending.focusAddMachine) {
+                var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+                if (trigger) trigger.focus();
+            }
             announceManaged('Changes saved to your VS Code User settings.');
         } else if (message.status === 'cancelled') {
             announceManaged('No changes were saved.');
         } else {
+            var form = panel && panel.querySelector('[data-managed-machine-form]');
+            if (pending.operation === 'addMachine' && form && !form.hidden) {
+                var error = form.querySelector('[data-managed-machine-form-error]');
+                if (error) {
+                    error.textContent = typeof message.message === 'string'
+                        ? message.message : 'Unable to add the Machine.';
+                    error.hidden = false;
+                }
+            }
             announceManaged(typeof message.message === 'string'
                 ? message.message : 'The Managed Remote action failed.');
         }
@@ -9751,6 +9875,7 @@ function createMachineProjectsUi() {
             panel.addEventListener('click', onClick);
             panel.addEventListener('auxclick', onAuxClick);
             panel.addEventListener('change', onChange);
+            panel.addEventListener('submit', onSubmit);
             panel.addEventListener('keydown', onKeyDown);
             panel.__agentPivotMachineProjectsBound = true;
         }

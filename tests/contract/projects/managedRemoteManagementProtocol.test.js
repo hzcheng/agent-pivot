@@ -11,7 +11,7 @@ const {
 
 const requestId = 'request-1234567890';
 
-test('MANAGED-REMOTE-MANAGEMENT-001 accepts strict identity-only management intents', () => {
+test('MANAGED-REMOTE-MANAGEMENT-001 accepts strict management intents and a bounded Machine draft', () => {
     assert.deepEqual(parseManagedRemoteManagementRequest({
         type: 'managed-remote-action',
         version: 1,
@@ -33,6 +33,11 @@ test('MANAGED-REMOTE-MANAGEMENT-001 accepts strict identity-only management inte
         expectedRevisionId: `revision:${'a'.repeat(64)}`,
         targetId: 'project:one',
     }));
+    assert.deepEqual(parseManagedRemoteManagementRequest({
+        type: 'managed-remote-action', version: 1, requestId, operation: 'addMachine',
+        expectedRevisionId: null,
+        input: { name: ' Build ', host: ' build.example.com ', user: ' dev ', port: 22022 },
+    }).input, { name: 'Build', host: 'build.example.com', user: 'dev', port: 22022 });
     assert.ok(parseManagedRemoteManagementRequest({
         type: 'managed-remote-action',
         version: 1,
@@ -78,6 +83,21 @@ test('MANAGED-REMOTE-MANAGEMENT-001 rejects payload injection and target-shape d
         ...base,
         host: 'attacker.example.com',
     }), { requestId, operation: 'editMachine' });
+    assert.equal(parseManagedRemoteManagementRequest({
+        type: 'managed-remote-action', version: 1, requestId, operation: 'addMachine',
+        expectedRevisionId: null,
+        input: { name: 'Build', host: 'build.example.com', user: 'dev', port: 70000 },
+    }), null);
+    for (const input of [
+        { name: 'x'.repeat(129), host: 'build.example.com', user: 'dev', port: 22 },
+        { name: 'Build', host: 'not a host', user: 'dev', port: 22 },
+        { name: 'Build', host: 'build.example.com', user: '-dev', port: 22 },
+    ]) {
+        assert.equal(parseManagedRemoteManagementRequest({
+            type: 'managed-remote-action', version: 1, requestId, operation: 'addMachine',
+            expectedRevisionId: null, input,
+        }), null, `must reject invalid persisted Machine input: ${JSON.stringify(input)}`);
+    }
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-001 creates bounded correlated settlements', () => {

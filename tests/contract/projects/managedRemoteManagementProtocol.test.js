@@ -38,6 +38,11 @@ test('MANAGED-REMOTE-MANAGEMENT-001 accepts strict management intents and a boun
         expectedRevisionId: null,
         input: { name: ' Build ', host: ' build.example.com ', user: ' dev ', port: 22022 },
     }).input, { name: 'Build', host: 'build.example.com', user: 'dev', port: 22022 });
+    assert.deepEqual(parseManagedRemoteManagementRequest({
+        type: 'managed-remote-action', version: 1, requestId, operation: 'editMachine',
+        expectedRevisionId: null, targetId: 'machine:one',
+        input: { name: ' Build ', host: ' build.example.com ', user: ' dev ', port: 22022 },
+    }).input, { name: 'Build', host: 'build.example.com', user: 'dev', port: 22022 });
     assert.ok(parseManagedRemoteManagementRequest({
         type: 'managed-remote-action',
         version: 1,

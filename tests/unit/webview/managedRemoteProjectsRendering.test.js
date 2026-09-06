@@ -41,6 +41,8 @@ test('MANAGED-REMOTE-MANAGEMENT-003 renders complete management actions and no M
     assert.equal((html.match(/data-managed-operation="addProject"/gu) || []).length, 1);
     assert.match(html, /data-managed-operation="addProject" data-managed-target-id="machine:build"/u);
     assert.match(html, /data-managed-operation="editMachine"/);
+    assert.match(html, /data-action="show-edit-machine-form" data-managed-target-id="machine:build"/u);
+    assert.match(html, /Changing this connection affects 1 Project\./u);
     assert.match(html, /data-managed-operation="removeMachine"/);
     assert.match(html, /data-managed-operation="editProject"/);
     assert.match(html, /data-managed-operation="removeProject"/);

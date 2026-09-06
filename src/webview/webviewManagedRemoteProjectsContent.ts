@@ -33,7 +33,7 @@ function renderTagControls(tags: string[]): string {
 }
 
 function renderAddMachineForm(): string {
-    return `<form id="managed-machine-form" class="managed-machine-form" data-managed-machine-form hidden>
+    return `<form id="managed-machine-form" class="managed-machine-form" data-managed-machine-form data-managed-machine-form-operation="addMachine" hidden>
         <div class="managed-machine-form-heading"><strong>Add Machine</strong><span>Connection details are saved to your VS Code User settings.</span></div>
         <div class="managed-machine-form-fields">
             <label>Machine name<input name="name" autocomplete="off" required maxlength="128" placeholder="Build server"></label>
@@ -42,7 +42,22 @@ function renderAddMachineForm(): string {
             <label>Port<input name="port" type="number" inputmode="numeric" required min="1" max="65535" value="22"></label>
         </div>
         <p class="managed-machine-form-error" data-managed-machine-form-error role="alert" hidden></p>
-        <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-add-machine-form">Cancel</button><button type="submit" class="managed-machine-form-submit" data-managed-operation="addMachine">Add Machine</button></div>
+        <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-managed-machine-form">Cancel</button><button type="submit" class="managed-machine-form-submit" data-managed-operation="addMachine">Add Machine</button></div>
+    </form>`;
+}
+
+function renderEditMachineForm(machine: ManagedRemoteMachineViewModel): string {
+    const projectLabel = `${machine.projectCount} Project${machine.projectCount === 1 ? '' : 's'}`;
+    return `<form id="managed-machine-edit-form-${escapeAttribute(machine.id)}" class="managed-machine-form managed-machine-edit-form" data-managed-machine-form data-managed-machine-form-operation="editMachine" data-managed-target-id="${escapeAttribute(machine.id)}" hidden>
+        <div class="managed-machine-form-heading"><strong>Edit ${escapeAttribute(machine.name)}</strong><span>Changing this connection affects ${projectLabel}.</span></div>
+        <div class="managed-machine-form-fields">
+            <label>Machine name<input name="name" autocomplete="off" required maxlength="128" value="${escapeAttribute(machine.name)}"></label>
+            <label>Host<input name="host" autocomplete="off" required maxlength="253" value="${escapeAttribute(machine.connection.host)}"></label>
+            <label>SSH user<input name="user" autocomplete="username" required maxlength="256" value="${escapeAttribute(machine.connection.user)}"></label>
+            <label>Port<input name="port" type="number" inputmode="numeric" required min="1" max="65535" value="${machine.connection.port}"></label>
+        </div>
+        <p class="managed-machine-form-error" data-managed-machine-form-error role="alert" hidden></p>
+        <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-managed-machine-form">Cancel</button><button type="submit" class="managed-machine-form-submit" data-managed-operation="editMachine" data-managed-target-id="${escapeAttribute(machine.id)}">Save changes</button></div>
     </form>`;
 }
 
@@ -98,7 +113,7 @@ function renderMachine(
                 <button type="button" class="machine-pointer-action machine-primary-action" data-managed-client-action="openMachine" data-managed-target-id="${escapeAttribute(machine.id)}" aria-label="${escapeAttribute(machine.openable ? openName : `${openName}. Unavailable: ${machine.unavailableReason}`)}" title="${escapeAttribute(openName)}"${machine.openable ? '' : ' disabled'}>${Icons.openNewWindow}</button>
                 <div class="machine-project-menu-shell"><button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-menu" aria-label="More actions for ${escapeAttribute(`${machine.name}, ${machine.endpoint}`)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button><div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
                     <button type="button" role="menuitem" tabindex="-1" ${operationAttributes('addProject', machine.id)}>Add Project…</button>
-                    <button type="button" role="menuitem" tabindex="-1" ${operationAttributes('editMachine', machine.id)}>Edit Machine…</button>
+                    <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-machine-form" data-managed-target-id="${escapeAttribute(machine.id)}">Edit Machine…</button>
                     ${machine.conflict ? `<button type="button" role="menuitem" tabindex="-1" ${operationAttributes('resolveMachineConflict', machine.id)}>Review Connection Conflict…</button>` : ''}
                     <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="sshTerminal" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Open SSH Terminal…</button>
                     <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="copySsh" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Copy SSH Command</button>
@@ -106,6 +121,7 @@ function renderMachine(
                 </div></div>
             </div>
         </div>
+        ${renderEditMachineForm(machine)}
         ${machine.conflict ? '<div class="managed-remote-row-status">Connection conflict — Review</div>' : ''}
         <ul id="${childrenId}" class="machine-environment-list">${machine.environments.map(environment => renderEnvironment(environment)).join('\n')}</ul>
     </li>`;

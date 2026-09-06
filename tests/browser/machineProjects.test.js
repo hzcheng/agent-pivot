@@ -383,14 +383,14 @@ test('MACHINE-PROJECTS-NARROW-001 avoids horizontal scrolling at 260px', async t
 test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after replacement', async t => {
     const page = await openPage(t, 360, managedMarkup());
     await page.click('[data-action="show-add-machine-form"]');
-    assert.equal(await page.locator('[data-managed-machine-form]').isVisible(), true);
-    assert.equal(await page.locator('[data-managed-machine-form] input[name="name"]')
+    assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isVisible(), true);
+    assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"] input[name="name"]')
         .evaluate(node => document.activeElement === node), true);
-    await page.locator('[data-managed-machine-form] input[name="name"]').fill('Build');
-    await page.locator('[data-managed-machine-form] input[name="host"]').fill('build.example.com');
-    await page.locator('[data-managed-machine-form] input[name="user"]').fill('dev');
-    await page.locator('[data-managed-machine-form] input[name="port"]').fill('22022');
-    await page.locator('[data-managed-machine-form]').evaluate(form => form.requestSubmit());
+    await page.locator('[data-managed-machine-form-operation="addMachine"] input[name="name"]').fill('Build');
+    await page.locator('[data-managed-machine-form-operation="addMachine"] input[name="host"]').fill('build.example.com');
+    await page.locator('[data-managed-machine-form-operation="addMachine"] input[name="user"]').fill('dev');
+    await page.locator('[data-managed-machine-form-operation="addMachine"] input[name="port"]').fill('22022');
+    await page.locator('[data-managed-machine-form-operation="addMachine"]').evaluate(form => form.requestSubmit());
     const request = await page.evaluate(() => window.messages.at(-1));
     assert.equal(request.type, 'managed-remote-action');
     assert.equal(request.version, 1);
@@ -402,7 +402,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
     });
     assert.equal(await page.locator('[data-managed-operation="addMachine"]').isDisabled(), true);
     await page.keyboard.press('Escape');
-    assert.equal(await page.locator('[data-managed-machine-form]').isVisible(), true,
+    assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isVisible(), true,
         'Escape must not hide a form whose add request is still pending');
 
     await page.evaluate(({ html, requestId }) => {
@@ -424,19 +424,19 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
 test('MANAGED-REMOTE-MANAGEMENT-003 validates inline Machine drafts before posting', async t => {
     const page = await openPage(t, 260, managedMarkup());
     await page.click('[data-action="show-add-machine-form"]');
-    const fieldPositions = await page.locator('[data-managed-machine-form] input').evaluateAll(inputs =>
+    const fieldPositions = await page.locator('[data-managed-machine-form-operation="addMachine"] input').evaluateAll(inputs =>
         inputs.map(input => input.getBoundingClientRect().top),
     );
     assert.ok(fieldPositions.every((top, index) => index === 0 || top > fieldPositions[index - 1]),
         'each Machine input must occupy its own row');
-    await page.locator('[data-managed-machine-form] input[name="name"]').fill('Build');
-    await page.locator('[data-managed-machine-form] input[name="host"]').fill('not a host');
-    await page.locator('[data-managed-machine-form] input[name="user"]').fill('dev');
-    await page.locator('[data-managed-machine-form]').evaluate(form => form.requestSubmit());
+    await page.locator('[data-managed-machine-form-operation="addMachine"] input[name="name"]').fill('Build');
+    await page.locator('[data-managed-machine-form-operation="addMachine"] input[name="host"]').fill('not a host');
+    await page.locator('[data-managed-machine-form-operation="addMachine"] input[name="user"]').fill('dev');
+    await page.locator('[data-managed-machine-form-operation="addMachine"]').evaluate(form => form.requestSubmit());
     assert.equal(await page.evaluate(() => window.messages.length), 0);
-    assert.equal(await page.locator('[data-managed-machine-form-error]').textContent(),
+    assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"] [data-managed-machine-form-error]').textContent(),
         'Enter a valid DNS name or IP address.');
-    const geometry = await page.locator('[data-managed-machine-form]').evaluate(form => ({
+    const geometry = await page.locator('[data-managed-machine-form-operation="addMachine"]').evaluate(form => ({
         scrollWidth: form.scrollWidth,
         clientWidth: form.clientWidth,
     }));
@@ -455,23 +455,52 @@ test('MANAGED-REMOTE-MANAGEMENT-003 keeps direct management without a migration 
     assert.equal(await page.locator('[data-action="open-machine-project"]').first().isEnabled(), true);
 });
 
-test('MANAGED-REMOTE-MANAGEMENT-003 keeps row-menu focus stable while a mutation is pending', async t => {
+test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus after replacement', async t => {
     const page = await openPage(t, 360, managedMarkup());
+    await page.click('[data-action="show-add-machine-form"]');
+    assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isVisible(), true);
     await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
     await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
-    const request = await page.evaluate(() => window.messages.at(-1));
-    assert.equal(request.operation, 'editMachine');
+    const form = page.locator('[data-managed-machine-form-operation="editMachine"]');
+    assert.equal(await form.isVisible(), true);
+    assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isHidden(), true,
+        'opening a Machine edit must close the Add Machine form');
+    assert.equal(await form.locator('input[name="name"]').inputValue(), 'Build');
+    assert.equal(await form.locator('input[name="host"]').inputValue(), 'build.example.com');
+    assert.equal(await form.getByText('Changing this connection affects 1 Project.').count(), 1);
+    assert.equal(await form.locator('input[name="name"]').evaluate(node => document.activeElement === node), true);
+    await form.getByRole('button', { name: 'Cancel' }).click();
+    assert.equal(await form.isHidden(), true);
     assert.equal(await page.locator('[data-machine-row] .machine-row-primary')
         .evaluate(node => document.activeElement === node), true);
 
-    await page.evaluate(requestId => {
+    await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
+    await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
+    await form.locator('input[name="name"]').fill('Build 2');
+    await form.locator('input[name="host"]').fill('next.example.com');
+    await form.locator('input[name="user"]').fill('ops');
+    await form.locator('input[name="port"]').fill('22023');
+    await form.evaluate(node => node.requestSubmit());
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.operation, 'editMachine');
+    assert.equal(request.targetId, 'machine:managed');
+    assert.deepEqual(request.input, {
+        name: 'Build 2', host: 'next.example.com', user: 'ops', port: 22023,
+    });
+    assert.equal(await form.locator('button[type="submit"]').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await form.isVisible(), true, 'Escape must not hide a pending Machine edit');
+
+    await page.evaluate(({ html, requestId }) => {
+        document.getElementById('panel').innerHTML = html;
+        window.machineUi.mount(document.getElementById('panel'));
         window.dispatchEvent(new MessageEvent('message', { data: {
             type: 'managed-remote-settlement', version: 1, requestId,
-            operation: 'editMachine', status: 'cancelled',
+            operation: 'editMachine', status: 'applied',
         } }));
-    }, request.requestId);
-    assert.equal(await page.locator('[data-machine-projects-announcer]').textContent(),
-        'No changes were saved.');
+    }, { html: managedMarkup(), requestId: request.requestId });
+    assert.equal(await page.locator('[data-machine-row] .machine-row-primary')
+        .evaluate(node => document.activeElement === node), true);
 });
 
 test('MANAGED-REMOTE-SSH-COMMAND-001 sends a strict row-menu SSH identity intent', async t => {

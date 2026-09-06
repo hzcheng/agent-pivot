@@ -330,6 +330,15 @@ test('FILE-TRANSFER-COPY-003 retains SFTP file sizes for post-copy verification'
     ]);
 });
 
+test('FILE-TRANSFER-COPY-003A retains hidden SFTP entries but omits dot navigation rows', () => {
+    const entries = parseSftpLongListing(
+        'drwxr-xr-x    2 user     group          4096 Jan 01 2026 .\n'
+        + 'drwxr-xr-x    2 user     group          4096 Jan 01 2026 ..\n'
+        + '-rw-r--r--    1 user     group            42 Jan 01 2026 .env\n',
+    );
+    assert.deepEqual(entries, [{ name: '.env', kind: 'file', size: 42 }]);
+});
+
 test('FILE-TRANSFER-COPY-004 stops active relay processes when the UI Bridge disposes', () => {
     const controller = new ManagedRemoteBridgeController({
         readManagedCatalogEnvelope() { return null; },

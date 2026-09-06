@@ -44,6 +44,21 @@ function pane(side: 'left' | 'right'): string {
                 <button type="button" data-file-transfer-refresh="${side}" aria-label="Refresh ${label}" title="Refresh" disabled>↻</button>
             </div>
         </header>
+        <div class="file-transfer-pane-toolbar" data-file-transfer-pane-toolbar="${side}">
+            <label class="file-transfer-show-hidden">
+                <input type="checkbox" data-file-transfer-show-hidden="${side}" disabled>
+                <span>Show hidden</span>
+            </label>
+            <label class="file-transfer-sort">
+                <span>Sort</span>
+                <select data-file-transfer-sort="${side}" aria-label="Sort ${label}" disabled>
+                    <option value="name">Name</option>
+                    <option value="type">Type</option>
+                    <option value="modified">Modified</option>
+                    <option value="size">Size</option>
+                </select>
+            </label>
+        </div>
         <div class="file-transfer-pane-status" data-file-transfer-pane-status role="status">Choose an endpoint to browse its files.</div>
         <ul class="file-transfer-file-list" data-file-transfer-file-list hidden></ul>
     </section>`;

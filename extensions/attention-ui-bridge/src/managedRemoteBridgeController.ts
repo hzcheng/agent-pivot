@@ -185,7 +185,7 @@ function listRemoteDirectory(
                 reject(error);
             }
         });
-        process.stdin.end(`ls -l ${quoteSftpPath(directoryPath)}\n`);
+        process.stdin.end(`ls -la ${quoteSftpPath(directoryPath)}\n`);
     });
 }
 

@@ -517,6 +517,22 @@ test('FILE-TRANSFER-UI-009 retries failed copies only from a retained opaque pla
     assert.match(dashboardSource, /submitCopyPlan\(plan\);/);
 });
 
+test('FILE-TRANSFER-UI-010 filters hidden entries and sorts each endpoint independently', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: { machines: [], environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [] },
+    });
+    assert.match(html, /data-file-transfer-show-hidden="left"/);
+    assert.match(html, /data-file-transfer-show-hidden="right"/);
+    assert.match(html, /data-file-transfer-sort="left"/);
+    assert.match(html, /value="modified"/);
+    assert.match(dashboardSource, /function sortFileTransferEntries/);
+    assert.match(dashboardSource, /showHiddenEntries\[side\] \|\| entry\.name\.charAt\(0\) !== '\.'/);
+    assert.match(dashboardSource, /sortFileTransferEntries\(visibleEntries, fileTransferSort\[side\]\)/);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

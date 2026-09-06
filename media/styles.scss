@@ -1955,6 +1955,35 @@ body .project {
     gap: 4px;
 }
 
+.file-transfer-pane-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+}
+
+.file-transfer-show-hidden,
+.file-transfer-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.file-transfer-sort select {
+    min-width: 76px;
+    min-height: 24px;
+    padding: 1px 4px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    font: inherit;
+}
+
 .file-transfer-pane-status {
     display: grid;
     min-height: 128px;
@@ -2155,6 +2184,11 @@ body .project {
 
     .file-transfer-action-bar {
         align-items: stretch;
+        flex-direction: column;
+    }
+
+    .file-transfer-pane-toolbar {
+        align-items: flex-start;
         flex-direction: column;
     }
 }

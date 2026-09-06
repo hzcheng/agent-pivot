@@ -7,10 +7,12 @@
 ## 1. Summary
 
 Agent Pivot adds **Machine Files**, a first-level workspace next to AI
-Conversation and Projects. It lets a user browse two Managed Machines side by
-side and copy files or folders in either direction.
+Conversation and Projects. It lets a user browse two transfer endpoints side by
+side and copy files or folders in either direction. An endpoint is either an
+existing Managed Machine or **This Computer**, rooted at a local directory the
+user explicitly chooses.
 
-The two selected Machines are peers: they are not permanently labelled source
+The two selected endpoints are peers: they are not permanently labelled source
 and destination. The side on which a user selects files becomes the source for
 that one operation; the other side's current directory becomes the destination.
 This enables a user to send build output from A to B, then immediately copy a
@@ -19,8 +21,10 @@ log or configuration file from B back to A without reconfiguring the pair.
 Transfers are performed by the local UI Bridge as a streaming relay over the
 user's existing SSH configuration. Therefore Machine A and Machine B do **not**
 need network access to each other; this computer only needs a valid connection
-to each Machine. The browser UI never receives SSH endpoints, credentials, or
-file bytes.
+to each Managed Machine. A local-directory endpoint reads or writes directly on
+this computer. The browser UI never controls SSH endpoints, credentials, or
+local-root authorization, and never receives file bytes; host-projected local
+paths remain visible to the user for review.
 
 ## 2. Background and problem
 
@@ -37,8 +41,8 @@ can nevertheless authenticate to both through its own SSH configuration.
 
 ## 3. Product goals
 
-1. Let a user select two reachable Managed Machines and browse their files in
-   one workspace.
+1. Let a user select two Managed Machines, or one Managed Machine plus an
+   explicitly chosen local directory, and browse their files in one workspace.
 2. Let a user copy a file or folder in either direction without first assigning
    permanent source/destination roles.
 3. Make every copy's source, destination, size, collision policy, and outcome
@@ -47,7 +51,8 @@ can nevertheless authenticate to both through its own SSH configuration.
    detail, and retry where safe.
 5. Work when the two remote Machines cannot connect to each other.
 6. Reuse Managed Machine identity, SSH projection, host-key verification, and
-   local user authentication; never synchronize or expose credentials.
+   local user authentication; use native local filesystem access only after an
+   explicit directory choice; never synchronize or expose credentials/paths.
 
 ## 4. Non-goals
 
@@ -55,8 +60,8 @@ can nevertheless authenticate to both through its own SSH configuration.
 - Moving files in the first release. Every initial operation is a copy.
 - Treating a pair of Machines as a shared filesystem or mounting either one.
 - Arbitrary SSH endpoint entry, password/secret storage, or direct Webview SSH.
-- Access to unmanaged SSH aliases, local WSL, local containers, or local
-  filesystem targets in the first release.
+- Access to unmanaged SSH aliases, local WSL, or local containers in the first
+  release.
 - Silent overwrite, silent merge, or automatic execution initiated by an AI
   agent.
 - Resumable block-level transfer, schedules, and policy-managed deployment in
@@ -66,16 +71,19 @@ can nevertheless authenticate to both through its own SSH configuration.
 
 | Term | Meaning | Authority / persistence |
 | --- | --- | --- |
-| Managed Machine | An existing catalog Machine with a stable ID and non-secret SSH endpoint. | Managed remote catalog; synced. |
-| Transfer pair | Two selected Machine IDs plus the locally remembered directories and display order. It is symmetric, not a source/destination binding. | Local UI-host state; not synced by default. |
+| Managed Machine endpoint | An existing catalog Machine with a stable ID and non-secret SSH endpoint. | Managed remote catalog; synced. |
+| Local directory endpoint | This Computer, scoped to one user-selected local root and its descendants. | Local UI-host state; never synced. |
+| Transfer pair | Two endpoint references plus locally remembered directories and display order. It is symmetric, not a source/destination binding. | Local UI-host state; not synced by default. |
 | Source selection | One or more files/folders selected in one pane for the next copy. | Ephemeral UI state. |
 | Destination directory | The current directory in the opposite pane. | Ephemeral UI state. |
 | Transfer task | One reviewed copy request and its lifecycle/result. | Local UI Bridge task store and UI state; history is local. |
 
-Only the existing managed catalog owns Machine identity and endpoint data. Paths,
-recent locations, transfer history, conflict choices, and task diagnostics may
-contain sensitive local operational context and must not be added to the synced
-catalog. Authentication remains wholly with OpenSSH / Remote - SSH.
+Only the existing managed catalog owns Managed Machine identity and endpoint
+data. Local roots, recent locations, transfer history, conflict choices, and
+task diagnostics may contain sensitive local operational context and must not be
+added to the synced catalog. Authentication remains wholly with OpenSSH / Remote
+- SSH; local access is limited to the root the user selected in the native
+directory picker.
 
 ## 6. Information architecture
 
@@ -106,25 +114,34 @@ pre-filled transfer draft, but must never execute a task without a user action.
 
 ### 7.1 Select a pair
 
-1. The user opens Machine Files and chooses `Select machines`.
-2. A compact pair picker presents two equal controls, `Machine A` and `Machine
-   B`, plus a swap-layout control. Neither control says source or destination.
-3. Each option shows display name, endpoint-safe identity, connection readiness,
-   and any catalog-conflict reason. The same Machine cannot be selected twice.
+1. The user opens Machine Files and chooses `Select endpoints`.
+2. A compact pair picker presents two equal controls, `Endpoint A` and
+   `Endpoint B`, plus a swap-layout control. Neither control says source or
+   destination.
+3. Each control can select an eligible Managed Machine or `This Computer`.
+   Selecting This Computer opens a native folder picker; the selected folder is
+   the local endpoint root. Each option shows display name, endpoint-safe
+   identity, connection readiness, and any catalog-conflict reason. The same
+   endpoint cannot be selected twice, so the local endpoint appears at most once.
 4. On `Open files`, the UI performs a non-mutating preflight against both
-   Machines. It opens the last locally remembered directory for that pair, or
-   the remote home directory if there is no remembered directory.
+   endpoints. It opens the last locally remembered directory for that pair, or
+   the remote home directory / selected local root if there is no remembered
+   directory.
 5. A failed preflight keeps the picker open and offers a human-readable remedy;
    it does not show raw credentials, SSH config, or unbounded stderr.
 
-Recent and user-pinned pairs appear above the full Machine list. A saved pair is
-still symmetric: swapping sides changes only visual layout.
+Recent and user-pinned pairs appear above the endpoint list. A saved pair is
+still symmetric: swapping sides changes only visual layout. A remembered local
+root is displayed only as a local label/path after the user has selected it on
+this computer; it is never synchronized to another computer.
 
 ### 7.2 Browse and select
 
-The two-pane browser has equal headers: Machine name, reachable status, current
+The two-pane browser has equal headers: endpoint name, reachable status, current
 path breadcrumbs, an editable bounded path field, Refresh, and Up. Both panes
-may be navigated independently.
+may be navigated independently. A local pane additionally offers `Choose local
+folder`; it can navigate only within the user-selected local root, and choosing
+a different root goes through the native picker again.
 
 - A source pane supports checkboxes for multiple files and folders.
 - The other pane is a directory navigator. Its current directory is the copy
@@ -145,11 +162,11 @@ for example: `dist/` → `/opt/app/releases/dist/`.
 
 ### 7.3 Review and start
 
-`Copy 2 items → Staging` appears only after a source selection exists. It opens a
+`Copy 2 items → Staging` (or `Copy 2 items → This Computer`) appears only after a source selection exists. It opens a
 review sheet that remains visibly tied to both pane headers and contains:
 
-- source Machine and canonical source paths;
-- destination Machine and the exact resolved destination paths;
+- source endpoint and canonical source paths;
+- destination endpoint and the exact resolved destination paths;
 - item count and calculated total size (or `Calculating…` until known);
 - discovered collisions grouped as new, same, changed, and inaccessible;
 - conflict policy, initially **Ask before replacing**;
@@ -162,7 +179,7 @@ display the number of affected existing paths. `Keep both / rename` is available
 for a single file in the review sheet. No policy may delete source files.
 
 The enabled final action is `Start copy`. Its confirmation text includes both
-Machine names, both base paths, the copy direction, and size. If the preflight
+endpoint names, both base paths, the copy direction, and size. If the preflight
 or catalog revision becomes stale, the review must refresh before it can start.
 
 ### 7.4 Run, complete, and recover
@@ -183,10 +200,13 @@ resume is a later feature, not an implied guarantee.
 
 ### 8.1 Machine eligibility and preflight
 
-- Only active, unconflicted Managed Machines appear in the picker.
-- A Machine must prove a current catalog revision, safe generated SSH
+- The picker shows active, unconflicted Managed Machines and one local endpoint,
+  `This Computer`; it does not enumerate arbitrary SSH aliases.
+- A Managed Machine must prove a current catalog revision, safe generated SSH
   projection, local OpenSSH availability, host-key validation, and successful
   read access to its starting directory before it is marked ready.
+- This Computer becomes ready only after the user selects a local root with the
+  native directory picker and the UI Bridge proves read access to that root.
 - Starting a task also proves target-directory write access and obtains target
   free-space information where the platform supplies it.
 - A stale revision, endpoint conflict, missing SSH dependency, host-key prompt,
@@ -201,7 +221,13 @@ resume is a later feature, not an implied guarantee.
   state. Sort by name, type, modified time, or size.
 - Support hidden items with a visible toggle; do not make them silently vanish.
 - Support exact/bounded path entry and breadcrumbs. Paths must be absolute POSIX
-  paths, normalized without following an untrusted lexical escape above root.
+  paths for Managed Machines, and local paths only beneath the selected local
+  root for This Computer. Host validation normalizes paths without following an
+  untrusted lexical escape above the applicable root.
+- The Webview never supplies a local absolute path as authority. The native
+  picker returns a local-root handle to the UI Bridge; browser rows and
+  navigation use opaque entry/directory references below that handle. The host
+  may project the current local path for user-visible breadcrumb and review UI.
 - Search initially filters the loaded directory; recursive remote search is a
   later opt-in operation with explicit scope and cancellation.
 - File preview and text diff are P1 capabilities, limited by a strict size cap
@@ -231,9 +257,9 @@ resume is a later feature, not an implied guarantee.
 
 - Allow one active transfer by default. Additional reviewed tasks queue in
   order; P1 may permit safe configurable concurrency.
-- Persist task summaries locally: opaque task ID, Machine IDs, redacted paths,
-  timestamps, policy, status, bytes/items, and bounded failure category. Do not
-  persist secrets, raw SSH output, or file content.
+- Persist task summaries locally: opaque task ID, endpoint references, redacted
+  paths, timestamps, policy, status, bytes/items, and bounded failure category.
+  Do not persist secrets, raw SSH output, local-root handles, or file content.
 - History is local, retains a documented bounded number of entries, and has
   `Clear history`; clearing history never deletes remote data.
 - Completion/failure notifications are accessible, deduplicated, and link to
@@ -241,9 +267,9 @@ resume is a later feature, not an implied guarantee.
 
 ### 8.5 Accessibility and responsive behavior
 
-- Every pair-picker option, pane header, path control, listing row, selection,
-  transfer action, and task action is keyboard operable with an accessible name
-  containing Machine and path context.
+- Every pair-picker option, native local-folder action, pane header, path
+  control, listing row, selection, transfer action, and task action is keyboard
+  operable with an accessible name containing endpoint and path context.
 - Keyboard users can move focus between panes, navigate directories, select
   items, choose a destination, open review, and cancel a task without drag and
   drop.
@@ -256,14 +282,15 @@ resume is a later feature, not an implied guarantee.
 
 | Decision | Requirement and rationale |
 | --- | --- |
-| Pair, not fixed endpoints | Two Machines are selected symmetrically. Copy direction is set by the current selected pane or drag direction, avoiding needless reconfiguration for back-and-forth work. |
+| Pair, not fixed endpoints | Two endpoints are selected symmetrically. Each can be a Managed Machine or This Computer rooted at a user-selected local folder. Copy direction is set by the current selected pane or drag direction, avoiding needless reconfiguration for back-and-forth work. |
 | Dedicated surface | Machine Files is a peer Dashboard page because two independent remote trees, review, and task progress need more room and a durable mental model than a Project overflow dialog. |
 | Visible intent | A fixed summary bar is present whenever items are selected. Copy is unavailable until its exact result can be described. |
 | Copy-first safety | The initial action is always copy. Move and sync have different destructive semantics and are excluded. |
 | Review before effects | Drag/drop, button, AI hand-off, retry, and saved plan all route through the same review policy. |
+| Local is first-class but scoped | This Computer can be paired with any Managed Machine in P0. Native folder selection establishes an explicit local root, so the transfer UI cannot browse the user's whole disk by default. |
 | Convenient recurrence | Recent/pinned symmetric pairs and locally remembered folders speed repeated workflows without synchronizing operational paths. |
 | Explicit uncertainty | Unknown size, unavailable free-space, partial directory access, or unsupported entries appear as warnings, never as deceptive success. |
-| Agent assistance is bounded | Conversation can prefill a draft only from user-visible Managed Machine/project context. It cannot select an unshown path, set Replace Existing, or start transfer. |
+| Agent assistance is bounded | Conversation can prefill a draft only from user-visible Managed Machine/project context or a locally selected root. It cannot select an unshown path, set Replace Existing, or start transfer. |
 
 ## 10. Technical implementation path
 
@@ -271,15 +298,17 @@ resume is a later feature, not an implied guarantee.
 
 ```text
 Machine Files Webview (presentation only)
-  │ request ID, Machine IDs, UI intent, opaque entry/directory references
+  │ request ID, Managed Machine IDs / local-root handles, UI intent, opaque entry/directory references
   ▼
 Main extension transfer controller (control plane)
   │ current managed-catalog revision + opaque transfer plan
   ▼
 Managed Remote UI Bridge (local UI host, capability-gated)
   ├── re-reads active catalog and checks expected revision
-  ├── uses current generated OpenSSH projection / local auth
-  ├── source SSH/SFTP connection ── local streaming relay ── target SSH/SFTP connection
+  ├── uses current generated OpenSSH projection / local auth for Managed Machines
+  ├── uses native local filesystem access only below an approved local root
+  ├── remote source ── local streaming relay ── remote target
+  ├── local source/target ── local stream ── remote target/source
   └── returns bounded, redacted progress and terminal settlement
 ```
 
@@ -292,17 +321,18 @@ not traverse the Webview message channel or VS Code command arguments.
 ### 10.2 Protocol principles
 
 1. The Webview sends only bounded request IDs, expected catalog revision,
-   Machine IDs, opaque entry/directory references issued by host-validated
-   browsing, policy choice, and opaque task IDs. A bounded path-entry value may
-   be submitted only to request navigation; it is never a trusted copy-plan
-   path.
+   Managed Machine IDs or opaque local-root handles, opaque entry/directory
+   references issued by host-validated browsing, policy choice, and opaque task
+   IDs. A bounded path-entry value may be submitted only to request navigation;
+   it is never a trusted copy-plan path.
 2. The main extension re-reads authoritative catalog state, validates the
    selection, converts it to a canonical transfer plan, and requests bridge
    work. The Webview never sends endpoint values, SSH aliases, shell snippets,
    a trusted destination path, or task status to be trusted.
 3. The bridge re-reads the active catalog, validates the same revision and both
-   Machine IDs, and resolves aliases through the existing exact SSH projection.
-   It rejects stale, conflicted, or unmanaged identities.
+   Managed Machine IDs, and resolves aliases through the existing exact SSH
+   projection. It rejects stale, conflicted, unmanaged, expired-local-root, or
+   otherwise invalid identities.
 4. Every bridge request has a bounded correlation ID, session token, timeouts,
    a single terminal result, and a redacted error vocabulary. Progress is
    throttled/coalesced and scoped to the owning Dashboard session.
@@ -318,8 +348,8 @@ The selected transport must keep all payload bytes on the local UI host.
 
 | Path | Use | Benefits | Limits / decision |
 | --- | --- | --- | --- |
-| A. OpenSSH CLI transport (recommended P0) | Bridge invokes the discovered local OpenSSH tooling with the Agent Pivot-generated config. Bounded SFTP batch operations list/stat paths; `scp -3` copies source to target through this computer. | Reuses the exact local auth and config already trusted by Managed Machines; no secret handling or remote-to-remote reachability. | Needs an implementation spike for structured SFTP parsing, current-platform `scp -3` behavior, progress extraction, names with special characters, and collision preflight. P0 ships only after this matrix passes. |
-| B. Native SFTP client in the bridge | A later implementation uses one locally authenticated SFTP session per Machine and streams source reads to target writes with backpressure. | Precise progress, deterministic file enumeration and collision behavior, no temporary full-file staging. | Must faithfully honor existing SSH config, host-key, proxy, and agent behavior. Do not introduce it until this parity is proven; never copy credentials out of OpenSSH. |
+| A. OpenSSH CLI transport (recommended P0) | Bridge invokes the discovered local OpenSSH tooling with the Agent Pivot-generated config. Bounded SFTP batch operations list/stat paths; `scp -3` relays Managed Machine-to-Machine copies through this computer, while ordinary `scp` handles local-root ↔ Managed Machine copies. | Reuses the exact local auth and config already trusted by Managed Machines; no secret handling or remote-to-remote reachability. | Needs an implementation spike for structured SFTP parsing, current-platform `scp -3` behavior, progress extraction, names with special characters, local-root containment, and collision preflight. P0 ships only after this matrix passes. |
+| B. Native SFTP client in the bridge | A later implementation uses a locally authenticated SFTP session per Managed Machine and streams remote reads/writes to the other remote session or native local-root filesystem stream with backpressure. | Precise progress, deterministic file enumeration and collision behavior, no temporary full-file staging. | Must faithfully honor existing SSH config, host-key, proxy, and agent behavior. Do not introduce it until this parity is proven; never copy credentials out of OpenSSH. |
 | C. Local temporary staging | Download then upload using SFTP/scp. | Simple fallback for a single small file. | Not a normal product path: consumes disk, leaks data at rest, and doubles I/O. It may be used only as a documented, explicitly consented recovery fallback, not silently. |
 | D. Remote-to-remote transport | Source directly reaches target. | Potentially efficient on networks that allow it. | Explicitly out of scope. It violates the topology promise and makes policy/credential behavior inconsistent. |
 
@@ -348,14 +378,16 @@ and Machines that cannot reach one another.
   Exact wire names and payload schemas require a separate technical-design
   change with strict parsers before implementation.
 - Extend the UI Bridge with a local transfer engine, process lifecycle owner,
-  bounded diagnostic mapper, and cleanup on deactivation. Its only filesystem
-  authority is the two currently validated Managed Machine sessions.
+  bounded diagnostic mapper, native folder-picker integration, and cleanup on
+  deactivation. Its filesystem authority is limited to the current validated
+  Managed Machine sessions and user-approved local-root handles.
 
 ### 10.5 Storage, privacy, and observability
 
 - Transfer-pair recents, pane directories, queue summaries, and history are
   local UI-host state. They are capped and cleared on demand.
-- Catalog storage remains unchanged except for consuming existing Machine IDs.
+- Catalog storage remains unchanged except for consuming existing Managed
+  Machine IDs.
 - No passwords, private keys, passphrases, tokens, SSH configuration contents,
   full file content, or unbounded process output enters settings, telemetry,
   diagnostics, Webview HTML, or task history.
@@ -401,11 +433,13 @@ and Machines that cannot reach one another.
 
 - [ ] Machine Files is reachable as a first-level Dashboard surface next to AI
       Conversation and Projects; it is not only a Project overflow dialog.
-- [ ] The user can select exactly two different eligible Managed Machines and
-      open them as equal left/right panes without choosing a fixed source or
-      target.
+- [ ] The user can select exactly two different eligible endpoints and open them
+      as equal left/right panes without choosing a fixed source or target. An
+      endpoint can be a Managed Machine or This Computer rooted at a local
+      directory chosen through the native picker.
 - [ ] A catalog-conflicted, unavailable, duplicate, or unmanaged Machine cannot
-      begin a pair; the UI gives an accessible reason and recovery path.
+      begin a pair; This Computer cannot begin a pair until a readable local
+      root is selected; the UI gives an accessible reason and recovery path.
 - [ ] The user can navigate each pane independently and the UI keeps a clear
       visible current directory for both sides.
 - [ ] Selecting items on either side enables a direction-specific copy action to
@@ -415,7 +449,7 @@ and Machines that cannot reach one another.
       selection and never produces an ambiguous two-way action.
 - [ ] Dragging left-to-right or right-to-left opens review with the correct
       source selection and destination directory, never an immediate transfer.
-- [ ] Review accurately shows both Machine names, canonical input and output
+- [ ] Review accurately shows both endpoint names, canonical input and output
       paths, item count, known/unknown size, collision result, and policy.
 - [ ] Default collision handling is Ask. Replace Existing cannot be selected or
       executed accidentally; copy never deletes source data.
@@ -429,16 +463,20 @@ and Machines that cannot reach one another.
 
 ### Transfer topology, safety, and correctness
 
-- [ ] A successful copy completes when source and target Machines cannot open a
-      network connection to one another but the local UI host can authenticate
-      to both.
+- [ ] A successful copy completes when source and target Managed Machines cannot
+      open a network connection to one another but the local UI host can
+      authenticate to both.
+- [ ] A successful copy completes in both directions between This Computer's
+      approved local root and a Managed Machine; local paths outside the root
+      cannot be listed, selected, or reached through a crafted request.
 - [ ] Payload bytes relay through the local UI host and never pass through
       Webview messages, VS Code command payloads, or synchronized settings.
 - [ ] The transport honors the verified local Managed Machine SSH projection and
       local OpenSSH host-key/auth behavior; no credentials are stored by Agent
       Pivot.
-- [ ] The bridge rejects a stale revision, session token, Machine ID, target
-      root, malformed path, unrecognized operation, and any raw endpoint value.
+- [ ] The bridge rejects a stale revision, session token, Managed Machine ID,
+      expired/forged local-root handle, target root, malformed path,
+      unrecognized operation, and any raw endpoint value.
 - [ ] Process arguments resist shell/path/option injection for spaces, Unicode,
       `#`, `?`, `%`, quotes, leading dashes, and directory traversal attempts.
 - [ ] Preflight prevents start when source is unreadable or destination is
@@ -465,7 +503,8 @@ and Machines that cannot reach one another.
       output.
 - [ ] Existing Managed Machine catalog mutations, SSH projection, Project
       navigation, AI Conversation, and UI Bridge attention/navigation behavior
-      retain their current contract tests.
+      retain their current contract tests; transfer requests cannot access local
+      filesystem paths outside approved roots.
 - [ ] Automated coverage includes unit, protocol/contract, integration, and
       platform-matrix tests for the acceptance items above, plus `test-compile`,
       focused tests, Dashboard Webview checks, behavior contracts, lint, and

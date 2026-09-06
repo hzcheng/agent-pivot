@@ -749,7 +749,7 @@ body .project {
     span { color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.35; }
 }
 
-.managed-machine-form-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 7px; }
+.managed-machine-form-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 7px; }
 .managed-machine-form label { display: grid; gap: 3px; color: var(--vscode-descriptionForeground); font-size: 11px; }
 .managed-machine-form input { min-width: 0; height: 26px; box-sizing: border-box; padding: 3px 6px; border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 3px; color: var(--vscode-input-foreground, var(--vscode-foreground)); background: var(--vscode-input-background); font: inherit; }
 .managed-machine-form input:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
@@ -759,10 +759,6 @@ body .project {
 .managed-machine-form-submit:hover { background: var(--vscode-button-hoverBackground); }
 .managed-machine-form-submit:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .managed-machine-form-submit:disabled { opacity: .55; cursor: progress; }
-
-@media (max-width: 290px) {
-    .managed-machine-form-fields { grid-template-columns: minmax(0, 1fr); }
-}
 
 .machine-toolbar-button {
     position: relative;

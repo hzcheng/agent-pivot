@@ -424,6 +424,11 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
 test('MANAGED-REMOTE-MANAGEMENT-003 validates inline Machine drafts before posting', async t => {
     const page = await openPage(t, 260, managedMarkup());
     await page.click('[data-action="show-add-machine-form"]');
+    const fieldPositions = await page.locator('[data-managed-machine-form] input').evaluateAll(inputs =>
+        inputs.map(input => input.getBoundingClientRect().top),
+    );
+    assert.ok(fieldPositions.every((top, index) => index === 0 || top > fieldPositions[index - 1]),
+        'each Machine input must occupy its own row');
     await page.locator('[data-managed-machine-form] input[name="name"]').fill('Build');
     await page.locator('[data-managed-machine-form] input[name="host"]').fill('not a host');
     await page.locator('[data-managed-machine-form] input[name="user"]').fill('dev');

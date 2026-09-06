@@ -1,0 +1,251 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const childProcess = require('node:child_process');
+const fs = require('node:fs');
+const fsp = require('node:fs/promises');
+const net = require('node:net');
+const os = require('node:os');
+const path = require('node:path');
+const test = require('node:test');
+
+const { createCausalVersion, createVersionedCandidates, joinVersionVectors, vectorIncludingVersion } = require('../../../out/projects/managedRemote/causal');
+const { ManagedRemoteCatalogService } = require('../../../out/projects/managedRemote/catalogService');
+const { createEmptyManagedCatalogEnvelope, createManagedRevisionSlot } = require('../../../out/projects/managedRemote/envelope');
+const { managedSshAlias } = require('../../../out/projects/managedRemote/sshConfigProjection');
+const {
+    ManagedRemoteBridgeController,
+} = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedRemoteBridgeController');
+
+const SSHD = ['/usr/sbin/sshd', '/usr/bin/sshd'].find(candidate => fs.existsSync(candidate));
+const SSH_KEYGEN = ['/usr/bin/ssh-keygen', '/bin/ssh-keygen'].find(candidate => fs.existsSync(candidate));
+const SKIP = {
+    skip: process.platform !== 'linux' || !SSHD || !SSH_KEYGEN || !fs.existsSync('/usr/bin/scp')
+        || !fs.existsSync('/usr/bin/sftp'),
+};
+
+function request(operation, revisionId, suffix) {
+    return {
+        protocolVersion: 1,
+        requestId: `file-transfer-e2e-${suffix}-123456`,
+        sessionToken: 'file-transfer-e2e-session',
+        operation,
+        ...(revisionId ? { expectedRevisionId: revisionId } : {}),
+    };
+}
+
+function activeEnvelope(machines) {
+    let sequence = 0;
+    const catalog = ManagedRemoteCatalogService.create('file-transfer-e2e', prefix => `${prefix}:${++sequence}`);
+    const added = machines.map(machine => catalog.addMachine(machine));
+    const slot = createManagedRevisionSlot(catalog.getDocument());
+    const envelope = createEmptyManagedCatalogEnvelope('file-transfer-e2e-envelope');
+    const version = createCausalVersion(envelope.causalContext, 'file-transfer-e2e-envelope');
+    envelope.authority = createVersionedCandidates({ lifecycle: 'active', active: slot }, version);
+    envelope.causalContext = joinVersionVectors(envelope.causalContext, vectorIncludingVersion(version));
+    return { envelope, slot, machines: added };
+}
+
+function freePort() {
+    return new Promise((resolve, reject) => {
+        const server = net.createServer();
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', () => {
+            const address = server.address();
+            server.close(error => error ? reject(error) : resolve(address.port));
+        });
+    });
+}
+
+function waitForPort(port, process) {
+    return new Promise((resolve, reject) => {
+        const deadline = Date.now() + 5000;
+        const poll = () => {
+            if (process.exitCode !== null) {
+                reject(new Error(`Temporary sshd exited before accepting connections on ${port}.`));
+                return;
+            }
+            const socket = net.connect(port, '127.0.0.1');
+            socket.once('connect', () => {
+                socket.end();
+                resolve();
+            });
+            socket.once('error', () => {
+                socket.destroy();
+                if (Date.now() >= deadline) {
+                    reject(new Error(`Temporary sshd did not accept connections on ${port}.`));
+                    return;
+                }
+                setTimeout(poll, 40);
+            });
+        };
+        poll();
+    });
+}
+
+function writeClientWrapper(root, binary, clientConfig) {
+    const wrapper = path.join(root, 'bin', binary);
+    fs.mkdirSync(path.dirname(wrapper), { recursive: true });
+    fs.writeFileSync(wrapper, `#!/bin/sh\nexec /usr/bin/${binary} -F "${clientConfig}" "$@"\n`, { mode: 0o700 });
+    return wrapper;
+}
+
+async function startTemporarySshd(root, keyPath) {
+    const port = await freePort();
+    const hostKey = path.join(root, `host-${port}`);
+    const authorizedKeys = path.join(root, `authorized-${port}`);
+    const config = path.join(root, `sshd-${port}.conf`);
+    childProcess.execFileSync(SSH_KEYGEN, ['-q', '-t', 'ed25519', '-N', '', '-f', hostKey]);
+    fs.copyFileSync(`${keyPath}.pub`, authorizedKeys);
+    fs.writeFileSync(config, [
+        `Port ${port}`,
+        'ListenAddress 127.0.0.1',
+        `HostKey ${hostKey}`,
+        `PidFile ${path.join(root, `sshd-${port}.pid`)}`,
+        `AuthorizedKeysFile ${authorizedKeys}`,
+        'UsePAM no',
+        'PasswordAuthentication no',
+        'PubkeyAuthentication yes',
+        'PermitRootLogin no',
+        'StrictModes no',
+        'UseDNS no',
+        'Subsystem sftp internal-sftp',
+    ].join('\n') + '\n', { mode: 0o600 });
+    const process = childProcess.spawn(SSHD, ['-D', '-f', config, '-E', path.join(root, `sshd-${port}.log`)], {
+        stdio: 'ignore',
+    });
+    try {
+        await waitForPort(port, process);
+    } catch (error) {
+        if (process.exitCode === null) { process.kill(); }
+        throw error;
+    }
+    return { port, process };
+}
+
+/**
+ * Uses two temporary directories accessed through generated Managed Machine
+ * aliases. The two servers are exposed on independent loopback ports, so this
+ * proves that an actual remote-to-remote SCP -3 relay is used rather than
+ * assuming remote peers can communicate directly.
+ */
+test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real OpenSSH', SKIP, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-ssh-'));
+    const localRoot = path.join(root, 'local');
+    const remoteOne = fs.mkdtempSync(path.join(os.homedir(), 'agent-pivot-file-transfer-ssh-one-'));
+    const remoteTwo = fs.mkdtempSync(path.join(os.homedir(), 'agent-pivot-file-transfer-ssh-two-'));
+    fs.mkdirSync(localRoot);
+    fs.writeFileSync(path.join(localRoot, 'local.txt'), 'from local\n', 'utf8');
+    fs.writeFileSync(path.join(remoteOne, 'machine.txt'), 'from first machine\n', 'utf8');
+    const keyPath = path.join(root, 'client');
+    childProcess.execFileSync(SSH_KEYGEN, ['-q', '-t', 'ed25519', '-N', '', '-f', keyPath]);
+    const servers = [];
+    t.after(async () => {
+        for (const server of servers) {
+            if (server.process.exitCode === null) {
+                server.process.kill();
+                await new Promise(resolve => server.process.once('exit', resolve));
+            }
+        }
+        await fsp.rm(root, { recursive: true, force: true });
+        await fsp.rm(remoteOne, { recursive: true, force: true });
+        await fsp.rm(remoteTwo, { recursive: true, force: true });
+    });
+    const firstServer = await startTemporarySshd(root, keyPath);
+    servers.push(firstServer);
+    const secondServer = await startTemporarySshd(root, keyPath);
+    servers.push(secondServer);
+
+    const user = os.userInfo().username;
+    const { envelope, slot, machines } = activeEnvelope([
+        { name: 'Relay Source', host: '127.0.0.1', user, port: firstServer.port },
+        { name: 'Relay Destination', host: '127.0.0.1', user, port: secondServer.port },
+    ]);
+    const clientConfig = path.join(root, 'ssh-client.conf');
+    fs.writeFileSync(clientConfig, machines.map(machine => [
+        `Host ${managedSshAlias(machine.id, machine.name, machine.connection.host)}`,
+        '    HostName 127.0.0.1',
+        `    Port ${machine.connection.port}`,
+        `    User ${user}`,
+        `    IdentityFile ${keyPath}`,
+        '    BatchMode yes',
+        '    StrictHostKeyChecking no',
+        '    UserKnownHostsFile /dev/null',
+    ].join('\n')).join('\n\n') + '\n', { mode: 0o600 });
+    const ssh = writeClientWrapper(root, 'ssh', clientConfig);
+    writeClientWrapper(root, 'scp', clientConfig);
+    writeClientWrapper(root, 'sftp', clientConfig);
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { return envelope; },
+    }, {
+        async create() {
+            return { getExecutable() { return ssh; } };
+        },
+    }, 'file-transfer-e2e-session', {
+        platform: 'linux', openTerminal() {}, async writeClipboard() {},
+        async selectLocalDirectory() { return localRoot; },
+    }, {
+        schedule() {}, async ensureReady() {},
+    });
+
+    const local = await controller.execute(request('selectFileTransferLocalRoot', undefined, 'local'));
+    assert.equal(local.status, 'ok');
+    const sourceRoot = await controller.execute({
+        ...request('listFileTransferRemoteDirectory', slot.revisionId, 'source-list'),
+        targetId: machines[0].id,
+        fileTransfer: { kind: 'managedMachine' },
+    });
+    const destinationRoot = await controller.execute({
+        ...request('listFileTransferRemoteDirectory', slot.revisionId, 'destination-list'),
+        targetId: machines[1].id,
+        fileTransfer: { kind: 'managedMachine' },
+    });
+    assert.equal(sourceRoot.status, 'ok', sourceRoot.message);
+    assert.equal(destinationRoot.status, 'ok', destinationRoot.message);
+    const sourceDirectory = sourceRoot.value.entries.find(entry => entry.name === path.basename(remoteOne));
+    const destinationDirectory = destinationRoot.value.entries.find(entry => entry.name === path.basename(remoteTwo));
+    assert.ok(sourceDirectory);
+    assert.ok(destinationDirectory);
+    const source = await controller.execute({
+        ...request('listFileTransferRemoteDirectory', slot.revisionId, 'source-directory'),
+        targetId: machines[0].id,
+        fileTransfer: { kind: 'managedMachine', directoryId: sourceDirectory.id },
+    });
+    const destination = await controller.execute({
+        ...request('listFileTransferRemoteDirectory', slot.revisionId, 'destination-directory'),
+        targetId: machines[1].id,
+        fileTransfer: { kind: 'managedMachine', directoryId: destinationDirectory.id },
+    });
+    assert.equal(source.status, 'ok', source.message);
+    assert.equal(destination.status, 'ok', destination.message);
+    const localFile = local.value.entries.find(entry => entry.name === 'local.txt');
+    const remoteFile = source.value.entries.find(entry => entry.name === 'machine.txt');
+    assert.ok(localFile);
+    assert.ok(remoteFile);
+
+    const copiedLocal = await controller.execute({
+        ...request('copyFileTransferEntries', slot.revisionId, 'local-copy'),
+        fileTransfer: {
+            kind: 'copy', taskId: 'file-transfer-e2e-local-copy', conflictPolicy: 'fail',
+            source: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [localFile.id], targetName: 'renamed-local.txt',
+        },
+    });
+    assert.equal(copiedLocal.status, 'ok', copiedLocal.message);
+    assert.deepEqual(copiedLocal.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
+    assert.equal(fs.readFileSync(path.join(remoteTwo, 'renamed-local.txt'), 'utf8'), 'from local\n');
+
+    const copiedRelay = await controller.execute({
+        ...request('copyFileTransferEntries', slot.revisionId, 'remote-relay'),
+        fileTransfer: {
+            kind: 'copy', taskId: 'file-transfer-e2e-remote-relay', conflictPolicy: 'fail',
+            source: { kind: 'managedMachine', machineId: machines[0].id, directoryId: source.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [remoteFile.id],
+        },
+    });
+    assert.equal(copiedRelay.status, 'ok', copiedRelay.message);
+    assert.deepEqual(copiedRelay.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
+    assert.equal(fs.readFileSync(path.join(remoteTwo, 'machine.txt'), 'utf8'), 'from first machine\n');
+});

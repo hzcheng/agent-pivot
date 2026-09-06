@@ -732,7 +732,7 @@ export class ManagedRemoteBridgeController {
                     entry.kind === 'directory',
                     source.kind === 'managedMachine' ? `${source.alias}:${entry.path}` : entry.path,
                     destination.kind === 'managedMachine'
-                        ? `${destination.alias}:${destination.path}` : destination.path,
+                        ? `${destination.alias}:${destinationPath}` : destinationPath,
                     active,
                 );
                 if (entry.kind === 'file' && Number.isSafeInteger(entry.size)) {

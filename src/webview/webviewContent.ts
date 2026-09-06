@@ -644,7 +644,6 @@ function getGroupSection(
     var groupActions = options.virtual
         ? ''
         : `<div class="group-actions">
-            <span data-action="add" title="Add Project">${Icons.add}</span>
             <span data-action="edit" title="Edit Group">${Icons.edit}</span>
             <span data-action="remove" title="Remove Group">${Icons.remove
         }</span>
@@ -833,10 +832,8 @@ export function sanitizeCustomCss(value: string): string {
 function getNoProjectsDiv() {
     return `
 <div class="project-container">
-    <div class="project no-projects" data-action="add-project" data-nodrag>
-        No projects have been added yet.
-        <br/>
-        Click here to add one.
+    <div class="project no-projects" data-nodrag>
+        Open a project, then use Save Current Project.
     </div>
 </div>`;
 }
@@ -869,9 +866,6 @@ function getProjectContextMenu() {
 function getGroupContextMenu() {
     return `
 <div id="groupContextMenu" class="custom-context-menu">   
-    <div class="custom-context-menu-item" data-action="add">
-        Add Project
-    </div>
     <div class="custom-context-menu-item" data-action="edit">
         Edit Group
     </div>

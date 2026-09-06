@@ -3563,6 +3563,7 @@ async function initializeDashboard(
             buildMachineProjectsViewModel(
                 projectService.getLocalGroupsForDisplay(),
             ),
+            Boolean(resolveCurrentOpenWorkspace()),
         );
     };
     projectsPanelController = new ProjectsPanelController({
@@ -4221,12 +4222,15 @@ async function initializeDashboard(
             || !workspaceUri.authority.startsWith('ssh-remote+')) {
             return false;
         }
+        const sshAlias = workspaceUri.authority.slice('ssh-remote+'.length);
+        if (!sshAlias) { return false; }
         // The user has already opened this SSH workspace successfully. Let them
         // explicitly adopt its Machine instead of sending them to a separate
         // setup flow, then persist the complete hierarchy in one mutation.
         await capability.controller.addCurrentSshProject({
             name: projectName,
             remotePath,
+            sshAlias,
         });
         return true;
     }

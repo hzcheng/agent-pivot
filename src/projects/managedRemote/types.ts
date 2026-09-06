@@ -32,6 +32,8 @@ export interface VersionedCandidates<T> {
 export interface ManagedSshMachine {
     id: ManagedMachineId;
     name: string;
+    /** SSH aliases through which an already-open workspace was adopted. */
+    sourceSshAliases?: string[];
     connection: {
         kind: 'ssh';
         host: string;

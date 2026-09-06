@@ -1093,7 +1093,7 @@ function createMachineProjectsUi() {
                 resetManagedProjectForm(submittedProjectForm);
             }
             if (pending.focusAddMachine) {
-                var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+                var trigger = panel && panel.querySelector('[data-managed-operation="addMachine"]');
                 if (trigger) trigger.focus();
             } else if (pending.focusEditedMachineId) {
                 var editedMachine = panel && Array.from(panel.querySelectorAll('[data-machine-row]'))

@@ -285,15 +285,29 @@ test('MANAGED-REMOTE-MANAGEMENT-001 saves the open window without prompting', as
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-001 adopts a Machine only after the save flow is confirmed', async () => {
-    const { controller, calls } = fixture();
+    const adopted = [];
+    const { controller, calls } = fixture({
+        prompts: {
+            async adoptCurrentSshProject(input) {
+                adopted.push(input);
+                return { name: 'API host', host: 'api.example.com', user: 'dev', port: 22022 };
+            },
+        },
+    });
     const saved = await controller.addCurrentSshProject({
-        name: 'API', remotePath: '/work/api',
+        name: 'API', remotePath: '/work/api', sshAlias: 'legacy-api',
     });
 
     assert.equal(saved, true);
+    assert.deepEqual(adopted, [{
+        name: 'API', remotePath: '/work/api', sshAlias: 'legacy-api',
+    }]);
     assert.deepEqual(calls, [
         ['addMachineProject', revisionId, {
-            machine: { name: 'New', host: 'new.example.com', user: 'dev', port: 22022 },
+            machine: {
+                name: 'API host', host: 'api.example.com', user: 'dev', port: 22022,
+                sourceSshAliases: ['legacy-api'],
+            },
             project: { name: 'API', remotePath: '/work/api' },
         }],
         ['refresh', 'save-workspace', 'addMachine', nextRevisionId],
@@ -302,10 +316,12 @@ test('MANAGED-REMOTE-MANAGEMENT-001 adopts a Machine only after the save flow is
 
 test('MANAGED-REMOTE-MANAGEMENT-001 leaves the catalog unchanged when Machine adoption is cancelled', async () => {
     const { controller, calls } = fixture({
-        prompts: { async addMachine() { return undefined; } },
+        prompts: { async adoptCurrentSshProject() { return undefined; } },
     });
 
-    assert.equal(await controller.addCurrentSshProject({ name: 'API', remotePath: '/work/api' }), false);
+    assert.equal(await controller.addCurrentSshProject({
+        name: 'API', remotePath: '/work/api', sshAlias: 'legacy-api',
+    }), false);
     assert.deepEqual(calls, []);
 });
 

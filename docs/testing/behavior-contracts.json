@@ -7070,7 +7070,7 @@
   {
     "id": "MANAGED-REMOTE-MANAGEMENT-003",
     "domain": "webview",
-    "title": "Managed Remote renders compact Machine rows with endpoint tooltips, contextual Project creation, immutable placement, complete unavailable names, colors, tags, and management actions",
+    "title": "Managed Remote renders compact Machine rows with endpoint tooltips, Save Current Project as the only Project creation action, immutable placement, complete unavailable names, colors, tags, and management actions",
     "priority": "P0",
     "status": "automated",
     "owners": [

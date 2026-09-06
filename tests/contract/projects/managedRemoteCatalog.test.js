@@ -72,6 +72,22 @@ test('MANAGED-REMOTE-CATALOG-001 adopts an open SSH workspace in one catalog doc
     assert.ok(parseManagedRemoteCatalog(catalog.getDocument()));
 });
 
+test('MANAGED-REMOTE-CATALOG-001 saves a workspace only once per Environment and normalized path', () => {
+    const catalog = service();
+    const machine = addMachine(catalog);
+    const input = {
+        environmentId: hostEnvironmentId(machine.id),
+        name: 'API',
+        remotePath: '/work/api/',
+    };
+
+    const first = catalog.addProject(input);
+    const repeated = catalog.addProject({ ...input, name: 'API again', remotePath: '/work/api' });
+
+    assert.equal(repeated.id, first.id);
+    assert.equal(catalog.getCatalog().projects.length, 1);
+});
+
 test('MANAGED-REMOTE-CATALOG-001 supports custom SSH ports and rejects credentials', () => {
     const catalog = service();
     const machine = addMachine(catalog, 'Remote WSL', { port: 22022 });

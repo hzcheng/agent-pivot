@@ -114,7 +114,6 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every production project/grou
         'selected-project',
         'set-open-workspace-pin',
         'open-window-navigation-request',
-        'add-project',
         'reordered-projects',
         'reordered-favorites',
         'remove-project',
@@ -217,15 +216,13 @@ test('PROJECT-LAST-OPENED-001 does not mutate metadata when the open throws', as
     ], 'a failed open must never persist activity metadata');
 });
 
-test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates project mutations to their controllers', async () => {
+test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates retained Project mutations to their controllers', async () => {
     const { handlers, calls } = createFixture();
 
-    await handlers['add-project']({ groupId: 'group-a' });
     await handlers['edit-project']({ projectId: 'project-a' });
     await handlers['color-project']({ projectId: 'project-b' });
 
     assert.deepEqual(calls, [
-        ['addProject', 'group-a'],
         ['editProject', 'project-a'],
         ['editProjectColor', 'project-b'],
     ]);

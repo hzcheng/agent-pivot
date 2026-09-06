@@ -46,6 +46,7 @@ export interface ManagedRemoteManagementStore {
 
 export interface ManagedRemoteManagementPrompts {
     addMachine(): Promise<AddManagedMachineInput | undefined>;
+    adoptCurrentSshProject(input: AddManagedMachineProjectInput['project'] & { sshAlias: string }): Promise<AddManagedMachineInput | undefined>;
     editMachine(machine: ManagedSshMachine, affectedProjectCount: number): Promise<EditManagedMachineInput | undefined>;
     confirmRemoveMachine(machine: ManagedSshMachine): Promise<boolean>;
     chooseMachineForProject(machines: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
@@ -124,14 +125,14 @@ export class ManagedRemoteManagementController {
 
     /** Save an already-open SSH workspace after the user explicitly adopts its Machine. */
     async addCurrentSshProject(
-        project: AddManagedMachineProjectInput['project'],
+        project: AddManagedMachineProjectInput['project'] & { sshAlias: string },
     ): Promise<boolean> {
-        const machine = await this.options.prompts.addMachine();
+        const machine = await this.options.prompts.adoptCurrentSshProject(project);
         if (!machine) { return false; }
         const current = await this.options.store.getSnapshot();
         const result = await this.options.store.addMachineProject(current.revisionId, {
-            machine,
-            project,
+            machine: { ...machine, sourceSshAliases: [project.sshAlias] },
+            project: { name: project.name, remotePath: project.remotePath },
         });
         await this.options.refreshAuthoritative('save-workspace', 'addMachine', result);
         return true;

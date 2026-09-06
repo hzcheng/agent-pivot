@@ -129,14 +129,6 @@ function initProjectGroupCollapse() {
             return;
         }
 
-        if (action === 'add') {
-            window.vscode.postMessage({
-                type: 'add-project',
-                groupId,
-            });
-            return;
-        }
-
         var collapsed = groupDiv.classList.contains('collapsed');
         if (action === 'collapse') {
             groupDiv.classList.toggle('collapsed');

@@ -2644,13 +2644,11 @@ test('WEBVIEW-GROUP-ACTIONS-001 keeps non-TODO group actions routed and persiste
         },
     });
 
-    clickAction('add');
     clickAction('edit');
     clickAction('remove');
     clickAction('collapse');
 
     assert.deepEqual(toPlain(messages), [
-        { type: 'add-project', groupId: 'group-a' },
         { type: 'edit-group', groupId: 'group-a', collapsed: false },
         { type: 'remove-group', groupId: 'group-a', collapsed: false },
         { type: 'collapse-group', groupId: 'group-a', collapsed: true },

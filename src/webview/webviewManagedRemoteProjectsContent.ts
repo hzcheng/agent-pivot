@@ -148,6 +148,7 @@ export function renderManagedRemoteProjectsPanel(
     localModel: MachineProjectsViewModel = {
         projectCount: 0, tags: [], favorites: [], machines: [],
     },
+    canSaveCurrentProject = true,
 ): string {
     const revision = model.revisionId || '';
     const projectCount = model.projectCount + localModel.projectCount;
@@ -159,7 +160,7 @@ export function renderManagedRemoteProjectsPanel(
     return `<section class="machine-projects managed-remote-projects" data-machine-projects data-managed-remote-projects data-managed-revision-id="${escapeAttribute(revision)}" data-managed-lifecycle="${escapeAttribute(model.lifecycle)}" data-machine-project-count="${projectCount}">
         <div class="machine-projects-toolbar">
             <div class="machine-projects-summary" data-machine-projects-summary role="status" aria-live="polite">${projectCount} project${projectCount === 1 ? '' : 's'} on ${machineCount} machine${machineCount === 1 ? '' : 's'}</div>
-            <div class="machine-projects-toolbar-actions">${renderTagControls(tags)}<button type="button" class="machine-toolbar-button" data-action="save-current-project" aria-label="Save Current Project" title="Save Current Project">${Icons.save}</button><button type="button" class="machine-toolbar-button" ${operationAttributes('addMachine')} aria-label="Add Machine" title="Add Machine">${Icons.add}</button></div>
+            <div class="machine-projects-toolbar-actions">${renderTagControls(tags)}<button type="button" class="machine-toolbar-button" data-action="save-current-project" aria-label="Save Current Project" title="${canSaveCurrentProject ? 'Save Current Project' : 'Open a project before saving it'}"${canSaveCurrentProject ? '' : ' disabled'}>${Icons.save}</button><button type="button" class="machine-toolbar-button" ${operationAttributes('addMachine')} aria-label="Add Machine" title="Add Machine">${Icons.add}</button></div>
         </div>
         ${favoriteCount ? `<section class="machine-favorites" data-machine-favorites><h2 class="machine-section-heading"><button type="button" class="machine-disclosure" data-machine-disclosure="favorites" aria-expanded="true" aria-controls="managed-machine-favorites-list" aria-label="Collapse Favorites"><span class="machine-chevron" aria-hidden="true">${Icons.collapse}</span><span>FAVORITES</span><span class="machine-count">${favoriteCount}</span></button></h2><ul id="managed-machine-favorites-list" class="machine-favorite-list">${localModel.favorites.map(project => renderMachineProjectsProject(project, true)).join('\n')}${model.favorites.map(project => renderProject(project, true)).join('\n')}</ul></section>` : ''}
         <section class="machine-projects-directory" aria-labelledby="managed-machine-projects-directory-title"><h2 id="managed-machine-projects-directory-title" class="machine-projects-visually-hidden">Machines</h2>${machineCount ? `<ul class="machine-projects-machines">${localModel.machines.map(renderMachineProjectsMachine).join('\n')}${model.machines.map(machine => renderMachine(machine)).join('\n')}</ul>` : '<p class="managed-remote-empty">No Projects or managed Machines yet.</p>'}</section>

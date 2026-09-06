@@ -50,9 +50,14 @@ test('MACHINE-PROJECTS-ARIA-001 renders a plain derived hierarchy with directly 
     assert.match(html, /data-action="remove-machine-project"/);
     assert.match(html, /class="machine-project-color" style="background: #123456"/);
     assert.match(html, /aria-label="Filter projects by tag"/);
-    assert.match(html, /aria-label="Add Project"/);
+    assert.match(html, /aria-label="Save Current Project"/);
     assert.doesNotMatch(html, /class="machine-project-tag"/);
     assert.doesNotMatch(html, /Setup|Assign|Preview|Migration|UI Bridge|Not configured/);
+});
+
+test('MACHINE-PROJECTS-ARIA-001 disables Save Current Project until a workspace is open', () => {
+    const html = renderMachineProjectsPanel(viewModel(), undefined, false);
+    assert.match(html, /data-action="save-current-project"[^>]*title="Open a project before saving it"[^>]* disabled/u);
 });
 
 test('MACHINE-PROJECTS-TAGS-001 renders AND tag filters and one Favorite mirror without duplicating identity counts', () => {

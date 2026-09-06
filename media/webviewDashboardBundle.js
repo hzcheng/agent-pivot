@@ -1474,14 +1474,6 @@ function initProjectGroupCollapse() {
             return;
         }
 
-        if (action === 'add') {
-            window.vscode.postMessage({
-                type: 'add-project',
-                groupId,
-            });
-            return;
-        }
-
         var collapsed = groupDiv.classList.contains('collapsed');
         if (action === 'collapse') {
             groupDiv.classList.toggle('collapsed');
@@ -2218,12 +2210,6 @@ function initProjectContextMenus(options) {
             return;
 
         switch (action) {
-            case 'add':
-                window.vscode.postMessage({
-                    type: 'add-project',
-                    groupId: contextMenuGroupId,
-                });
-                break;
             default:
                 window.vscode.postMessage({
                     type: action + '-group',
@@ -7877,23 +7863,6 @@ function initProjects() {
         });
     }
 
-    function onAddProjectClicked(e) {
-        if (!e.target)
-            return;
-
-        var projectDiv = e.target.closest('.project')
-            || e.target.closest('[data-open-session-surface][data-id]');
-        if (!projectDiv)
-            return;
-
-        var groupId = projectDiv.getAttribute("data-group-id");
-
-        window.vscode.postMessage({
-            type: 'add-project',
-            groupId,
-        });
-    }
-
     function onInsideOpenWindowRowClick(e, row) {
         // PRD 单击语义：非当前行 = 聚焦该 OS 窗口（走导航请求协议）；当前行 =
         // 空操作；双击/中键 = 无行为。★/⋯/重试按钮在各行内单独处理，不触发行点击。
@@ -8252,11 +8221,6 @@ function initProjects() {
             window.vscode.postMessage({
                 type: 'add-group'
             });
-            return;
-        }
-
-        if (e.target.closest('[data-action="add-project"]')) {
-            onAddProjectClicked(e);
             return;
         }
 
@@ -10221,7 +10185,7 @@ function createMachineProjectsUi() {
                 resetManagedProjectForm(submittedProjectForm);
             }
             if (pending.focusAddMachine) {
-                var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+                var trigger = panel && panel.querySelector('[data-managed-operation="addMachine"]');
                 if (trigger) trigger.focus();
             } else if (pending.focusEditedMachineId) {
                 var editedMachine = panel && Array.from(panel.querySelectorAll('[data-machine-row]'))

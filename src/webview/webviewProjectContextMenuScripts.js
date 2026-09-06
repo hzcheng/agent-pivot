@@ -220,12 +220,6 @@ function initProjectContextMenus(options) {
             return;
 
         switch (action) {
-            case 'add':
-                window.vscode.postMessage({
-                    type: 'add-project',
-                    groupId: contextMenuGroupId,
-                });
-                break;
             default:
                 window.vscode.postMessage({
                     type: action + '-group',

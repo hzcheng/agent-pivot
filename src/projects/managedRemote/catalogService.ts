@@ -27,12 +27,14 @@ import {
     VersionedCandidates,
 } from './types';
 import { parseManagedRemoteCatalog } from './validation';
+import { normalizePosixPath } from '../projectPathUtils';
 
 export interface AddManagedMachineInput {
     name: string;
     host: string;
     user: string;
     port?: number;
+    sourceSshAliases?: string[];
 }
 
 export interface EditManagedMachineInput {
@@ -182,6 +184,9 @@ export class ManagedRemoteCatalogService {
         const machine: ManagedSshMachine = {
             id: machineId,
             name: input.name,
+            ...(input.sourceSshAliases?.length
+                ? { sourceSshAliases: Array.from(new Set(input.sourceSshAliases)).sort() }
+                : {}),
             connection: {
                 kind: 'ssh',
                 host: input.host,
@@ -271,6 +276,11 @@ export class ManagedRemoteCatalogService {
             this.document.environments[input.environmentId],
             'Managed Environment',
         );
+        const remotePath = normalizePosixPath(input.remotePath);
+        const existing = this.getCatalog().projects.find(project =>
+            project.environmentId === input.environmentId
+            && normalizePosixPath(project.remotePath) === remotePath);
+        if (existing) { return cloneManagedValue(existing); }
         const projectId = input.id || this.createId('project');
         if (this.document.projects[projectId]
             && nonNullValues(this.document.projects[projectId]).length) {
@@ -280,7 +290,7 @@ export class ManagedRemoteCatalogService {
             id: projectId,
             environmentId: input.environmentId,
             name: input.name,
-            remotePath: input.remotePath,
+            remotePath,
             ...(input.description === undefined ? {} : { description: input.description }),
             ...(input.tags === undefined ? {} : { tags: normalizeTags(input.tags) }),
             ...(input.color === undefined ? {} : { color: input.color }),

@@ -101,6 +101,19 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         return this.machineWizard({ name: '', host: '', user: '', port: '22' });
     }
 
+    adoptCurrentSshProject(
+        project: Omit<AddManagedProjectInput, 'environmentId'> & { sshAlias: string },
+    ): Promise<AddManagedMachineInput | undefined> {
+        return this.machineWizard({
+            name: project.sshAlias,
+            host: '',
+            user: '',
+            port: '22',
+        }, {
+            adoptedProject: project,
+        });
+    }
+
     async editMachine(
         machine: ManagedSshMachine,
         affectedProjectCount: number,
@@ -306,7 +319,11 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
 
     private async machineWizard(
         draft: MachineDraft,
-        edit?: { previous: ManagedSshMachine; affectedProjectCount: number },
+        mode?: {
+            previous?: ManagedSshMachine;
+            affectedProjectCount?: number;
+            adoptedProject?: Omit<AddManagedProjectInput, 'environmentId'> & { sshAlias: string };
+        },
     ): Promise<AddManagedMachineInput | undefined> {
         const fields = [
             { key: 'name', prompt: 'Machine name', validate: (value: string) => validText(value, 'Machine name') },
@@ -319,7 +336,8 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
             if (step < fields.length) {
                 const field = fields[step];
                 const result = await this.ui.input({
-                    title: edit ? 'Edit Machine' : 'Add Machine',
+                    title: mode?.previous ? 'Edit Machine' : mode?.adoptedProject
+                        ? 'Save Current Project — Add Machine' : 'Add Machine',
                     step: step + 1,
                     totalSteps: 5,
                     prompt: field.prompt,
@@ -333,7 +351,7 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
                 continue;
             }
             const candidate: ManagedSshMachine = {
-                id: edit?.previous.id || 'new-machine',
+                id: mode?.previous?.id || 'new-machine',
                 name: clean(draft.name),
                 connection: {
                     kind: 'ssh',
@@ -346,19 +364,25 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
                 step = 0;
                 continue;
             }
-            const oldEndpoint = edit ? machineSummary(edit.previous) : '';
+            const oldEndpoint = mode?.previous ? machineSummary(mode.previous) : '';
+            const adoptedProject = mode?.adoptedProject;
             const review = await this.ui.pick({
-                title: edit
+                title: mode?.previous
                     ? 'Review — Changes all synced computers'
+                    : adoptedProject
+                        ? 'Review — Save Current Project'
                     : 'Review — Saved to your VS Code User settings',
                 step: 5,
                 totalSteps: 5,
                 canGoBack: true,
                 items: [{
-                    label: edit ? 'Save Changes to All Computers' : 'Save Machine',
+                    label: mode?.previous ? 'Save Changes to All Computers'
+                        : adoptedProject ? 'Save Machine and Project' : 'Save Machine',
                     description: machineSummary(candidate),
-                    detail: edit
-                        ? `${oldEndpoint} → ${machineSummary(candidate)} · ${edit.affectedProjectCount} affected Project${edit.affectedProjectCount === 1 ? '' : 's'}`
+                    detail: mode?.previous
+                        ? `${oldEndpoint} → ${machineSummary(candidate)} · ${mode.affectedProjectCount} affected Project${mode.affectedProjectCount === 1 ? '' : 's'}`
+                        : adoptedProject
+                            ? `Current SSH target: ${adoptedProject.sshAlias} · Project: ${adoptedProject.remotePath}`
                         : 'Passwords and keys are not saved.',
                     value: true,
                 }],

@@ -161,12 +161,17 @@ test('WEBVIEW-DASHBOARD-BOOTSTRAP-001 binds the Managed Remote toolbar after a p
     const { page, consoleErrors } = await openDashboard(t);
     await deliverProjectsPanel(page, emptySnapshot());
 
-    const button = page.locator('[data-managed-operation="addMachine"]');
+    const button = page.locator('[data-action="show-add-machine-form"]');
     assert.equal(await button.count(), 1, 'the Add Machine control must render');
 
-    // The real proof: the Host-owned Machine wizard request has to reach the
+    // The real proof: opening and submitting the inline form has to reach the
     // extension. Without mount() the whole tab is inert.
     await button.click();
+    const form = page.locator('[data-managed-machine-form-operation="addMachine"]');
+    await form.locator('input[name="name"]').fill('Build');
+    await form.locator('input[name="host"]').fill('build.example.com');
+    await form.locator('input[name="user"]').fill('dev');
+    await form.evaluate(node => node.requestSubmit());
     const posted = await page.evaluate(() => window.__posted);
     const action = posted.filter(item => item?.type === 'managed-remote-action').at(-1);
 
@@ -178,6 +183,7 @@ test('WEBVIEW-DASHBOARD-BOOTSTRAP-001 binds the Managed Remote toolbar after a p
     // An empty catalog has no revision yet; sending anything else strands the
     // very first action a new user takes.
     assert.equal(action.expectedRevisionId, null);
-    assert.equal(action.input, undefined,
-        'Machine details belong to the Host-owned wizard, not the Webview message');
+    assert.deepEqual(action.input, {
+        name: 'Build', host: 'build.example.com', user: 'dev', port: 22,
+    });
 });

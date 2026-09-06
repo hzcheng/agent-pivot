@@ -3306,7 +3306,9 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(!selectedProjectHandler.includes('getOpenProjects()'));
     assert.ok(selectedProjectHandler.includes('await projectOpenController.openProject(project, projectOpenType);'));
     assert.ok(!projectMessageHandlers.includes('await projectMutationController.addProject('));
-    assert.ok(dashboard.includes('saveCurrentWorkspace: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace()'));
+    assert.ok(dashboard.includes('saveCurrentWorkspace: async message => {'));
+    assert.ok(dashboard.includes("type: 'save-current-workspace-result', version: 1, requestId, projectId,"));
+    assert.ok(dashboard.includes("operation: 'save-current-workspace'"));
     assert.strictEqual(dashboard.includes('saveUntitledWorkspace:'), false,
         'workspace card saves must reuse the complete SavedWorkspaceProjectAdapter flow');
     assert.strictEqual(dashboard.includes("'save-project': async"), false,

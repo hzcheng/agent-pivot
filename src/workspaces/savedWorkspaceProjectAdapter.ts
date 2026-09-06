@@ -86,7 +86,7 @@ export class SavedWorkspaceProjectAdapter {
 
     private async saveWorkspace(workspace: OpenWorkspace): Promise<boolean> {
         const details = await this.options.getProjectDetailsForSave(workspace.navigationUri);
-        return this.options.saveWorkspaceProject(details);
+        return (await this.options.saveWorkspaceProject(details)) !== false;
     }
 
     private runTransaction(operation: () => Promise<boolean>): Promise<boolean> {

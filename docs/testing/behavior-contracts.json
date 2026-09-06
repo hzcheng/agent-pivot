@@ -6848,6 +6848,21 @@
     ]
   },
   {
+    "id": "CONVERSATION-QUESTION-OPTION-HIERARCHY-001",
+    "domain": "webview",
+    "title": "Conversation question cards render each replayed option with a visible ordinal and a distinct label and description hierarchy",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "WORKTREE-SNAPSHOT-001",
     "domain": "session",
     "title": "Worktree snapshots refresh automatically with single-flight generation safety and flow coherently through session hydration and presentation",

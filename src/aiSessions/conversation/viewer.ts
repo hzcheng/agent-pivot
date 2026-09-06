@@ -4645,14 +4645,15 @@ function questionSourceLabel(source: string): string {
 
 function renderQuestionOption(
     option: { label: string; description?: string },
-    selected: boolean
+    selected: boolean,
+    index: number
 ): string {
     const description = option.description
         ? `<span class="conversation-question-option-description">${escapeAttribute(option.description)}</span>`
         : '';
     return `<li class="conversation-question-option${selected
         ? ' conversation-question-option-selected'
-        : ''}"><span class="conversation-question-option-check">${selected
+        : ''}"><span class="conversation-question-option-index">${index + 1}.</span><span class="conversation-question-option-check" aria-hidden="true">${selected
         ? '\u2713'
         : ''}</span><span class="conversation-question-option-label">${escapeAttribute(option.label)}</span>${description}</li>`;
 }
@@ -4667,9 +4668,10 @@ function renderQuestionItem(
         : '';
     const options = item.options.length
         ? `<ul class="conversation-question-options">${item.options
-            .map(option => renderQuestionOption(
+            .map((option, index) => renderQuestionOption(
                 option,
-                answers.includes(option.label)
+                answers.includes(option.label),
+                index
             ))
             .join('')}</ul>`
         : '';

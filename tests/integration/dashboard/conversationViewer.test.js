@@ -7893,7 +7893,7 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 publishes collapsible tool-call mark
     assert.equal(html.includes('conversation-message-tool'), true);
 });
 
-test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 publishes plan and question markup with the settled answers', async () => {
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 CONVERSATION-QUESTION-OPTION-HIERARCHY-001 publishes numbered question options with distinct labels and descriptions', async () => {
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(
             sessionId,
@@ -7951,6 +7951,7 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 publishes plan and question mark
 
     await viewer.open(target('session-a', 'input-1'));
     const html = panel.webview.html;
+    const renderedQuestion = decodeInitialPublication(html).html;
     assert.equal(html.includes('conversation-message-plan'), true);
     assert.equal(html.includes('conversation-plan-label'), true);
     assert.equal(html.includes('Rollout Plan'), true);
@@ -7959,6 +7960,13 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 publishes plan and question mark
     assert.equal(html.includes('Plan approval'), true);
     assert.equal(html.includes('Approve this plan'), true);
     assert.equal(html.includes('Full refactor'), true);
+    const firstOptionIndex = renderedQuestion.indexOf('conversation-question-option-index">1.</span>');
+    const firstOptionLabel = renderedQuestion.indexOf('conversation-question-option-label">Full refactor</span>');
+    const firstOptionDescription = renderedQuestion.indexOf('conversation-question-option-description">All at once</span>');
+    assert.ok(firstOptionIndex >= 0);
+    assert.ok(firstOptionIndex < firstOptionLabel);
+    assert.ok(firstOptionLabel < firstOptionDescription);
+    assert.ok(renderedQuestion.includes('conversation-question-option-index">2.</span>'));
     assert.equal(
         html.includes('conversation-question-option-selected'),
         true

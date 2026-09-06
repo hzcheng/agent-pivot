@@ -12332,8 +12332,10 @@ test('CONVERSATION-WORKLOG-COLLAPSE-001 nests flat tool calls under independentl
         'the original Worked-for control still collapses the complete process');
 });
 
-test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 keeps plan and question cards visible when completed-turn work collapses', async t => {
+test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 CONVERSATION-QUESTION-OPTION-HIERARCHY-001 keeps question options readable when completed-turn work collapses', async t => {
     const page = await openViewerPage(t, {});
+    await page.addStyleTag({ content: viewerThemeFixtures[0].css });
+    await page.addStyleTag({ content: viewerCss });
     const turnHtml = `<article class="conversation-message conversation-message-user"
             data-message-id="input-4:user"
             data-conversation-message-id="input-4%3Auser"
@@ -12386,10 +12388,13 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 keeps plan and question cards vi
                 </section>
                 <ul class="conversation-question-options">
                     <li class="conversation-question-option conversation-question-option-selected">
+                        <span class="conversation-question-option-index">1.</span>
                         <span class="conversation-question-option-check">\u2713</span>
                         <span class="conversation-question-option-label">Full refactor</span>
+                        <span class="conversation-question-option-description">All at once</span>
                     </li>
                     <li class="conversation-question-option">
+                        <span class="conversation-question-option-index">2.</span>
                         <span class="conversation-question-option-check"></span>
                         <span class="conversation-question-option-label">Reject</span>
                     </li>
@@ -12428,6 +12433,19 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 keeps plan and question cards vi
         1,
         'the settled option survives sanitizing'
     );
+    assert.deepEqual(
+        await page.locator('.conversation-question-option-index').allTextContents(),
+        ['1.', '2.'],
+        'every replayed option exposes a stable visible ordinal'
+    );
+    const firstOption = page.locator('.conversation-question-option').first();
+    const optionLabel = firstOption.locator('.conversation-question-option-label');
+    const optionDescription = firstOption.locator('.conversation-question-option-description');
+    assert.equal(await firstOption.evaluate(element => getComputedStyle(element).display), 'grid');
+    assert.equal(await optionLabel.evaluate(element => getComputedStyle(element).gridColumnStart), '3');
+    assert.equal(await optionDescription.evaluate(element => getComputedStyle(element).gridColumnStart), '3');
+    assert.equal(await optionLabel.evaluate(element => getComputedStyle(element).color), viewerThemeFixtures[0].tokens.editorForeground);
+    assert.equal(await optionDescription.evaluate(element => getComputedStyle(element).color), viewerThemeFixtures[0].tokens.descriptionForeground);
 
     await page.locator('.conversation-worklog-toggle').click();
     assert.equal(

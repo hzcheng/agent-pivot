@@ -18,7 +18,10 @@ import {
     normalizeManagedCatalogEnvelope,
     parseManagedCatalogEnvelope,
 } from './envelope';
-import { materializeManagedRemoteCatalog } from './merge';
+import {
+    joinManagedRemoteCatalogs,
+    materializeManagedRemoteCatalog,
+} from './merge';
 import { assertManagedEnvelopePayload } from './payload';
 import {
     ChecksummedLegacySnapshot,
@@ -168,10 +171,16 @@ export class ManagedCatalogCoordinator {
             if (slots.length !== 1 || values.length !== 1) {
                 throw new Error('Managed catalog staged revision is conflicted.');
             }
-            const catalog = materializeManagedRemoteCatalog(slots[0].document);
-            if (catalog.conflicts.length) {
-                throw new Error('Managed catalog conflicts must be resolved before activation.');
-            }
+            const current = distinctCandidateValues(reconciled.envelope.authority);
+            const currentSlot = current.length === 1
+                && (current[0].lifecycle === 'preview' || current[0].lifecycle === 'active')
+                ? current[0].active : undefined;
+            const slot = currentSlot
+                ? createManagedRevisionSlot(joinManagedRemoteCatalogs(
+                    currentSlot.document,
+                    slots[0].document,
+                ))
+                : slots[0];
             const previous = currentActiveSlot(reconciled.envelope);
             const candidate = withEnvelopeMutation(
                 reconciled.envelope,
@@ -179,14 +188,14 @@ export class ManagedCatalogCoordinator {
                 (envelope, version) => {
                     envelope.authority = createVersionedCandidates({
                         lifecycle,
-                        active: slots[0],
+                        active: slot,
                         ...(previous ? { previous } : {}),
                     }, version);
                     envelope.stagedRevisions[stageId] = createVersionedCandidates(null, version);
                 },
             );
             await this.publishCandidate(candidate);
-            return cloneManagedValue(slots[0]);
+            return cloneManagedValue(slot);
         });
     }
 

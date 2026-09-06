@@ -20,6 +20,24 @@ class MemoryMemento {
     }
 }
 
+class ConcurrentWriterMemento extends MemoryMemento {
+    constructor() { super(); this.pendingWriterUpdates = []; this.released = false; }
+    async update(key, value) {
+        if (key !== 'managedRemote.writers' || this.released) {
+            return super.update(key, value);
+        }
+        await new Promise(resolve => {
+            this.pendingWriterUpdates.push({ key, value, resolve });
+            if (this.pendingWriterUpdates.length === 2) {
+                this.released = true;
+                for (const pending of this.pendingWriterUpdates) {
+                    super.update(pending.key, pending.value).then(pending.resolve);
+                }
+            }
+        });
+    }
+}
+
 test('MANAGED-REMOTE-MANAGEMENT-002 writes the synchronized backend at application scope', async () => {
     const calls = [];
     const configuration = {
@@ -124,7 +142,7 @@ test('MANAGED-REMOTE-MANAGEMENT-002 restores a synced backend from every durable
     assert.ok(configuration.value, 'the missing synchronized backend is repaired');
 });
 
-test('MANAGED-REMOTE-MANAGEMENT-002 resumes an unfinished writer and preserves every durable peer', async () => {
+test('MANAGED-REMOTE-MANAGEMENT-002 never adopts another window unfinished writer', async () => {
     const memento = new MemoryMemento();
     const identities = ['new-writer', 'new-actor'];
     const writerIdentityMemento = new MemoryMemento();
@@ -142,23 +160,55 @@ test('MANAGED-REMOTE-MANAGEMENT-002 resumes an unfinished writer and preserves e
         },
     });
     assert.deepEqual(await replicas.allocateWriter(), {
-        writerId: 'old', actorId: 'old-actor',
+        writerId: 'new-writer', actorId: 'catalog-actor:new-actor',
     });
 
     await memento.update('managedRemote.writers', {
         ...memento.get('managedRemote.writers'),
         completed: { actorId: 'completed-actor', nextCounter: 2, envelope },
     });
-    await replicas.writeWriter('old', {
-        actorId: 'old-actor', nextCounter: 2, envelope,
+    await replicas.writeWriter('new-writer', {
+        actorId: 'catalog-actor:new-actor', nextCounter: 2, envelope,
     });
     assert.ok(memento.get('managedRemote.writers').completed);
     assert.ok(memento.get('managedRemote.writers').old);
     assert.deepEqual(replicas.readWriters().map(entry => entry.writerId), [
         'completed',
+        'new-writer',
         'old',
     ]);
     assert.deepEqual(await replicas.allocateWriter(), {
-        writerId: 'old', actorId: 'old-actor',
+        writerId: 'new-writer', actorId: 'catalog-actor:new-actor',
     });
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-002 retains concurrent durable window replicas', async () => {
+    const memento = new ConcurrentWriterMemento();
+    const identityA = new MemoryMemento();
+    const identityB = new MemoryMemento();
+    await identityA.update('managedRemote.writerIdentity', {
+        writerId: 'writer-a', actorId: 'actor-a',
+    });
+    await identityB.update('managedRemote.writerIdentity', {
+        writerId: 'writer-b', actorId: 'actor-b',
+    });
+    const replicaA = new MementoManagedCatalogReplicaFacade(
+        memento, 'managedRemote', identityA,
+    );
+    const replicaB = new MementoManagedCatalogReplicaFacade(
+        memento, 'managedRemote', identityB,
+    );
+    const envelope = createEmptyManagedCatalogEnvelope('actor');
+
+    await Promise.all([
+        replicaA.writeWriter('writer-a', {
+            actorId: 'actor-a', nextCounter: 2, envelope,
+        }),
+        replicaB.writeWriter('writer-b', {
+            actorId: 'actor-b', nextCounter: 2, envelope,
+        }),
+    ]);
+
+    assert.ok(replicaA.readWriter('writer-a'));
+    assert.ok(replicaB.readWriter('writer-b'));
 });

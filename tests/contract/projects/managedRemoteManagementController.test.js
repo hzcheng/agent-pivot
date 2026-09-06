@@ -202,6 +202,24 @@ test('MANAGED-REMOTE-MANAGEMENT-001 resolves a conflict from raw causal candidat
     assert.equal(calls[0][3].connection.host, 'other.example.com');
 });
 
+test('MANAGED-REMOTE-MANAGEMENT-001 resolves a delete-update conflict with its surviving candidate', async () => {
+    const current = snapshot();
+    current.catalog.conflicts = [{
+        kind: 'delete-update',
+        entityType: 'machine',
+        entityId: 'machine:one',
+    }];
+    current.machineConflictCandidates = {
+        'machine:one': [current.catalog.machines[0]],
+    };
+    const { controller, calls } = fixture({ snapshot: current });
+
+    await controller.handle(request('resolveMachineConflict', 'machine:one'));
+
+    assert.equal(calls[0][0], 'resolve');
+    assert.equal(calls[0][3].connection.host, 'build.example.com');
+});
+
 test('MANAGED-REMOTE-MANAGEMENT-001 saves the open window without prompting', async () => {
     const { controller, calls } = fixture({
         prompts: {

@@ -235,7 +235,7 @@ export class ManagedRemoteManagementController {
             });
         }
         const candidates = snapshot.machineConflictCandidates[targetId] || [];
-        if (candidates.length < 2) {
+        if (!candidates.length) {
             throw new Error('The Managed Machine no longer has a connection conflict.');
         }
         const selected = await this.options.prompts.resolveMachineConflict(targetId, candidates);

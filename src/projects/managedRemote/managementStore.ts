@@ -40,9 +40,10 @@ function machineConflictCandidates(
 ): Record<string, ManagedSshMachine[]> {
     const result: Record<string, ManagedSshMachine[]> = {};
     for (const [machineId, register] of Object.entries(document.machines)) {
-        const values = distinctCandidateValues(register)
+        const candidates = distinctCandidateValues(register);
+        const values = candidates
             .filter((value): value is ManagedSshMachine => value !== null);
-        if (values.length > 1) { result[machineId] = values; }
+        if (candidates.length > 1 && values.length) { result[machineId] = values; }
     }
     return result;
 }
@@ -52,6 +53,8 @@ function isClearedLegacyValue(value: unknown): boolean {
 }
 
 export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagementStore {
+    private pendingMutation: Promise<unknown> = Promise.resolve();
+
     constructor(
         private readonly coordinator: ManagedCatalogCoordinator,
         private readonly catalogActorId: string,
@@ -255,7 +258,17 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         return this.snapshot(await this.coordinator.reconcile());
     }
 
-    private async mutate(
+    private mutate(
+        expectedRevisionId: string | null,
+        change: (service: ManagedRemoteCatalogService) => void,
+    ): Promise<ManagedRemoteManagementSnapshot> {
+        const operation = this.pendingMutation.then(() =>
+            this.mutateNow(expectedRevisionId, change));
+        this.pendingMutation = operation.catch(() => undefined);
+        return operation;
+    }
+
+    private async mutateNow(
         expectedRevisionId: string | null,
         change: (service: ManagedRemoteCatalogService) => void,
     ): Promise<ManagedRemoteManagementSnapshot> {
@@ -279,7 +292,7 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         const stageId = await this.coordinator.stageCatalog(service.getDocument());
         await this.coordinator.activateStagedCatalog(
             stageId,
-            authority.lifecycle === 'active' ? 'active' : 'preview',
+            'active',
         );
         return this.snapshot(await this.coordinator.reconcile());
     }

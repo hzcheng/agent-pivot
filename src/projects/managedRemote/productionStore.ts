@@ -3,7 +3,7 @@
 import { randomBytes } from 'crypto';
 import type * as vscode from 'vscode';
 
-import { cloneManagedValue } from './causal';
+import { cloneManagedValue, stableManagedValue } from './causal';
 import {
     ManagedCatalogBackend,
     ManagedCatalogReplicaFacade,
@@ -71,18 +71,6 @@ export class MementoManagedCatalogReplicaFacade implements ManagedCatalogReplica
             this.allocatedIdentity = cloneManagedValue(persisted);
             return cloneManagedValue(persisted);
         }
-        const unfinished = Object.entries(this.readWriterMap())
-            .map(([writerId, value]) => ({ writerId, value }))
-            .filter(entry => isWriterReplica(entry.value) && entry.value.stagedCandidate)
-            .sort((left, right) => left.writerId.localeCompare(right.writerId))[0];
-        if (unfinished && isWriterReplica(unfinished.value)) {
-            const identity = {
-                writerId: unfinished.writerId,
-                actorId: unfinished.value.actorId,
-            };
-            this.allocatedIdentity = identity;
-            return identity;
-        }
         const identity = {
             writerId: this.createIdentity(),
             actorId: `catalog-actor:${this.createIdentity()}`,
@@ -130,9 +118,19 @@ export class MementoManagedCatalogReplicaFacade implements ManagedCatalogReplica
                 );
             }
         }
-        const writers = this.readWriterMap();
-        writers[writerId] = cloneManagedValue(value);
-        await this.memento.update(this.writerMapKey(), writers);
+        // Memento has no compare-and-set operation. Verify our entry after every
+        // whole-map update and retry with the latest peer entries when another
+        // window raced the write. Each writer only changes its own immutable ID.
+        for (;;) {
+            const writers = this.readWriterMap();
+            writers[writerId] = cloneManagedValue(value);
+            await this.memento.update(this.writerMapKey(), writers);
+            const persisted = this.readWriterMap()[writerId];
+            if (isWriterReplica(persisted)
+                && stableManagedValue(persisted) === stableManagedValue(value)) {
+                return;
+            }
+        }
     }
 
     private readWriterMap(): Record<string, unknown> {

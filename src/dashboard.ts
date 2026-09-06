@@ -2886,8 +2886,12 @@ async function initializeDashboard(
                         'Managed Machines are unavailable. Refresh and try again.'));
                     return;
                 }
-                try {
-                    const result = await managedRemoteBridgeClient.copyFileTransferEntries(
+                await provider.postMessage({
+                    type: 'file-transfer-copy-started',
+                    version: 1,
+                    requestId: message.requestId,
+                });
+                void managedRemoteBridgeClient.copyFileTransferEntries(
                         managedRemoteSnapshot.revisionId,
                         {
                             kind: 'copy',
@@ -2895,12 +2899,15 @@ async function initializeDashboard(
                             destination: message.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
                             entryIds: message.entryIds as string[],
                         },
-                    );
-                    await provider.postMessage(fileTransferCopySettlement(message, 'copied', result));
-                } catch (error) {
-                    const rawMessage = error instanceof Error ? error.message : String(error);
-                    await provider.postMessage(fileTransferCopySettlement(message, 'failed', rawMessage.slice(0, 320)));
-                }
+                    ).then(
+                    result => provider.postMessage(fileTransferCopySettlement(message, 'copied', result)),
+                    error => {
+                        const rawMessage = error instanceof Error ? error.message : String(error);
+                        return provider.postMessage(fileTransferCopySettlement(
+                            message, 'failed', rawMessage.slice(0, 320),
+                        ));
+                    },
+                );
             },
         },
         createAiSession: async e => {

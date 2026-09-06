@@ -117,6 +117,16 @@ function validateFileTransferCopySettlement(message) {
     ].join('\n') && typeof message.message === 'string' && message.message.length <= 320;
 }
 
+function validateFileTransferCopyStarted(message) {
+    return !!message && message.type === 'file-transfer-copy-started'
+        && message.version === 1
+        && typeof message.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        && Object.keys(message).sort().join('\n') === [
+            'requestId', 'type', 'version',
+        ].join('\n');
+}
+
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'agentPivot.activeDashboardTab';
@@ -501,6 +511,7 @@ function initDashboard(options) {
         var hint = panel.querySelector('[data-file-transfer-pair-hint]');
         var summary = panel.querySelector('[data-file-transfer-summary]');
         var review = panel.querySelector('[data-file-transfer-review]');
+        var tasks = panel.querySelector('[data-file-transfer-tasks]');
         var reviewSheet = panel.querySelector('[data-file-transfer-review-sheet]');
         var reviewSummary = panel.querySelector('[data-file-transfer-review-summary]');
         var reviewCancel = panel.querySelector('[data-file-transfer-review-cancel]');
@@ -509,6 +520,14 @@ function initDashboard(options) {
         var pendingLocalRootRequests = { left: null, right: null };
         var selectedEntries = { left: new Set(), right: new Set() };
         var pendingCopyRequestId = null;
+        var activeTransferCount = 0;
+
+        function renderTaskCount() {
+            if (!tasks) return;
+            tasks.disabled = activeTransferCount === 0;
+            var count = tasks.querySelector ? tasks.querySelector('span') : null;
+            if (count) count.textContent = String(activeTransferCount);
+        }
 
         function selectorFor(side) {
             return selectors.find(function (selector) {
@@ -725,6 +744,8 @@ function initDashboard(options) {
         function applyCopySettlement(message) {
             if (message.requestId !== pendingCopyRequestId) return false;
             pendingCopyRequestId = null;
+            activeTransferCount = Math.max(0, activeTransferCount - 1);
+            renderTaskCount();
             if (startCopy) startCopy.disabled = false;
             if (message.status === 'copied') {
                 selectedEntries.left.clear();
@@ -737,17 +758,26 @@ function initDashboard(options) {
             return true;
         }
 
+        function applyCopyStarted(message) {
+            if (message.requestId !== pendingCopyRequestId) return false;
+            activeTransferCount += 1;
+            renderTaskCount();
+            return true;
+        }
+
         selectors.forEach(function (selector) {
             selector.addEventListener('change', onEndpointChange);
         });
         if (review) review.addEventListener('click', openReview);
         if (reviewCancel) reviewCancel.addEventListener('click', closeReview);
         if (startCopy) startCopy.addEventListener('click', startReviewedCopy);
+        renderTaskCount();
         updatePair();
 
         return {
             applyLocalRootMessage: applyLocalRootMessage,
             applyCopySettlement: applyCopySettlement,
+            applyCopyStarted: applyCopyStarted,
         };
     }
     var fileTransferPanel = initializeFileTransferPanel();
@@ -827,6 +857,10 @@ function initDashboard(options) {
             && fileTransferPanel) {
             fileTransferPanel.applyCopySettlement(event.data);
         }
+        if (event && event.data && validateFileTransferCopyStarted(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopyStarted(event.data);
+        }
         if (event && event.data
             && event.data.type === 'select-dashboard-tab'
             && event.data.version === 1
@@ -894,6 +928,8 @@ function initDashboard(options) {
             ? fileTransferPanel.applyLocalRootMessage : function () { return false; },
         applyFileTransferCopySettlement: fileTransferPanel
             ? fileTransferPanel.applyCopySettlement : function () { return false; },
+        applyFileTransferCopyStarted: fileTransferPanel
+            ? fileTransferPanel.applyCopyStarted : function () { return false; },
         ensureProjectsPanel: projectsPanel.ensureProjectsPanel,
         ensureAiPanel: aiPanel.ensureAiPanel,
         getActiveTab: () => activeTab,

@@ -732,7 +732,6 @@
                 "src/projects/managedRemote/composition.ts",
                 "src/projects/managedRemote/devContainerCodec.ts",
                 "src/projects/managedRemote/envelope.ts",
-                "src/projects/managedRemote/legacyImport.ts",
                 "src/projects/managedRemote/managementController.ts",
                 "src/projects/managedRemote/managementProtocol.ts",
                 "src/projects/managedRemote/managementStore.ts",

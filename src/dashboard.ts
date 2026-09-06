@@ -35,7 +35,7 @@ import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
     AGENT_PIVOT_DASHBOARD_VIEW_ID,
-    LEGACY_PROJECT_IMPORT_STATE_KEY,
+    OBSOLETE_PROJECT_SETTING_KEYS,
     MANAGED_REMOTE_CATALOG_DATA_KEY,
     MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
     OPEN_TAB_LAST_FOCUSED_NAVIGATION_AT_MS_KEY,
@@ -229,11 +229,6 @@ import {
     isUriString,
     parsePathAsUri,
 } from './projects/openProjectService';
-import {
-    collectLegacyAliases,
-    LegacyGroupRecord,
-    LegacySshEndpoint,
-} from './projects/managedRemote/legacyImport';
 import {
     findManagedEnvironmentForWorkspace,
     findManagedDevContainerSaveTarget,
@@ -977,8 +972,7 @@ async function initializeDashboard(
             environmentCount: managedRemoteSnapshot.catalog.environments.length,
             projectCount: managedRemoteSnapshot.catalog.projects.length,
         });
-        await recoverLegacyProjectsOnce(capability);
-        managedRemoteSnapshot = capability.snapshot;
+        void clearObsoleteProjectSettings();
         openWorkspaceDashboardController?.invalidatePendingUpdates();
         await openWorkspaceDashboardController?.postUpdated();
         if (managedRemoteSnapshot.lifecycle === 'active'
@@ -3733,7 +3727,6 @@ async function initializeDashboard(
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
         sshToManagedMachine: () => runManagedMachineCommand('ssh'),
         copyManagedSshCommand: () => runManagedMachineCommand('copy'),
-        importLegacyProjects: () => importLegacyProjectsFromBackup(),
     };
 
     ownResource(() => vscode.workspace.onDidChangeConfiguration(
@@ -4228,151 +4221,31 @@ async function initializeDashboard(
 
 
     /**
-     * One-shot import of a legacy Group[] export into the Managed Remote catalog.
+     * Remove settings that no longer back anything.
      *
-     * Each SSH host alias is resolved against the user's own SSH config through
-     * the UI Bridge, because only the local extension host can read it. This is
-     * a manual recovery path for a dataset that predates the catalog, not an
-     * upgrade path the product maintains.
+     * The pre-catalog project store is read by no code path, so leaving the
+     * values behind only means someone editing settings.json finds keys that do
+     * nothing. Clearing an absent key is a no-op, so this needs no marker and is
+     * safe on every activation.
      */
-    /**
-     * Resolve every SSH host alias a legacy export refers to. Only the local
-     * extension host can read the user's own SSH config, so this goes through
-     * the bridge.
-     */
-    async function resolveLegacyEndpoints(
-        groups: readonly LegacyGroupRecord[],
-    ): Promise<Map<string, LegacySshEndpoint | null>> {
-        const endpoints = new Map<string, LegacySshEndpoint | null>();
-        for (const alias of collectLegacyAliases(groups)) {
+    async function clearObsoleteProjectSettings(): Promise<void> {
+        for (const key of OBSOLETE_PROJECT_SETTING_KEYS) {
             try {
-                const inspection = await managedRemoteBridgeClient
-                    .inspectLegacySshTarget(alias) as {
-                        endpoint?: LegacySshEndpoint;
-                    } | undefined;
-                endpoints.set(alias, inspection?.endpoint || null);
+                const configuration = getAgentPivotConfiguration();
+                if (configuration.inspect<unknown>(key)?.globalValue === undefined) {
+                    continue;
+                }
+                await configuration.update(
+                    key, undefined, vscode.ConfigurationTarget.Global,
+                );
+                logDashboardDiagnostic({ event: 'obsolete-project-setting-cleared', key });
             } catch (error) {
                 logDashboardDiagnostic({
-                    event: 'legacy-import-endpoint-unresolved',
-                    alias,
+                    event: 'obsolete-project-setting-clear-failed',
+                    key,
                     message: error instanceof Error ? error.message : String(error),
                 });
-                endpoints.set(alias, null);
             }
-        }
-        return endpoints;
-    }
-
-    function readLegacyGroups(raw: string): LegacyGroupRecord[] {
-        const groups = JSON.parse(raw) as LegacyGroupRecord[];
-        if (!Array.isArray(groups)) {
-            throw new Error('The backup must be an array of groups.');
-        }
-        return groups;
-    }
-
-
-    /**
-     * Recover a pre-catalog project store once, without asking the user to run
-     * anything.
-     *
-     * Guarded three ways: it only runs when the catalog holds nothing, only when
-     * a backup is actually present, and only once per installation. Recovery is
-     * not an upgrade path the product maintains, so it must never re-run and
-     * never overwrite a catalog the user has since populated.
-     */
-    async function recoverLegacyProjectsOnce(
-        capability: ManagedRemoteManagementCapability,
-    ): Promise<void> {
-        if (context.globalState.get(LEGACY_PROJECT_IMPORT_STATE_KEY)) { return; }
-        if (capability.snapshot.catalog.machines.length > 0) { return; }
-        const backup = vscode.Uri.file(
-            path.join(os.homedir(), 'agent-pivot-backup', 'projectData.json'),
-        );
-        let groups: LegacyGroupRecord[];
-        try {
-            groups = readLegacyGroups(
-                Buffer.from(await vscode.workspace.fs.readFile(backup)).toString('utf8'),
-            );
-        } catch (_error) {
-            // No backup to recover from is the normal case; stay silent.
-            return;
-        }
-        if (!groups.length) { return; }
-        try {
-            const endpoints = await resolveLegacyEndpoints(groups);
-            const { summary } = await capability.controller.importLegacyGroups(
-                groups, endpoints,
-            );
-            await context.globalState.update(LEGACY_PROJECT_IMPORT_STATE_KEY, {
-                completedAtMs: Date.now(),
-                projects: summary.projects,
-            });
-            logDashboardDiagnostic({
-                event: 'legacy-import-recovered',
-                machines: summary.machines,
-                environments: summary.environments,
-                projects: summary.projects,
-                skipped: summary.skipped.length,
-            });
-            if (summary.projects > 0) {
-                void vscode.window.showInformationMessage(
-                    `Agent Pivot recovered ${summary.projects} Projects across `
-                    + `${summary.machines} Machines.`
-                    + (summary.skipped.length
-                        ? ` ${summary.skipped.length} local Projects were left in place.`
-                        : ''),
-                );
-            }
-        } catch (error) {
-            // A failed recovery must not be marked done: it has to be retryable.
-            logDashboardDiagnostic({
-                event: 'legacy-import-failed',
-                message: error instanceof Error ? error.message : String(error),
-            });
-        }
-    }
-
-    async function importLegacyProjectsFromBackup(): Promise<void> {
-        const picked = await vscode.window.showOpenDialog({
-            title: 'Import Projects From Legacy Backup',
-            openLabel: 'Import',
-            canSelectMany: false,
-            filters: { JSON: ['json'] },
-        });
-        const file = picked?.[0];
-        if (!file) { return; }
-        try {
-            const groups = readLegacyGroups(
-                Buffer.from(await vscode.workspace.fs.readFile(file)).toString('utf8'),
-            );
-            const capability = managedRemoteCapability || await managedRemoteCapabilityPromise;
-            const endpoints = await resolveLegacyEndpoints(groups);
-            const unresolved = [...endpoints]
-                .filter(([, value]) => !value)
-                .map(([alias]) => alias);
-            if (unresolved.length) {
-                const proceed = await vscode.window.showWarningMessage(
-                    `Could not resolve ${unresolved.join(', ')} from this computer's SSH`
-                    + ' config. Their Projects will be skipped.',
-                    { modal: true },
-                    'Import anyway',
-                );
-                if (proceed !== 'Import anyway') { return; }
-            }
-            const { summary } = await capability.controller.importLegacyGroups(
-                groups, endpoints,
-            );
-            const detail = summary.skipped.length
-                ? ` ${summary.skipped.length} skipped.` : '';
-            await vscode.window.showInformationMessage(
-                `Imported ${summary.projects} Projects across ${summary.machines} Machines.`
-                + detail,
-            );
-        } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            logDashboardDiagnostic({ event: 'legacy-import-failed', message });
-            await vscode.window.showErrorMessage(`Agent Pivot: ${message}`);
         }
     }
 

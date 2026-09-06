@@ -12390,6 +12390,7 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 CONVERSATION-QUESTION-OPTION-HIE
                     <li class="conversation-question-option conversation-question-option-selected">
                         <span class="conversation-question-option-index">1.</span>
                         <span class="conversation-question-option-check">\u2713</span>
+                        <span class="conversation-question-option-status">Selected</span>
                         <span class="conversation-question-option-label">Full refactor</span>
                         <span class="conversation-question-option-description">All at once</span>
                     </li>
@@ -12439,13 +12440,35 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 CONVERSATION-QUESTION-OPTION-HIE
         'every replayed option exposes a stable visible ordinal'
     );
     const firstOption = page.locator('.conversation-question-option').first();
+    const secondOption = page.locator('.conversation-question-option').nth(1);
     const optionLabel = firstOption.locator('.conversation-question-option-label');
     const optionDescription = firstOption.locator('.conversation-question-option-description');
+    const optionStatus = firstOption.locator('.conversation-question-option-status');
+    assert.equal(await optionStatus.textContent(), 'Selected');
+    assert.deepEqual(await optionStatus.evaluate(element => ({
+        clip: getComputedStyle(element).clip,
+        height: getComputedStyle(element).height,
+        width: getComputedStyle(element).width,
+    })), { clip: 'rect(0px, 0px, 0px, 0px)', height: '1px', width: '1px' });
+    assert.equal(await firstOption.locator('.conversation-question-option-index').isVisible(), true);
+    assert.equal(await optionDescription.isVisible(), true);
     assert.equal(await firstOption.evaluate(element => getComputedStyle(element).display), 'grid');
     assert.equal(await optionLabel.evaluate(element => getComputedStyle(element).gridColumnStart), '3');
     assert.equal(await optionDescription.evaluate(element => getComputedStyle(element).gridColumnStart), '3');
     assert.equal(await optionLabel.evaluate(element => getComputedStyle(element).color), viewerThemeFixtures[0].tokens.editorForeground);
     assert.equal(await optionDescription.evaluate(element => getComputedStyle(element).color), viewerThemeFixtures[0].tokens.descriptionForeground);
+    assert.ok((await optionDescription.boundingBox()).y > (await optionLabel.boundingBox()).y);
+    assert.ok(
+        Number.parseFloat(await optionDescription.evaluate(element => getComputedStyle(element).fontSize))
+            < Number.parseFloat(await optionLabel.evaluate(element => getComputedStyle(element).fontSize))
+    );
+    assert.ok(
+        Number.parseInt(await optionDescription.evaluate(element => getComputedStyle(element).fontWeight), 10)
+            < Number.parseInt(await optionLabel.evaluate(element => getComputedStyle(element).fontWeight), 10)
+    );
+    await page.emulateMedia({ forcedColors: 'active' });
+    assert.equal(await secondOption.evaluate(element => getComputedStyle(element).borderTopWidth), '0px');
+    assert.equal(await firstOption.evaluate(element => getComputedStyle(element).outlineStyle), 'solid');
 
     await page.locator('.conversation-worklog-toggle').click();
     assert.equal(

@@ -4653,9 +4653,11 @@ function renderQuestionOption(
         : '';
     return `<li class="conversation-question-option${selected
         ? ' conversation-question-option-selected'
-        : ''}"><span class="conversation-question-option-index">${index + 1}.</span><span class="conversation-question-option-check" aria-hidden="true">${selected
+        : ''}"><span class="conversation-question-option-index">${index + 1}.</span><span class="conversation-question-option-check">${selected
         ? '\u2713'
-        : ''}</span><span class="conversation-question-option-label">${escapeAttribute(option.label)}</span>${description}</li>`;
+        : ''}</span>${selected
+        ? '<span class="conversation-question-option-status">Selected</span>'
+        : ''}<span class="conversation-question-option-label">${escapeAttribute(option.label)}</span>${description}</li>`;
 }
 
 function renderQuestionItem(

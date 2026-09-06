@@ -7960,13 +7960,14 @@ test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 CONVERSATION-QUESTION-OPTION-HIE
     assert.equal(html.includes('Plan approval'), true);
     assert.equal(html.includes('Approve this plan'), true);
     assert.equal(html.includes('Full refactor'), true);
-    const firstOptionIndex = renderedQuestion.indexOf('conversation-question-option-index">1.</span>');
-    const firstOptionLabel = renderedQuestion.indexOf('conversation-question-option-label">Full refactor</span>');
-    const firstOptionDescription = renderedQuestion.indexOf('conversation-question-option-description">All at once</span>');
-    assert.ok(firstOptionIndex >= 0);
-    assert.ok(firstOptionIndex < firstOptionLabel);
-    assert.ok(firstOptionLabel < firstOptionDescription);
-    assert.ok(renderedQuestion.includes('conversation-question-option-index">2.</span>'));
+    assert.match(
+        renderedQuestion,
+        /<li class="conversation-question-option conversation-question-option-selected"><span class="conversation-question-option-index">1\.<\/span><span class="conversation-question-option-check">✓<\/span><span class="conversation-question-option-status">Selected<\/span><span class="conversation-question-option-label">Full refactor<\/span><span class="conversation-question-option-description">All at once<\/span><\/li>/
+    );
+    assert.match(
+        renderedQuestion,
+        /<li class="conversation-question-option"><span class="conversation-question-option-index">2\.<\/span><span class="conversation-question-option-check"><\/span><span class="conversation-question-option-label">Reject<\/span><\/li>/
+    );
     assert.equal(
         html.includes('conversation-question-option-selected'),
         true

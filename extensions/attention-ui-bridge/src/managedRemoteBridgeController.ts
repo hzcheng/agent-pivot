@@ -460,6 +460,9 @@ function copyFileTransferEntry(
     const args = [
         ...(relay ? ['-3'] : []),
         ...(recursive ? ['-r'] : []),
+        // Preserve mode and modification time where both endpoints permit it.
+        // SCP reports an ordinary transfer error if either side refuses them.
+        '-p',
         '--',
         source,
         destination,

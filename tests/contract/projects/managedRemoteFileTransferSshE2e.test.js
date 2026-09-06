@@ -136,6 +136,8 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     const remoteTwo = fs.mkdtempSync(path.join(os.homedir(), 'agent-pivot-file-transfer-ssh-two-'));
     fs.mkdirSync(localRoot);
     fs.writeFileSync(path.join(localRoot, 'local.txt'), 'from local\n', 'utf8');
+    fs.chmodSync(path.join(localRoot, 'local.txt'), 0o751);
+    fs.utimesSync(path.join(localRoot, 'local.txt'), new Date('2023-05-06T07:08:09.000Z'), new Date('2023-05-06T07:08:09.000Z'));
     const localSpecialFile = "-local #?% '雪.txt";
     fs.writeFileSync(path.join(localRoot, localSpecialFile), 'from local special file\n', 'utf8');
     fs.mkdirSync(path.join(localRoot, 'local folder'));
@@ -285,6 +287,9 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.equal(copiedLocal.status, 'ok', copiedLocal.message);
     assert.deepEqual(copiedLocal.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
     assert.equal(fs.readFileSync(path.join(remoteTwo, 'renamed-local.txt'), 'utf8'), 'from local\n');
+    const copiedLocalStat = fs.statSync(path.join(remoteTwo, 'renamed-local.txt'));
+    assert.equal(copiedLocalStat.mode & 0o777, 0o751);
+    assert.ok(Math.abs(copiedLocalStat.mtimeMs - new Date('2023-05-06T07:08:09.000Z').getTime()) < 1_000);
 
     const copiedSpecialLocal = await controller.execute({
         ...request('copyFileTransferEntries', slot.revisionId, 'local-special-copy'),

@@ -234,3 +234,39 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
     });
     assert.equal(rejected.status, 'failed');
 });
+
+test('FILE-TRANSFER-COPY-001 rejects local-to-local copy even with approved handles', async t => {
+    const sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-source-'));
+    const destinationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-destination-'));
+    t.after(() => {
+        fs.rmSync(sourceRoot, { recursive: true, force: true });
+        fs.rmSync(destinationRoot, { recursive: true, force: true });
+    });
+    fs.writeFileSync(path.join(sourceRoot, 'report.txt'), 'safe', 'utf8');
+    const selections = [sourceRoot, destinationRoot];
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { throw new Error('local copy must be rejected first'); },
+    }, {
+        async create() { return {}; },
+    }, 'session-12345678', {
+        platform: 'linux', openTerminal() {}, async writeClipboard() {},
+        async selectLocalDirectory() { return selections.shift(); },
+    });
+    const source = await controller.execute(request('selectFileTransferLocalRoot'));
+    const destination = await controller.execute(request('selectFileTransferLocalRoot'));
+    const copy = await controller.execute({
+        ...request('copyFileTransferEntries', `revision:${'a'.repeat(64)}`),
+        fileTransfer: {
+            kind: 'copy', taskId: 'task-123456789012', conflictPolicy: 'fail',
+            source: {
+                kind: 'local', rootId: source.value.rootId, directoryId: source.value.directoryId,
+            },
+            destination: {
+                kind: 'local', rootId: destination.value.rootId, directoryId: destination.value.directoryId,
+            },
+            entryIds: [source.value.entries[0].id],
+        },
+    });
+    assert.equal(copy.status, 'failed');
+    assert.match(copy.message, /does not copy between two local folders/i);
+});

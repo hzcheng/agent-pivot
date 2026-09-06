@@ -327,11 +327,15 @@ export class ManagedRemoteBridgeController {
                 ));
             }
             if (request.operation === 'copyFileTransferEntries') {
+                const copy = request.fileTransfer as FileTransferCopyRequest;
+                if (copy.source.kind === 'local' && copy.destination.kind === 'local') {
+                    throw new Error('File Transfer does not copy between two local folders.');
+                }
                 const slot = this.readExpectedSlot(request);
                 return response(request.requestId, 'ok', await this.copyFileTransferEntries(
                     slot,
                     coordinator,
-                    request.fileTransfer as FileTransferCopyRequest,
+                    copy,
                 ));
             }
             if (request.operation === 'inspectLegacySshTarget') {

@@ -28,11 +28,10 @@ const { OpenWorkspaceController } = require('../out/openWorkspaces/workspaceCont
 const { WorkspaceNavigationController } = require('../out/openWorkspaces/navigationController');
 const attentionProject = require('../out/aiSessions/attentionProject');
 const { CurrentProjectDetailsResolver } = require('../out/projects/currentProjectDetails');
-const { ProjectManualEditController } = require('../out/projects/projectManualEditController');
 const { ProjectOpenController } = require('../out/projects/projectOpenController');
 const { ProjectMutationController } = require('../out/projects/projectMutationController');
 const { ProjectPromptController } = require('../out/projects/projectPromptController');
-const { DashboardStartupController, settleMigration } = require('../out/dashboard/startupController');
+const { DashboardStartupController } = require('../out/dashboard/startupController');
 const { WorkspaceContextResolver } = require('../out/workspaces/contextResolver');
 const workspaceIdentityModule = require('../out/workspaces/identity');
 const {
@@ -2896,7 +2895,7 @@ async function runSavedWorkspaceProjectAdapterChecks() {
     assert.deepStrictEqual(nullWarnings, ['No project is currently open.']);
 }
 
-async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
+async function runProjectServiceWorkspaceSaveIntegrationChecks() {
     function clone(value) {
         return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
     }
@@ -2963,23 +2962,14 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         };
     }
 
-    function createStartup(service, adapter) {
+    function createStartup(adapter) {
         return new DashboardStartupController({
             stewardInfos: {
                 relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
                 config: { openOnStartup: 'never' },
             },
             isExtensionInstalled: () => false,
-            migrateDataIfNeeded: async () => ({
-                projects: await settleMigration(() => service.migrateDataIfNeeded()),
-            }),
-            afterProjectMigrationSucceeded: () => adapter.completePendingWorkspaceSave(),
-            refreshDashboard: () => undefined,
-            publishOpenWorkspace: () => undefined,
-            showInformationMessage: () => undefined,
-            showErrorMessage: () => undefined,
-            logError: () => undefined,
-            showAgentPivot: () => undefined,
+            completePendingWorkspaceSave: () => adapter.completePendingWorkspaceSave(),
             applyProjectColorToCurrentWindow: () => undefined,
             getReopenReason: () => 0,
             updateReopenReason: () => undefined,
@@ -2990,11 +2980,14 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
     }
 
     const fixturePath = path.join(__dirname, 'fixtures', 'workspace-first-saved-projects.json');
-    const fixtureGroups = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
+    const fixtureGroups = JSON.parse(fs.readFileSync(fixturePath, 'utf8')).map(group => ({
+        ...group,
+        projects: group.projects.filter(project => !project.path.startsWith('vscode-remote:')),
+    }));
     assert.ok(fixtureGroups.every(group => Array.isArray(group.projects)),
         'the checked-in preservation fixture must use the real serialized Group[] store shape');
     const fixtureBytes = JSON.stringify(fixtureGroups);
-    const fixtureState = createSerializedMemento({ projects: fixtureGroups });
+    const fixtureState = createSerializedMemento({ 'localProjects.v1': fixtureGroups });
     const fixtureConfigurationValues = { storeProjectsInSettings: true };
     primaryConfiguration = createConfiguration(fixtureConfigurationValues);
     const fixtureService = new ProjectService(
@@ -3039,24 +3032,22 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         nowMs: () => 40_001,
     });
 
-    await createStartup(fixtureService, fixtureAdapter).startUp();
-    assert.strictEqual(JSON.stringify(fixtureConfigurationValues.projectData), fixtureBytes,
-        'production startup migration must preserve the fixture serialized JSON exactly');
-    assert.strictEqual(JSON.stringify(fixtureState.get('projects')), fixtureBytes,
-        'production startup migration must leave the source fixture bytes unchanged');
+    await createStartup(fixtureAdapter).startUp();
+    assert.strictEqual(JSON.stringify(fixtureService.getGroups(true)), fixtureBytes,
+        'startup must preserve the client-local fixture exactly');
     fixtureService.getGroups(true);
     fixtureService.getProjectsFlat();
     fixtureService.getProjectAndGroup('member-app');
-    assert.strictEqual(JSON.stringify(fixtureConfigurationValues.projectData), fixtureBytes,
-        'ordinary production ProjectService reads must not rewrite persisted fixture bytes');
+    assert.strictEqual(fixtureConfigurationValues.projectData, undefined,
+        'ordinary ProjectService reads must not create a legacy synchronized authority');
 
     await fixturePendingStore.write(
         fixtureWorkspace.scopeIdentity,
         40_000,
         40_000 + PENDING_WORKSPACE_SAVE_TTL_MS,
     );
-    await createStartup(fixtureService, fixtureAdapter).startUp();
-    const fixtureAfterSave = fixtureConfigurationValues.projectData;
+    await createStartup(fixtureAdapter).startUp();
+    const fixtureAfterSave = fixtureService.getGroups(true);
     const preservedFixturePrefix = fixtureAfterSave.map((group, groupIndex) => ({
         ...group,
         projects: group.projects.slice(0, fixtureGroups[groupIndex].projects.length),
@@ -3090,12 +3081,12 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         }],
     });
 
-    for (const target of ['settings', 'globalState']) {
+    for (const target of ['settings-preference', 'local-preference']) {
         const existing = [oldGroup()];
-        const globalState = createSerializedMemento(target === 'settings' ? { projects: existing } : {});
-        const configurationValues = target === 'settings'
-            ? { storeProjectsInSettings: true }
-            : { storeProjectsInSettings: false, projectData: existing };
+        const globalState = createSerializedMemento({ 'localProjects.v1': existing });
+        const configurationValues = {
+            storeProjectsInSettings: target === 'settings-preference',
+        };
         primaryConfiguration = createConfiguration(configurationValues);
         const service = new ProjectService({ globalState }, { addRecentColor: async () => undefined });
         const pendingStore = new PendingWorkspaceSaveStore(globalState);
@@ -3123,16 +3114,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
                 config: { openOnStartup: 'never' },
             },
             isExtensionInstalled: () => false,
-            migrateDataIfNeeded: async () => ({
-                projects: await settleMigration(() => service.migrateDataIfNeeded()),
-            }),
-            afterProjectMigrationSucceeded: () => adapter.completePendingWorkspaceSave(),
-            refreshDashboard: () => undefined,
-            publishOpenWorkspace: () => undefined,
-            showInformationMessage: () => undefined,
-            showErrorMessage: () => undefined,
-            logError: () => undefined,
-            showAgentPivot: () => undefined,
+            completePendingWorkspaceSave: () => adapter.completePendingWorkspaceSave(),
             applyProjectColorToCurrentWindow: () => undefined,
             getReopenReason: () => 0,
             updateReopenReason: () => undefined,
@@ -3142,25 +3124,22 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         });
         const before = JSON.stringify(existing);
         await startup.startUp();
-        const storedGroups = target === 'settings'
-            ? configurationValues.projectData
-            : globalState.get('projects');
+        const storedGroups = service.getGroups(true);
         assert.strictEqual(JSON.stringify(storedGroups[0].projects.slice(0, 1)),
             JSON.stringify(existing[0].projects.slice(0, 1)),
-            `${target} migration must preserve the old member project`);
+            `${target} startup must preserve the old member project`);
         assert.strictEqual(storedGroups[0].projects.length, 2,
-            `${target} migration must append one workspace project`);
+            `${target} startup must append one workspace project`);
         assert.strictEqual(storedGroups[0].projects[1].path, '/work/team.code-workspace');
         assert.strictEqual(pendingStore.read(), null);
         assert.strictEqual(JSON.stringify(existing), before,
-            `${target} source data must remain unchanged by copy migration`);
+            `${target} source data must remain unchanged`);
     }
 
-    const migrationFailure = new Error('forced real ProjectService migration failure');
+    const completionFailure = new Error('forced pending Project save failure');
     const failureExisting = [oldGroup()];
     const failureState = createSerializedMemento({ projects: failureExisting });
-    primaryConfiguration = createConfiguration({ storeProjectsInSettings: true }, migrationFailure);
-    const failureService = new ProjectService({ globalState: failureState }, { addRecentColor: async () => undefined });
+    primaryConfiguration = createConfiguration({ storeProjectsInSettings: true });
     const failurePendingStore = new PendingWorkspaceSaveStore(failureState);
     const failureWorkspace = makeSaveWorkspace('savedMultiRoot');
     await failurePendingStore.write(
@@ -3187,16 +3166,7 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
             config: { openOnStartup: 'never' },
         },
         isExtensionInstalled: () => false,
-        migrateDataIfNeeded: async () => ({
-            projects: await settleMigration(() => failureService.migrateDataIfNeeded()),
-        }),
-        afterProjectMigrationSucceeded: () => failureAdapter.completePendingWorkspaceSave(),
-        refreshDashboard: () => undefined,
-        publishOpenWorkspace: () => undefined,
-        showInformationMessage: () => undefined,
-        showErrorMessage: () => undefined,
-        logError: () => undefined,
-        showAgentPivot: () => undefined,
+        completePendingWorkspaceSave: async () => { throw completionFailure; },
         applyProjectColorToCurrentWindow: () => { startupContinued += 1; },
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -3204,10 +3174,10 @@ async function runProjectServiceWorkspaceSaveMigrationIntegrationChecks() {
         getWorkspaceName: () => 'workspace',
         getVisibleEditorLanguageIds: () => [],
     });
-    await failureStartup.startUp();
-    assert.strictEqual(failureMutations, 0, 'migration failure must not run pending project mutation');
-    assert.ok(failurePendingStore.read(), 'migration failure must retain pending intent for activation retry');
-    assert.strictEqual(startupContinued, 1, 'migration failure must not abort unrelated remaining startup behavior');
+    await assert.rejects(failureStartup.startUp(), error => error === completionFailure);
+    assert.strictEqual(failureMutations, 0, 'completion failure must not run the project mutation');
+    assert.ok(failurePendingStore.read(), 'completion failure must retain pending intent for activation retry');
+    assert.strictEqual(startupContinued, 0, 'startup effects must wait for pending completion');
     assert.strictEqual(failureState.get('projects').length, 1);
 }
 
@@ -3253,11 +3223,6 @@ function runDashboardBridgeLifecycleChecks() {
     assert.strictEqual(dashboard.includes("from './openProjects/bridgeClient'"), false);
     assert.strictEqual(dashboard.includes("from './openProjects/dashboardController'"), false);
     assert.strictEqual(dashboard.includes("from './openProjects/workspaceController'"), false);
-    assert.ok(dashboard.includes("import { CurrentProjectDetailsResolver } from './projects/currentProjectDetails';"));
-    assert.ok(dashboard.includes("import { ProjectManualEditController } from './projects/projectManualEditController';"));
-    assert.ok(dashboard.includes("import { ProjectOpenController } from './projects/projectOpenController';"));
-    assert.ok(dashboard.includes("import { ProjectMutationController } from './projects/projectMutationController';"));
-    assert.ok(dashboard.includes("import { ProjectPromptController } from './projects/projectPromptController';"));
     assert.ok(!dashboard.includes('async function addProject('));
     assert.ok(!dashboard.includes('async function saveOpenProject('));
     assert.ok(!dashboard.includes('async function saveProject('));
@@ -3282,7 +3247,6 @@ function runDashboardBridgeLifecycleChecks() {
     const projectControllersSection = fs.readFileSync(
         path.join(__dirname, '..', 'src', 'dashboard', 'sections', 'projectControllers.ts'), 'utf8'
     );
-    assert.ok(projectControllersSection.includes('const projectManualEditController = new ProjectManualEditController({'));
     assert.ok(projectControllersSection.includes('const projectMutationController = new ProjectMutationController({'));
     assert.ok(projectControllersSection.includes('const projectPromptController = new ProjectPromptController({'));
     assert.ok(dashboard.includes('new DashboardCommandRegistration<vscode.Disposable>({'));
@@ -3348,22 +3312,23 @@ function runDashboardBridgeLifecycleChecks() {
     assert.strictEqual(dashboard.includes("'save-project': async"), false,
         'legacy save-project messages must use the reserved snapshot-based workspace route');
     assert.ok(dashboard.includes(
-        'saveProject: () => runAfterStorageMigration(() => savedWorkspaceProjectAdapter.saveCurrentWorkspace())'
-    ), 'command-driven workspace saves must wait for storage migration');
+        'saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace()'
+    ), 'command-driven workspace saves must use the sole-authority adapter directly');
+    assert.strictEqual(dashboard.includes('runAfterStorageMigration'), false,
+        'Managed Remote must not wait on a legacy storage migration gate');
     assert.ok(dashboard.includes('await savedWorkspaceProjectAdapter.completePendingWorkspaceSave();'));
     const startupWiring = dashboard.slice(
         dashboard.indexOf('const dashboardStartupController = new DashboardStartupController({'),
         dashboard.indexOf('const dashboardLifecycleController = new DashboardLifecycleController({')
     );
-    assert.ok(startupWiring.includes('afterProjectMigrationSucceeded: async () => {'));
-    assert.ok(startupWiring.indexOf('migrateDataIfNeeded: async () => {')
-        < startupWiring.indexOf('afterProjectMigrationSucceeded: async () => {'));
+    assert.ok(startupWiring.includes('completePendingWorkspaceSave: async () => {'));
+    assert.strictEqual(startupWiring.includes('migrateDataIfNeeded'), false);
     assert.strictEqual((dashboard.match(/dashboardStartupController\.startUp\(\)/g) || []).length, 1,
-        'activation must start one migration/pending-completion sequence');
+        'activation must start one pending-completion sequence');
     assert.match(
         dashboard,
         /ownTimer\(\s*\(\) => setTimeout\(\(\) => \{\s*void timeBootstrapPhase\('startup-sequence', \(\) =>\s*dashboardStartupController\.startUp\(\)\)\.then\(/,
-        'ready adoption must schedule one owned post-ready migration/pending-completion transaction'
+        'ready adoption must schedule one owned post-ready pending-completion transaction'
     );
     assert.strictEqual(dashboard.includes('void dashboardStartupController.startUp();'), false);
     const saveAdapterWiring = dashboard.slice(
@@ -3374,26 +3339,12 @@ function runDashboardBridgeLifecycleChecks() {
         'Save Workspace As must read a fresh resolved snapshot instead of a cached transient card/controller state');
     assert.ok(projectMessageHandlers.includes('await projectMutationController.editProject('));
     assert.ok(projectMessageHandlers.includes('await projectMutationController.editProjectColor('));
-    assert.ok(dashboard.includes(
-        'editProjects: () => runAfterStorageMigration(() => projectManualEditController.editProjectsManually())'
-    ));
-    assert.ok(dashboard.includes(
-        'removeProject: () => runAfterStorageMigration(() => projectRemovalController.removeProjectPerCommand())'
-    ));
-    assert.ok(dashboard.includes(
-        'removeGroup: () => runAfterStorageMigration(() => groupCommandController.removeGroupPerCommand())'
-    ));
+    assert.strictEqual(dashboard.includes('editProjects: () =>'), false);
+    assert.strictEqual(dashboard.includes('removeProject: () =>'), false);
+    assert.strictEqual(dashboard.includes('removeGroup: () =>'), false);
     assert.ok(projectControllersSection.includes(
         'postCommandRemoval: () => { deps.revealDashboard(); },'
     ), 'command-driven removal must focus the sidebar without forcing a complete Webview refresh');
-    const manualEditWiring = projectControllersSection.slice(
-        projectControllersSection.indexOf('const projectManualEditController = new ProjectManualEditController({'),
-        projectControllersSection.indexOf('const addProjectsFromFolderController = new AddProjectsFromFolderController({')
-    );
-    assert.ok(manualEditWiring.includes('refreshAfterMutation();'));
-    assert.ok(manualEditWiring.includes('deps.revealDashboard();'));
-    assert.strictEqual(manualEditWiring.includes('showAgentPivot()'), false,
-        'manual project saves must use the partial Projects surface before focusing the sidebar');
     assert.ok(projectMutationControllerSource.includes('this.options.prompt.queryProjectFields('));
     assert.ok(projectMutationControllerSource.includes('this.options.prompt.queryGroup('));
     assert.ok(projectMutationControllerSource.includes('this.options.prompt.queryProjectDescription('));
@@ -3689,59 +3640,6 @@ function runWebviewRefreshFocusChecks() {
     assert.strictEqual(blurCalls, 0, 'Webview initialization must not blur another focus owner');
 }
 
-async function runDashboardMigrationPublicationChecks() {
-    const publications = [];
-    const refreshes = [];
-    const informationMessages = [];
-    let currentMetadata = 'before-migration';
-    let migrated = true;
-    let showAgentPivotCalls = 0;
-    const controller = new DashboardStartupController({
-        stewardInfos: {
-            relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
-            config: { openOnStartup: 'never' },
-        },
-        isExtensionInstalled: () => false,
-        migrateDataIfNeeded: async () => {
-            if (migrated) {
-                currentMetadata = 'after-migration';
-            }
-            return {
-                projects: { migrated },
-            };
-        },
-        refreshDashboard: () => refreshes.push(currentMetadata),
-        publishOpenWorkspace: () => publications.push(currentMetadata),
-        showInformationMessage: message => informationMessages.push(message),
-        showAgentPivot: () => { showAgentPivotCalls += 1; },
-        applyProjectColorToCurrentWindow: () => undefined,
-        getReopenReason: () => 0,
-        updateReopenReason: () => undefined,
-        reopenNoneValue: 0,
-        getWorkspaceName: () => 'workspace',
-        getVisibleEditorLanguageIds: () => [],
-    });
-
-    await controller.checkDataMigration();
-    assert.deepStrictEqual(refreshes, ['after-migration']);
-    assert.deepStrictEqual(publications, ['after-migration']);
-    assert.strictEqual(showAgentPivotCalls, 0, 'default startup migration must not require revealing the steward');
-    assert.strictEqual(informationMessages.length, 1);
-
-    migrated = false;
-    currentMetadata = 'unchanged-without-migration';
-    await controller.checkDataMigration();
-    assert.deepStrictEqual(refreshes, ['after-migration'], 'no migration must not trigger a redundant refresh');
-    assert.deepStrictEqual(publications, ['after-migration'], 'no migration must not trigger a redundant publish');
-
-    migrated = true;
-    currentMetadata = 'before-explicit-migration';
-    await controller.checkDataMigration(true);
-    assert.deepStrictEqual(refreshes, ['after-migration', 'after-migration']);
-    assert.deepStrictEqual(publications, ['after-migration', 'after-migration']);
-    assert.strictEqual(showAgentPivotCalls, 1);
-}
-
 async function runCoordinatorWiringChecks() {
     const tempRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agent-pivot-open-project-wiring-'));
     const registeredCommands = new Map();
@@ -3770,7 +3668,17 @@ async function runCoordinatorWiringChecks() {
                     toString: () => 'vscode-remote://dev-container%2Btarget%40ssh-remote%2Bhome-book/workspaces/AiToEarn',
                 },
             }],
+            getConfiguration: section => ({
+                // Managed SSH discovery joins the real home directory when
+                // remote.SSH.configFile is unset, so this check would depend on
+                // the runner having a ~/.ssh. Keep it inside the temp root.
+                get: (key, fallback) => (section === 'remote.SSH' && key === 'configFile'
+                    ? path.join(tempRoot, 'ssh', 'config')
+                    : fallback),
+                update: async () => undefined,
+            }),
         },
+        ConfigurationTarget: { Global: 'global' },
         commands: {
             registerCommand: (command, callback) => {
                 registeredCommands.set(command, callback);
@@ -3797,6 +3705,7 @@ async function runCoordinatorWiringChecks() {
     const context = {
         globalStoragePath: tempRoot,
         globalStorageUri: { scheme: 'file' },
+        globalState: createMemoryMemento(),
         subscriptions: [],
     };
     try {
@@ -3949,7 +3858,7 @@ async function main() {
     runWorkspaceProtocolV5Checks();
     await runWorkspaceContextResolverChecks();
     await runSavedWorkspaceProjectAdapterChecks();
-    await runProjectServiceWorkspaceSaveMigrationIntegrationChecks();
+    await runProjectServiceWorkspaceSaveIntegrationChecks();
     runWorkspaceProjectionV5Checks();
     runOpenWorkspacePublicationChecks();
     await runOpenWorkspaceStoreChecks();
@@ -3964,7 +3873,6 @@ async function main() {
     runDashboardBridgeLifecycleChecks();
     runOpenWorkspaceProductionCutoverChecks();
     runWebviewRefreshFocusChecks();
-    await runDashboardMigrationPublicationChecks();
     await runCoordinatorWiringChecks();
     console.log('Open workspace safety checks passed.');
 }

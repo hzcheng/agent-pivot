@@ -83,8 +83,8 @@ if [[ "$DRY_RUN" == "1" ]]; then
     exit 0
 fi
 
-BRIDGE_PUBLISH_ARGS=(publish --packagePath "$BRIDGE_VSIX_FILE" --allow-star-activation)
-PUBLISH_ARGS=(publish --packagePath "$VSIX_FILE" --allow-star-activation)
+BRIDGE_PUBLISH_ARGS=(publish --packagePath "$BRIDGE_VSIX_FILE" --allow-star-activation --skip-duplicate)
+PUBLISH_ARGS=(publish --packagePath "$VSIX_FILE" --allow-star-activation --skip-duplicate)
 if [[ -n "${VSCE_PAT:-}" ]]; then
     BRIDGE_PUBLISH_ARGS+=(--pat "$VSCE_PAT")
     PUBLISH_ARGS+=(--pat "$VSCE_PAT")

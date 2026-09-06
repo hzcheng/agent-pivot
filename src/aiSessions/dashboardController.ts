@@ -21,6 +21,7 @@ export interface AiSessionDashboardControllerOptions<
     invalidateCache: (providerId: AiSessionProviderId) => void;
     watchSessionChanges: (providerId: AiSessionProviderId, onDidChange: () => void) => DisposableLike;
     getGroups: () => Group[];
+    getManagedRemoteSnapshot?: () => BuildAiSessionsUpdatedMessageInput['managedRemoteSnapshot'];
     getSkillRecords?: () => import('../skills/types').SkillRecord[];
     getCards: (projection: TProjection) => WorkspaceCardViewModel[];
     buildAiSessionsUpdatedMessage: (input: BuildAiSessionsUpdatedMessageInput) => AiSessionsUpdatedMessage;
@@ -205,6 +206,7 @@ export class AiSessionDashboardController<
         const runningIconAnimation = this.options.getRunningIconAnimation();
         const message = this.options.buildAiSessionsUpdatedMessage({
             groups: this.options.getGroups(),
+            managedRemoteSnapshot: this.options.getManagedRemoteSnapshot?.(),
             cards,
             sequence: projection.revision,
             generatedAt: new Date().toISOString(),

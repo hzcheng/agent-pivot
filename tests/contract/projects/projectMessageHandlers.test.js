@@ -7,6 +7,7 @@ const {
     createProjectMessageHandlers,
     createProjectSurfaceRefresh,
 } = require('../../../out/projects/projectMessageHandlers');
+const { buildMachineProjectsViewModel } = require('../../../out/projects/machineProjectsViewModel');
 const { getAttentionProjectKey } = require('../../../out/aiSessions/attentionProject');
 
 function createFixture(overrides = {}) {
@@ -32,9 +33,6 @@ function createFixture(overrides = {}) {
                     : project;
                 return value && groupId === 'group-a' ? [value, { id: groupId }] : [null, null];
             },
-            copyProjectsFromFilledStorageOptionToEmptyStorageOption: async () => {
-                calls.push(['copyFromOtherStorage']);
-            },
             updateProject: async (projectId, updated) => {
                 calls.push(['updateProject', projectId]);
                 var p = Object.prototype.hasOwnProperty.call(overrides, 'project')
@@ -42,6 +40,13 @@ function createFixture(overrides = {}) {
                     : project;
                 Object.assign(p, updated);
             },
+            getGroups: () => overrides.groups || [{
+                id: 'remote', groupName: 'Remote', projects: [{
+                    id: 'remote-api', name: 'Remote API',
+                    path: 'vscode-remote://ssh-remote%2Bdevbox/work/api',
+                    tags: [],
+                }],
+            }],
         },
         projectOpenController: {
             openProject: overrides.failOpen
@@ -68,11 +73,16 @@ function createFixture(overrides = {}) {
             addGroup: record('addGroup'),
         },
         groupCollapseController: { collapseGroup: record('collapseGroup') },
+        machineRenameController: {
+            renameMachine: record('renameMachine'),
+            resetMachineName: record('resetMachineName'),
+        },
         getWorkspaceNavigationController: () => ({ open: record('openWorkspaceNavigation') }),
         getOpenWorkspacePinController: () => ({ handle: record('handleOpenWorkspacePin') }),
         getAttentionAggregate: () => overrides.attentionAggregate || null,
         acknowledgeAiSessionAttentionEventIds: record('acknowledgeAttention'),
         refreshAfterMutation: mode => { calls.push(['refreshAfterMutation', mode]); },
+        openLocalWindow: record('openLocalWindow'),
         postMessage: message => { outgoing.push(message); return Promise.resolve(true); },
         showWarningMessage: message => { calls.push(['showWarningMessage', message]); },
     };
@@ -98,11 +108,13 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 exposes every production project/grou
     const { handlers } = createFixture();
 
     assert.deepEqual(Object.keys(handlers), [
+        'open-machine-host',
+        'rename-machine',
+        'reset-machine-name',
         'selected-project',
         'set-open-workspace-pin',
         'open-window-navigation-request',
         'add-project',
-        'import-from-other-storage',
         'reordered-projects',
         'reordered-favorites',
         'remove-project',
@@ -219,6 +231,65 @@ test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates project mutations to their 
     ]);
 });
 
+test('MACHINE-PROJECTS-HOST-NAVIGATION-001 opens the URI-derived Host through the existing Project opener', async () => {
+    const groups = [{
+        id: 'remote', groupName: 'Remote', projects: [{
+            id: 'remote-api', name: 'Remote API',
+            path: 'vscode-remote://ssh-remote%2Bdevbox/work/api', tags: [],
+        }],
+    }];
+    const machine = buildMachineProjectsViewModel(groups).machines[0];
+    const { handlers, calls } = createFixture({ groups });
+
+    await handlers['open-machine-host']({
+        type: 'open-machine-host',
+        machineId: machine.id,
+        projectId: machine.hostProjectId,
+    });
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], 'openProject');
+    assert.equal(calls[0][1].name, 'devbox');
+    assert.equal(calls[0][1].path, 'vscode-remote://ssh-remote%2Bdevbox/');
+    assert.equal(calls[0][1].remoteType, 1);
+    assert.equal(calls[0][2], 1);
+});
+
+test('MACHINE-PROJECTS-HOST-NAVIGATION-001 opens Local as a blank local window', async () => {
+    const groups = [{
+        id: 'local', groupName: 'Local', projects: [{
+            id: 'local-api', name: 'Local API', path: '/work/api', tags: [],
+        }],
+    }];
+    const machine = buildMachineProjectsViewModel(groups).machines[0];
+    const { handlers, calls } = createFixture({ groups });
+
+    await handlers['open-machine-host']({
+        type: 'open-machine-host',
+        machineId: machine.id,
+        projectId: machine.hostProjectId,
+    });
+
+    assert.deepEqual(calls, [['openLocalWindow']]);
+});
+
+test('MACHINE-PROJECTS-RENAME-001 routes exact Machine rename and reset requests', async () => {
+    const { handlers, calls } = createFixture();
+
+    await handlers['rename-machine']({ type: 'rename-machine', machineId: 'machine-a' });
+    await handlers['reset-machine-name']({
+        type: 'reset-machine-name', machineId: 'machine-a', extra: true,
+    });
+    await handlers['reset-machine-name']({
+        type: 'reset-machine-name', machineId: 'machine-a',
+    });
+
+    assert.deepEqual(calls, [
+        ['renameMachine', 'machine-a'],
+        ['resetMachineName', 'machine-a'],
+    ]);
+});
+
 test('PROJECT-PROJECT-ORDER-CONTROLLER-001 passes group orders through unchanged', async () => {
     const { handlers, calls } = createFixture();
 
@@ -249,17 +320,6 @@ test('PROJECT-PROJECT-REMOVAL-CONTROLLER-001 delegates removals by project id', 
     await handlers['remove-project']({ projectId: 'project-a' });
 
     assert.deepEqual(calls, [['removeProject', 'project-a']]);
-});
-
-test('PROJECT-INCREMENTAL-REFRESH-001 imports the other storage before refreshing the surfaces', async () => {
-    const { handlers, calls } = createFixture();
-
-    await handlers['import-from-other-storage']({ type: 'import-from-other-storage' });
-
-    assert.deepEqual(calls, [
-        ['copyFromOtherStorage'],
-        ['refreshAfterMutation', undefined],
-    ], 'the catalog copy must settle before the partial surface refresh');
 });
 
 test('WEBVIEW-DASHBOARD-MESSAGE-ROUTER-001 delegates group commands and workspace pins', async () => {

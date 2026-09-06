@@ -17,9 +17,15 @@ export const INBUILT_COLOR_DEFAULTS = [
     { name: '--vscode-terminal-submoduleResourceForeground', defaultValue: '#8db9e2' },
 ];
 
-export const PROJECTS_KEY = 'projects';
-export const PROJECT_SYNC_DATA_KEY = 'projectSyncData';
-export const PROJECT_SYNC_LOCAL_STATE_KEY = 'projectCatalogSyncLocal.v1';
+export const LOCAL_PROJECTS_KEY = 'localProjects.v1';
+export const MANAGED_REMOTE_CATALOG_DATA_KEY = 'managedRemoteCatalogData';
+export const MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY = 'managedRemoteCatalogLocal.v1';
+
+/**
+ * Marks the one-time recovery of a pre-catalog project store as attempted, so
+ * it never runs twice. Recovery is not an upgrade path the product maintains.
+ */
+export const LEGACY_PROJECT_IMPORT_STATE_KEY = 'legacyProjectImport.v1';
 export const RECENT_COLORS_KEY = 'recentColors';
 export const AGENT_PIVOT_CONFIG_SECTION = 'agentPivot';
 export const AGENT_PIVOT_EXTENSION_ID = 'hzcheng.agent-pivot';

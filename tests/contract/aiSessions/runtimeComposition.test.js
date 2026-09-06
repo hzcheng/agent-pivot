@@ -162,13 +162,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes c
     assert.equal(result.failure, null);
     assert.deepEqual(result.registeredCommands.filter(command => command.startsWith('agentPivot.')), [
         'agentPivot.open',
-        'agentPivot.addProject',
         'agentPivot.saveProject',
-        'agentPivot.removeProject',
-        'agentPivot.editProjects',
-        'agentPivot.addGroup',
-        'agentPivot.removeGroup',
-        'agentPivot.addProjectsFromFolder',
         'agentPivot.addFileToActiveTerminal',
         'agentPivot.insertPromptToActiveTerminal',
         'agentPivot.migrateSkillsToCentral',
@@ -185,6 +179,9 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes c
         'agentPivot.switchWorktreeOrSession',
         'agentPivot.toggleLastAiSession',
         'agentPivot.switchToOpenWindow',
+        'agentPivot.sshToMachine',
+        'agentPivot.copySshCommand',
+        'agentPivot.importLegacyProjects',
         'agentPivot.notify.setWebhook',
         'agentPivot.notify.showOutput',
         'agentPivot.notify.sendTest',
@@ -407,14 +404,12 @@ test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 ready rendering does not depen
     assert.equal(result.readyBeforeRuntimeRestoresSettled, true);
 });
 
-test('WEBVIEW-TWO-STAGE-STARTUP-001 ready rendering does not wait for post-ready startup effects while mutations wait for migration', () => {
+test('WEBVIEW-TWO-STAGE-STARTUP-001 ready rendering does not wait for post-ready startup effects', () => {
     const result = runProductionActivation('slow-startup-sequence');
     assert.equal(result.failure, null);
     assert.equal(result.pendingStartupSequenceEntered, true);
     assert.equal(result.readyBeforeStartupSequenceSettled, true);
-    assert.equal(result.projectMutationBlockedDuringMigration, true);
-    assert.equal(result.projectMutationInvocations, 1);
-    assert.equal(result.readOnlyHydrationPassedDuringMigration, true);
+    assert.equal(result.readOnlyHydrationPassedDuringStartup, true);
 });
 
 test('RUNTIME-BOOTSTRAP-TMUX-RESTORE-DEFERRAL-001 disposed bootstrap ignores late tmux recovery settlement', () => {

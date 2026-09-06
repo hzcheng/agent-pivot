@@ -26,6 +26,7 @@
         "src/webview/webviewProjectAiSessionControlsScripts.js",
         "src/webview/webviewProjectScripts.js",
         "src/webview/webviewProjectEditScripts.js",
+        "src/webview/webviewMachineProjectsScripts.js",
         "src/webview/webviewSkillPanelScripts.js",
         "src/webview/webviewProjectsPanelScripts.js",
         "src/webview/webviewDashboardValidationScripts.js",
@@ -109,6 +110,10 @@
       "producer": "host"
     },
     {
+      "symbol": "window.__agentPivotMachineProjects",
+      "producer": "host"
+    },
+    {
       "symbol": "window.__agentPivotOpenWindowNavigation",
       "producer": "src/webview/webviewOpenWindowNavigationScripts.js",
       "consumers": [
@@ -170,6 +175,7 @@
       "producer": "src/webview/webviewProjectCollapseScripts.js",
       "consumers": [
         "src/webview/webviewAiSessionViewStateScripts.js",
+        "src/webview/webviewMachineProjectsScripts.js",
         "src/webview/webviewProjectAiSessionControlsScripts.js",
         "src/webview/webviewWorkspaceUpdateScripts.js"
       ]

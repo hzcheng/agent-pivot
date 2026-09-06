@@ -11,13 +11,7 @@ const bridgeId = 'hzcheng.agent-pivot-attention-ui-bridge';
 const commandRegistrationPath = path.resolve(__dirname, '../../../out/dashboard/commandRegistration.js');
 const publicCommands = [
     'agentPivot.open',
-    'agentPivot.addProject',
     'agentPivot.saveProject',
-    'agentPivot.removeProject',
-    'agentPivot.editProjects',
-    'agentPivot.addGroup',
-    'agentPivot.removeGroup',
-    'agentPivot.addProjectsFromFolder',
     'agentPivot.addFileToActiveTerminal',
     'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral',
@@ -33,7 +27,10 @@ const publicCommands = [
     'agentPivot.switchToAiSession',
     'agentPivot.switchWorktreeOrSession',
     'agentPivot.toggleLastAiSession',
-    'agentPivot.switchToOpenWindow'
+    'agentPivot.switchToOpenWindow',
+    'agentPivot.sshToMachine',
+    'agentPivot.copySshCommand',
+    'agentPivot.importLegacyProjects'
 ];
 
 function loadSuite(vscode) {

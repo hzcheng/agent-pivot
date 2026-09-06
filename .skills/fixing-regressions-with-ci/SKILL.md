@@ -17,6 +17,21 @@ Turn every confirmed regression into a CI-owned behavior before changing product
 
 1. **Diagnose**
    - Reproduce the symptom and trace the root cause.
+   - For a user-reported symptom, read the runtime evidence before proposing a
+     cause. Reasoning from the source about which branch *could* fail yields a
+     plausible cause per attempt and burns a user verification round on each;
+     the recorded data names the actual one. In this repository that means the
+     extension's own diagnostics (`Agent Pivot` output channel, mirrored under
+     `~/.vscode-server/data/logs/*/exthost*/output_logging_*/`), and the URIs
+     and identifiers VS Code persists (`data/User/History`, `globalStorage`).
+     Extract the failing input verbatim and assert on it in the test.
+   - When the same symptom survives more than one fix, stop extending the
+     hypothesis and go find the input: repeated near-miss causes mean the
+     failing value has never been observed.
+   - Never leave the diagnosis path silent. A `catch` that maps an unexpected
+     failure onto the same result as the normal negative case (returning "not
+     found" when the lookup threw) erases the evidence a report depends on;
+     log the cause before falling back.
    - Define the user-visible expected behavior. Do not freeze accidental current behavior.
    - Identify which side of the PR supplies the failing check's code before
      editing: `pull_request` checks run PR-head files, but

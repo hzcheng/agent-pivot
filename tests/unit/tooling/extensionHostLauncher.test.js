@@ -63,6 +63,9 @@ function createPackagedFixture(root) {
     );
     const sourceFiles = [
         ['dist/dashboard.js', 'main-runtime'],
+        ['media/webviewDashboardBundle.js', 'dashboard-webview-runtime'],
+        ['media/webviewMachineProjectsScripts.js', 'machine-project-runtime'],
+        ['media/styles.css', 'style-runtime'],
         ['media/conversationViewerScripts.js', 'viewer-runtime'],
         ['media/conversationMermaidScripts.js', 'mermaid-runtime'],
         ['extensions/attention-ui-bridge/dist/extension.js', 'bridge-runtime'],
@@ -149,7 +152,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
             MAIN_EXTENSION_ID,
         ]);
         assert.deepEqual(packagePlan.map(item => path.basename(item.artifactPath)), [
-            'agent-pivot-attention-ui-bridge-1.0.3.vsix',
+            'agent-pivot-attention-ui-bridge-1.4.0.vsix',
             'agent-pivot-1.4.0.vsix',
         ]);
         assert.equal(options.extensionTestsPath,
@@ -255,7 +258,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 verifies installed manifests and exec
             createExtensionPackagePlan(root),
             installedRoots
         );
-        assert.equal(evidence.length, 6);
+        assert.equal(evidence.length, 9);
         assert.deepEqual(new Set(evidence.map(item => item.extensionId)), new Set([
             MAIN_EXTENSION_ID,
             BRIDGE_EXTENSION_ID,
@@ -327,7 +330,7 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 installs both VSIX files through one 
             assert.ok(call.args.includes(`--user-data-dir=${environment.userData}`));
             assert.ok(call.args.includes('--force'));
         }
-        assert.equal(installation.evidence.length, 6);
+        assert.equal(installation.evidence.length, 9);
     } finally {
         if (fs.existsSync(isolatedRoot)) removeExtensionHostTestEnvironment(isolatedRoot);
         fs.rmSync(root, { recursive: true, force: true });

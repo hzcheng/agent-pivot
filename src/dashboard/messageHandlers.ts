@@ -12,6 +12,7 @@ import type { PromptTerminalCommandController } from '../prompts/terminalCommand
 import type ProjectService from '../services/projectService';
 import type { DashboardWorkspaceSearchCatalog } from '../webview/dashboardViewModel';
 import { getProjectsPanelContent } from '../webview/webviewContent';
+import type { Group } from '../models';
 import type { DashboardMessageHandler } from './messageRouter';
 
 export interface DashboardMessageHandlersOptions {
@@ -19,6 +20,7 @@ export interface DashboardMessageHandlersOptions {
     /** Late-bound: stewardInfos is assembled after the message router. */
     getStewardInfos: () => StewardInfos;
     projectService: ProjectService;
+    renderProjectsPanel?: (groups: Group[], infos: StewardInfos) => string;
     /** Late-bound authoritative catalog returned with the lazy Projects panel. */
     getSearchCatalog?: () => DashboardWorkspaceSearchCatalog;
     promptDashboardController: PromptDashboardController;
@@ -103,11 +105,15 @@ export function createDashboardMessageHandlers(
             if (e.version !== 1 || !Number.isSafeInteger(e.requestId) || e.requestId < 1) {
                 return;
             }
+            const groups = projectService.getGroups();
+            const html = options.renderProjectsPanel
+                ? options.renderProjectsPanel(groups, getStewardInfos())
+                : getProjectsPanelContent(groups, getStewardInfos());
             await postMessage({
                 type: 'projects-panel-content',
                 version: 1,
                 requestId: e.requestId,
-                html: getProjectsPanelContent(projectService.getGroups(), getStewardInfos()),
+                html,
                 ...(getSearchCatalog ? { searchCatalog: getSearchCatalog() } : {}),
             });
         },

@@ -8,7 +8,25 @@ import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
-import { getProjectsPanelContent, getStewardContent } from './webview/webviewContent';
+import { getStewardContent } from './webview/webviewContent';
+import {
+    buildMachineProjectsViewModel,
+    isLocalMachineProjectPath,
+} from './projects/machineProjectsViewModel';
+import { renderManagedRemoteProjectsPanel } from './webview/webviewManagedRemoteProjectsContent';
+import { buildManagedRemoteProjectsViewModel } from './projects/managedRemote/viewModel';
+import {
+    createDisabledManagedRemoteSnapshot,
+    createManagedRemoteManagementCapability,
+    ManagedRemoteManagementCapability,
+} from './projects/managedRemote/composition';
+import { ManagedRemoteBridgeClient } from './projects/managedRemote/bridgeClient';
+import { ManagedRemoteActionController } from './projects/managedRemote/actionController';
+import { resolveManagedMachineTarget } from './projects/managedRemote/targetResolver';
+import {
+    ManagedRemotePromptController,
+    VscodeManagedRemoteWizardUi,
+} from './projects/managedRemote/vscodePrompts';
 import {
     getEffectiveRunningCardAnimation,
     getEffectiveRunningIconAnimation,
@@ -17,6 +35,9 @@ import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
     AGENT_PIVOT_DASHBOARD_VIEW_ID,
+    LEGACY_PROJECT_IMPORT_STATE_KEY,
+    MANAGED_REMOTE_CATALOG_DATA_KEY,
+    MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
     OPEN_TAB_LAST_FOCUSED_NAVIGATION_AT_MS_KEY,
     USER_CANCELED,
     RelevantExtensions,
@@ -208,21 +229,25 @@ import {
     isUriString,
     parsePathAsUri,
 } from './projects/openProjectService';
-import { findSavedProjectForOpenProject } from './projects/openProjectMatcher';
-import { getWorkspacePath as resolveWorkspacePath } from './projects/workspaceHelpers';
-import RemoteProjectResolver from './projects/remoteProjectResolver';
-import { AddProjectsFromFolderController } from './projects/addProjectsFromFolderController';
-import { CurrentProjectDetailsResolver } from './projects/currentProjectDetails';
-import { FavoriteProjectController } from './projects/favoriteProjectController';
-import { GroupCommandController } from './projects/groupCommandController';
-import { queryGroupName } from './projects/groupPrompts';
-import { ProjectManualEditController } from './projects/projectManualEditController';
-import { ProjectMutationController } from './projects/projectMutationController';
-import { ProjectOpenController } from './projects/projectOpenController';
-import { ProjectOrderController } from './projects/projectOrderController';
-import { ProjectPromptController } from './projects/projectPromptController';
-import { ProjectRemovalController } from './projects/projectRemovalController';
-import { createProjectMessageHandlers, createProjectSurfaceRefresh } from './projects/projectMessageHandlers';
+import {
+    collectLegacyAliases,
+    LegacyGroupRecord,
+    LegacySshEndpoint,
+} from './projects/managedRemote/legacyImport';
+import {
+    findManagedEnvironmentForWorkspace,
+    findManagedDevContainerSaveTarget,
+    findManagedProjectForOpenProject,
+    managedRemotePathForWorkspace,
+    findSavedProjectForOpenProject,
+    managedProjectUriFromCurrentMachine,
+} from './projects/openProjectMatcher';
+import {
+    getWorkspacePath as resolveWorkspacePath,
+    getWorkspaceUris,
+} from './projects/workspaceHelpers';
+import type { ProjectDetailsForSave } from './projects/remoteProjectResolver';
+import { createProjectMessageHandlers } from './projects/projectMessageHandlers';
 import { AgentPivotViewProvider } from './dashboard/viewProvider';
 import type { AgentPivotViewProviderOptions } from './dashboard/viewProvider';
 import { DashboardBootstrapController } from './dashboard/bootstrapController';
@@ -243,7 +268,7 @@ import {
     DashboardRuntimeController,
     revealAgentPivotDashboard,
 } from './dashboard/runtimeController';
-import { DashboardStartupController, settleMigration } from './dashboard/startupController';
+import { DashboardStartupController } from './dashboard/startupController';
 import { getDashboardWebviewOptions } from './dashboard/webviewOptions';
 import OpenWorkspaceBridgeClient from './openWorkspaces/bridgeClient';
 import type { OpenWorkspaceBridgeStatus } from './openWorkspaces/bridgeClient';
@@ -629,58 +654,13 @@ async function initializeDashboard(
             bootstrapPhaseTimings[phase] = Math.max(0, Date.now() - startedAtMs);
         }
     };
-    let settleStorageMigration: (available: boolean) => void = () => undefined;
-    let storageMigrationSettled = false;
-    const storageMigrationReady = new Promise<boolean>(resolve => {
-        settleStorageMigration = available => {
-            if (storageMigrationSettled) {
-                return;
-            }
-            storageMigrationSettled = true;
-            resolve(available);
-        };
-    });
-    resources.own({ dispose: () => settleStorageMigration(false) });
-    const runAfterStorageMigration = async <T>(run: () => T | PromiseLike<T>): Promise<T> => {
-        const available = await storageMigrationReady;
-        resources.assertActive();
-        if (!available) {
-            throw new Error('Agent Pivot storage migration did not complete.');
-        }
-        return run();
-    };
-    const storageMutationMessageTypes = new Set([
-        'save-current-workspace',
-        'save-project',
-        'add-project',
-        'import-from-other-storage',
-        'reordered-projects',
-        'reordered-favorites',
-        'remove-project',
-        'edit-project',
-        'save-project-inline',
-        'color-project',
-        'favorite-project',
-        'edit-group',
-        'remove-group',
-        'add-group',
-    ]);
-    const messageRequiresStorageMigration = (message: unknown): boolean => {
-        if (!message || typeof message !== 'object') {
-            return false;
-        }
-        const messageType = (message as { type?: unknown }).type;
-        return typeof messageType === 'string'
-            && storageMutationMessageTypes.has(messageType);
-    };
-
     const {
         colorService,
         projectService,
         projectWindowColorService,
         fileService,
         gitRepositoryDetector,
-    } = createProjectServices({ context, logDashboardDiagnostic });
+    } = createProjectServices({ context });
     const promptConfiguration = getAgentPivotConfiguration();
     const promptStore = await initializePromptMementoStore({
         globalState: context.globalState,
@@ -705,6 +685,7 @@ async function initializeDashboard(
     const {
         projectSurface,
         groupCollapseController,
+        machineRenameController,
         groupCommandController,
         projectOpenController,
         projectPromptController,
@@ -712,8 +693,6 @@ async function initializeDashboard(
         favoriteProjectController,
         projectOrderController,
         projectRemovalController,
-        projectManualEditController,
-        addProjectsFromFolderController,
         remoteProjectResolver,
         currentProjectDetailsResolver,
     } = createProjectControllers({
@@ -958,6 +937,147 @@ async function initializeDashboard(
     let openWorkspaceController: OpenWorkspaceController;
     let openWorkspaceDashboardController: OpenWorkspaceDashboardController<vscode.Terminal>;
     let projectsPanelController: ProjectsPanelController | undefined;
+    const managedRemoteCatalogActorId = `managed-catalog:${randomBytes(16).toString('hex')}`;
+    let managedRemoteSnapshot = createDisabledManagedRemoteSnapshot(
+        managedRemoteCatalogActorId,
+    );
+    let managedRemoteCapability: ManagedRemoteManagementCapability | undefined;
+    const managedRemoteBridgeClient = new ManagedRemoteBridgeClient(vscode.commands);
+    const managedRemoteCapabilityPromise = createManagedRemoteManagementCapability({
+            configuration: () => getAgentPivotConfiguration(),
+            catalogSettingKey: MANAGED_REMOTE_CATALOG_DATA_KEY,
+            globalTarget: vscode.ConfigurationTarget.Global,
+            memento: context.globalState,
+            writerIdentityMemento: context.workspaceState,
+            localReplicaKey: MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
+            catalogActorId: managedRemoteCatalogActorId,
+            prompts: new ManagedRemotePromptController(
+                new VscodeManagedRemoteWizardUi(vscode.window),
+            ),
+            refreshAuthoritative: async (_requestId, _operation, snapshot) => {
+                managedRemoteSnapshot = snapshot;
+                await projectsPanelController?.postUpdated('replace');
+                openWorkspaceDashboardController?.invalidatePendingUpdates();
+                await openWorkspaceDashboardController?.postUpdated();
+                if (snapshot.lifecycle === 'active' && snapshot.revisionId) {
+                    managedRemoteActions.syncProjection(snapshot.revisionId);
+                }
+            },
+            postSettlement: async settlement => {
+                await provider.postMessage(settlement);
+            },
+        });
+    void managedRemoteCapabilityPromise.then(async capability => {
+        managedRemoteCapability = capability;
+        managedRemoteSnapshot = capability.snapshot;
+        logDashboardDiagnostic({
+            event: 'managed-remote-catalog-ready',
+            lifecycle: managedRemoteSnapshot.lifecycle,
+            machineCount: managedRemoteSnapshot.catalog.machines.length,
+            environmentCount: managedRemoteSnapshot.catalog.environments.length,
+            projectCount: managedRemoteSnapshot.catalog.projects.length,
+        });
+        await recoverLegacyProjectsOnce(capability);
+        managedRemoteSnapshot = capability.snapshot;
+        openWorkspaceDashboardController?.invalidatePendingUpdates();
+        await openWorkspaceDashboardController?.postUpdated();
+        if (managedRemoteSnapshot.lifecycle === 'active'
+            && managedRemoteSnapshot.revisionId) {
+            managedRemoteActions.syncProjection(managedRemoteSnapshot.revisionId);
+        }
+        await projectsPanelController?.postUpdated('replace');
+    }, error => {
+        logError('Failed to initialize Managed Remote management.', error);
+    });
+    const managedRemoteActions = new ManagedRemoteActionController({
+        getCurrentSnapshot: () => managedRemoteSnapshot,
+        openCurrentProject: async (snapshot, projectId) => {
+            const projectUri = managedProjectUriFromCurrentMachine(
+                snapshot,
+                projectId,
+                getWorkspaceUris(
+                    vscode.workspace.workspaceFile,
+                    vscode.workspace.workspaceFolders,
+                ),
+                {
+                    remoteName: vscode.env.remoteName,
+                    devContainerHostWorkspaceFolder:
+                        process.env.LOCAL_WORKSPACE_FOLDER,
+                },
+            );
+            if (!projectUri) { return false; }
+            logDashboardDiagnostic({
+                event: 'managed-remote-project-navigation-route',
+                projectId,
+                route: 'workspace-host',
+            });
+            await vscode.commands.executeCommand(
+                'vscode.openFolder',
+                projectUri,
+                { forceNewWindow: true },
+            );
+            logDashboardDiagnostic({
+                event: 'managed-remote-project-navigation-dispatched',
+                projectId,
+                route: 'workspace-host',
+            });
+            return true;
+        },
+        bridge: managedRemoteBridgeClient,
+        writeClipboard: value => vscode.env.clipboard.writeText(value),
+        showInformationMessage: message => vscode.window.showInformationMessage(message),
+        showErrorMessage: message => vscode.window.showErrorMessage(message),
+        logProjectionError: error => logError(
+            'Managed SSH background projection failed.', error,
+        ),
+    });
+    const runManagedMachineCommand = async (operation: 'ssh' | 'copy'): Promise<void> => {
+        const snapshot = managedRemoteSnapshot;
+        if (snapshot.lifecycle !== 'active' || !snapshot.revisionId) {
+            await vscode.window.showErrorMessage(
+                'Agent Pivot: The Managed Machine catalog is unavailable.',
+            );
+            return;
+        }
+        const items: Array<{
+            label: string;
+            description: string;
+            machineId: string;
+        }> = [];
+        for (const machine of snapshot.catalog.machines) {
+            try {
+                resolveManagedMachineTarget(snapshot.catalog, machine.id);
+            } catch (_error) {
+                continue;
+            }
+            const host = machine.connection.host.includes(':')
+                ? `[${machine.connection.host}]` : machine.connection.host;
+            items.push({
+                label: machine.name,
+                description: `${machine.connection.user}@${host}:${machine.connection.port}`,
+                machineId: machine.id,
+            });
+        }
+        if (!items.length) {
+            await vscode.window.showErrorMessage(
+                'Agent Pivot: No ready Managed Machines are available.',
+            );
+            return;
+        }
+        const selected = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Choose a Machine by name and endpoint',
+        });
+        if (!selected) { return; }
+        if (operation === 'ssh') {
+            await managedRemoteActions.openSshTerminal(
+                selected.machineId, snapshot.revisionId,
+            );
+        } else {
+            await managedRemoteActions.copySshCommand(
+                selected.machineId, snapshot.revisionId,
+            );
+        }
+    };
     let workspaceNavigationController: WorkspaceNavigationController;
     let openWindowNavigationRequestController: OpenWindowNavigationRequestController;
     let openWorkspacePinController: OpenWorkspacePinController;
@@ -1076,7 +1196,16 @@ async function initializeDashboard(
         pendingStore: new PendingWorkspaceSaveStore(context.globalState),
         getProjectDetailsForSave: navigationUri =>
             currentProjectDetailsResolver.getProjectDetailsForSave(vscode.Uri.parse(navigationUri)),
-        saveWorkspaceProject: details => projectMutationController.saveWorkspaceProject(details),
+        saveWorkspaceProject: async details => {
+            if (details && await saveWorkspaceIntoManagedCatalog(details)) { return; }
+            if (details && !isLocalMachineProjectPath(details.path)) {
+                await vscode.window.showErrorMessage(
+                    'Agent Pivot: Save remote Projects from a Managed Machine or Managed Dev Container.',
+                );
+                return;
+            }
+            await projectMutationController.saveWorkspaceProject(details);
+        },
         executeSaveWorkspaceAs: () => Promise.resolve(
             vscode.commands.executeCommand('workbench.action.saveWorkspaceAs')
         ),
@@ -1639,7 +1768,8 @@ async function initializeDashboard(
         isVisible: () => provider.visible,
         invalidateCache: providerId => invalidateAiSessionCache(providerId),
         watchSessionChanges: (providerId, onDidChange) => getRegisteredAiSessionProvider(providerId).service.watchSessionChanges(onDidChange),
-        getGroups: () => projectService.getGroups(),
+        getGroups: () => projectService.getLocalGroupsForDisplay(),
+        getManagedRemoteSnapshot: () => managedRemoteSnapshot,
         getSkillRecords: () => skillPanel.getRecords(),
         getCards: projection => getOpenWorkspaceCards(projection),
         buildAiSessionsUpdatedMessage,
@@ -2351,12 +2481,14 @@ async function initializeDashboard(
         projectRemovalController,
         groupCommandController,
         groupCollapseController,
+        machineRenameController,
         getWorkspaceNavigationController: () => workspaceNavigationController,
         getOpenWindowNavigationRequestController: () => openWindowNavigationRequestController,
         getOpenWorkspacePinController: () => openWorkspacePinController,
         getAttentionAggregate: () => aiSessionAttentionController.getEffectiveAggregate(),
         acknowledgeAiSessionAttentionEventIds,
         refreshAfterMutation: projectSurface.refreshAfterMutation,
+        openLocalWindow: () => vscode.commands.executeCommand('workbench.action.newWindow'),
         postMessage: message => provider.postMessage(message),
         showWarningMessage: message => vscode.window.showWarningMessage(message),
     });
@@ -2365,10 +2497,12 @@ async function initializeDashboard(
         postMessage: message => provider.postMessage(message),
         getStewardInfos: () => stewardInfos,
         projectService,
+        renderProjectsPanel: (groups, infos) => renderProjectsPanel(groups, infos),
         getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
-            projectService.getGroups(),
+            projectService.getLocalGroupsForDisplay(),
             getOpenWorkspaceCards(),
             skillPanel.getRecords(),
+            managedRemoteSnapshot,
         ),
         promptDashboardController,
         getPromptTerminalCommandController: () => promptTerminalCommandController,
@@ -2622,6 +2756,14 @@ async function initializeDashboard(
             ...skillPanel.handlers,
             ...dashboardMessageHandlers,
             ...isolatedSessionHandlers,
+            'managed-remote-action': async message => {
+                const capability = managedRemoteCapability
+                    || await managedRemoteCapabilityPromise;
+                await capability.controller.handle(message);
+            },
+            'managed-remote-client-action': async message => {
+                await managedRemoteActions.handleMessage(message);
+            },
         },
         createAiSession: async e => {
             const worktreeKey = Object.prototype.hasOwnProperty.call(e, 'worktreeKey')
@@ -2755,7 +2897,7 @@ async function initializeDashboard(
             return getStewardContent(
                 context,
                 webview,
-                projectService.getGroups(),
+                projectService.getLocalGroupsForDisplay(),
                 stewardInfos,
                 true,
                 cards,
@@ -2770,12 +2912,11 @@ async function initializeDashboard(
                     currentWorktreeGroupsAggregateRevision(),
                 ),
                 openWorkspaceDashboardController.getWindowPathSegmentsByCardId(),
+                managedRemoteSnapshot,
             );
         },
         renderError: getErrorContent,
-        onMessage: message => messageRequiresStorageMigration(message)
-            ? runAfterStorageMigration(() => dashboardMessageRouter(message))
-            : dashboardMessageRouter(message),
+        onMessage: message => dashboardMessageRouter(message),
         onVisibleChanged: async visible => {
             projectsPanelController?.invalidatePendingUpdates();
             openWorkspaceDashboardController?.invalidatePendingUpdates();
@@ -2876,7 +3017,8 @@ async function initializeDashboard(
             );
             return transaction;
         },
-        getGroups: () => projectService.getGroups(),
+        getGroups: () => projectService.getLocalGroupsForDisplay(),
+        getManagedRemoteSnapshot: () => managedRemoteSnapshot,
         getSkillRecords: () => skillPanel.getRecords(),
         getRunningCardAnimation: () => getEffectiveRunningCardAnimation(getAgentPivotConfiguration()),
         getRunningIconAnimation: () => getEffectiveRunningIconAnimation(getAgentPivotConfiguration()),
@@ -3415,18 +3557,29 @@ async function initializeDashboard(
             remoteContainers: false,
         },
         get config() { return getAgentPivotConfiguration() },
-        get otherStorageHasData() { return projectService.otherStorageHasData() },
         get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
         get skills() { return skillPanel.getRecords() },
     };
+    const renderProjectsPanel = (
+        _groups: import('./models').Group[],
+        infos: StewardInfos,
+    ): string => {
+        return renderManagedRemoteProjectsPanel(
+            buildManagedRemoteProjectsViewModel(managedRemoteSnapshot),
+            buildMachineProjectsViewModel(
+                projectService.getLocalGroupsForDisplay(),
+            ),
+        );
+    };
     projectsPanelController = new ProjectsPanelController({
-        getGroups: () => projectService.getGroups(),
+        getGroups: () => projectService.getLocalGroupsForDisplay(),
         getSearchCatalog: () => buildWorkspaceDashboardSearchCatalog(
-            projectService.getGroups(),
+            projectService.getLocalGroupsForDisplay(),
             getOpenWorkspaceCards(),
             skillPanel.getRecords(),
+            managedRemoteSnapshot,
         ),
-        renderHtml: groups => getProjectsPanelContent(groups, stewardInfos),
+        renderHtml: groups => renderProjectsPanel(groups, stewardInfos),
         postMessage: message => provider.postMessage(message),
         refresh: reason => dashboardRuntimeController.refresh(reason),
         isVisible: () => provider.visible,
@@ -3437,25 +3590,14 @@ async function initializeDashboard(
         relevantExtensions: RelevantExtensions,
         isExtensionInstalled: extensionId => vscode.extensions.getExtension(extensionId) !== undefined,
         assertActive: () => resources.assertActive(),
-        migrateDataIfNeeded: async () => {
-            const projectMigration = settleMigration(() => projectService.migrateDataIfNeeded());
-            const projects = await projectMigration;
-            settleStorageMigration(true);
-            return { projects };
-        },
-        refreshDashboard: () => provider.refresh(),
-        publishOpenWorkspace: () => openWorkspaceController.publish(),
-        showInformationMessage: message => vscode.window.showInformationMessage(message),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        logError,
-        showAgentPivot,
         applyProjectColorToCurrentWindow: projectSurface.applyProjectColorToCurrentWindow,
         getReopenReason: () => context.globalState.get(REOPEN_KEY),
         updateReopenReason: reason => context.globalState.update(REOPEN_KEY, reason),
         reopenNoneValue: ReopenStewardReason.None,
         getWorkspaceName: () => vscode.workspace.name,
         getVisibleEditorLanguageIds: () => vscode.window.visibleTextEditors.map(editor => editor.document.languageId),
-        afterProjectMigrationSucceeded: async () => {
+        showAgentPivot,
+        completePendingWorkspaceSave: async () => {
             try {
                 await savedWorkspaceProjectAdapter.completePendingWorkspaceSave();
             } catch (error) {
@@ -3481,12 +3623,15 @@ async function initializeDashboard(
                 await conversationCapability.viewer.refreshPresentation();
             }
         },
-        checkDataMigration: async openStewardAfterMigrate => {
-            await dashboardStartupController.checkDataMigration(openStewardAfterMigrate);
+        reconcileManagedRemoteCatalog: async () => {
+            const capability = managedRemoteCapability
+                || await managedRemoteCapabilityPromise;
+            managedRemoteSnapshot = await capability.reconcile();
+            if (managedRemoteSnapshot.lifecycle === 'active'
+                && managedRemoteSnapshot.revisionId) {
+                managedRemoteActions.syncProjection(managedRemoteSnapshot.revisionId);
+            }
         },
-        reconcileProjectCatalog: () => projectService.reconcileProjectCatalog(),
-        consumeProjectCatalogWriteEcho: change =>
-            projectService.consumeProjectCatalogWriteEcho(change),
         consumePromptDataWriteEcho: () =>
             promptService.consumeCurrentSettingsDataLocalWriteEcho(),
         applyProjectColorToCurrentWindow: projectSurface.applyProjectColorToCurrentWindow,
@@ -3533,15 +3678,7 @@ async function initializeDashboard(
 
     const commandHandlers = {
         open: () => showAgentPivot(),
-        addProject: () => runAfterStorageMigration(() => projectMutationController.addProject()),
-        saveProject: () => runAfterStorageMigration(() => savedWorkspaceProjectAdapter.saveCurrentWorkspace()),
-        removeProject: () => runAfterStorageMigration(() => projectRemovalController.removeProjectPerCommand()),
-        editProjects: () => runAfterStorageMigration(() => projectManualEditController.editProjectsManually()),
-        addGroup: () => runAfterStorageMigration(() => groupCommandController.addGroup()),
-        removeGroup: () => runAfterStorageMigration(() => groupCommandController.removeGroupPerCommand()),
-        addProjectsFromFolder: () => runAfterStorageMigration(
-            () => addProjectsFromFolderController.addProjectsFromFolder()
-        ),
+        saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
         addFileToActiveTerminal: () => activeTerminalFileReferenceController.addFileToActiveTerminal(),
         insertPromptToActiveTerminal: () => promptTerminalCommandController.insertPromptToActiveTerminal(),
         migrateSkillsToCentral: () => skillPanel.migrateToCentral(),
@@ -3594,6 +3731,9 @@ async function initializeDashboard(
             revealFocusedAiSessionInDashboard();
         },
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
+        sshToManagedMachine: () => runManagedMachineCommand('ssh'),
+        copyManagedSshCommand: () => runManagedMachineCommand('copy'),
+        importLegacyProjects: () => importLegacyProjectsFromBackup(),
     };
 
     ownResource(() => vscode.workspace.onDidChangeConfiguration(
@@ -4034,6 +4174,208 @@ async function initializeDashboard(
         return openWorkspaceDashboardController.getCards(projection);
     }
 
+    /**
+     * Save the open window into the Managed Remote catalog when it belongs to a
+     * managed Environment.
+     *
+     * The catalog is the authority the Project tab renders and the saved-project
+     * check reads, and it is the store that synchronizes across machines. Saving
+     * into the local store instead would leave the Project invisible in the tab, still
+     * offering Save, and absent from the user's other machines.
+     *
+     * Returns false when the window is local or is not owned by a Managed
+     * Machine. The caller permits the local Project store only for local paths.
+     */
+    async function saveWorkspaceIntoManagedCatalog(
+        details: ProjectDetailsForSave,
+    ): Promise<boolean> {
+        if (managedRemoteSnapshot.lifecycle !== 'active') { return false; }
+        const workspaceUri = vscode.Uri.parse(details.path);
+        const context = {
+            remoteName: vscode.env.remoteName,
+            devContainerHostWorkspaceFolder: process.env.LOCAL_WORKSPACE_FOLDER,
+        };
+        const environment = findManagedEnvironmentForWorkspace(
+            managedRemoteSnapshot,
+            workspaceUri,
+            context,
+        );
+        const remotePath = managedRemotePathForWorkspace(workspaceUri);
+        if (!remotePath) { return false; }
+        const capability = managedRemoteCapability || await managedRemoteCapabilityPromise;
+        const projectName = remotePath.split('/').filter(Boolean).pop() || remotePath;
+        if (environment) {
+            await capability.controller.addProjectDirectly({
+                environmentId: environment.id,
+                name: projectName,
+                remotePath,
+            });
+            return true;
+        }
+        const target = findManagedDevContainerSaveTarget(
+            managedRemoteSnapshot,
+            workspaceUri,
+        );
+        if (!target) { return false; }
+        await capability.controller.addDevContainerProjectDirectly({
+            machineId: target.machine.id,
+            environmentName: `${projectName} Container`,
+            anchor: target.anchor,
+            project: { name: projectName, remotePath: target.remotePath },
+        });
+        return true;
+    }
+
+
+    /**
+     * One-shot import of a legacy Group[] export into the Managed Remote catalog.
+     *
+     * Each SSH host alias is resolved against the user's own SSH config through
+     * the UI Bridge, because only the local extension host can read it. This is
+     * a manual recovery path for a dataset that predates the catalog, not an
+     * upgrade path the product maintains.
+     */
+    /**
+     * Resolve every SSH host alias a legacy export refers to. Only the local
+     * extension host can read the user's own SSH config, so this goes through
+     * the bridge.
+     */
+    async function resolveLegacyEndpoints(
+        groups: readonly LegacyGroupRecord[],
+    ): Promise<Map<string, LegacySshEndpoint | null>> {
+        const endpoints = new Map<string, LegacySshEndpoint | null>();
+        for (const alias of collectLegacyAliases(groups)) {
+            try {
+                const inspection = await managedRemoteBridgeClient
+                    .inspectLegacySshTarget(alias) as {
+                        endpoint?: LegacySshEndpoint;
+                    } | undefined;
+                endpoints.set(alias, inspection?.endpoint || null);
+            } catch (error) {
+                logDashboardDiagnostic({
+                    event: 'legacy-import-endpoint-unresolved',
+                    alias,
+                    message: error instanceof Error ? error.message : String(error),
+                });
+                endpoints.set(alias, null);
+            }
+        }
+        return endpoints;
+    }
+
+    function readLegacyGroups(raw: string): LegacyGroupRecord[] {
+        const groups = JSON.parse(raw) as LegacyGroupRecord[];
+        if (!Array.isArray(groups)) {
+            throw new Error('The backup must be an array of groups.');
+        }
+        return groups;
+    }
+
+
+    /**
+     * Recover a pre-catalog project store once, without asking the user to run
+     * anything.
+     *
+     * Guarded three ways: it only runs when the catalog holds nothing, only when
+     * a backup is actually present, and only once per installation. Recovery is
+     * not an upgrade path the product maintains, so it must never re-run and
+     * never overwrite a catalog the user has since populated.
+     */
+    async function recoverLegacyProjectsOnce(
+        capability: ManagedRemoteManagementCapability,
+    ): Promise<void> {
+        if (context.globalState.get(LEGACY_PROJECT_IMPORT_STATE_KEY)) { return; }
+        if (capability.snapshot.catalog.machines.length > 0) { return; }
+        const backup = vscode.Uri.file(
+            path.join(os.homedir(), 'agent-pivot-backup', 'projectData.json'),
+        );
+        let groups: LegacyGroupRecord[];
+        try {
+            groups = readLegacyGroups(
+                Buffer.from(await vscode.workspace.fs.readFile(backup)).toString('utf8'),
+            );
+        } catch (_error) {
+            // No backup to recover from is the normal case; stay silent.
+            return;
+        }
+        if (!groups.length) { return; }
+        try {
+            const endpoints = await resolveLegacyEndpoints(groups);
+            const { summary } = await capability.controller.importLegacyGroups(
+                groups, endpoints,
+            );
+            await context.globalState.update(LEGACY_PROJECT_IMPORT_STATE_KEY, {
+                completedAtMs: Date.now(),
+                projects: summary.projects,
+            });
+            logDashboardDiagnostic({
+                event: 'legacy-import-recovered',
+                machines: summary.machines,
+                environments: summary.environments,
+                projects: summary.projects,
+                skipped: summary.skipped.length,
+            });
+            if (summary.projects > 0) {
+                void vscode.window.showInformationMessage(
+                    `Agent Pivot recovered ${summary.projects} Projects across `
+                    + `${summary.machines} Machines.`
+                    + (summary.skipped.length
+                        ? ` ${summary.skipped.length} local Projects were left in place.`
+                        : ''),
+                );
+            }
+        } catch (error) {
+            // A failed recovery must not be marked done: it has to be retryable.
+            logDashboardDiagnostic({
+                event: 'legacy-import-failed',
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+
+    async function importLegacyProjectsFromBackup(): Promise<void> {
+        const picked = await vscode.window.showOpenDialog({
+            title: 'Import Projects From Legacy Backup',
+            openLabel: 'Import',
+            canSelectMany: false,
+            filters: { JSON: ['json'] },
+        });
+        const file = picked?.[0];
+        if (!file) { return; }
+        try {
+            const groups = readLegacyGroups(
+                Buffer.from(await vscode.workspace.fs.readFile(file)).toString('utf8'),
+            );
+            const capability = managedRemoteCapability || await managedRemoteCapabilityPromise;
+            const endpoints = await resolveLegacyEndpoints(groups);
+            const unresolved = [...endpoints]
+                .filter(([, value]) => !value)
+                .map(([alias]) => alias);
+            if (unresolved.length) {
+                const proceed = await vscode.window.showWarningMessage(
+                    `Could not resolve ${unresolved.join(', ')} from this computer's SSH`
+                    + ' config. Their Projects will be skipped.',
+                    { modal: true },
+                    'Import anyway',
+                );
+                if (proceed !== 'Import anyway') { return; }
+            }
+            const { summary } = await capability.controller.importLegacyGroups(
+                groups, endpoints,
+            );
+            const detail = summary.skipped.length
+                ? ` ${summary.skipped.length} skipped.` : '';
+            await vscode.window.showInformationMessage(
+                `Imported ${summary.projects} Projects across ${summary.machines} Machines.`
+                + detail,
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logDashboardDiagnostic({ event: 'legacy-import-failed', message });
+            await vscode.window.showErrorMessage(`Agent Pivot: ${message}`);
+        }
+    }
+
     function getSavedProjectForCurrentWorkspace(): Project | null {
         return getSavedProjectForWorkspace(getCurrentOpenWorkspace());
     }
@@ -4045,12 +4387,43 @@ async function initializeDashboard(
             return null;
         }
         try {
-            return findSavedProjectForOpenProject(
-                projectService.getProjectsFlat(),
-                vscode.Uri.parse(workspace.navigationUri),
-                vscode.env.remoteName,
+            const workspaceUri = vscode.Uri.parse(workspace.navigationUri);
+            const managed = findManagedProjectForOpenProject(
+                managedRemoteSnapshot,
+                workspaceUri,
+                {
+                    remoteName: vscode.env.remoteName,
+                    devContainerHostWorkspaceFolder: process.env.LOCAL_WORKSPACE_FOLDER,
+                },
             );
-        } catch (_error) {
+            if (managed) {
+                return {
+                    id: managed.project.id,
+                    name: managed.project.name,
+                    description: managed.project.description || null,
+                    path: workspace.navigationUri,
+                    tags: managed.project.tags,
+                    favorite: managed.project.favorite,
+                    color: managed.project.color || '',
+                    remoteType: managed.environment.kind === 'devContainer'
+                        ? ProjectRemoteType.DevContainer : ProjectRemoteType.SSH,
+                } as Project;
+            }
+            return findSavedProjectForOpenProject(
+                projectService.getLocalGroupsForDisplay().reduce(
+                    (projects, group) => projects.concat(group.projects || []),
+                    [] as Project[],
+                ),
+                workspaceUri,
+            );
+        } catch (error) {
+            // Reporting "not saved" on a thrown lookup is indistinguishable from
+            // a genuinely unsaved workspace, so record why before falling back.
+            logDashboardDiagnostic({
+                event: 'saved-project-lookup-failed',
+                navigationUri: workspace.navigationUri,
+                message: error instanceof Error ? error.message : String(error),
+            });
             return null;
         }
     }

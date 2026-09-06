@@ -8,13 +8,7 @@ type DashboardCommandHandler = (...args: unknown[]) => unknown;
 
 export interface DashboardCommandHandlers {
     open: DashboardCommandHandler;
-    addProject: DashboardCommandHandler;
     saveProject: DashboardCommandHandler;
-    removeProject: DashboardCommandHandler;
-    editProjects: DashboardCommandHandler;
-    addGroup: DashboardCommandHandler;
-    removeGroup: DashboardCommandHandler;
-    addProjectsFromFolder: DashboardCommandHandler;
     addFileToActiveTerminal: DashboardCommandHandler;
     insertPromptToActiveTerminal: DashboardCommandHandler;
     migrateSkillsToCentral: DashboardCommandHandler;
@@ -31,6 +25,9 @@ export interface DashboardCommandHandlers {
     switchWorktreeOrSession: DashboardCommandHandler;
     toggleLastAiSession: DashboardCommandHandler;
     switchToOpenWindow: DashboardCommandHandler;
+    sshToManagedMachine: DashboardCommandHandler;
+    copyManagedSshCommand: DashboardCommandHandler;
+    importLegacyProjects: DashboardCommandHandler;
 }
 
 export interface DashboardCommandRegistrationOptions<TDisposable extends DisposableLike = DisposableLike> {
@@ -46,13 +43,7 @@ type DashboardCommandName = keyof DashboardCommandHandlers;
 
 const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]> = [
     ['agentPivot.open', 'open'],
-    ['agentPivot.addProject', 'addProject'],
     ['agentPivot.saveProject', 'saveProject'],
-    ['agentPivot.removeProject', 'removeProject'],
-    ['agentPivot.editProjects', 'editProjects'],
-    ['agentPivot.addGroup', 'addGroup'],
-    ['agentPivot.removeGroup', 'removeGroup'],
-    ['agentPivot.addProjectsFromFolder', 'addProjectsFromFolder'],
     ['agentPivot.addFileToActiveTerminal', 'addFileToActiveTerminal'],
     ['agentPivot.insertPromptToActiveTerminal', 'insertPromptToActiveTerminal'],
     ['agentPivot.migrateSkillsToCentral', 'migrateSkillsToCentral'],
@@ -69,6 +60,9 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.switchWorktreeOrSession', 'switchWorktreeOrSession'],
     ['agentPivot.toggleLastAiSession', 'toggleLastAiSession'],
     ['agentPivot.switchToOpenWindow', 'switchToOpenWindow'],
+    ['agentPivot.sshToMachine', 'sshToManagedMachine'],
+    ['agentPivot.copySshCommand', 'copyManagedSshCommand'],
+    ['agentPivot.importLegacyProjects', 'importLegacyProjects'],
 ];
 
 interface DashboardCommandGeneration {

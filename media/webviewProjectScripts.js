@@ -205,15 +205,6 @@ function initProjects() {
         });
     }
 
-    function onImportFromOtherStorageClicked(e) {
-        if (!e.target)
-            return;
-
-        window.vscode.postMessage({
-            type: 'import-from-other-storage',
-        });
-    }
-
     function onInsideOpenWindowRowClick(e, row) {
         // PRD 单击语义：非当前行 = 聚焦该 OS 窗口（走导航请求协议）；当前行 =
         // 空操作；双击/中键 = 无行为。★/⋯/重试按钮在各行内单独处理，不触发行点击。
@@ -577,11 +568,6 @@ function initProjects() {
 
         if (e.target.closest('[data-action="add-project"]')) {
             onAddProjectClicked(e);
-            return;
-        }
-
-        if (e.target.closest('[data-action="import-from-other-storage"]')) {
-            onImportFromOtherStorageClicked(e);
             return;
         }
 

@@ -63,21 +63,14 @@ function detailsFor(navigationUri) {
     };
 }
 
-function startup(migrateDataIfNeeded, afterProjectMigrationSucceeded) {
+function startup(completePendingWorkspaceSave) {
     return new DashboardStartupController({
         stewardInfos: {
             relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
             config: { openOnStartup: 'never' },
         },
         isExtensionInstalled: () => false,
-        migrateDataIfNeeded,
-        afterProjectMigrationSucceeded,
-        refreshDashboard: () => undefined,
-        publishOpenWorkspace: () => undefined,
-        showInformationMessage: () => undefined,
-        showErrorMessage: () => undefined,
-        logError: () => undefined,
-        showAgentPivot: () => undefined,
+        completePendingWorkspaceSave,
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
@@ -148,7 +141,7 @@ test('PERSIST-WORKSPACE-SAVE-001 serializes duplicate save requests into one mut
     assert.equal(mutations, 1);
 });
 
-test('PERSIST-WORKSPACE-SAVE-001 settles migration before saving and preserves fixture bytes', async () => {
+test('PERSIST-WORKSPACE-SAVE-001 completes a pending save at startup and preserves fixture bytes', async () => {
     const fixturePath = path.resolve(
         __dirname,
         '../../../scripts/fixtures/workspace-first-saved-projects.json'
@@ -165,8 +158,6 @@ test('PERSIST-WORKSPACE-SAVE-001 settles migration before saving and preserves f
         NOW + PENDING_WORKSPACE_SAVE_TTL_MS
     );
 
-    let releaseMigration;
-    const migrationGate = new Promise(resolve => { releaseMigration = resolve; });
     let saves = 0;
     const adapter = new SavedWorkspaceProjectAdapter({
         getCurrentWorkspace: () => current,
@@ -188,20 +179,7 @@ test('PERSIST-WORKSPACE-SAVE-001 settles migration before saving and preserves f
         executeSaveWorkspaceAs: async () => undefined,
         nowMs: () => NOW + 1,
     });
-    const activation = startup(
-        async () => {
-            await migrationGate;
-            return {
-                projects: { migrated: true },
-            };
-        },
-        () => adapter.completePendingWorkspaceSave()
-    ).startUp();
-
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(saves, 0);
-    releaseMigration();
-    await activation;
+    await startup(() => adapter.completePendingWorkspaceSave()).startUp();
 
     const preservedPrefix = storedGroups.map((group, index) => ({
         ...group,
@@ -216,7 +194,7 @@ test('PERSIST-WORKSPACE-SAVE-001 settles migration before saving and preserves f
     assert.equal(pendingStore.read(), null);
 });
 
-test('PERSIST-WORKSPACE-SAVE-001 retains pending intent after failed migration for activation retry', async () => {
+test('PERSIST-WORKSPACE-SAVE-001 retains pending intent after failed startup completion', async () => {
     const state = memoryMemento();
     const pendingStore = new PendingWorkspaceSaveStore(state);
     const current = workspace('savedMultiRoot');
@@ -234,12 +212,10 @@ test('PERSIST-WORKSPACE-SAVE-001 retains pending intent after failed migration f
         executeSaveWorkspaceAs: async () => undefined,
         nowMs: () => NOW + 1,
     });
-    await startup(
-        async () => ({
-            projects: { migrated: false, error: new Error('forced migration failure') },
-        }),
-        () => adapter.completePendingWorkspaceSave()
-    ).startUp();
+    await assert.rejects(
+        startup(async () => { throw new Error('forced completion failure'); }).startUp(),
+        /forced completion failure/u,
+    );
 
     assert.equal(saves, 0);
     assert.ok(pendingStore.read());

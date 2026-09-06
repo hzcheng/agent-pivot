@@ -1190,7 +1190,6 @@
                 "396d66c5b6c32aa7e4c4ff4c8d13f609995fe732"
             ],
             "behaviors": [
-                "PROJECT-CATALOG-SYNC-CONFLICT-001",
                 "PROJECT-INCREMENTAL-REFRESH-001",
                 "OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001",
                 "WEBVIEW-PROJECTS-PANEL-SCROLL-001"

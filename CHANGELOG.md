@@ -4,6 +4,32 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+### Fixed
+
+- Validate Managed Remote SSH aliases against the complete configuration used
+  by Remote - SSH, avoiding false standalone-config failures while preserving
+  endpoint and unsafe-route checks.
+- Open Dev Container Projects whose readable Managed Machine alias contains
+  Unicode characters.
+- Keep saved Projects reachable after a Managed Machine is renamed, and allow
+  two Machines with the same display name to coexist, by anchoring the SSH
+  alias to the Machine identity instead of deriving it from the name alone.
+  Previously projected aliases are still recognised.
+- Open Managed Machines and Projects when Remote - SSH can already resolve the
+  projected alias, even if the OpenSSH audit of the surrounding user SSH
+  configuration fails. The audit still gates writing the configuration.
+- Report the OpenSSH exit code and diagnostic, and the specific effective
+  value that was rejected, when Managed SSH validation fails.
+- Keep generated SSH aliases within the ASCII host names OpenSSH accepts, so a
+  Machine named in a non-Latin script resolves instead of failing with
+  "hostname contains invalid characters". Such a name now takes its readable
+  segment from the connection host.
+- Recognise an opened Project as already saved when its Machine shares a
+  display name or connection host with another Machine. Alias recognition is
+  now bound to the Machine identity, so a shared name no longer makes the open
+  window ambiguous and no longer shows Save for a Project that is already
+  stored.
+
 ## [1.4.0] - 2026-08-30
 
 ### Fixed

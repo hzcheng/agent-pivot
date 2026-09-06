@@ -25,7 +25,7 @@ export class ProjectsPanelController {
     constructor(private readonly options: ProjectsPanelControllerOptions) {
     }
 
-    postUpdated(mode: ProjectsPanelUpdateMode = 'replace'): void {
+    async postUpdated(mode: ProjectsPanelUpdateMode = 'replace'): Promise<void> {
         if (!this.options.isVisible()) {
             return;
         }
@@ -47,19 +47,20 @@ export class ProjectsPanelController {
                 .map(project => project.id),
         });
         const deliveryGeneration = this.deliveryGeneration;
-        this.options.postMessage(message).then(delivered => {
+        try {
+            const delivered = await this.options.postMessage(message);
             if (!delivered
                 && this.isCurrentDelivery(message.sequence, deliveryGeneration)
                 && this.options.isVisible()) {
                 this.options.refresh('projects-panel-update-not-delivered');
             }
-        }, error => {
+        } catch (error) {
             this.options.logError('Failed to post Projects panel update message.', error);
             if (this.isCurrentDelivery(message.sequence, deliveryGeneration)
                 && this.options.isVisible()) {
                 this.options.refresh('projects-panel-update-post-error');
             }
-        });
+        }
     }
 
     invalidatePendingUpdates(): void {

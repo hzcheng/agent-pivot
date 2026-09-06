@@ -306,9 +306,7 @@ async function main() {
     let pendingStartupSequenceEntered = false;
     let startupSequenceSettled = false;
     let releasePendingStartupSequence;
-    let projectMutationInvocations = 0;
-    let projectMutationBlockedDuringMigration = false;
-    let readOnlyHydrationPassedDuringMigration = false;
+    let readOnlyHydrationPassedDuringStartup = false;
     let directRestoreRefreshAfterSettlement = false;
     const synchronizedGlobalStateKeySets = [];
     const runtimeStoreRoots = [];
@@ -446,7 +444,6 @@ async function main() {
         const { ConversationSessionRebindCoordinator } = require('../../../out/aiSessions/conversation/sessionRebindCoordinator');
         const { DashboardCommandRegistration } = require('../../../out/dashboard/commandRegistration');
         const { DashboardStartupController } = require('../../../out/dashboard/startupController');
-        const { ProjectMutationController } = require('../../../out/projects/projectMutationController');
 
         const originalDashboardRegister = DashboardCommandRegistration.prototype.register;
         patch(DashboardCommandRegistration.prototype, 'register', function (...args) {
@@ -463,9 +460,6 @@ async function main() {
             }
             await originalDashboardStartUp.apply(this, args);
             startupSequenceSettled = true;
-        });
-        patch(ProjectMutationController.prototype, 'addProject', async function () {
-            projectMutationInvocations += 1;
         });
         patch(AiSessionAliasController.prototype, 'copyForRebind', function (...args) {
             aliasRebinds.push(args);
@@ -691,10 +685,6 @@ async function main() {
             readyBeforeStartupSequenceSettled =
                 vscode.registeredProvider?.lifecycle?.kind === 'ready'
                 && !startupSequenceSettled;
-            const mutationFlight = vscode.bootWebviewMessageCallback?.({
-                type: 'add-project',
-                groupId: null,
-            });
             const hydrationFlight = vscode.bootWebviewMessageCallback?.({
                 type: 'request-projects-panel',
                 version: 1,
@@ -703,15 +693,13 @@ async function main() {
             for (let attempt = 0; attempt < 10; attempt += 1) {
                 await new Promise(resolve => setImmediate(resolve));
             }
-            projectMutationBlockedDuringMigration = projectMutationInvocations === 0
-                && !startupSequenceSettled;
-            readOnlyHydrationPassedDuringMigration = lifecycle.postedWebviewMessages.some(
+            readOnlyHydrationPassedDuringStartup = lifecycle.postedWebviewMessages.some(
                 message => message?.type === 'projects-panel-content'
                     && message.requestId === 991
             );
             releasePendingStartupSequence?.();
             await waitFor(() => startupSequenceSettled, 'startup sequence to settle');
-            await Promise.all([mutationFlight, hydrationFlight]);
+            await hydrationFlight;
         }
         if (mode === 'slow-tmux-restore' || mode === 'slow-tmux-restore-dispose') {
             await waitFor(
@@ -987,9 +975,7 @@ async function main() {
             readyBeforeRuntimeRestoresSettled,
             pendingStartupSequenceEntered,
             readyBeforeStartupSequenceSettled,
-            projectMutationBlockedDuringMigration,
-            projectMutationInvocations,
-            readOnlyHydrationPassedDuringMigration,
+            readOnlyHydrationPassedDuringStartup,
             pendingOpenRevealedBootShell,
             pendingUnavailableCommandError,
             inFlightListenerDisposedBeforeGateRelease,

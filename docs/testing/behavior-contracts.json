@@ -3368,20 +3368,6 @@
     ]
   },
   {
-    "id": "PERSIST-DASHBOARD-MIGRATION-PUBLICATION-001",
-    "domain": "persistence",
-    "title": "Dashboard Migration Publication behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/openProjects/dashboardController.test.js",
-      "tests/contract/persistence/migrations.test.js"
-    ],
-    "evidence": [
-      "scripts/run-open-project-safety-checks.js"
-    ]
-  },
-  {
     "id": "PERSIST-INCREMENTAL-JSONL-LIFECYCLE-READER-001",
     "domain": "persistence",
     "title": "Incremental Jsonl Lifecycle Reader behavior",
@@ -3485,7 +3471,7 @@
   {
     "id": "PERSIST-WORKSPACE-SAVE-001",
     "domain": "persistence",
-    "title": "Workspace saves serialize after migration without mutating existing records",
+    "title": "Pending workspace saves complete during startup without mutating existing records",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -3508,19 +3494,6 @@
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
-    ]
-  },
-  {
-    "id": "PROJECT-ADD-PROJECTS-FROM-FOLDER-CONTROLLER-001",
-    "domain": "project",
-    "title": "Add Projects From Folder Controller behavior",
-    "priority": "P1",
-    "status": "automated",
-    "owners": [
-      "tests/contract/projects/controllers.test.js"
-    ],
-    "evidence": [
-      "scripts/run-dashboard-webview-checks.js"
     ]
   },
   {
@@ -3547,26 +3520,6 @@
     ],
     "evidence": [
       "scripts/run-ai-session-safety-checks.js"
-    ]
-  },
-  {
-    "id": "PROJECT-CATALOG-SYNC-CONFLICT-001",
-    "domain": "persistence",
-    "title": "Project Catalog Sync Conflict Recovery behavior",
-    "priority": "P0",
-    "status": "automated",
-    "owners": [
-      "tests/contract/persistence/projectCatalogSync.test.js",
-      "tests/contract/projects/controllers.test.js",
-      "tests/integration/dashboard/errorRecovery.test.js"
-    ],
-    "evidence": [
-      "src/services/projectService.ts",
-      "src/projects/projectCatalogSync.ts",
-      "src/services/projectCatalogSyncService.ts",
-      "src/projects/projectManualEditController.ts",
-      "src/dashboard/lifecycleController.ts",
-      "src/dashboard.ts"
     ]
   },
   {
@@ -3714,15 +3667,12 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/persistence/projectCatalogSync.test.js",
       "tests/contract/projects/panelController.test.js",
       "tests/contract/openProjects/dashboardController.test.js",
-      "tests/integration/dashboard/errorRecovery.test.js",
       "tests/integration/dashboard/webviewState.test.js",
       "tests/contract/projects/projectMessageHandlers.test.js"
     ],
     "evidence": [
-      "src/services/projectCatalogSyncService.ts",
       "src/dashboard/lifecycleController.ts",
       "src/dashboard/projectsPanelController.ts",
       "src/openWorkspaces/dashboardController.ts",
@@ -5680,10 +5630,13 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/webviewState.test.js"
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/browser/machineProjects.test.js"
     ],
     "evidence": [
-      "src/webview/webviewProjectScripts.js"
+      "src/webview/webviewProjectScripts.js",
+      "src/webview/webviewProjectCollapseScripts.js",
+      "src/webview/webviewMachineProjectsScripts.js"
     ]
   },
   {
@@ -6860,6 +6813,501 @@
     "evidence": [
       "src/aiSessions/conversation/viewer.ts",
       "media/conversationViewer.scss"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-HOST-NAVIGATION-001",
+    "domain": "project",
+    "title": "A client-local Machine Host is derived from its local Project URI while This Computer opens a blank local VS Code window through the same Machine action",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/machineProjectsViewModel.test.js",
+      "tests/contract/projects/projectMessageHandlers.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/machineProjectsViewModel.ts",
+      "src/projects/projectMessageHandlers.ts",
+      "src/projects/projectOpenController.ts"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-PROJECTION-001",
+    "domain": "project",
+    "title": "The always-on Projects view derives client-local Machine, Host, and Dev Container rows beside the authoritative Managed Remote catalog",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/machineProjectsViewModel.test.js"
+    ],
+    "evidence": [
+      "src/projects/machineProjectsViewModel.ts",
+      "src/webview/webviewMachineProjectsContent.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-LOCAL-STORE-001",
+    "domain": "project",
+    "title": "Local filesystem, local WSL, and local-container Projects remain in computer-local extension storage while Managed Remote Projects use only the synchronized managed catalog",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/persistence/projectLocalStorage.test.js"
+    ],
+    "evidence": [
+      "src/constants.ts",
+      "src/services/projectService.ts",
+      "src/projects/machineProjectsViewModel.ts"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-RENAME-001",
+    "domain": "project",
+    "title": "Client-local derived Machine names can be renamed/reset locally, while managed names edit the catalog without changing stable identity or Project placement",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/machineProjectsViewModel.test.js",
+      "tests/contract/projects/controllers.test.js",
+      "tests/contract/projects/projectMessageHandlers.test.js",
+      "tests/browser/machineProjects.test.js",
+      "tests/unit/webview/machineProjectsRendering.test.js"
+    ],
+    "evidence": [
+      "src/models.ts",
+      "src/projects/machineProjectsViewModel.ts",
+      "src/projects/machineRenameController.ts",
+      "src/webview/webviewMachineProjectsContent.ts",
+      "src/webview/webviewMachineProjectsScripts.js"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-FILTER-001",
+    "domain": "webview",
+    "title": "Project tags use AND matching and Favorites mirrors never inflate unique Project or Machine result counts",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsScripts.js",
+      "src/webview/webviewMachineProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-ACTIONS-001",
+    "domain": "webview",
+    "title": "Every Project row exposes an actions menu that closes on outside interaction or view deactivation and supports current-window opening, Project editing, color editing, and removal",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsScripts.js",
+      "src/webview/webviewMachineProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-TOOLBAR-001",
+    "domain": "webview",
+    "title": "The Project result summary, Tags control, and Add Machine button share one compact toolbar",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsContent.ts",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-KEYBOARD-001",
+    "domain": "webview",
+    "title": "Machine disclosure, Machine opening, Project opening, Favorite, and Project menu actions are independently keyboard reachable",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsScripts.js",
+      "src/webview/webviewMachineProjectsContent.ts",
+      "media/styles.scss"
+    ]
+  },
+  {
+    "id": "MACHINE-PROJECTS-ROW-OPEN-001",
+    "domain": "webview",
+    "title": "Client-local Projects open through selected-project, Managed Projects open through revision-bound managed identity, and Favorite remains isolated",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewMachineProjectsScripts.js",
+      "src/webview/webviewMachineProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-CATALOG-001",
+    "domain": "project",
+    "title": "Managed Machines own validated SSH endpoints, one fixed Host, and Projects whose Environment placement cannot be edited",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteCatalog.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/catalogService.ts",
+      "src/projects/managedRemote/validation.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-CATALOG-002",
+    "domain": "persistence",
+    "title": "Managed catalog joins are deterministic and preserve concurrent update and delete candidates for review",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteCatalog.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/causal.ts",
+      "src/projects/managedRemote/merge.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-CATALOG-003",
+    "domain": "persistence",
+    "title": "Every live relationship and Environment-kind candidate participates in destructive-operation guards",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteCatalog.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/catalogService.ts",
+      "src/projects/managedRemote/merge.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-CATALOG-004",
+    "domain": "persistence",
+    "title": "Causal metadata remains merge-closed when a catalog gains a writer after ten thousand historical actors",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteCatalog.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/causal.ts",
+      "src/projects/managedRemote/validation.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-ENVELOPE-001",
+    "domain": "persistence",
+    "title": "Managed authority envelopes join deterministically and expose intact recovery revisions when another slot is corrupt",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteEnvelope.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/envelope.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-ENVELOPE-002",
+    "domain": "persistence",
+    "title": "Writer-local staging survives partial publication and repairs either missing synchronized or replica state",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteEnvelope.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/store.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-MANAGEMENT-001",
+    "domain": "project",
+    "title": "Managed Machine and Project mutations use strict identity-only requests and settle only after authoritative refresh",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteManagementProtocol.test.js",
+      "tests/contract/projects/managedRemoteManagementController.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/managementProtocol.ts",
+      "src/projects/managedRemote/managementController.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-MANAGEMENT-002",
+    "domain": "persistence",
+    "title": "Managed Machine and Project mutations activate one revision-checked authority without losing concurrent writer changes",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteManagementStore.test.js",
+      "tests/contract/projects/managedRemoteProductionStore.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/managementStore.ts",
+      "src/projects/managedRemote/productionStore.ts",
+      "src/projects/managedRemote/store.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-MANAGEMENT-003",
+    "domain": "webview",
+    "title": "Managed Remote renders compact Machine rows with endpoint tooltips, contextual Project creation, immutable placement, complete unavailable names, colors, tags, and management actions",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/managedRemoteViewModel.test.js",
+      "tests/unit/webview/managedRemoteProjectsRendering.test.js",
+      "tests/unit/webview/machineProjectsRendering.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/viewModel.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-MANAGEMENT-004",
+    "domain": "project",
+    "title": "Managed Machine and Project wizards support Back, cancellation, non-default SSH ports, synchronized impact review, and immutable Project placement",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/managedRemotePrompts.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/vscodePrompts.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-COMMAND-001",
+    "domain": "project",
+    "title": "SSH actions use endpoint-qualified Machines, direct local clipboard commands, and identity-only UI-host terminals without projection blocking",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js",
+      "tests/contract/projects/managedRemoteActionController.test.js",
+      "tests/unit/projects/managedRemoteTargetResolver.test.js",
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeClient.ts",
+      "src/projects/managedRemote/actionController.ts",
+      "src/projects/managedRemote/targetResolver.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/dashboard/commandRegistration.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-CLIENT-ENABLE-001",
+    "domain": "project",
+    "title": "An active catalog materializes SSH aliases in a latest-wins background worker without exposing client setup state in the Project UI",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/managedSshProjectionWorker.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/actionController.ts",
+      "extensions/attention-ui-bridge/src/managedSshProjectionWorker.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-NAVIGATION-001",
+    "domain": "project",
+    "title": "Managed Project rows reuse a proven current-Machine authority and use the local UI host only for cross-Machine navigation",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteActionController.test.js",
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/unit/projects/workspaceAndOpenMatching.test.js",
+      "tests/unit/projects/managedRemotePlatform.test.js",
+      "tests/browser/machineProjects.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/actionController.ts",
+      "src/projects/managedRemote/targetResolver.ts",
+      "src/projects/openProjectMatcher.ts",
+      "src/dashboard.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "extensions/attention-ui-bridge/src/managedRemotePlatform.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-LOCAL-PROJECTION-001",
+    "domain": "project",
+    "title": "Client-local Projects remain visible and use local actions beside the synchronized managed catalog without entering synchronized storage",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/webview/managedRemoteProjectsRendering.test.js",
+      "tests/unit/services/projectService.test.js"
+    ],
+    "evidence": [
+      "src/services/projectService.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-DEV-CONTAINER-001",
+    "domain": "open-project",
+    "title": "Saving a Dev Container through one exact managed SSH alias creates its Environment and Project atomically while unknown or attached formats fail closed",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/unit/projects/workspaceAndOpenMatching.test.js",
+      "tests/contract/projects/managedRemoteManagementStore.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/devContainerCodec.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-PERFORMANCE-001",
+    "domain": "persistence",
+    "title": "A two-candidate 50-Machine 500-Project catalog merges within budget and its active/previous recovery envelope stays below the product ceiling",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemotePerformance.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/merge.ts",
+      "src/projects/managedRemote/payload.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-PROJECTION-001",
+    "domain": "project",
+    "title": "Managed SSH aliases and generated records are stable, credential-free, and unchanged by Project-only metadata edits",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshProjection.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/sshConfigProjection.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-POLICY-001",
+    "domain": "persistence",
+    "title": "SSH config scanning is bounded and fails closed on dynamic Includes, cycles, Match exec, unsafe files, and modified ownership markers",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshPolicy.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshConfigPolicy.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-ACTIVE-CONFIG-001",
+    "domain": "persistence",
+    "title": "Automatic active-config edits preserve exact unrelated bytes, retain a backup, and recover interrupted exchanges without overwriting a concurrent save",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshActiveConfigEditor.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshActiveConfigEditor.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-FILES-001",
+    "domain": "persistence",
+    "title": "Per-config locked owned-file transactions stage revisions before activation and never overwrite or recursively delete user files",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshOwnedFiles.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshOwnedFiles.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-CONSENT-001",
+    "domain": "persistence",
+    "title": "The local UI host automatically maintains the owned SSH Include and rebuilds malformed current.conf bytes from synchronized catalog authority",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshConsent.test.js",
+      "tests/platform/windows/managedRemoteSshMaterializer.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+      "extensions/attention-ui-bridge/src/managedSshConsentStore.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-DISCOVERY-001",
+    "domain": "project",
+    "title": "The UI Bridge resolves the exact local OpenSSH executable and canonical active config from Remote SSH settings",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshDiscovery.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshDiscovery.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-SSH-VALIDATION-001",
+    "domain": "open-project",
+    "title": "The exact local OpenSSH executable validates the effective candidate configuration without a shell and rejects endpoint or route drift",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteSshValidator.test.js",
+      "tests/platform/linux/managedRemoteSshValidator.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedSshValidator.ts"
+    ]
+  },
+  {
+    "id": "MANAGED-REMOTE-BRIDGE-001",
+    "domain": "open-project",
+    "title": "Managed Remote UI Bridge requests are capability-gated, session-correlated, identity-only, and re-read the current catalog revision",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteBridgeProtocol.test.js",
+      "tests/contract/projects/managedRemoteBridgeController.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeProtocol.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
     ]
   },
   {

@@ -99,6 +99,28 @@ test('LOCAL-INSTALL-CLI-TARGET-001 installs without verifying when the host dire
         'skipping verification must be stated, not implied by silence');
 });
 
+test('LOCAL-INSTALL-CLI-TARGET-001 keeps the UI-only Bridge out of a remote Server host', () => {
+    const logger = collectLogger();
+    const calls = [];
+
+    const status = main({
+        repositoryRoot,
+        logger,
+        spawnSync: (command, args) => { calls.push({ command, args }); return { status: 0 }; },
+        target: {
+            command: '/srv/bin/code-server',
+            source: 'active-server',
+            extensionsDir: null,
+        },
+    });
+
+    assert.equal(status, 0);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].args.join('\n'), /agent-pivot-1\.4\.0\.vsix/u);
+    assert.doesNotMatch(calls[0].args.join('\n'), /attention-ui-bridge/u);
+    assert.match(logger.out.join('\n'), /UI Bridge.*packaged.*local UI host/iu);
+});
+
 // Verification runs against a synthetic repository: the real runtime files are
 // untracked build outputs, and CI never builds the bridge dist, so copying the
 // working-tree bytes made this test pass only on machines with a local build.
@@ -106,15 +128,24 @@ function makeSyntheticRepository(t) {
     const syntheticRoot = makeTempDirectory(t, 'local-install-repo-');
     const extensions = [
         {
-            manifest: { publisher: 'hzcheng', name: 'agent-pivot-attention-ui-bridge', version: '1.0.0' },
+            manifest: {
+                publisher: 'hzcheng', name: 'agent-pivot-attention-ui-bridge',
+                version: '1.0.0', extensionKind: ['ui'],
+            },
             packageRoot: path.join(syntheticRoot, 'extensions', 'attention-ui-bridge'),
             runtimeFiles: { 'dist/extension.js': 'bridge-bytes' },
         },
         {
-            manifest: { publisher: 'hzcheng', name: 'agent-pivot', version: '1.0.0' },
+            manifest: {
+                publisher: 'hzcheng', name: 'agent-pivot',
+                version: '1.0.0', extensionKind: ['workspace'],
+            },
             packageRoot: syntheticRoot,
             runtimeFiles: {
                 'dist/dashboard.js': 'main-bytes',
+                'media/webviewDashboardBundle.js': 'dashboard-webview-bytes',
+                'media/webviewMachineProjectsScripts.js': 'machine-projects-bytes',
+                'media/styles.css': 'style-bytes',
                 'media/conversationViewerScripts.js': 'viewer-bytes',
                 'media/conversationMermaidScripts.js': 'mermaid-bytes',
             },
@@ -173,9 +204,9 @@ test('LOCAL-INSTALL-CLI-TARGET-001 verifies installed bytes against the built ex
 
     assert.equal(status, 0);
     const output = logger.out.join('\n');
-    assert.match(output, /Installed 2 extensions and verified their bytes/);
-    assert.ok(output.includes('hzcheng.agent-pivot-attention-ui-bridge dist/extension.js'),
-        'bridge runtime file reported');
+    assert.match(output, /Installed 1 extensions and verified their bytes/);
+    assert.doesNotMatch(output, /hzcheng\.agent-pivot-attention-ui-bridge dist\/extension\.js/u,
+        'the UI-only Bridge is not installed in the remote host');
     assert.ok(output.includes('hzcheng.agent-pivot dist/dashboard.js'),
         'main runtime file reported');
 });

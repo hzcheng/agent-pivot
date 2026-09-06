@@ -6,11 +6,15 @@ const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
+const {
+    MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+} = require('../../../out/projects/managedRemote/bridgeProtocol');
 
 test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CARD-ACKNOWLEDGEMENT-001 OPEN-WORKSPACE-UI-HOST-NAVIGATION-001 OPEN-WORKSPACE-BRIDGE-COMPATIBILITY-001 OPEN-PROJECT-UI-HOST-NAVIGATION-001 activates the production bridge and opens workspaces and saved projects from the UI host', async t => {
     const root = makeTempDirectory(t, 'production-attention-bridge-');
     const registered = new Map();
     const executed = [];
+    let managedConfigPath = path.join(root, 'ssh-one', 'config');
     const vscode = {
         Uri: {
             parse: value => ({ value }),
@@ -19,15 +23,23 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
         window: {
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
         },
-        workspace: { workspaceFolders: [{
-            name: 'sensitive',
-            uri: {
-                scheme: 'vscode-remote',
-                authority: 'ssh-remote+sensitive-host',
-                path: '/home/sensitive-user/private-project',
-                toString: () => 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
-            },
-        }] },
+        workspace: {
+            // Managed operations must reread the active Remote - SSH config.
+            getConfiguration: section => ({
+                get: key => (section === 'remote.SSH' && key === 'configFile'
+                    ? managedConfigPath
+                    : undefined),
+            }),
+            workspaceFolders: [{
+                name: 'sensitive',
+                uri: {
+                    scheme: 'vscode-remote',
+                    authority: 'ssh-remote+sensitive-host',
+                    path: '/home/sensitive-user/private-project',
+                    toString: () => 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
+                },
+            }],
+        },
         commands: {
             registerCommand: (command, callback) => {
                 registered.set(command, callback);
@@ -70,8 +82,40 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
             '_agentPivotAttention.bridge.acknowledge',
             '_agentPivotOpenWorkspaces.bridge.navigate',
             '_agentPivotProjects.bridge.navigate',
+            '_agentPivotManagedRemote.bridge.handshake',
+            '_agentPivotManagedRemote.bridge.execute',
         ];
         for (const command of requiredCommands) assert.equal(typeof registered.get(command), 'function');
+
+        const managedHandshake = await registered.get('_agentPivotManagedRemote.bridge.handshake')({
+            protocolVersion: 1,
+            requestId: 'managed-request-1',
+            challenge: 'managed-challenge-1',
+        });
+        assert.equal(managedHandshake.challenge, 'managed-challenge-1');
+        assert.match(managedHandshake.sessionToken, /^[a-f0-9]{64}$/);
+        // Assert against the shared constant: a hand-copied list silently goes
+        // stale when a capability is added, which disables this whole test.
+        assert.deepEqual(
+            managedHandshake.capabilities,
+            [...MANAGED_REMOTE_BRIDGE_CAPABILITIES],
+        );
+        const managedExecute = registered.get('_agentPivotManagedRemote.bridge.execute');
+        const firstStatus = await managedExecute({
+            protocolVersion: 1,
+            requestId: 'managed-status-one',
+            sessionToken: managedHandshake.sessionToken,
+            operation: 'getStatus',
+        });
+        managedConfigPath = path.join(root, 'ssh-two', 'config');
+        const secondStatus = await managedExecute({
+            protocolVersion: 1,
+            requestId: 'managed-status-two',
+            sessionToken: managedHandshake.sessionToken,
+            operation: 'getStatus',
+        });
+        assert.equal(firstStatus.value.configPath, path.join(root, 'ssh-one', 'config'));
+        assert.equal(secondStatus.value.configPath, path.join(root, 'ssh-two', 'config'));
 
         const openWorkspacePublish = registered.get('_agentPivotOpenWorkspaces.bridge.publish');
         await openWorkspacePublish({
@@ -283,15 +327,23 @@ test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes t
         window: {
             createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
         },
-        workspace: { workspaceFolders: [{
-            name: 'sensitive',
-            uri: {
-                scheme: 'vscode-remote',
-                authority: 'ssh-remote+sensitive-host',
-                path: '/home/sensitive-user/private-project',
-                toString: () => 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
-            },
-        }] },
+        workspace: {
+            // A broken Managed SSH setting must not block unrelated bridge activation.
+            getConfiguration: section => ({
+                get: key => section === 'remote.SSH' && key === 'path'
+                    ? path.join(root, 'missing-ssh')
+                    : undefined,
+            }),
+            workspaceFolders: [{
+                name: 'sensitive',
+                uri: {
+                    scheme: 'vscode-remote',
+                    authority: 'ssh-remote+sensitive-host',
+                    path: '/home/sensitive-user/private-project',
+                    toString: () => 'vscode-remote://ssh-remote%2Bsensitive-host/home/sensitive-user/private-project',
+                },
+            }],
+        },
         commands: {
             registerCommand: (command, callback) => {
                 registered.set(command, callback);

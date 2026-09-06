@@ -26,14 +26,13 @@ Module._load = function loadWithVscodeConfigurationFixture(request, parent, isMa
 const dashboardConfiguration = require('../out/configuration');
 Module._load = originalConfigurationLoad;
 const dashboardStartup = require('../out/dashboard/startup');
-const { DashboardStartupController, settleMigration } = require('../out/dashboard/startupController');
+const { DashboardStartupController } = require('../out/dashboard/startupController');
 const { DashboardLifecycleController } = require('../out/dashboard/lifecycleController');
 const { DashboardCommandRegistration } = require('../out/dashboard/commandRegistration');
 const activeTerminalFileReference = require('../out/dashboard/activeTerminalFileReference');
 const dashboardWebviewOptions = require('../out/dashboard/webviewOptions');
 const { GroupCollapseController } = require('../out/dashboard/groupCollapseController');
 const { DashboardRuntimeController } = require('../out/dashboard/runtimeController');
-const { AddProjectsFromFolderController } = require('../out/projects/addProjectsFromFolderController');
 const { FavoriteProjectController } = require('../out/projects/favoriteProjectController');
 const { GroupCommandController } = require('../out/projects/groupCommandController');
 const { queryGroupName } = require('../out/projects/groupPrompts');
@@ -1257,57 +1256,6 @@ async function runGroupCommandControllerChecks() {
     assert.strictEqual(actions.filter(action => action[0] === 'remove').length, 1);
 }
 
-async function runAddProjectsFromFolderControllerChecks() {
-    const actions = [];
-    const errors = [];
-    let selectedFolders = [{ fsPath: '/work/tools' }];
-    let foldersInSelectedPath = ['/work/tools/api', '/work/tools/web'];
-    const controller = new AddProjectsFromFolderController({
-        getCurrentWorkspacePath: () => '/work/current',
-        parsePathAsUri: value => ({ uri: value }),
-        showOpenDialog: async options => {
-            actions.push(['dialog', options.defaultUri, options.openLabel]);
-            return selectedFolders;
-        },
-        getFolders: async folderPath => {
-            actions.push(['get-folders', folderPath]);
-            if (foldersInSelectedPath instanceof Error) {
-                throw foldersInSelectedPath;
-            }
-            return foldersInSelectedPath;
-        },
-        addGroup: async groupName => {
-            actions.push(['add-group', groupName]);
-            return { id: 'group-tools' };
-        },
-        addProject: async (project, groupId) => actions.push(['add-project', project.name, project.path, project.color, project.isGitRepo, groupId]),
-        getRandomColor: () => '#abcdef',
-        isFolderGitRepo: folder => folder.endsWith('/api'),
-        showErrorMessage: message => errors.push(message),
-        refreshAfterMutation: () => actions.push(['refresh']),
-        userCanceledToken: 'CanceledByUser',
-    });
-
-    await controller.addProjectsFromFolder();
-    assert.deepStrictEqual(actions, [
-        ['dialog', { uri: '/work/current' }, 'Select Folder containing Projects'],
-        ['get-folders', '/work/tools'],
-        ['add-group', 'tools'],
-        ['add-project', 'api', '/work/tools/api', '#abcdef', true, 'group-tools'],
-        ['add-project', 'web', '/work/tools/web', '#abcdef', false, 'group-tools'],
-        ['refresh'],
-    ]);
-
-    selectedFolders = [];
-    await controller.addProjectsFromFolder();
-    assert.strictEqual(actions.filter(action => action[0] === 'refresh').length, 1);
-
-    selectedFolders = [{ fsPath: '/work/broken' }];
-    foldersInSelectedPath = new Error('boom');
-    await assert.rejects(() => controller.addProjectsFromFolder(), /boom/);
-    assert.deepStrictEqual(errors.slice(-1), ['An error occured while adding the projects.']);
-}
-
 async function runFavoriteProjectControllerChecks() {
     let groups = [{
         id: 'group-a',
@@ -1527,11 +1475,8 @@ async function runDashboardRuntimeControllerChecks() {
 
 async function runDashboardStartupControllerChecks() {
     const extensionChecks = [];
-    const publications = [];
-    const informationMessages = [];
     const colorApplications = [];
     const reopenUpdates = [];
-    let migrated = true;
     let showAgentPivotCalls = 0;
     let reopenReason = 0;
     let workspaceName = 'workspace';
@@ -1540,9 +1485,6 @@ async function runDashboardStartupControllerChecks() {
         relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
         config: { openOnStartup: 'never' },
     };
-    const migrationResult = projectsMigrated => ({
-        projects: { migrated: projectsMigrated },
-    });
     const controller = new DashboardStartupController({
         stewardInfos,
         relevantExtensions: {
@@ -1553,10 +1495,6 @@ async function runDashboardStartupControllerChecks() {
             extensionChecks.push(extensionId);
             return extensionId.endsWith('remote-ssh');
         },
-        migrateDataIfNeeded: async () => migrationResult(migrated),
-        refreshDashboard: () => undefined,
-        publishOpenWorkspace: () => publications.push('published'),
-        showInformationMessage: message => informationMessages.push(message),
         showAgentPivot: () => { showAgentPivotCalls += 1; },
         applyProjectColorToCurrentWindow: () => colorApplications.push('applied'),
         getReopenReason: () => reopenReason,
@@ -1565,21 +1503,6 @@ async function runDashboardStartupControllerChecks() {
         getWorkspaceName: () => workspaceName,
         getVisibleEditorLanguageIds: () => visibleEditorLanguageIds,
     });
-
-    await controller.checkDataMigration();
-    assert.deepStrictEqual(publications, ['published']);
-    assert.strictEqual(informationMessages.length, 1);
-    assert.strictEqual(showAgentPivotCalls, 0);
-
-    migrated = false;
-    await controller.checkDataMigration(true);
-    assert.deepStrictEqual(publications, ['published']);
-    assert.strictEqual(showAgentPivotCalls, 0);
-
-    migrated = true;
-    await controller.checkDataMigration(true);
-    assert.deepStrictEqual(publications, ['published', 'published']);
-    assert.strictEqual(showAgentPivotCalls, 1);
 
     reopenReason = 1;
     await controller.startUp();
@@ -1590,14 +1513,14 @@ async function runDashboardStartupControllerChecks() {
     assert.deepStrictEqual(stewardInfos.relevantExtensionsInstalls, { remoteSSH: true, remoteContainers: false });
     assert.deepStrictEqual(colorApplications, ['applied']);
     assert.deepStrictEqual(reopenUpdates, [0]);
-    assert.strictEqual(showAgentPivotCalls, 2);
+    assert.strictEqual(showAgentPivotCalls, 1);
 
     reopenReason = 0;
     workspaceName = '';
     visibleEditorLanguageIds = ['code-runner-output'];
     stewardInfos.config = { openOnStartup: 'empty workspace' };
     await controller.startUp();
-    assert.strictEqual(showAgentPivotCalls, 3);
+    assert.strictEqual(showAgentPivotCalls, 2);
 
     const startupOrdering = [];
     const orderedController = new DashboardStartupController({
@@ -1606,18 +1529,9 @@ async function runDashboardStartupControllerChecks() {
             config: { openOnStartup: 'never' },
         },
         isExtensionInstalled: () => false,
-        migrateDataIfNeeded: async () => {
-            startupOrdering.push('project-migration');
-            return migrationResult(true);
-        },
-        afterProjectMigrationSucceeded: async () => {
+        completePendingWorkspaceSave: async () => {
             startupOrdering.push('pending-workspace-save');
         },
-        refreshDashboard: () => startupOrdering.push('refresh'),
-        publishOpenWorkspace: () => startupOrdering.push('publish'),
-        showInformationMessage: () => undefined,
-        showErrorMessage: () => undefined,
-        logError: () => undefined,
         showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => startupOrdering.push('color'),
         getReopenReason: () => 0,
@@ -1628,98 +1542,14 @@ async function runDashboardStartupControllerChecks() {
     });
     await orderedController.startUp();
     assert.deepStrictEqual(startupOrdering, [
-        'project-migration', 'refresh', 'publish', 'pending-workspace-save', 'color',
-    ], 'pending workspace save completion must run once after successful project migration');
+        'pending-workspace-save', 'color',
+    ], 'pending workspace save completion must finish before color and startup navigation');
 
-    const failedProjectMigration = new Error('project migration failed');
-    const failedProjectOrdering = [];
-    const failedProjectController = new DashboardStartupController({
-        stewardInfos: {
-            relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
-            config: { openOnStartup: 'never' },
-        },
-        isExtensionInstalled: () => false,
-        migrateDataIfNeeded: async () => ({
-            projects: { migrated: false, error: failedProjectMigration },
-        }),
-        afterProjectMigrationSucceeded: async () => {
-            failedProjectOrdering.push('pending-workspace-save');
-        },
-        refreshDashboard: () => undefined,
-        publishOpenWorkspace: () => undefined,
-        showInformationMessage: () => undefined,
-        showErrorMessage: () => undefined,
-        logError: () => undefined,
-        showAgentPivot: () => undefined,
-        applyProjectColorToCurrentWindow: () => failedProjectOrdering.push('color'),
-        getReopenReason: () => 0,
-        updateReopenReason: () => undefined,
-        reopenNoneValue: 0,
-        getWorkspaceName: () => 'workspace',
-        getVisibleEditorLanguageIds: () => [],
-    });
-    await failedProjectController.startUp();
-    assert.deepStrictEqual(failedProjectOrdering, ['color'],
-        'project migration failure must retain pending intent while allowing the remaining startup behavior');
-
-    const migrationErrors = [];
-    const migrationLogs = [];
-    const retryPublications = [];
-    const retryRefreshes = [];
-    let rejectMigration;
-    let migrationAttempts = 0;
-    const rejectedMigration = new Promise((_resolve, reject) => { rejectMigration = reject; });
-    const failureController = new DashboardStartupController({
-        stewardInfos,
-        relevantExtensions: {
-            remoteSSH: 'ms-vscode-remote.remote-ssh',
-            remoteContainers: 'ms-vscode-remote.remote-containers',
-        },
-        isExtensionInstalled: () => false,
-        migrateDataIfNeeded: () => {
-            migrationAttempts += 1;
-            return migrationAttempts === 1
-                ? rejectedMigration
-                : Promise.resolve(migrationResult(true));
-        },
-        refreshDashboard: () => retryRefreshes.push('refreshed'),
-        publishOpenWorkspace: () => retryPublications.push('published'),
-        showInformationMessage: () => undefined,
-        showErrorMessage: message => migrationErrors.push(message),
-        logError: (message, error) => migrationLogs.push([message, error]),
-        showAgentPivot: () => undefined,
-        applyProjectColorToCurrentWindow: () => undefined,
-        getReopenReason: () => 0,
-        updateReopenReason: () => undefined,
-        reopenNoneValue: 0,
-        getWorkspaceName: () => 'workspace',
-        getVisibleEditorLanguageIds: () => [],
-    });
-    const failedCheck = failureController.checkDataMigration();
-    const startupMigrationFailure = new Error('project migration write failed');
-    rejectMigration(startupMigrationFailure);
-    await failedCheck;
-    assert.strictEqual(migrationErrors.length, 1,
-        'migration failure must be visible to the user');
-    assert.ok(migrationErrors[0].includes('project migration write failed'));
-    assert.deepStrictEqual(migrationLogs,
-        [['Failed to migrate Agent Pivot data.', startupMigrationFailure]],
-        'migration failure must be logged without escaping as an unhandled rejection');
-    assert.deepStrictEqual(retryPublications, []);
-    assert.deepStrictEqual(retryRefreshes, []);
-
-    await failureController.checkDataMigration();
-    assert.strictEqual(migrationAttempts, 2);
-    assert.deepStrictEqual(retryRefreshes, ['refreshed'],
-        'a successful migration retry must resend the full dashboard catalog');
-    assert.deepStrictEqual(retryPublications, ['published'],
-        'a successful retry must resume post-migration publication');
 }
 
 async function runDashboardLifecycleControllerChecks() {
     const events = [];
     const controller = new DashboardLifecycleController({
-        checkDataMigration: async openStewardAfterMigrate => events.push(['migrate', openStewardAfterMigrate]),
         applyProjectColorToCurrentWindow: () => events.push(['color']),
         refresh: reason => events.push(['refresh', reason]),
         publishOpenWorkspace: followsFocusEvent => events.push(['publish', followsFocusEvent]),
@@ -1732,7 +1562,6 @@ async function runDashboardLifecycleControllerChecks() {
 
     await controller.handleConfigurationChanged(makeConfigurationEvent(['agentPivot.storeProjectsInSettings']));
     assert.deepStrictEqual(events, [
-        ['migrate', false],
         ['color'],
         ['refresh', 'configuration-changed'],
         ['publish', undefined],
@@ -1795,13 +1624,7 @@ async function runDashboardCommandRegistrationChecks() {
     const calls = [];
     const handlerNames = [
         'open',
-        'addProject',
         'saveProject',
-        'removeProject',
-        'editProjects',
-        'addGroup',
-        'removeGroup',
-        'addProjectsFromFolder',
         'addFileToActiveTerminal',
         'insertPromptToActiveTerminal',
         'migrateSkillsToCentral',
@@ -1818,6 +1641,9 @@ async function runDashboardCommandRegistrationChecks() {
         'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
+        'sshToManagedMachine',
+        'copyManagedSshCommand',
+        'importLegacyProjects',
     ];
     const registration = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {
@@ -1833,13 +1659,7 @@ async function runDashboardCommandRegistrationChecks() {
 
     assert.deepStrictEqual(registered.map(([command]) => command), [
         'agentPivot.open',
-        'agentPivot.addProject',
         'agentPivot.saveProject',
-        'agentPivot.removeProject',
-        'agentPivot.editProjects',
-        'agentPivot.addGroup',
-        'agentPivot.removeGroup',
-        'agentPivot.addProjectsFromFolder',
         'agentPivot.addFileToActiveTerminal',
         'agentPivot.insertPromptToActiveTerminal',
         'agentPivot.migrateSkillsToCentral',
@@ -1856,6 +1676,9 @@ async function runDashboardCommandRegistrationChecks() {
         'agentPivot.switchWorktreeOrSession',
         'agentPivot.toggleLastAiSession',
         'agentPivot.switchToOpenWindow',
+        'agentPivot.sshToMachine',
+        'agentPivot.copySshCommand',
+        'agentPivot.importLegacyProjects',
     ]);
     assert.deepStrictEqual(subscriptions.map(disposable => disposable.command), registered.map(([command]) => command));
 
@@ -1874,13 +1697,7 @@ async function runDashboardCommandRegistrationChecks() {
     assert.deepStrictEqual(calls, [
         'boot-open',
         'open',
-        'addProject',
         'saveProject',
-        'removeProject',
-        'editProjects',
-        'addGroup',
-        'removeGroup',
-        'addProjectsFromFolder',
         'addFileToActiveTerminal',
         'insertPromptToActiveTerminal',
         'migrateSkillsToCentral',
@@ -1897,6 +1714,9 @@ async function runDashboardCommandRegistrationChecks() {
         'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
+        'sshToManagedMachine',
+        'copyManagedSshCommand',
+        'importLegacyProjects',
     ]);
 
     registration.dispose();
@@ -2331,7 +2151,10 @@ function runSourceContractChecks(source) {
     assert.strictEqual(extensionHostSource.includes('function handleStewardMessage('), false);
     assert.ok(extensionHostSource.includes('getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id)'));
     assert.ok(messageHandlersSource.includes("type: 'projects-panel-content'"));
-    assert.ok(messageHandlersSource.includes('getProjectsPanelContent(projectService.getGroups(), getStewardInfos())'));
+    assert.ok(messageHandlersSource.includes('options.renderProjectsPanel(groups, getStewardInfos())'),
+        'the lazy Projects request supports the Machine projection renderer');
+    assert.ok(messageHandlersSource.includes('getProjectsPanelContent(groups, getStewardInfos())'),
+        'the lazy Projects request preserves the legacy renderer fallback');
     assert.ok(extensionHostSource.includes('getStewardInfos: () => stewardInfos'),
         'the dashboard wires steward infos into the extracted panel handler');
     const panelStackSource = fs.readFileSync(path.join(root, 'src', 'dashboard', 'sections', 'panelStack.ts'), 'utf8');
@@ -2345,7 +2168,6 @@ function runSourceContractChecks(source) {
     assert.ok(projectGroupListRule.includes('max-height: calc(var(--steward-max-visible-projects-per-group, 5) * 65px)'));
     assert.ok(projectGroupListRule.includes('overflow-y: auto'));
     assert.ok(projectSource.includes("e.target.closest('[data-action=\"add-project\"]')"));
-    assert.ok(projectSource.includes("e.target.closest('[data-action=\"import-from-other-storage\"]')"));
     const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8')
         + fs.readFileSync(path.join(root, 'docs', 'development-history.md'), 'utf8');
     assert.strictEqual((source.match(/type: 'request-projects-panel'/g) || []).length, 1);
@@ -2440,7 +2262,6 @@ async function main() {
     await runGroupCollapseControllerChecks();
     await runGroupPromptChecks();
     await runGroupCommandControllerChecks();
-    await runAddProjectsFromFolderControllerChecks();
     await runFavoriteProjectControllerChecks();
     await runProjectOrderControllerChecks();
     await runProjectRemovalControllerChecks();

@@ -15,7 +15,6 @@ import GitRepositoryDetector from '../../projects/gitRepositoryDetector';
  */
 export interface ProjectServicesDeps {
     context: vscode.ExtensionContext;
-    logDashboardDiagnostic: (event: Record<string, unknown>) => void;
 }
 
 export interface ProjectServices {
@@ -27,20 +26,9 @@ export interface ProjectServices {
 }
 
 export function createProjectServices(deps: ProjectServicesDeps): ProjectServices {
-    const { context, logDashboardDiagnostic } = deps;
+    const { context } = deps;
     const colorService = new ColorService(context);
-    const projectService = new ProjectService(context, colorService, {
-        onDiagnostic: event => logDashboardDiagnostic(event),
-        onConflict: projectIds => {
-            logDashboardDiagnostic({
-                event: 'project-catalog-sync-conflict-recovered',
-                projectIds,
-            });
-            void vscode.window.showInformationMessage(
-                'Agent Pivot recovered projects from a sync conflict.'
-            );
-        },
-    });
+    const projectService = new ProjectService(context, colorService);
     const projectWindowColorService = new ProjectWindowColorService(context);
     const fileService = new FileService(context);
     const gitRepositoryDetector = new GitRepositoryDetector();

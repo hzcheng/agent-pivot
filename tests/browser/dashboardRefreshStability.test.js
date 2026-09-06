@@ -152,7 +152,7 @@ function catalogWithSavedProject(name) {
         version: 3, sessions: [], worktrees: [], openWorkspaces: [], todos: [],
         savedProjects: [{
             key: 'saved:' + name, identity: '/work/' + name, searchText: name,
-            projectId: name, name, description: '', action: 'open-saved', groupLabels: [],
+            projectId: name, name, description: '', action: 'open-saved-project', groupLabels: [],
         }],
     };
 }
@@ -164,7 +164,7 @@ function catalogWithSavedProjects(count) {
             const name = `project-${index + 1}`;
             return {
                 key: 'saved:' + name, identity: '/work/' + name, searchText: name,
-                projectId: name, name, description: '', action: 'open-saved', groupLabels: [],
+                projectId: name, name, description: '', action: 'open-saved-project', groupLabels: [],
             };
         }),
     };
@@ -259,8 +259,10 @@ async function openDashboardPage(t, options = {}) {
     await page.addScriptTag({ content: dashboardScript });
     await page.addScriptTag({ content: filterScript });
     await page.evaluate(() => {
+        var filtering;
         window.__dashboard = initDashboard({
             postMessage: message => window.__messages.push(message),
+            onActiveTabChanged: () => filtering && filtering.apply(),
             onProjectsMounted: panel => {
                 const mountGeneration = ++window.__projectsMountGeneration;
                 panel.removeAttribute('data-header-fit-generation');
@@ -274,7 +276,8 @@ async function openDashboardPage(t, options = {}) {
                 );
             },
         });
-        window.__filtering = initFiltering(false, window.__dashboard);
+        filtering = initFiltering(false, window.__dashboard);
+        window.__filtering = filtering;
         window.__tagFiltering = initTagFiltering();
     });
     return page;
@@ -298,6 +301,29 @@ test('WEBVIEW-DASHBOARD-SEARCH-001 refreshes search results from the lazy Projec
     assert.equal(await result.count(), 1);
     assert.equal(await result.textContent(), 'reddev-container');
     assert.equal(await page.locator('#dashboard-search-results').isVisible(), true);
+});
+
+test('WEBVIEW-DASHBOARD-SEARCH-001 opens Managed results through the revisioned identity protocol', async t => {
+    const page = await openDashboardPage(t);
+    await page.evaluate(nextCatalog => {
+        window.__dashboard.replaceSearchCatalog(nextCatalog);
+        window.__dashboard.setSearchQuery('managed');
+    }, {
+        ...catalog(),
+        savedProjects: [{
+            key: 'managed:project', identity: 'managed:project', searchText: 'managed api',
+            projectId: 'project:managed', name: 'Managed API', description: '/work/api',
+            action: 'open-managed-project', expectedRevisionId: 'revision:managed',
+            environmentLabel: 'Build · Host', groupLabels: [],
+        }],
+    });
+    await page.locator('.dashboard-search-result').click();
+
+    const message = await page.evaluate(() => window.__messages.at(-1));
+    assert.equal(message.type, 'managed-remote-client-action');
+    assert.equal(message.action, 'openProject');
+    assert.equal(message.targetId, 'project:managed');
+    assert.equal(message.expectedRevisionId, 'revision:managed');
 });
 
 test('WEBVIEW-DASHBOARD-SEARCH-001 starts each independent search at the first result', async t => {
@@ -328,6 +354,26 @@ test('WEBVIEW-DASHBOARD-SEARCH-001 keeps search usable when Webview sessionStora
     const result = page.locator('.dashboard-search-result');
     assert.equal(await result.count(), 1);
     assert.equal(await result.textContent(), 'reddev-container');
+    assert.equal(await page.locator('#dashboard-search-results').isVisible(), true);
+});
+
+test('WEBVIEW-DASHBOARD-SEARCH-001 reapplies a Projects text filter when switching tabs', async t => {
+    const page = await openDashboardPage(t);
+    await page.evaluate(nextCatalog => {
+        window.__dashboard.replaceSearchCatalog(nextCatalog);
+        window.__agentPivotMachineProjects = {
+            isMounted: () => true,
+            applyTextFilter: value => { window.__machineFilter = value; },
+        };
+        window.__dashboard.activateTab('projects');
+    }, catalogWithSavedProject('reddev-container'));
+    await page.locator('#filter').fill('reddev');
+    assert.equal(await page.evaluate(() => window.__machineFilter), 'reddev');
+    assert.equal(await page.evaluate(() => window.__dashboard.isSearchActive()), false);
+
+    await page.evaluate(() => window.__dashboard.activateTab('open'));
+
+    assert.equal(await page.locator('.dashboard-search-result').count(), 1);
     assert.equal(await page.locator('#dashboard-search-results').isVisible(), true);
 });
 

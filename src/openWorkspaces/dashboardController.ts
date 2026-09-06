@@ -61,6 +61,7 @@ export interface OpenWorkspaceDashboardControllerOptions<TTerminal = unknown> {
     getAiSessionProjectionRevision?: () => number;
     beginAiSessionProjection: () => AiSessionPresentationTransaction<TTerminal>;
     getGroups: () => Group[];
+    getManagedRemoteSnapshot?: () => BuildOpenWorkspacesUpdatedMessageInput['managedRemoteSnapshot'];
     getSkillRecords?: () => import('../skills/types').SkillRecord[];
     getRunningCardAnimation: () => string | undefined;
     getRunningIconAnimation: () => string | undefined;
@@ -280,6 +281,7 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
         const cards = this.getCards(projection);
         const message = this.options.buildOpenWorkspacesUpdatedMessage({
             groups: this.options.getGroups(),
+            managedRemoteSnapshot: this.options.getManagedRemoteSnapshot?.(),
             cards,
             semanticRevision,
             projectionRevision: projection.revision,

@@ -64,3 +64,7 @@ export function ensureLeadingSlash(value: string): string {
 export function encodeRemoteAuthority(remoteAuthority: string): string {
     return normalizeRemoteAuthority(remoteAuthority).split('@').map(part => encodeURIComponent(part)).join('@');
 }
+
+export function encodeRemotePath(remotePath: string): string {
+    return remotePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
+}

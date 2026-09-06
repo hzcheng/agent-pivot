@@ -8,7 +8,6 @@ const { getErrorContent } = require('../../../out/dashboard/errorContent');
 const { DashboardLifecycleController } = require('../../../out/dashboard/lifecycleController');
 const { DashboardRuntimeController } = require('../../../out/dashboard/runtimeController');
 const { DashboardStartupController } = require('../../../out/dashboard/startupController');
-const { DashboardBootstrapResources } = require('../../../out/dashboard/bootstrapResources');
 const { AgentPivotViewProvider } = require('../../../out/dashboard/viewProvider');
 const { TmuxRuntimeDiscovery } = require('../../../out/aiSessions/tmuxRuntimeDiscovery');
 const {
@@ -169,26 +168,20 @@ function makeConfigurationEvent(...sections) {
     };
 }
 
-function makeStartupController(migrateDataIfNeeded, events, overrides = {}) {
+function makeStartupController(events, overrides = {}) {
     return new DashboardStartupController({
         stewardInfos: {
             relevantExtensionsInstalls: { remoteSSH: false, remoteContainers: false },
             config: { openOnStartup: 'never' },
         },
         isExtensionInstalled: () => false,
-        migrateDataIfNeeded,
-        refreshDashboard: async () => events.push('refresh'),
-        publishOpenWorkspace: () => events.push('publish'),
-        showInformationMessage: () => events.push('information'),
-        showErrorMessage: message => events.push(['error', message]),
-        logError: (message, error) => events.push(['log', message, error]),
-        showAgentPivot: () => undefined,
         applyProjectColorToCurrentWindow: () => undefined,
         getReopenReason: () => 0,
         updateReopenReason: () => undefined,
         reopenNoneValue: 0,
         getWorkspaceName: () => 'fixture',
         getVisibleEditorLanguageIds: () => [],
+        showAgentPivot: () => undefined,
         ...overrides,
     });
 }
@@ -953,37 +946,9 @@ test('RUNTIME-TMUX-DISCOVERY-001 retains a safe stopped record when a runtime re
     })), [{ sessionId: 'disappearing', state: 'stopped' }]);
 });
 
-test('PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 allows a later configuration migration after one failure', async () => {
-    const events = [];
-    let attempts = 0;
-    const controller = new DashboardLifecycleController({
-        checkDataMigration: async openAfter => {
-            attempts += 1;
-            events.push(['migrate', openAfter]);
-            if (attempts === 1) throw new Error('migration unavailable');
-        },
-        applyProjectColorToCurrentWindow: () => events.push('color'),
-        refresh: reason => events.push(['refresh', reason]),
-        publishOpenWorkspace: () => events.push('publish'),
-        evaluateAiSessionAttention: () => undefined,
-    });
-    const change = makeConfigurationEvent('agentPivot.storeProjectsInSettings');
-
-    await assert.rejects(controller.handleConfigurationChanged(change), /migration unavailable/);
-    assert.deepEqual(events, [['migrate', false]]);
-    await controller.handleConfigurationChanged(change);
-    assert.deepEqual(events.slice(1), [
-        ['migrate', false],
-        'color',
-        ['refresh', 'configuration-changed'],
-        'publish',
-    ]);
-});
-
 test('PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 routes workspace, configuration, and focus changes once', async () => {
     const events = [];
     const controller = new DashboardLifecycleController({
-        checkDataMigration: async openAfter => events.push(['migrate', openAfter]),
         applyProjectColorToCurrentWindow: () => events.push('color'),
         refresh: reason => events.push(['refresh', reason]),
         publishOpenWorkspace: followsFocus => events.push(['publish', followsFocus]),
@@ -1012,14 +977,13 @@ test('PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 routes workspace, configuration
     ]);
 });
 
-test('PROJECT-CATALOG-SYNC-CONFLICT-001 reconciles synchronized project data before dashboard publication', async () => {
+test('MANAGED-REMOTE-MANAGEMENT-002 reconciles managed catalog data before incremental publication', async () => {
     const events = [];
     const controller = new DashboardLifecycleController({
-        checkDataMigration: async () => undefined,
-        reconcileProjectCatalog: async () => {
-            events.push('reconcile:start');
+        reconcileManagedRemoteCatalog: async () => {
+            events.push('managed:start');
             await Promise.resolve();
-            events.push('reconcile:end');
+            events.push('managed:end');
         },
         applyProjectColorToCurrentWindow: () => events.push('color'),
         refresh: reason => events.push(['refresh', reason]),
@@ -1029,123 +993,14 @@ test('PROJECT-CATALOG-SYNC-CONFLICT-001 reconciles synchronized project data bef
     });
 
     await controller.handleConfigurationChanged(
-        makeConfigurationEvent('agentPivot.projectSyncData')
+        makeConfigurationEvent('agentPivot.managedRemoteCatalogData')
     );
 
     assert.deepEqual(events, [
-        'reconcile:start',
-        'reconcile:end',
+        'managed:start',
+        'managed:end',
         ['projects', 'configuration-changed'],
-        'color',
-        'publish',
     ]);
-});
-
-test('PROJECT-INCREMENTAL-REFRESH-001 suppresses local catalog echoes and routes external catalog changes partially', async () => {
-    const events = [];
-    let localEcho = true;
-    const controller = new DashboardLifecycleController({
-        checkDataMigration: async () => events.push('migrate'),
-        reconcileProjectCatalog: async () => events.push('reconcile'),
-        consumeProjectCatalogWriteEcho: change => {
-            events.push(['consume', change]);
-            return localEcho;
-        },
-        applyProjectColorToCurrentWindow: () => events.push('color'),
-        refresh: reason => events.push(['refresh', reason]),
-        refreshProjects: reason => events.push(['projects', reason]),
-        publishOpenWorkspace: () => events.push('publish'),
-        evaluateAiSessionAttention: () => undefined,
-    });
-    const catalogChange = makeConfigurationEvent(
-        'agentPivot.projectSyncData',
-        'agentPivot.projectData'
-    );
-
-    await controller.handleConfigurationChanged(catalogChange);
-    assert.deepEqual(events, [[
-        'consume',
-        { syncData: true, legacyGroups: true },
-    ]]);
-
-    events.length = 0;
-    localEcho = false;
-    await controller.handleConfigurationChanged(catalogChange);
-    assert.deepEqual(events, [
-        ['consume', { syncData: true, legacyGroups: true }],
-        'reconcile',
-        ['projects', 'configuration-changed'],
-        'color',
-        'publish',
-    ]);
-
-    events.length = 0;
-    await controller.handleConfigurationChanged(makeConfigurationEvent(
-        'agentPivot.projectSyncData',
-        'agentPivot.customCss'
-    ));
-    assert.deepEqual(events, [
-        ['consume', { syncData: true, legacyGroups: false }],
-        'reconcile',
-        'color',
-        ['refresh', 'configuration-changed'],
-        'publish',
-    ]);
-});
-
-test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 retries a failed migration without stale refresh or publication', async () => {
-    const events = [];
-    let attempt = 0;
-    const controller = makeStartupController(async () => {
-        attempt += 1;
-        if (attempt === 1) throw new Error('destination unavailable');
-        return { projects: { migrated: true } };
-    }, events);
-
-    await controller.checkDataMigration();
-    assert.deepEqual(events.map(event => Array.isArray(event) ? event[0] : event), ['log', 'error']);
-    await controller.checkDataMigration();
-    assert.deepEqual(events.map(event => Array.isArray(event) ? event[0] : event), [
-        'log', 'error', 'refresh', 'publish', 'information',
-    ]);
-});
-
-test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during migration prevents every later startup effect', async () => {
-    const migrationGate = deferred();
-    const effects = [];
-    const disposedGeneration = new Error('controlled disposed generation');
-    let active = true;
-    const controller = makeStartupController(
-        () => migrationGate.promise,
-        effects,
-        {
-            stewardInfos: {
-                relevantExtensionsInstalls: {
-                    remoteSSH: false,
-                    remoteContainers: false,
-                },
-                config: { openOnStartup: 'always' },
-            },
-            assertActive() {
-                if (!active) throw disposedGeneration;
-            },
-            refreshDashboard: async () => effects.push('refresh'),
-            publishOpenWorkspace: () => effects.push('publish'),
-            showInformationMessage: () => effects.push('information'),
-            applyProjectColorToCurrentWindow: () => effects.push('color'),
-            updateReopenReason: () => effects.push('reopen'),
-            showAgentPivot: () => effects.push('open-view'),
-        }
-    );
-
-    const startup = controller.startUp();
-    active = false;
-    migrationGate.resolve({
-        projects: { migrated: true },
-    });
-
-    await assert.rejects(startup, error => error === disposedGeneration);
-    assert.deepEqual(effects, []);
 });
 
 test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during pending workspace completion prevents later window effects', async () => {
@@ -1154,12 +1009,7 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during pending workspace
     const effects = [];
     const disposedGeneration = new Error('controlled disposed generation');
     let active = true;
-    const controller = makeStartupController(
-        async () => ({
-            projects: { migrated: true },
-        }),
-        effects,
-        {
+    const controller = makeStartupController(effects, {
             stewardInfos: {
                 relevantExtensionsInstalls: {
                     remoteSSH: false,
@@ -1170,108 +1020,22 @@ test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 disposal during pending workspace
             assertActive() {
                 if (!active) throw disposedGeneration;
             },
-            refreshDashboard: async () => effects.push('refresh'),
-            publishOpenWorkspace: () => effects.push('publish'),
-            showInformationMessage: () => effects.push('information'),
             applyProjectColorToCurrentWindow: () => effects.push('color'),
             updateReopenReason: () => effects.push('reopen'),
             showAgentPivot: () => effects.push('open-view'),
-            async afterProjectMigrationSucceeded() {
+            async completePendingWorkspaceSave() {
                 pendingWorkspaceEntered.resolve();
                 await pendingWorkspaceGate.promise;
             },
-        }
-    );
+        });
 
     const startup = controller.startUp();
     await pendingWorkspaceEntered.promise;
-    assert.deepEqual(effects, ['refresh', 'publish', 'information']);
-    effects.length = 0;
+    assert.deepEqual(effects, []);
 
     active = false;
     pendingWorkspaceGate.resolve();
 
     await assert.rejects(startup, error => error === disposedGeneration);
     assert.deepEqual(effects, []);
-});
-
-test('WEBVIEW-DASHBOARD-STARTUP-CONTROLLER-001 PERSIST-DASHBOARD-LIFECYCLE-CONTROLLER-001 transferred ready startup migrates until actual context disposal', async () => {
-    const migrationGate = deferred();
-    const migrationEntered = deferred();
-    const effects = [];
-    const unhandled = [];
-    const contextSubscriptions = [];
-    const resources = new DashboardBootstrapResources();
-    let migrationAttempts = 0;
-    let ownedDisposals = 0;
-    resources.own({
-        dispose() {
-            ownedDisposals += 1;
-        },
-    });
-    const startupController = makeStartupController(
-        async () => {
-            migrationAttempts += 1;
-            if (migrationAttempts === 2) {
-                migrationEntered.resolve();
-                await migrationGate.promise;
-            }
-            return {
-                projects: { migrated: true },
-            };
-        },
-        effects,
-        {
-            assertActive: () => resources.assertActive(),
-            refreshDashboard: async () => effects.push('startup-refresh'),
-            publishOpenWorkspace: () => effects.push('startup-publish'),
-            showInformationMessage: () => effects.push('startup-information'),
-        }
-    );
-    const lifecycleController = new DashboardLifecycleController({
-        checkDataMigration: async openAfter => {
-            await startupController.checkDataMigration(openAfter);
-        },
-        assertActive: () => resources.assertActive(),
-        applyProjectColorToCurrentWindow: () => effects.push('lifecycle-color'),
-        refresh: reason => effects.push(['lifecycle-refresh', reason]),
-        publishOpenWorkspace: () => effects.push('lifecycle-publish'),
-        evaluateAiSessionAttention: () => undefined,
-        logError: (message, error) => effects.push(['error', message, error]),
-    });
-    const change = makeConfigurationEvent('agentPivot.storeProjectsInSettings');
-
-    resources.transferTo(contextSubscriptions);
-    await lifecycleController.handleConfigurationChanged(change);
-    assert.deepEqual(effects, [
-        'startup-refresh',
-        'startup-publish',
-        'startup-information',
-        'lifecycle-color',
-        ['lifecycle-refresh', 'configuration-changed'],
-        'lifecycle-publish',
-    ]);
-    effects.length = 0;
-
-    const onUnhandled = reason => unhandled.push(reason);
-    process.on('unhandledRejection', onUnhandled);
-    try {
-        lifecycleController.handleConfigurationChange(change);
-        await migrationEntered.promise;
-        for (const subscription of contextSubscriptions.slice().reverse()) {
-            subscription.dispose();
-        }
-        migrationGate.resolve();
-        await new Promise(resolve => setImmediate(resolve));
-        await new Promise(resolve => setImmediate(resolve));
-        lifecycleController.handleConfigurationChange(change);
-        await new Promise(resolve => setImmediate(resolve));
-    } finally {
-        process.removeListener('unhandledRejection', onUnhandled);
-    }
-
-    assert.equal(migrationAttempts, 2);
-    assert.equal(ownedDisposals, 1);
-    assert.deepEqual(effects, []);
-    assert.deepEqual(unhandled, []);
 });

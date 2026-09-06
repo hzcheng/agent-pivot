@@ -38,6 +38,10 @@ import {
     RunningAnimationImages,
 } from './runningAnimationImages';
 import * as Icons from '../webviewIcons';
+import { sanitizeCssColor } from './webviewCssSanitize';
+import type { ManagedRemoteManagementSnapshot } from '../projects/managedRemote/managementController';
+
+export { sanitizeCssColor };
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
 import type { AiSessionPresentationStateMessage } from '../aiSessions/types';
 import { buildOpenWindowRowViewModels } from '../openWorkspaces/windowRowViewModel';
@@ -77,6 +81,7 @@ export function getStewardContent(
     readyDocumentGeneration: number = 1,
     initialAiSessionPresentation?: AiSessionPresentationStateMessage,
     windowPathSegmentsByCardId?: ReadonlyMap<string, readonly string[]>,
+    managedRemoteSnapshot?: ManagedRemoteManagementSnapshot,
 ): string {
     var safeReadyDocumentGeneration = Number.isSafeInteger(readyDocumentGeneration)
         && readyDocumentGeneration > 0
@@ -94,7 +99,12 @@ export function getStewardContent(
 
     var customCss = sanitizeCustomCss(infos.config.get('customCss') || '');
     var searchCatalog = serializeDashboardSearchCatalog(
-        buildWorkspaceDashboardSearchCatalog(groups, workspaceCards, infos.skills || [])
+        buildWorkspaceDashboardSearchCatalog(
+            groups,
+            workspaceCards,
+            infos.skills || [],
+            managedRemoteSnapshot,
+        )
     );
     var serializedAiSessionPresentation = initialAiSessionPresentation
         ? JSON.stringify(initialAiSessionPresentation)
@@ -260,12 +270,18 @@ export function getStewardContent(
                 }
                 let filtering;
                 let tagFiltering;
+                window.__agentPivotMachineProjects = typeof createMachineProjectsUi === 'function'
+                    ? createMachineProjectsUi()
+                    : null;
                 const dashboard = initDashboard({
                     initialSearchQuery: storedFilter,
                     clearSearch: () => filtering && filtering.clear(),
                     postMessage: message => window.vscode.postMessage(message),
                     onProjectsMounted: panel => {
                         fitDashboardProjectHeaders(panel);
+                        if (window.__agentPivotMachineProjects) {
+                            window.__agentPivotMachineProjects.mount(panel);
+                        }
                         disposeDnD(panel);
                         initDnD(panel);
                         if (typeof window.__agentPivotSyncCollapseButton === 'function') {
@@ -276,6 +292,9 @@ export function getStewardContent(
                     onActiveTabChanged: () => {
                         if (typeof window.__agentPivotSyncCollapseButton === 'function') {
                             window.__agentPivotSyncCollapseButton();
+                        }
+                        if (filtering) {
+                            filtering.apply();
                         }
                     },
                 });
@@ -488,7 +507,7 @@ export function getProjectsPanelContent(groups: Group[], infos: StewardInfos): s
                     getSourceGroupId: () => group.id,
                 }
             )).join('\n')
-            : (infos.otherStorageHasData ? getImportDiv() : getNoProjectsDiv())}
+            : getNoProjectsDiv()}
     </div>
     ${infos.config.showAddGroupButtonTile ? getTempGroupSection() : ''}`;
 }
@@ -811,19 +830,6 @@ export function sanitizeCustomCss(value: string): string {
     return css;
 }
 
-// Plain CSS colors only: hex, named colors, numeric rgb()/hsl() functions, or
-// a var() reference to another custom property. Anything else (url(), quotes,
-// semicolons, markup) is dropped so the value stays a single safe token.
-const CSS_COLOR_PATTERN = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]{1,32}|rgba?\([\d.,%\s/]+\)|hsla?\([\d.,%\s/]+\)|var\(\s*--[a-zA-Z0-9_-]+(\s*,\s*[a-zA-Z0-9#()%.,\s-]+)?\s*\))$/;
-
-export function sanitizeCssColor(value: string | undefined | null): string {
-    const color = (value || '').trim();
-    if (!color || color.length > 96) {
-        return '';
-    }
-    return CSS_COLOR_PATTERN.test(color) ? color : '';
-}
-
 function getNoProjectsDiv() {
     return `
 <div class="project-container">
@@ -831,18 +837,6 @@ function getNoProjectsDiv() {
         No projects have been added yet.
         <br/>
         Click here to add one.
-    </div>
-</div>`;
-}
-
-function getImportDiv() {
-    return `
-<div class="project-container">
-    <div class="project no-projects import-data" data-action="import-from-other-storage" data-nodrag>
-        Agent Pivot is empty, but there are projects in your other storage.
-        <br/>
-        This can happen if the storage option has been changed on a different device that is synced via Settings Sync.
-        <p>Click here to import.</p>
     </div>
 </div>`;
 }

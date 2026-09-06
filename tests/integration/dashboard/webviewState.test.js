@@ -460,6 +460,57 @@ test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes
         'PROJECT-TAGS-001 project tags must be searchable from the dashboard-wide search catalog');
 });
 
+test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 publishes Managed Remote projects without legacy remote groups', () => {
+    const catalog = buildWorkspaceDashboardSearchCatalog([{
+        id: 'local', groupName: 'LOCAL', projects: [
+            { id: 'local-project', name: 'Local', path: '/work/local' },
+        ],
+    }], [], [], {
+        revisionId: 'revision-managed',
+        lifecycle: 'active',
+        catalog: {
+            machines: [{
+                id: 'machine-1', name: 'Build',
+                connection: { kind: 'ssh', host: 'build.example.com', user: 'dev', port: 22 },
+            }],
+            environments: [{
+                id: 'host:machine-1', machineId: 'machine-1', kind: 'host', name: 'Host',
+            }],
+            projects: [{
+                id: 'managed-project', environmentId: 'host:machine-1', name: 'API',
+                description: 'Managed service', remotePath: '/srv/api', tags: ['Backend'],
+            }],
+            layout: {
+                machineIds: ['machine-1'],
+                environmentIdsByMachine: { 'machine-1': ['host:machine-1'] },
+                projectIdsByEnvironment: { 'host:machine-1': ['managed-project'] },
+                favoriteProjectIds: [],
+            },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    });
+
+    assert.deepEqual(catalog.savedProjects.map(item => ({
+        projectId: item.projectId,
+        action: item.action,
+        expectedRevisionId: item.expectedRevisionId,
+        environmentLabel: item.environmentLabel,
+    })), [{
+        projectId: 'local-project',
+        action: 'open-saved-project',
+        expectedRevisionId: undefined,
+        environmentLabel: undefined,
+    }, {
+        projectId: 'managed-project',
+        action: 'open-managed-project',
+        expectedRevisionId: 'revision-managed',
+        environmentLabel: 'Build · Host',
+    }]);
+    assert.match(catalog.savedProjects[1].searchText, /build\.example\.com/);
+    assert.match(catalog.savedProjects[1].searchText, /backend/);
+});
+
 test('WEBVIEW-WEBVIEW-OPTIONS-001 enables scripts and limits local resources to media', () => {
     const options = getDashboardWebviewOptions('/extension', value => ({ path: value }));
     assert.deepEqual(options, {

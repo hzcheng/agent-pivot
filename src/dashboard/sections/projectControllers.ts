@@ -2,12 +2,11 @@
 
 import * as vscode from 'vscode';
 
-import { AddProjectsFromFolderController } from '../../projects/addProjectsFromFolderController';
 import { CurrentProjectDetailsResolver } from '../../projects/currentProjectDetails';
+import { MachineRenameController } from '../../projects/machineRenameController';
 import { FavoriteProjectController } from '../../projects/favoriteProjectController';
 import { GroupCommandController } from '../../projects/groupCommandController';
 import { queryGroupName } from '../../projects/groupPrompts';
-import { ProjectManualEditController } from '../../projects/projectManualEditController';
 import { ProjectMutationController } from '../../projects/projectMutationController';
 import { ProjectOpenController } from '../../projects/projectOpenController';
 import { ProjectOrderController } from '../../projects/projectOrderController';
@@ -15,7 +14,6 @@ import { ProjectPromptController } from '../../projects/projectPromptController'
 import { ProjectRemovalController } from '../../projects/projectRemovalController';
 import RemoteProjectResolver from '../../projects/remoteProjectResolver';
 import { createProjectSurfaceRefresh } from '../../projects/projectMessageHandlers';
-import { parsePathAsUri } from '../../projects/openProjectService';
 import { getWorkspacePath as resolveWorkspacePath } from '../../projects/workspaceHelpers';
 import { GroupCollapseController } from '../groupCollapseController';
 import { USER_CANCELED, REOPEN_KEY } from '../../constants';
@@ -66,6 +64,13 @@ export function createProjectControllers(deps: ProjectControllersDeps) {
     const groupCollapseController = new GroupCollapseController({
         state: context.globalState,
         projectService,
+    });
+    const machineRenameController = new MachineRenameController({
+        getGroups: () => projectService.getGroups(),
+        saveGroups: groups => projectService.saveGroups(groups),
+        showInputBox: options => vscode.window.showInputBox(options),
+        showWarningMessage: message => vscode.window.showWarningMessage(message),
+        refreshAfterMutation: projectSurface.refreshAfterMutation,
     });
     const groupCommandController = new GroupCommandController({
         projectService,
@@ -143,36 +148,6 @@ export function createProjectControllers(deps: ProjectControllersDeps) {
         refreshAfterMutation: projectSurface.refreshAfterMutation,
         postCommandRemoval: () => { deps.revealDashboard(); },
     });
-    const projectManualEditController = new ProjectManualEditController({
-        getGroups: () => projectService.getGroups(),
-        getTempFilePath: () => `${context.globalStoragePath}/Agent Pivot Projects.json`,
-        writeTextFile: (filePath, content) => fileService.writeTextFile(filePath, content),
-        fileUri: filePath => vscode.Uri.file(filePath),
-        openTextDocument: uri => vscode.workspace.openTextDocument(uri),
-        showTextDocument: document => vscode.window.showTextDocument(document),
-        onWillSaveTextDocument: listener => vscode.workspace.onWillSaveTextDocument(listener),
-        saveGroups: (groups, baselineGroups) =>
-            projectService.saveGroupsFromManualEdit(groups, baselineGroups),
-        executeCommand: command => vscode.commands.executeCommand(command),
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        postSave: () => {
-            projectSurface.refreshAfterMutation();
-            deps.revealDashboard();
-        },
-    });
-    const addProjectsFromFolderController = new AddProjectsFromFolderController({
-        getCurrentWorkspacePath: () => resolveWorkspacePath(vscode.workspace.workspaceFile, vscode.workspace.workspaceFolders),
-        parsePathAsUri,
-        showOpenDialog: options => vscode.window.showOpenDialog(options),
-        getFolders: folderPath => fileService.getFolders(folderPath),
-        addGroup: groupName => projectService.addGroup(groupName),
-        addProject: (project, groupId) => projectService.addProject(project, groupId),
-        getRandomColor: () => colorService.getRandomColor(),
-        isFolderGitRepo,
-        showErrorMessage: message => vscode.window.showErrorMessage(message),
-        refreshAfterMutation: projectSurface.refreshAfterMutation,
-        userCanceledToken: USER_CANCELED,
-    });
     const remoteProjectResolver = new RemoteProjectResolver(logError);
     const currentProjectDetailsResolver = new CurrentProjectDetailsResolver({
         getWorkspaceFile: () => vscode.workspace.workspaceFile,
@@ -184,6 +159,7 @@ export function createProjectControllers(deps: ProjectControllersDeps) {
     return {
         projectSurface,
         groupCollapseController,
+        machineRenameController,
         groupCommandController,
         projectOpenController,
         projectPromptController,
@@ -191,8 +167,6 @@ export function createProjectControllers(deps: ProjectControllersDeps) {
         favoriteProjectController,
         projectOrderController,
         projectRemovalController,
-        projectManualEditController,
-        addProjectsFromFolderController,
         remoteProjectResolver,
         currentProjectDetailsResolver,
     };

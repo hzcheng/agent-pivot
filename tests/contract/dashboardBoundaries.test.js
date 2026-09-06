@@ -75,12 +75,35 @@ test('SESSION-CONFIGURATION-001 reads only the scoped Agent Pivot configuration'
         path.resolve(__dirname, '../../src/dashboard/lifecycleController.ts'),
         'utf8'
     );
+    const dashboardSource = fs.readFileSync(
+        path.resolve(__dirname, '../../src/dashboard.ts'),
+        'utf8'
+    );
+    const manifest = require('../../package.json');
     assert.equal(constants.AGENT_PIVOT_CONFIG_SECTION, 'agentPivot');
     assert.equal(constantsSource.includes('LEGACY_DASHBOARD_CONFIG_SECTION'), false);
     assert.equal(configurationSource.includes('LEGACY_DASHBOARD_CONFIG_SECTION'), false);
     assert.equal(configurationSource.includes("getConfiguration('dashboard')"), false);
     assert.equal(lifecycleSource.includes("affectsConfiguration('dashboard')"), false);
     assert.equal(lifecycleSource.includes("'dashboard.storeProjectsInSettings'"), false);
+    assert.equal(
+        Object.hasOwn(
+            manifest.contributes.configuration.properties,
+            'agentPivot.remoteMachineProjects.enabled'
+        ),
+        false,
+        'the Machine Projects view is the default and has no user-facing feature flag'
+    );
+    assert.equal(
+        dashboardSource.includes('remoteMachineProjects.enabled'),
+        false,
+        'dashboard rendering does not depend on the retired feature flag'
+    );
+    assert.equal(
+        lifecycleSource.includes('remoteMachineProjects.enabled'),
+        false,
+        'configuration refresh does not retain the retired feature flag'
+    );
 });
 
 test('SESSION-STARTUP-001 preserves reopen, always, never, and genuinely empty-workspace startup behavior', () => {
@@ -334,7 +357,6 @@ test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration increment
     const events = [];
     let localEcho = true;
     const controller = new DashboardLifecycleController({
-        checkDataMigration: async () => events.push('migrate'),
         consumePromptDataWriteEcho: () => {
             events.push('consume-prompt');
             return localEcho;
@@ -360,9 +382,7 @@ test('WEBVIEW-AI-DASHBOARD-001 refreshes external Prompt configuration increment
 });
 
 const DASHBOARD_COMMANDS = [
-    'agentPivot.open', 'agentPivot.addProject', 'agentPivot.saveProject',
-    'agentPivot.removeProject', 'agentPivot.editProjects', 'agentPivot.addGroup',
-    'agentPivot.removeGroup', 'agentPivot.addProjectsFromFolder',
+    'agentPivot.open', 'agentPivot.saveProject',
     'agentPivot.addFileToActiveTerminal', 'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral', 'agentPivot.changeGlobalSkillsLocation',
     'agentPivot.openCurrentAiSessionConversation',
@@ -376,6 +396,9 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.switchWorktreeOrSession',
     'agentPivot.toggleLastAiSession',
     'agentPivot.switchToOpenWindow',
+    'agentPivot.sshToMachine',
+    'agentPivot.copySshCommand',
+    'agentPivot.importLegacyProjects',
 ];
 
 // Registered directly from initializeDashboard, outside the dashboard command facade.
@@ -394,8 +417,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
     const subscriptions = [];
     const calls = [];
     const handlerNames = [
-        'open', 'addProject', 'saveProject', 'removeProject', 'editProjects', 'addGroup', 'removeGroup',
-        'addProjectsFromFolder', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
+        'open', 'saveProject', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
         'migrateSkillsToCentral', 'changeGlobalSkillsLocation',
         'openCurrentAiSessionConversation',
         'seekLatestConversationInteraction',
@@ -408,6 +430,9 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'switchWorktreeOrSession',
         'toggleLastAiSession',
         'switchToOpenWindow',
+        'sshToManagedMachine',
+        'copyManagedSshCommand',
+        'importLegacyProjects',
     ];
     const facade = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {
@@ -424,7 +449,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
 
     await registered.get('agentPivot.open')('boot');
     await assert.rejects(
-        registered.get('agentPivot.addProject')('ignored'),
+        registered.get('agentPivot.saveProject')('ignored'),
         /Agent Pivot is still starting/
     );
     assert.deepEqual(calls, [['boot-open', 'boot']]);

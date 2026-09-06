@@ -27,6 +27,16 @@ function initFiltering(activeByDefault, dashboard) {
         var filterValue = filterInput.value || '';
         filterWrapper.classList.toggle(hasFilterValueClass, filterValue.length > 0);
         writeStoredFilter(filterValue);
+        var machineProjects = window.__agentPivotMachineProjects;
+        var useMachineProjectSearch = machineProjects
+            && machineProjects.isMounted()
+            && dashboard.getActiveTab() === 'projects';
+        if (useMachineProjectSearch) {
+            machineProjects.applyTextFilter(filterValue);
+            if (dashboard.isSearchActive()) dashboard.setSearchQuery('');
+            return;
+        }
+        if (machineProjects) machineProjects.applyTextFilter('');
         dashboard.setSearchQuery(filterValue);
     }
 
@@ -35,6 +45,9 @@ function initFiltering(activeByDefault, dashboard) {
         writeStoredFilter('');
         filterWrapper.classList.remove(hasFilterValueClass);
         dashboard.setSearchQuery('');
+        if (window.__agentPivotMachineProjects) {
+            window.__agentPivotMachineProjects.applyTextFilter('');
+        }
         filterInput.focus();
     }
 

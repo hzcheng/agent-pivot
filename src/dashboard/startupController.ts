@@ -6,100 +6,29 @@ import { shouldOpenAgentPivotOnStartup } from './startup';
 
 type RelevantExtensionInstalls = StewardInfos['relevantExtensionsInstalls'];
 
-export interface DashboardMigrationComponentResult {
-    migrated: boolean;
-    error?: unknown;
-}
-
-export interface DashboardMigrationResult {
-    projects: DashboardMigrationComponentResult;
-}
-
-export function settleMigration(
-    run: () => Promise<boolean> | boolean
-): Promise<DashboardMigrationComponentResult> {
-    return Promise.resolve()
-        .then(run)
-        .then(
-            migrated => ({ migrated }),
-            error => ({ migrated: false, error })
-        );
-}
-
 export interface DashboardStartupControllerOptions {
     stewardInfos: StewardInfos;
     relevantExtensions?: Record<keyof RelevantExtensionInstalls, string>;
     isExtensionInstalled: (extensionId: string) => boolean;
     assertActive?: () => void;
-    migrateDataIfNeeded: () => Promise<DashboardMigrationResult>;
-    refreshDashboard: () => unknown;
-    publishOpenWorkspace: () => void;
-    showInformationMessage: (message: string) => unknown;
-    showErrorMessage: (message: string) => unknown;
-    logError: (message: string, error: unknown) => unknown;
-    showAgentPivot: () => unknown;
     applyProjectColorToCurrentWindow: () => void;
     getReopenReason: () => unknown;
     updateReopenReason: (reason: ReopenStewardReason) => unknown;
     reopenNoneValue?: ReopenStewardReason;
     getWorkspaceName: () => string | undefined;
     getVisibleEditorLanguageIds: () => readonly string[];
-    afterProjectMigrationSucceeded?: () => Promise<void>;
+    showAgentPivot: () => unknown;
+    completePendingWorkspaceSave?: () => Promise<void>;
 }
 
 export class DashboardStartupController {
     constructor(private readonly options: DashboardStartupControllerOptions) {
     }
 
-    async checkDataMigration(openStewardAfterMigrate = false): Promise<DashboardMigrationResult | null> {
-        let migration: DashboardMigrationResult;
-        try {
-            migration = await this.options.migrateDataIfNeeded();
-        } catch (error) {
-            this.assertActive();
-            this.options.logError('Failed to migrate Agent Pivot data.', error);
-            const detail = error instanceof Error ? ` ${error.message}` : '';
-            this.options.showErrorMessage(`Could not migrate Agent Pivot data.${detail}`);
-            return null;
-        }
-
-        this.assertActive();
-        this.reportComponentError('project', migration.projects);
-        if (!migration.projects.migrated) {
-            return migration;
-        }
-
-        await this.options.refreshDashboard();
-        this.assertActive();
-        this.options.publishOpenWorkspace();
-        this.options.showInformationMessage('Migrated Agent Pivot projects after changing settings.');
-
-        if (openStewardAfterMigrate) {
-            this.options.showAgentPivot();
-        }
-        return migration;
-    }
-
-    private reportComponentError(
-        component: 'project',
-        result: DashboardMigrationComponentResult
-    ): void {
-        if (!Object.prototype.hasOwnProperty.call(result, 'error')) {
-            return;
-        }
-        this.options.logError(`Failed to migrate Agent Pivot ${component} data.`, result.error);
-        const detail = result.error instanceof Error ? ` ${result.error.message}` : '';
-        this.options.showErrorMessage(`Could not migrate Agent Pivot ${component} data.${detail}`);
-    }
-
     async startUp(): Promise<void> {
         this.updateRelevantExtensionInstalls();
-        const migration = await this.checkDataMigration();
-        this.assertActive();
-        if (migration
-            && !Object.prototype.hasOwnProperty.call(migration.projects, 'error')
-            && this.options.afterProjectMigrationSucceeded) {
-            await this.options.afterProjectMigrationSucceeded();
+        if (this.options.completePendingWorkspaceSave) {
+            await this.options.completePendingWorkspaceSave();
             this.assertActive();
         }
         this.options.applyProjectColorToCurrentWindow();

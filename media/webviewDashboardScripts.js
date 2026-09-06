@@ -214,7 +214,6 @@ function initDashboard(options) {
                 restoreScroll(activeTab);
             }
         }
-        notifyActiveTabChanged();
     }
 
     function replaceSearchCatalog(nextCatalog) {
@@ -330,6 +329,17 @@ function initDashboard(options) {
                 type: 'selected-project',
                 projectId: button.dataset.projectId,
                 projectOpenType: 0,
+            });
+            return;
+        }
+        if (action === 'open-managed-project') {
+            options.postMessage({
+                type: 'managed-remote-client-action',
+                version: 1,
+                requestId: 'managed-search-' + Date.now(),
+                action: 'openProject',
+                expectedRevisionId: button.dataset.expectedRevisionId || null,
+                targetId: button.dataset.projectId,
             });
             return;
         }

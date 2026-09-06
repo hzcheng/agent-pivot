@@ -3,12 +3,12 @@
 import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
 import { withAttentionProject } from '../aiSessions/attentionProject';
 import { normalizeProjectTags } from './projectTags';
-import { Project } from '../models';
+import { Project, ProjectOpenType } from '../models';
 import type { GroupCollapseController } from '../dashboard/groupCollapseController';
 import type { DashboardMessageHandler } from '../dashboard/messageRouter';
 import type { ProjectsPanelController } from '../dashboard/projectsPanelController';
 import type { ProjectsPanelUpdateMode } from '../dashboard/webviewUpdateMessages';
-import type { GroupOrder, ProjectOpenType } from '../models';
+import type { GroupOrder } from '../models';
 import type { OpenWorkspaceDashboardController } from '../openWorkspaces/dashboardController';
 import type { WorkspaceNavigationController } from '../openWorkspaces/navigationController';
 import type { OpenWindowNavigationRequestController } from '../openWorkspaces/openWindowNavigationRequestController';
@@ -16,10 +16,12 @@ import type { OpenWorkspacePinController } from '../openWorkspaces/pinController
 import type ProjectService from '../services/projectService';
 import type { FavoriteProjectController } from './favoriteProjectController';
 import type { GroupCommandController } from './groupCommandController';
+import type { MachineRenameController } from './machineRenameController';
 import type { ProjectMutationController } from './projectMutationController';
 import type { ProjectOpenController } from './projectOpenController';
 import type { ProjectOrderController } from './projectOrderController';
 import type { ProjectRemovalController } from './projectRemovalController';
+import { resolveMachineHostTarget } from './machineProjectsViewModel';
 
 export interface ProjectSurfaceRefreshOptions {
     getProjectsPanelController: () => ProjectsPanelController | undefined;
@@ -79,6 +81,7 @@ export interface ProjectMessageHandlersOptions {
     projectRemovalController: ProjectRemovalController;
     groupCommandController: GroupCommandController;
     groupCollapseController: GroupCollapseController;
+    machineRenameController: MachineRenameController;
     /** Late-bound: the navigation controller is constructed after the router. */
     getWorkspaceNavigationController: () => WorkspaceNavigationController;
     /** Late-bound: the navigation request controller is constructed after the router. */
@@ -89,6 +92,7 @@ export interface ProjectMessageHandlersOptions {
     /** Owned by the AI session attention slice; injected, not extracted here. */
     acknowledgeAiSessionAttentionEventIds: (eventIds: string[]) => Promise<void>;
     refreshAfterMutation: (mode?: ProjectsPanelUpdateMode) => void;
+    openLocalWindow: () => Thenable<unknown> | Promise<unknown>;
     postMessage: (message: Record<string, unknown>) => Thenable<boolean> | Promise<boolean> | boolean;
     showWarningMessage: (message: string) => unknown;
 }
@@ -114,6 +118,7 @@ export function createProjectMessageHandlers(
     const projectRemovalController = options.projectRemovalController;
     const groupCommandController = options.groupCommandController;
     const groupCollapseController = options.groupCollapseController;
+    const machineRenameController = options.machineRenameController;
     const getWorkspaceNavigationController = options.getWorkspaceNavigationController;
     const getOpenWindowNavigationRequestController = options.getOpenWindowNavigationRequestController;
     const getOpenWorkspacePinController = options.getOpenWorkspacePinController;
@@ -124,6 +129,40 @@ export function createProjectMessageHandlers(
     const showWarningMessage = options.showWarningMessage;
 
     return {
+        'open-machine-host': async e => {
+            if (Object.keys(e).length !== 3
+                || typeof e.machineId !== 'string'
+                || typeof e.projectId !== 'string') {
+                return;
+            }
+            const target = resolveMachineHostTarget(projectService.getGroups(), {
+                machineId: e.machineId,
+                projectId: e.projectId,
+            });
+            if (!target) {
+                showWarningMessage('The Machine connection could not be derived from its Projects.');
+                return;
+            }
+            if (target.kind === 'local') {
+                await options.openLocalWindow();
+                return;
+            }
+            const host = new Project(target.name, target.path);
+            host.remoteType = target.remoteType;
+            await projectOpenController.openProject(host, ProjectOpenType.NewWindow);
+        },
+        'rename-machine': async e => {
+            if (Object.keys(e).length !== 2 || typeof e.machineId !== 'string') {
+                return;
+            }
+            await machineRenameController.renameMachine(e.machineId);
+        },
+        'reset-machine-name': async e => {
+            if (Object.keys(e).length !== 2 || typeof e.machineId !== 'string') {
+                return;
+            }
+            await machineRenameController.resetMachineName(e.machineId);
+        },
         'selected-project': async e => {
             let projectId = e.projectId as string;
             let projectOpenType = e.projectOpenType as ProjectOpenType;
@@ -150,10 +189,6 @@ export function createProjectMessageHandlers(
         'open-window-navigation-request': e => getOpenWindowNavigationRequestController().handle(e),
         'add-project': async e => {
             await projectMutationController.addProject(e.groupId as string);
-        },
-        'import-from-other-storage': async () => {
-            await projectService.copyProjectsFromFilledStorageOptionToEmptyStorageOption();
-            refreshAfterMutation();
         },
         'reordered-projects': async e => {
             await projectOrderController.reorderGroups(e.groupOrders as GroupOrder[]);

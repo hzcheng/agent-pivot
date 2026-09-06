@@ -8,13 +8,7 @@ const MAIN_EXTENSION_ID = 'hzcheng.agent-pivot';
 const BRIDGE_EXTENSION_ID = 'hzcheng.agent-pivot-attention-ui-bridge';
 const PUBLIC_COMMANDS = [
     'agentPivot.open',
-    'agentPivot.addProject',
     'agentPivot.saveProject',
-    'agentPivot.removeProject',
-    'agentPivot.editProjects',
-    'agentPivot.addGroup',
-    'agentPivot.removeGroup',
-    'agentPivot.addProjectsFromFolder',
     'agentPivot.addFileToActiveTerminal',
     'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral',
@@ -29,7 +23,10 @@ const PUBLIC_COMMANDS = [
     'agentPivot.switchToAiSession',
     'agentPivot.switchWorktreeOrSession',
     'agentPivot.toggleLastAiSession',
-    'agentPivot.switchToOpenWindow'
+    'agentPivot.switchToOpenWindow',
+    'agentPivot.sshToMachine',
+    'agentPivot.copySshCommand',
+    'agentPivot.importLegacyProjects'
 ];
 
 async function verifyExtensionHostLifecycle() {

@@ -338,6 +338,178 @@
         "writerFacade": true
       },
       "tracking": "ARCH-CHANGE-001"
+    },
+    {
+      "id": "ARCH-MANAGED-REMOTE-CATALOG-WRITER-001",
+      "module": "MOD-PROJECT-CATALOG",
+      "productCapabilities": [
+        "MAIN-PROJECT-CATALOG-CONSISTENCY"
+      ],
+      "priority": "P0",
+      "kind": "concurrency",
+      "statement": "The synchronized Managed Remote envelope is staged, reconciled, activated, or discarded only through ManagedCatalogCoordinator; domain catalog services cannot write the backend directly.",
+      "authority": {
+        "path": "src/projects/managedRemote/store.ts",
+        "symbol": "ManagedCatalogCoordinator"
+      },
+      "writers": [
+        "src/projects/managedRemote/store.ts",
+        "src/projects/managedRemote/managementStore.ts",
+        "src/projects/managedRemote/productionStore.ts"
+      ],
+      "linearizationPoint": "The coordinator publishes a causally joined envelope after first persisting its writer-local staged candidate.",
+      "enforcement": [
+        "single-writer",
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/contract/projects/managedRemoteEnvelope.test.js",
+        "tests/contract/projects/managedRemoteManagementStore.test.js",
+        "tests/contract/projects/managedRemoteProductionStore.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "src/projects/managedRemote/store.ts",
+        "src/projects/managedRemote/catalogService.ts",
+        "src/projects/managedRemote/managementStore.ts",
+        "src/projects/managedRemote/productionStore.ts"
+      ],
+      "stateFamily": {
+        "storePath": "src/projects/managedRemote/store.ts",
+        "writeMethods": [
+          "stageCatalog",
+          "activateStagedCatalog",
+          "discardStagedCatalog",
+          "activateRecoveryCandidate",
+          "discardRecoveryCandidate",
+          "discardRecoveryState"
+        ],
+        "writerFacade": true
+      }
+    },
+    {
+      "id": "ARCH-MANAGED-SSH-CONSENT-WRITER-001",
+      "module": "MOD-ATTENTION-BRIDGE-EXT",
+      "productCapabilities": [
+        "MAIN-PROJECT-CATALOG-CONSISTENCY"
+      ],
+      "priority": "P0",
+      "kind": "concurrency",
+      "statement": "Per-config-path Managed SSH consent transitions are serialized through the durable consent store and orchestrated only by ManagedSshConsentCoordinator.",
+      "authority": {
+        "path": "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+        "symbol": "ManagedSshConsentCoordinator"
+      },
+      "writers": [
+        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts"
+      ],
+      "linearizationPoint": "ManagedSshConsentFileStore.compareAndSet atomically replaces the generation-checked local record while holding its config-path lock.",
+      "enforcement": [
+        "single-writer",
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/contract/projects/managedRemoteSshConsent.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+        "extensions/attention-ui-bridge/src/managedSshConsentStore.ts"
+      ],
+      "stateFamily": {
+        "storePath": "extensions/attention-ui-bridge/src/managedSshConsentStore.ts",
+        "writeMethods": [
+          "compareAndSet"
+        ],
+        "writerFacade": true
+      }
+    },
+    {
+      "id": "ARCH-MANAGED-SSH-ACTIVE-CONFIG-WRITER-001",
+      "module": "MOD-ATTENTION-BRIDGE-EXT",
+      "productCapabilities": [
+        "MAIN-PROJECT-CATALOG-CONSISTENCY"
+      ],
+      "priority": "P0",
+      "kind": "concurrency",
+      "statement": "The user-owned active SSH config is changed only by ManagedSshConsentCoordinator through a no-overwrite exchange that retains displaced bytes; manual fallback remains available when the exact snapshot cannot be exchanged.",
+      "authority": {
+        "path": "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+        "symbol": "ManagedSshConsentCoordinator"
+      },
+      "writers": [
+        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts"
+      ],
+      "linearizationPoint": "ManagedSshActiveConfigEditor links the prepared candidate into the now-empty active-config path without overwriting an external writer.",
+      "enforcement": [
+        "single-writer",
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/contract/projects/managedRemoteSshActiveConfigEditor.test.js",
+        "tests/contract/projects/managedRemoteSshConsent.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "extensions/attention-ui-bridge/src/managedSshActiveConfigEditor.ts",
+        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts"
+      ],
+      "stateFamily": {
+        "storePath": "extensions/attention-ui-bridge/src/managedSshActiveConfigEditor.ts",
+        "writeMethods": [
+          "replace",
+          "recoverInterruptedExchange"
+        ],
+        "writerFacade": true
+      }
+    },
+    {
+      "id": "ARCH-MANAGED-SSH-PROJECTION-WRITER-001",
+      "module": "MOD-ATTENTION-BRIDGE-EXT",
+      "productCapabilities": [
+        "MAIN-PROJECT-CATALOG-CONSISTENCY"
+      ],
+      "priority": "P0",
+      "kind": "concurrency",
+      "statement": "Agent Pivot-owned SSH revisions are staged, activated, and removed only by ManagedSshConsentCoordinator through the per-config-path file store.",
+      "authority": {
+        "path": "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+        "symbol": "ManagedSshConsentCoordinator"
+      },
+      "writers": [
+        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+        "extensions/attention-ui-bridge/src/managedSshActiveConfigEditor.ts"
+      ],
+      "linearizationPoint": "ManagedSshOwnedFileStore atomically replaces current.conf only after a staged revision and its aggregate config pass OpenSSH validation.",
+      "enforcement": [
+        "single-writer",
+        "behavior"
+      ],
+      "behaviorOwners": [
+        "tests/contract/projects/managedRemoteSshOwnedFiles.test.js"
+      ],
+      "guardOwners": [
+        "tests/unit/architecture/singleWriters.test.js"
+      ],
+      "evidence": [
+        "extensions/attention-ui-bridge/src/managedSshConsentCoordinator.ts",
+        "extensions/attention-ui-bridge/src/managedSshOwnedFiles.ts"
+      ],
+      "stateFamily": {
+        "storePath": "extensions/attention-ui-bridge/src/managedSshOwnedFiles.ts",
+        "writeMethods": [
+          "stageProjection",
+          "activateProjection",
+          "removeOwnedFiles"
+        ],
+        "writerFacade": true
+      }
     }
   ]
 }

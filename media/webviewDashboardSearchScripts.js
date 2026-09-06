@@ -106,8 +106,14 @@ function renderDashboardSearchResults(container, sections) {
                 button.dataset.skillDir = String(item.dirPath || '');
                 metadata.textContent = [item.scope === 'project' ? 'Project' : 'Global', item.description].filter(Boolean).join(' · ');
             } else {
-                button.dataset.searchAction = 'open-saved-project';
-                metadata.textContent = [item.description].concat(item.groupLabels || []).filter(Boolean).join(' · ');
+                button.dataset.searchAction = item.action === 'open-managed-project'
+                    ? 'open-managed-project'
+                    : 'open-saved-project';
+                if (item.expectedRevisionId) {
+                    button.dataset.expectedRevisionId = String(item.expectedRevisionId);
+                }
+                metadata.textContent = [item.description, item.environmentLabel]
+                    .concat(item.groupLabels || []).filter(Boolean).join(' · ');
             }
             button.appendChild(metadata);
             sectionElement.appendChild(button);

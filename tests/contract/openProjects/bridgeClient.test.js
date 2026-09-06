@@ -667,7 +667,6 @@ test('OPEN-DASHBOARD-BRIDGE-LIFECYCLE-001 publishes a focus marker only when the
     const publications = [];
     let attentionEvaluations = 0;
     const controller = new DashboardLifecycleController({
-        checkDataMigration: async () => undefined,
         applyProjectColorToCurrentWindow: () => undefined,
         refresh: () => undefined,
         publishOpenWorkspace: followsFocusEvent => publications.push(followsFocusEvent || false),

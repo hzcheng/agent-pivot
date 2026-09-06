@@ -75,7 +75,6 @@ Skill 的以下概念必须分开，不能用一个 scope 或 toggle 混淆：
 ```text
 AI
 ├── Prompts
-│   ├── Search
 │   ├── General (persistent)
 │   └── Custom groups
 └── Skills
@@ -86,6 +85,11 @@ AI
 
 MCP 和 Hooks 暂时隐藏。若业务需要展示路线图，它们只能出现在低优先级的
 More 菜单中，不能占据首屏标签位。
+
+Dashboard 顶部已有的**全局 Search 是唯一常驻搜索入口**；AI tab 不再重复放置
+搜索框。全局索引须包含 group 名、Prompt 名称/说明，以及 Skill 名称/说明。用户
+位于 AI tab 时，查询结果在当前树与列表内过滤并保留所属 group 路径；清空查询
+即恢复先前的折叠、滚动和焦点状态。
 
 页面、详情和编辑均使用**单列页面栈**，每次只保留一个纵向滚动区：
 
@@ -102,7 +106,6 @@ More 菜单中，不能占据首屏标签位。
 
 ```text
 Prompts  Skills
-[ Search prompts… ]                             [+ ▾]
 
 ▾ General                                      [＋] [···]
     Review implementation              [Use] [···]
@@ -171,7 +174,6 @@ PromptV1 数据须无损迁移：创建 General，将每个既有 Prompt 放入�
 ```text
 Prompts  Skills
 [ Global library | This project ]             [+]
-[ Search skills… ]                   [All agents ▾]
 
 INSTALLED SKILLS
   fixing-regressions-with-ci       2 projects [···]

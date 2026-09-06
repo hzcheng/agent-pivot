@@ -13805,7 +13805,7 @@ function initDashboard(options) {
             if (activeCopyTaskId === message.requestId) activeCopyTaskId = null;
             delete transferTasks[message.requestId];
             renderTaskCount();
-            if (startCopy) startCopy.disabled = false;
+            if (startCopy && !pendingCopyRequestId) startCopy.disabled = false;
             if (message.status === 'copied') {
                 var completed = message.value && Number.isSafeInteger(message.value.completedItems)
                     ? message.value.completedItems : 0;
@@ -13813,16 +13813,20 @@ function initDashboard(options) {
                     ? message.value.skippedItems : 0;
                 renderTaskStatus('Copy complete: ' + completed + ' copied'
                     + (skipped ? ', ' + skipped + ' skipped.' : '.'));
-                closeReview();
+                if (wasPending) closeReview();
                 updatePair();
             } else if (message.status === 'cancelled') {
                 var cancelledAfter = message.value && Number.isSafeInteger(message.value.completedItems)
                     ? message.value.completedItems : 0;
                 renderTaskStatus('Copy cancelled after ' + cancelledAfter + ' item(s).');
-                if (reviewSummary) reviewSummary.textContent = 'Copy cancelled. Your selection is still available to retry.';
-            } else if (reviewSummary) {
-                reviewSummary.textContent = message.message || 'File copy failed.';
+                if (wasPending && reviewSummary) {
+                    reviewSummary.textContent = 'Copy cancelled. Your selection is still available to retry.';
+                }
+            } else {
                 renderTaskStatus('Copy failed: ' + (message.message || 'File copy failed.'));
+                if (wasPending && reviewSummary) {
+                    reviewSummary.textContent = message.message || 'File copy failed.';
+                }
             }
             options.postMessage({ type: 'file-transfer-request-history', version: 1 });
             return true;

@@ -505,6 +505,7 @@ test('FILE-TRANSFER-UI-008 renders correlated queued copy tasks with cancellatio
     assert.match(dashboardSource, /Queued · /);
     assert.match(dashboardSource, /requestTaskCancellation/);
     assert.match(dashboardSource, /Cancelling /);
+    assert.match(dashboardSource, /if \(wasPending\) closeReview\(\);/);
     assert.match(dashboardSource, /file-transfer-task-list/);
 });
 

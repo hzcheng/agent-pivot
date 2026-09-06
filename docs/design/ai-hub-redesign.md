@@ -38,12 +38,14 @@ This supports a feature workflow such as:
 2. Implement the change
 3. Review and prepare the PR
 
-The Prompts page should have a compact workflow rail and a main list. A row is
-one line for the name, one quiet line for the purpose, and an overflow menu.
-The full text and edit form open only on selection. The rail includes
-Workflows, All prompts, and Unfiled. Within a workflow, rows are ordered and
-show a small step number. The default prompt remains an independent property,
-not an implicit first workflow step.
+The Prompts page lives in a narrow VS Code sidebar, so it must not use a
+two-column workflow rail and template list. Use a single-column drill-in
+instead: the landing page lists Workflows and the Prompt library; selecting a
+workflow replaces that list with a back affordance and its ordered prompt rows.
+A row is one line for the name, one quiet line for the purpose, and an overflow
+menu. The full text and edit form open only on selection. Within a workflow,
+rows show a small step number. The default prompt remains an independent
+property, not an implicit first workflow step.
 
 Initial data model:
 

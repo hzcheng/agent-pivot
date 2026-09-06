@@ -16,12 +16,16 @@ function writeDashboardSessionValue(key, value) {
     }
 }
 
-function renderLocalFileTransferEntries(fileList, entries, selectedIds, onChange) {
+function renderLocalFileTransferEntries(fileList, entries, selectedIds, onChange, onOpenDirectory) {
     fileList.textContent = '';
     entries.forEach(function (entry) {
         var row = document.createElement('li');
         row.className = 'file-transfer-file-row';
         row.setAttribute('data-file-transfer-entry-id', entry.id);
+        if (entry.kind === 'directory') {
+            row.title = 'Double-click to open this folder';
+            row.addEventListener('dblclick', function () { onOpenDirectory(entry.id); });
+        }
         var label = document.createElement('label');
         var checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -586,6 +590,7 @@ function initDashboard(options) {
                     localRoot ? localRoot.entries : [],
                     selectedEntries[side],
                     function (entryId, selected) { updateSelection(side, entryId, selected); },
+                    function (directoryId) { openDirectory(side, directoryId); },
                 );
                 fileList.hidden = !localRoot;
             }
@@ -646,6 +651,38 @@ function initDashboard(options) {
                 side: side,
                 machineId: machineId,
             });
+        }
+
+        function openDirectory(side, directoryId) {
+            var selector = selectorFor(side);
+            var root = localRoots[side];
+            if (!selector || !root || !directoryId) return;
+            var requestId = 'file-transfer-open-' + side + '-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingLocalRootRequests[side] = requestId;
+            selectedEntries[side].clear();
+            if (selector.value === 'local') {
+                options.postMessage({
+                    type: 'file-transfer-open-directory',
+                    version: 1,
+                    requestId: requestId,
+                    side: side,
+                    endpoint: { kind: 'local', rootId: root.rootId, directoryId: directoryId },
+                });
+            } else if (selector.value.indexOf('managed:') === 0) {
+                options.postMessage({
+                    type: 'file-transfer-open-directory',
+                    version: 1,
+                    requestId: requestId,
+                    side: side,
+                    endpoint: {
+                        kind: 'managedMachine',
+                        machineId: selector.value.slice('managed:'.length),
+                        directoryId: directoryId,
+                    },
+                });
+            }
+            updatePair();
         }
 
         function onEndpointChange(event) {

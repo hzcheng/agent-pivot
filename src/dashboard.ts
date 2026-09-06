@@ -2876,6 +2876,45 @@ async function initializeDashboard(
                         rawMessage.slice(0, 320)));
                 }
             },
+            'file-transfer-open-directory': async message => {
+                if (!isFileTransferOpenDirectoryRequest(message)) {
+                    return;
+                }
+                try {
+                    const endpoint = message.endpoint as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference;
+                    if (endpoint.kind === 'local') {
+                        const root = await managedRemoteBridgeClient.listFileTransferLocalDirectory(
+                            endpoint.rootId, endpoint.directoryId,
+                        );
+                        await provider.postMessage({
+                            type: 'file-transfer-local-root-selected',
+                            version: 1,
+                            requestId: message.requestId,
+                            side: message.side,
+                            root,
+                        });
+                    } else {
+                        if (managedRemoteSnapshot.lifecycle !== 'active' || !managedRemoteSnapshot.revisionId) {
+                            throw new Error('Managed Machines are unavailable. Refresh and try again.');
+                        }
+                        const root = await managedRemoteBridgeClient.listFileTransferRemoteDirectory(
+                            managedRemoteSnapshot.revisionId,
+                            endpoint.machineId,
+                            endpoint.directoryId,
+                        );
+                        await provider.postMessage({
+                            type: 'file-transfer-remote-directory-listed',
+                            version: 1,
+                            requestId: message.requestId,
+                            side: message.side,
+                            root,
+                        });
+                    }
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    await provider.postMessage(fileTransferDirectoryFailure(message, rawMessage.slice(0, 320)));
+                }
+            },
             'file-transfer-copy': async message => {
                 if (!isFileTransferCopyRequest(message)) {
                     return;
@@ -4565,6 +4604,18 @@ function isFileTransferCopyRequest(value: Record<string, unknown>): boolean {
         return false;
     }
     return true;
+}
+
+function isFileTransferOpenDirectoryRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-open-directory'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && (value.side === 'left' || value.side === 'right')
+        && isFileTransferEndpointReference(value.endpoint)
+        && Object.keys(value).sort().join('\n') === [
+            'endpoint', 'requestId', 'side', 'type', 'version',
+        ].join('\n');
 }
 
 function isFileTransferEndpointReference(value: unknown): boolean {

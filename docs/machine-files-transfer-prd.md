@@ -53,6 +53,8 @@ can nevertheless authenticate to both through its own SSH configuration.
 6. Reuse Managed Machine identity, SSH projection, host-key verification, and
    local user authentication; use native local filesystem access only after an
    explicit directory choice; never synchronize or expose credentials/paths.
+7. Support Linux, macOS, and Windows UI hosts in the first release with the
+   same core browse, review, transfer, cancellation, and integrity behavior.
 
 ## 4. Non-goals
 
@@ -347,6 +349,8 @@ not traverse the Webview message channel or VS Code command arguments.
 The implementation must use the local user's existing OpenSSH configuration so
 host keys, `ProxyJump`, agents, and supported authentication continue to work.
 The selected transport must keep all payload bytes on the local UI host.
+Linux, macOS, and Windows UI hosts are mandatory P0 platforms; no temporary
+platform exclusion is permitted for release.
 
 | Path | Use | Benefits | Limits / decision |
 | --- | --- | --- | --- |
@@ -356,10 +360,10 @@ The selected transport must keep all payload bytes on the local UI host.
 | D. Remote-to-remote transport | Source directly reaches target. | Potentially efficient on networks that allow it. | Explicitly out of scope. It violates the topology promise and makes policy/credential behavior inconsistent. |
 
 The P0 transport spike is a delivery gate, not an optional polish item. It must
-prove Linux, macOS, and Windows UI-host behavior; IPv6; spaces, Unicode, `#`,
-`?`, `%`, leading dashes, and single quotes in legal paths; `ProxyJump`;
-password-less agent/key authentication; target collision behavior; cancellation;
-and Machines that cannot reach one another.
+prove Linux, macOS, and Windows UI-host behavior with equivalent core outcomes;
+IPv6; spaces, Unicode, `#`, `?`, `%`, leading dashes, and single quotes in legal
+paths; `ProxyJump`; password-less agent/key authentication; target collision
+behavior; cancellation; and Machines that cannot reach one another.
 
 ### 10.4 UI implementation path
 
@@ -403,7 +407,7 @@ and Machines that cannot reach one another.
 ### Slice 0 — design and transport spike
 
 - Finalize protocol schema, local-state retention policy, error taxonomy, and
-  platform support matrix.
+  Linux/macOS/Windows platform verification matrix.
 - Prove the P0 OpenSSH CLI path against the transport matrix in section 10.3.
 - Produce a clickable/visual UX review for pair selection, both copy
   directions, review/collision, running, and failure states.
@@ -471,6 +475,9 @@ and Machines that cannot reach one another.
 - [ ] A successful copy completes in both directions between This Computer's
       approved local root and a Managed Machine; local paths outside the root
       cannot be listed, selected, or reached through a crafted request.
+- [ ] Linux, macOS, and Windows UI hosts each pass the same P0 browse, review,
+      remote↔remote relay, local-root↔remote copy, collision, cancellation, and
+      integrity-verification scenarios. No platform may ship as unsupported.
 - [ ] Payload bytes relay through the local UI host and never pass through
       Webview messages, VS Code command payloads, or synchronized settings.
 - [ ] The transport honors the verified local Managed Machine SSH projection and
@@ -514,17 +521,15 @@ and Machines that cannot reach one another.
 
 ## 13. Open decisions before Slice 0 completion
 
-1. Confirm first-release UI-host support: Linux, macOS, and Windows are the
-   intended baseline; document any temporary platform exclusion explicitly.
-2. Choose and prove the exact OpenSSH CLI/SFTP interface or a parity-preserving
+1. Choose and prove the exact OpenSSH CLI/SFTP interface or a parity-preserving
    local SFTP adapter. Do not begin product implementation on an unverified
    parser/transport assumption.
-3. Set concrete limits for directory page size, selected item count, total task
+2. Set concrete limits for directory page size, selected item count, total task
    size warning, preview size, history retention, retry attempts, and diagnostic
    truncation.
-4. Decide whether a user can override an unknown free-space result after an
+3. Decide whether a user can override an unknown free-space result after an
    explicit warning, and which protected target roots require extra confirmation.
-5. Confirm whether preserving symlinks, POSIX modes, timestamps, extended
+4. Confirm whether preserving symlinks, POSIX modes, timestamps, extended
    attributes, and ACLs is supported, skipped, or best-effort per platform.
-6. Confirm telemetry approval and retention; the product must function with no
+5. Confirm telemetry approval and retention; the product must function with no
    telemetry.

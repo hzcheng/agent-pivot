@@ -70,6 +70,7 @@ interface FileTransferEntry {
     path: string;
     kind: FileTransferDirectoryEntry['kind'];
     size?: number;
+    directoryId: string;
 }
 
 interface FileTransferRemoteDirectory extends FileTransferEntry {
@@ -567,6 +568,7 @@ export class ManagedRemoteBridgeController {
                 root.entries.set(id, {
                     path: childPath, kind,
                     ...(kind === 'file' ? { size: childStat.size } : {}),
+                    directoryId: resolvedDirectoryId,
                 });
                 if (kind === 'directory') {
                     const realChildPath = await realpath(childPath);
@@ -623,7 +625,7 @@ export class ManagedRemoteBridgeController {
             }
         } else {
             resolvedDirectoryId = this.fileTransferHandle();
-            directory = { machineId, path: '.', kind: 'directory' };
+            directory = { machineId, path: '.', kind: 'directory', directoryId: resolvedDirectoryId };
             this.fileTransferRemoteDirectories.set(resolvedDirectoryId, directory);
         }
         const rows = await listRemoteDirectory(coordinator.getExecutable(), target.alias, directory.path);
@@ -633,12 +635,14 @@ export class ManagedRemoteBridgeController {
             this.fileTransferRemoteEntries.set(id, {
                 machineId, path: entryPath, kind: row.kind,
                 ...(row.size === undefined ? {} : { size: row.size }),
+                directoryId: resolvedDirectoryId!,
             });
             if (row.kind === 'directory') {
                 this.fileTransferRemoteDirectories.set(id, {
                     machineId,
                     path: entryPath,
                     kind: 'directory',
+                    directoryId: id,
                 });
             }
             return { id, name: row.name, kind: row.kind, ...(row.size === undefined ? {} : { size: row.size }) };
@@ -747,7 +751,8 @@ export class ManagedRemoteBridgeController {
                 throw new Error('The selected local source is no longer available. Browse it again.');
             }
             const entries = entryIds.map(id => root.entries.get(id));
-            if (entries.some(entry => !entry || entry.kind === 'symlink' || entry.kind === 'unsupported')) {
+            if (entries.some(entry => !entry || entry.directoryId !== endpoint.directoryId
+                || entry.kind === 'symlink' || entry.kind === 'unsupported')) {
                 throw new Error('Select only regular files or folders from the current local directory.');
             }
             return { kind: 'local', entries: entries as FileTransferEntry[] };
@@ -758,6 +763,7 @@ export class ManagedRemoteBridgeController {
         await this.ensureProjectionReady(slot);
         const entries = entryIds.map(id => this.fileTransferRemoteEntries.get(id));
         if (entries.some(entry => !entry || entry.machineId !== endpoint.machineId
+            || entry.directoryId !== endpoint.directoryId
             || entry.kind === 'symlink' || entry.kind === 'unsupported')) {
             throw new Error('Select only regular files or folders from the current Managed Machine directory.');
         }

@@ -238,6 +238,34 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
     assert.equal(rejected.status, 'failed');
 });
 
+test('FILE-TRANSFER-LOCAL-BROWSE-002 binds selected file handles to the reviewed source directory', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-bound-entry-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(root, 'child'));
+    fs.writeFileSync(path.join(root, 'child', 'notes.txt'), 'hello', 'utf8');
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { throw new Error('local source validation must not read catalog'); },
+    }, {
+        async create() { return {}; },
+    }, 'session-12345678', {
+        platform: 'linux', openTerminal() {}, async writeClipboard() {},
+        async selectLocalDirectory() { return root; },
+    });
+    const selected = await controller.execute(request('selectFileTransferLocalRoot'));
+    const child = selected.value.entries.find(entry => entry.name === 'child');
+    const nested = await controller.execute({
+        ...request('listFileTransferLocalDirectory'),
+        fileTransfer: { kind: 'localRoot', rootId: selected.value.rootId, directoryId: child.id },
+    });
+    const nestedFile = nested.value.entries.find(entry => entry.name === 'notes.txt');
+    await assert.rejects(
+        () => controller.resolveFileTransferSource(undefined, {
+            kind: 'local', rootId: selected.value.rootId, directoryId: selected.value.directoryId,
+        }, [nestedFile.id]),
+        /current local directory/i,
+    );
+});
+
 test('FILE-TRANSFER-COPY-001 rejects local-to-local copy even with approved handles', async t => {
     const sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-source-'));
     const destinationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-destination-'));

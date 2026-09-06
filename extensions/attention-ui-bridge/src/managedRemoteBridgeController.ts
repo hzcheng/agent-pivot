@@ -186,6 +186,40 @@ function listRemoteDirectory(
     });
 }
 
+function remotePathExists(
+    sshExecutable: string,
+    alias: string,
+    targetPath: string,
+): Promise<boolean> {
+    const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
+    return new Promise((resolve, reject) => {
+        const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const stdout: Buffer[] = [];
+        process.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
+        process.on('error', error => reject(new Error(`Could not start SFTP: ${error.message}`)));
+        process.on('close', code => {
+            if (code !== 0) {
+                reject(new Error('Could not inspect the remote copy destination.'));
+                return;
+            }
+            const output = Buffer.concat(stdout).toString('utf8');
+            resolve(/^[-bcdlps][rwxStTs-]{9}\s/mu.test(output));
+        });
+        // The leading dash keeps a missing path from failing the whole batch.
+        process.stdin.end(`-ls -ld ${quoteSftpPath(targetPath)}\n`);
+    });
+}
+
+async function localPathExists(targetPath: string): Promise<boolean> {
+    try {
+        await lstat(targetPath);
+        return true;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') { return false; }
+        throw error;
+    }
+}
+
 function parseSftpLongListing(output: string): RemoteDirectoryRow[] {
     const rows: RemoteDirectoryRow[] = [];
     for (const line of output.split(/\r?\n/u)) {
@@ -573,6 +607,17 @@ export class ManagedRemoteBridgeController {
             const destination = await this.resolveFileTransferDestination(slot, request.destination);
             for (const entry of source.entries) {
                 if (active.cancelled) { throw new Error('File copy was cancelled.'); }
+                const destinationPath = destination.kind === 'local'
+                    ? path.join(destination.path, path.basename(entry.path))
+                    : remoteChildPath(destination.path, path.basename(entry.path));
+                const collision = destination.kind === 'local'
+                    ? await localPathExists(destinationPath)
+                    : await remotePathExists(
+                        coordinator.getExecutable(), destination.alias, destinationPath,
+                    );
+                if (collision) {
+                    throw new Error(`Copy target already exists: ${path.basename(entry.path)}. Choose another folder.`);
+                }
                 await copyFileTransferEntry(
                     coordinator.getExecutable(),
                     source.kind === 'managedMachine' && destination.kind === 'managedMachine',

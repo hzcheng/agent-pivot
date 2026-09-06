@@ -36,8 +36,8 @@ function renderAddMachineForm(): string {
     return `<form id="managed-machine-form" class="managed-machine-form" data-managed-machine-form hidden>
         <div class="managed-machine-form-heading"><strong>Add Machine</strong><span>Connection details are saved to your VS Code User settings.</span></div>
         <div class="managed-machine-form-fields">
-            <label>Machine name<input name="name" autocomplete="off" required maxlength="256" placeholder="Build server"></label>
-            <label>Host<input name="host" autocomplete="off" required maxlength="256" placeholder="build.example.com"></label>
+            <label>Machine name<input name="name" autocomplete="off" required maxlength="128" placeholder="Build server"></label>
+            <label>Host<input name="host" autocomplete="off" required maxlength="253" placeholder="build.example.com"></label>
             <label>SSH user<input name="user" autocomplete="username" required maxlength="256" placeholder="developer"></label>
             <label>Port<input name="port" type="number" inputmode="numeric" required min="1" max="65535" value="22"></label>
         </div>

@@ -1,5 +1,7 @@
 'use strict';
 
+import { isManagedMachine } from './validation';
+
 export const MANAGED_REMOTE_MANAGEMENT_PROTOCOL_VERSION = 1;
 
 export type ManagedRemoteManagementOperation =
@@ -68,9 +70,9 @@ function parseMachineInput(value: unknown): ManagedRemoteMachineInput | null {
     if (!isRecord(value)
         || Object.keys(value).length !== 4
         || !['name', 'host', 'user', 'port'].every(key => Object.prototype.hasOwnProperty.call(value, key))
-        || !isBoundedIdentity(value.name)
-        || !isBoundedIdentity(value.host)
-        || !isBoundedIdentity(value.user)
+        || typeof value.name !== 'string'
+        || typeof value.host !== 'string'
+        || typeof value.user !== 'string'
         || typeof value.port !== 'number' || !Number.isInteger(value.port)
         || value.port < 1 || value.port > 65535) {
         return null;
@@ -78,7 +80,12 @@ function parseMachineInput(value: unknown): ManagedRemoteMachineInput | null {
     const name = value.name.trim();
     const host = value.host.trim();
     const user = value.user.trim();
-    return name && host && user ? { name, host, user, port: value.port } : null;
+    const input = { name, host, user, port: value.port };
+    return isManagedMachine({
+        id: 'machine:inline-input',
+        name,
+        connection: { kind: 'ssh', host, user, port: value.port },
+    }) ? input : null;
 }
 
 export function readManagedRemoteManagementCorrelation(

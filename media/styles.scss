@@ -760,6 +760,10 @@ body .project {
 .managed-machine-form-submit:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .managed-machine-form-submit:disabled { opacity: .55; cursor: progress; }
 
+@media (max-width: 290px) {
+    .managed-machine-form-fields { grid-template-columns: minmax(0, 1fr); }
+}
+
 .machine-toolbar-button {
     position: relative;
     display: inline-flex;

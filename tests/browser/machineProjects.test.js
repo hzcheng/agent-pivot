@@ -401,6 +401,9 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
         name: 'Build', host: 'build.example.com', user: 'dev', port: 22022,
     });
     assert.equal(await page.locator('[data-managed-operation="addMachine"]').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('[data-managed-machine-form]').isVisible(), true,
+        'Escape must not hide a form whose add request is still pending');
 
     await page.evaluate(({ html, requestId }) => {
         document.getElementById('panel').innerHTML = html;
@@ -411,8 +414,28 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
         } }));
     }, { html: managedMarkup(), requestId: request.requestId });
     assert.equal(await page.locator('[data-managed-operation="addMachine"]').isEnabled(), true);
+    assert.equal(await page.locator('[data-action="show-add-machine-form"]')
+        .evaluate(node => document.activeElement === node), true,
+    'the replacement panel must return focus to Add Machine after a successful add');
     assert.equal(await page.locator('[data-machine-projects-announcer]').textContent(),
         'Changes saved to your VS Code User settings.');
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 validates inline Machine drafts before posting', async t => {
+    const page = await openPage(t, 260, managedMarkup());
+    await page.click('[data-action="show-add-machine-form"]');
+    await page.locator('[data-managed-machine-form] input[name="name"]').fill('Build');
+    await page.locator('[data-managed-machine-form] input[name="host"]').fill('not a host');
+    await page.locator('[data-managed-machine-form] input[name="user"]').fill('dev');
+    await page.locator('[data-managed-machine-form]').evaluate(form => form.requestSubmit());
+    assert.equal(await page.evaluate(() => window.messages.length), 0);
+    assert.equal(await page.locator('[data-managed-machine-form-error]').textContent(),
+        'Enter a valid DNS name or IP address.');
+    const geometry = await page.locator('[data-managed-machine-form]').evaluate(form => ({
+        scrollWidth: form.scrollWidth,
+        clientWidth: form.clientWidth,
+    }));
+    assert.equal(geometry.scrollWidth, geometry.clientWidth);
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-003 keeps direct management without a migration button in the derived view', async t => {

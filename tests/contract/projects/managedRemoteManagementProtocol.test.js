@@ -88,6 +88,16 @@ test('MANAGED-REMOTE-MANAGEMENT-001 rejects payload injection and target-shape d
         expectedRevisionId: null,
         input: { name: 'Build', host: 'build.example.com', user: 'dev', port: 70000 },
     }), null);
+    for (const input of [
+        { name: 'x'.repeat(129), host: 'build.example.com', user: 'dev', port: 22 },
+        { name: 'Build', host: 'not a host', user: 'dev', port: 22 },
+        { name: 'Build', host: 'build.example.com', user: '-dev', port: 22 },
+    ]) {
+        assert.equal(parseManagedRemoteManagementRequest({
+            type: 'managed-remote-action', version: 1, requestId, operation: 'addMachine',
+            expectedRevisionId: null, input,
+        }), null, `must reject invalid persisted Machine input: ${JSON.stringify(input)}`);
+    }
 });
 
 test('MANAGED-REMOTE-MANAGEMENT-001 creates bounded correlated settlements', () => {

@@ -247,6 +247,26 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
     assert.equal(byPath.value.displayPath, 'folder');
 });
 
+test('FILE-TRANSFER-LOCAL-BROWSE-003 marks a bounded local directory listing as incomplete', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-page-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    for (let index = 0; index < 1_001; index += 1) {
+        fs.writeFileSync(path.join(root, `file-${String(index).padStart(4, '0')}.txt`), '', 'utf8');
+    }
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { throw new Error('local browsing must not read catalog'); },
+    }, {
+        async create() { return {}; },
+    }, 'session-12345678', {
+        platform: 'linux', openTerminal() {}, async writeClipboard() {},
+        async selectLocalDirectory() { return root; },
+    });
+    const selected = await controller.execute(request('selectFileTransferLocalRoot'));
+    assert.equal(selected.status, 'ok');
+    assert.equal(selected.value.entries.length, 1_000);
+    assert.equal(selected.value.hasMore, true);
+});
+
 test('FILE-TRANSFER-LOCAL-BROWSE-002 binds selected file handles to the reviewed source directory', async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-bound-entry-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));

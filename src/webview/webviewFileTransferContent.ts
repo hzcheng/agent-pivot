@@ -31,7 +31,10 @@ function pane(side: 'left' | 'right'): string {
                 <strong data-file-transfer-pane-name>Choose an endpoint</strong>
                 <span data-file-transfer-pane-path>—</span>
             </div>
-            <button type="button" data-file-transfer-refresh="${side}" aria-label="Refresh ${label}" title="Refresh" disabled>↻</button>
+            <div class="file-transfer-pane-actions">
+                <button type="button" data-file-transfer-up="${side}" aria-label="Go up in ${label}" title="Up" disabled>↑</button>
+                <button type="button" data-file-transfer-refresh="${side}" aria-label="Refresh ${label}" title="Refresh" disabled>↻</button>
+            </div>
         </header>
         <div class="file-transfer-pane-status" data-file-transfer-pane-status role="status">Choose an endpoint to browse its files.</div>
         <ul class="file-transfer-file-list" data-file-transfer-file-list hidden></ul>

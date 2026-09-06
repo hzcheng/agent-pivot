@@ -1905,6 +1905,11 @@ body .project {
     font-size: 17px;
 }
 
+.file-transfer-pane-actions {
+    display: flex;
+    gap: 4px;
+}
+
 .file-transfer-pane-status {
     display: grid;
     min-height: 128px;

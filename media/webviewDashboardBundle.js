@@ -13085,6 +13085,8 @@ function initDashboard(options) {
                 pendingScrollRestoreTab = 'ai';
                 aiPanel.ensureAiPanel();
             }
+        } else if (activeTab === 'file-transfer' && tabChanged) {
+            options.postMessage({ type: 'file-transfer-request-history', version: 1 });
         } else if (tabChanged) {
             restoreScroll(activeTab);
         }
@@ -13307,6 +13309,7 @@ function initDashboard(options) {
         var localRoots = { left: null, right: null };
         var pendingLocalRootRequests = { left: null, right: null };
         var selectedEntries = { left: new Set(), right: new Set() };
+        var directoryHistory = { left: [], right: [] };
         var pendingCopyRequestId = null;
         var activeTransferCount = 0;
         var activeCopyTaskId = null;
@@ -13357,6 +13360,7 @@ function initDashboard(options) {
             var path = pane.querySelector('[data-file-transfer-pane-path]');
             var status = pane.querySelector('[data-file-transfer-pane-status]');
             var refresh = pane.querySelector('[data-file-transfer-refresh]');
+            var up = pane.querySelector('[data-file-transfer-up]');
             var fileList = pane.querySelector('[data-file-transfer-file-list]');
             var option = selector.options && selector.selectedIndex >= 0
                 ? selector.options[selector.selectedIndex] : null;
@@ -13366,6 +13370,7 @@ function initDashboard(options) {
                 if (path) path.textContent = '—';
                 if (status) status.textContent = 'Choose an endpoint to browse its files.';
                 if (refresh) refresh.disabled = true;
+                if (up) up.disabled = true;
                 if (fileList) {
                     fileList.textContent = '';
                     fileList.hidden = true;
@@ -13400,6 +13405,7 @@ function initDashboard(options) {
                 fileList.hidden = !localRoot;
             }
             if (refresh) refresh.disabled = !localRoot;
+            if (up) up.disabled = !localRoot || directoryHistory[side].length === 0;
         }
 
         function updatePair() {
@@ -13458,10 +13464,13 @@ function initDashboard(options) {
             });
         }
 
-        function openDirectory(side, directoryId) {
+        function openDirectory(side, directoryId, remember) {
             var selector = selectorFor(side);
             var root = localRoots[side];
             if (!selector || !root || !directoryId) return;
+            if (remember !== false && root.directoryId !== directoryId) {
+                directoryHistory[side].push(root);
+            }
             var requestId = 'file-transfer-open-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
             pendingLocalRootRequests[side] = requestId;
@@ -13500,6 +13509,7 @@ function initDashboard(options) {
             localRoots[side] = null;
             pendingLocalRootRequests[side] = null;
             selectedEntries[side].clear();
+            directoryHistory[side] = [];
             if (reviewSheet) reviewSheet.hidden = true;
             if (selector.value === 'local') {
                 requestLocalRoot(side);
@@ -13621,6 +13631,21 @@ function initDashboard(options) {
         if (review) review.addEventListener('click', openReview);
         if (reviewCancel) reviewCancel.addEventListener('click', closeReview);
         if (startCopy) startCopy.addEventListener('click', startReviewedCopy);
+        Array.from(panel.querySelectorAll('[data-file-transfer-refresh]')).forEach(function (button) {
+            button.addEventListener('click', function () {
+                var side = button.getAttribute('data-file-transfer-refresh');
+                var root = side === 'left' || side === 'right' ? localRoots[side] : null;
+                if (root) openDirectory(side, root.directoryId, false);
+            });
+        });
+        Array.from(panel.querySelectorAll('[data-file-transfer-up]')).forEach(function (button) {
+            button.addEventListener('click', function () {
+                var side = button.getAttribute('data-file-transfer-up');
+                if (side !== 'left' && side !== 'right') return;
+                var previous = directoryHistory[side].pop();
+                if (previous) openDirectory(side, previous.directoryId, false);
+            });
+        });
         if (tasks) tasks.addEventListener('click', function () {
             if (!activeCopyTaskId) return;
             tasks.disabled = true;
@@ -13778,6 +13803,8 @@ function initDashboard(options) {
     } else if (activeTab === 'ai') {
         pendingScrollRestoreTab = 'ai';
         aiPanel.ensureAiPanel();
+    } else if (activeTab === 'file-transfer') {
+        options.postMessage({ type: 'file-transfer-request-history', version: 1 });
     }
     document.body.classList.remove('preload');
     notifyActiveTabChanged();

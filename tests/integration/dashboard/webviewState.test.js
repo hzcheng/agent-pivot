@@ -11,6 +11,7 @@ const {
     buildWorkspaceDashboardSearchCatalog,
 } = require('../../../out/webview/dashboardViewModel');
 const { getDashboardWebviewOptions } = require('../../../out/dashboard/webviewOptions');
+const { getFileTransferContent } = require('../../../out/webview/webviewFileTransferContent');
 
 const root = path.join(__dirname, '..', '..', '..');
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
@@ -242,9 +243,12 @@ function createDashboardHarness({
     projectsButton.setAttribute('data-dashboard-tab', 'projects');
     const aiButton = createElement('dashboard-tab-ai-button');
     aiButton.setAttribute('data-dashboard-tab', 'ai');
+    const fileTransferButton = createElement('dashboard-tab-file-transfer-button');
+    fileTransferButton.setAttribute('data-dashboard-tab', 'file-transfer');
     const openPanel = createElement('dashboard-tab-open');
     const projectsPanel = createElement('dashboard-tab-projects');
     const aiPanel = createElement('dashboard-panel-ai');
+    const fileTransferPanel = createElement('dashboard-tab-file-transfer');
     const projectsLoading = createElement();
     const aiLoading = createElement();
     let promptSubtabSelections = 0;
@@ -282,6 +286,7 @@ function createDashboardHarness({
         'dashboard-tab-open': openPanel,
         'dashboard-tab-projects': projectsPanel,
         'dashboard-panel-ai': aiPanel,
+        'dashboard-tab-file-transfer': fileTransferPanel,
         'dashboard-search-results': searchResults,
         'dashboard-search-catalog': catalogElement,
     };
@@ -305,7 +310,7 @@ function createDashboardHarness({
                     ? collapseButton
                     : null,
             querySelectorAll: selector => selector === '[data-dashboard-tab]'
-                ? [openButton, projectsButton, aiButton]
+                ? [openButton, projectsButton, aiButton, fileTransferButton]
                 : [],
         },
         sessionStorage: {
@@ -371,9 +376,11 @@ function createDashboardHarness({
         openButton,
         projectsButton,
         aiButton,
+        fileTransferButton,
         openPanel,
         projectsPanel,
         aiPanel,
+        fileTransferPanel,
         projectsLoading,
         aiLoading,
         collapseButton,
@@ -411,6 +418,29 @@ function loadWebviewModules(options = {}) {
 }
 
 const webviewModules = loadWebviewModules();
+
+test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a source', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc',
+        lifecycle: 'active',
+        catalog: {
+            machines: [
+                { id: 'machine-b', name: 'Staging', connection: { kind: 'ssh', host: 'staging', user: 'deploy', port: 22 } },
+                { id: 'machine-a', name: 'Build & Test', connection: { kind: 'ssh', host: 'build', user: 'dev', port: 22 } },
+            ],
+            environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    });
+    assert.match(html, /File Transfer/);
+    assert.match(html, /data-file-transfer-endpoint="left"/);
+    assert.match(html, /data-file-transfer-endpoint="right"/);
+    assert.match(html, /This Computer…/);
+    assert.match(html, /Build &amp; Test/);
+    assert.doesNotMatch(html, /Source endpoint|Destination endpoint/);
+});
 
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
@@ -1468,17 +1498,16 @@ test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-leve
     assert.equal(harness.controller.getActiveTab(), 'ai');
     assert.equal(harness.collapseButton.disabled, true);
 
+    harness.fileTransferButton.dispatch('click');
+    assert.equal(harness.controller.getActiveTab(), 'file-transfer');
+    assert.equal(harness.collapseButton.getAttribute('title'), 'No groups to collapse in File Transfer');
+
+    harness.fileTransferButton.focus = () => harness.fileTransferButton.classList.add('focused');
     harness.openButton.dispatch('keydown', {
         key: 'ArrowLeft',
         preventDefault: () => { prevented += 1; },
     });
-    assert.equal(harness.aiButton.classList.contains('focused'), false);
-    harness.aiButton.focus = () => harness.aiButton.classList.add('focused');
-    harness.openButton.dispatch('keydown', {
-        key: 'ArrowLeft',
-        preventDefault: () => { prevented += 1; },
-    });
-    assert.equal(harness.aiButton.classList.contains('focused'), true);
+    assert.equal(harness.fileTransferButton.classList.contains('focused'), true);
 
     harness.openButton.focus = () => harness.openButton.classList.add('focused');
     harness.projectsButton.dispatch('keydown', {
@@ -1487,17 +1516,17 @@ test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-leve
     });
     assert.equal(harness.openButton.classList.contains('focused'), true);
 
-    harness.aiButton.classList.remove('focused');
+    harness.fileTransferButton.classList.remove('focused');
     harness.projectsButton.dispatch('keydown', {
         key: 'End',
         preventDefault: () => { prevented += 1; },
     });
-    assert.equal(harness.aiButton.classList.contains('focused'), true);
-    assert.equal(prevented, 4);
+    assert.equal(harness.fileTransferButton.classList.contains('focused'), true);
+    assert.equal(prevented, 3);
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'ArrowRight'), 'ai');
-    assert.equal(harness.context.getAdjacentDashboardTab('ai', 'ArrowRight'), 'open');
+    assert.equal(harness.context.getAdjacentDashboardTab('ai', 'ArrowRight'), 'file-transfer');
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'Home'), 'open');
-    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'End'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'End'), 'file-transfer');
 });
 
 test('WEBVIEW-AI-DASHBOARD-001 keeps AI retryable when coherent Prompt mounting fails', async t => {
@@ -2031,7 +2060,7 @@ test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 PROJECT-INCREMENTAL-REFRESH-001 ignor
 test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent background-tab scroll state', () => {
     const harness = createDashboardHarness();
     assert.equal(harness.context.normalizeDashboardTab('unknown'), 'open');
-    assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'file-transfer');
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'ArrowRight'), 'ai');
     assert.equal(harness.context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 1, html: '',

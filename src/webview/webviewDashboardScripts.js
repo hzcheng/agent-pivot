@@ -19,7 +19,7 @@ function writeDashboardSessionValue(key, value) {
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'agentPivot.activeDashboardTab';
-    var scrollPositions = { open: 0, projects: 0, ai: 0 };
+    var scrollPositions = { open: 0, projects: 0, ai: 0, 'file-transfer': 0 };
     var activeTab = normalizeDashboardTab(readDashboardSessionValue(storageKey));
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
@@ -36,6 +36,7 @@ function initDashboard(options) {
         open: document.getElementById('dashboard-tab-open'),
         projects: document.getElementById('dashboard-tab-projects'),
         ai: document.getElementById('dashboard-panel-ai'),
+        'file-transfer': document.getElementById('dashboard-tab-file-transfer'),
     };
     var tablist = document.querySelector ? document.querySelector('[role="tablist"]') : null;
     var collapseButton = document.querySelector ? document.querySelector('[data-action="toggle-all-groups"]') : null;
@@ -101,11 +102,14 @@ function initDashboard(options) {
         if (typeof options.onActiveTabChanged === 'function') {
             options.onActiveTabChanged(activeTab);
         }
-        if (collapseButton && activeTab === 'ai') {
+        if (collapseButton && (activeTab === 'ai' || activeTab === 'file-transfer')) {
             collapseButton.disabled = true;
             collapseButton.setAttribute('aria-disabled', 'true');
-            collapseButton.setAttribute('title', 'No groups to collapse in AI');
-            collapseButton.setAttribute('aria-label', 'No groups to collapse in AI');
+            const unavailableMessage = activeTab === 'ai'
+                ? 'No groups to collapse in AI'
+                : 'No groups to collapse in File Transfer';
+            collapseButton.setAttribute('title', unavailableMessage);
+            collapseButton.setAttribute('aria-label', unavailableMessage);
         }
     }
 
@@ -382,6 +386,79 @@ function initDashboard(options) {
         getPendingSkillReveal: () => pendingSkillReveal,
         setPendingSkillReveal: value => { pendingSkillReveal = value; },
     });
+
+    function initializeFileTransferPanel() {
+        var panel = panels['file-transfer'];
+        if (!panel || !panel.querySelectorAll) {
+            return;
+        }
+        var selectors = Array.from(panel.querySelectorAll('[data-file-transfer-endpoint]'));
+        var panes = {
+            left: panel.querySelector('[data-file-transfer-pane="left"]'),
+            right: panel.querySelector('[data-file-transfer-pane="right"]'),
+        };
+        var hint = panel.querySelector('[data-file-transfer-pair-hint]');
+        var summary = panel.querySelector('[data-file-transfer-summary]');
+        var review = panel.querySelector('[data-file-transfer-review]');
+
+        function selectorFor(side) {
+            return selectors.find(function (selector) {
+                return selector.getAttribute('data-file-transfer-endpoint') === side;
+            }) || null;
+        }
+
+        function updatePane(side, selector) {
+            var pane = panes[side];
+            if (!pane || !selector) {
+                return;
+            }
+            var name = pane.querySelector('[data-file-transfer-pane-name]');
+            var path = pane.querySelector('[data-file-transfer-pane-path]');
+            var status = pane.querySelector('[data-file-transfer-pane-status]');
+            var refresh = pane.querySelector('[data-file-transfer-refresh]');
+            var option = selector.options && selector.selectedIndex >= 0
+                ? selector.options[selector.selectedIndex] : null;
+            var value = selector.value || '';
+            if (!value) {
+                if (name) name.textContent = 'Choose an endpoint';
+                if (path) path.textContent = '—';
+                if (status) status.textContent = 'Choose an endpoint to browse its files.';
+                if (refresh) refresh.disabled = true;
+                return;
+            }
+            if (name) name.textContent = option ? option.textContent : 'Selected endpoint';
+            if (path) path.textContent = value === 'local' ? 'Choose a local folder' : 'Managed Machine';
+            if (status) {
+                status.textContent = value === 'local'
+                    ? 'Choose a local folder to begin browsing.'
+                    : 'Managed Machine selected. File browsing will be enabled by the local UI Bridge.';
+            }
+            if (refresh) refresh.disabled = true;
+        }
+
+        function updatePair() {
+            var left = selectorFor('left');
+            var right = selectorFor('right');
+            if (left && right && left.value && left.value === right.value) {
+                right.value = '';
+                if (hint) hint.textContent = 'Choose two different endpoints.';
+            } else if (left && right && left.value && right.value) {
+                if (hint) hint.textContent = 'Endpoints are paired. Select files in either pane to choose a copy direction.';
+            } else if (hint) {
+                hint.textContent = 'Select two endpoints. They are equal until you select files to copy.';
+            }
+            updatePane('left', left);
+            updatePane('right', right);
+            if (summary) summary.textContent = 'Select files in either pane to choose a copy direction.';
+            if (review) review.disabled = true;
+        }
+
+        selectors.forEach(function (selector) {
+            selector.addEventListener('change', updatePair);
+        });
+        updatePair();
+    }
+    initializeFileTransferPanel();
 
 
 

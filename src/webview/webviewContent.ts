@@ -40,6 +40,7 @@ import {
 import * as Icons from '../webviewIcons';
 import { sanitizeCssColor } from './webviewCssSanitize';
 import type { ManagedRemoteManagementSnapshot } from '../projects/managedRemote/managementController';
+import { getFileTransferContent } from './webviewFileTransferContent';
 
 export { sanitizeCssColor };
 import type { OpenWorkspaceBridgeStatus } from '../openWorkspaces/bridgeClient';
@@ -188,6 +189,10 @@ export function getStewardContent(
                     <span class="dashboard-tab-icon" aria-hidden="true">${Icons.sparkles}</span>
                     <span class="dashboard-tab-label">AI</span>
                 </button>
+                <button type="button" id="dashboard-tab-file-transfer-button" class="dashboard-tab-button" role="tab" aria-selected="false" aria-controls="dashboard-tab-file-transfer" tabindex="-1" data-dashboard-tab="file-transfer" aria-label="File Transfer" title="File Transfer">
+                    <span class="dashboard-tab-icon" aria-hidden="true">${Icons.handoff}</span>
+                    <span class="dashboard-tab-label">TRANSFER</span>
+                </button>
             </div>
         </div>
         <main class="dashboard-content">
@@ -201,6 +206,9 @@ export function getStewardContent(
             </section>
             <section id="dashboard-panel-ai" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-ai-button" hidden>
                 <div class="dashboard-ai-loading" role="status" hidden>Loading AI configuration…</div>
+            </section>
+            <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel" role="tabpanel" aria-labelledby="dashboard-tab-file-transfer-button" hidden>
+                ${getFileTransferContent(managedRemoteSnapshot)}
             </section>
             <section id="dashboard-search-results" class="dashboard-search-results" aria-label="Search results" hidden></section>
         </main>

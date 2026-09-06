@@ -1,10 +1,10 @@
 function normalizeDashboardTab(tab) {
-    return tab === 'projects' || tab === 'ai' ? tab : 'open';
+    return tab === 'projects' || tab === 'ai' || tab === 'file-transfer' ? tab : 'open';
 }
 
 function getAdjacentDashboardTab(tab, key) {
     tab = normalizeDashboardTab(tab);
-    var tabs = ['open', 'projects', 'ai'];
+    var tabs = ['open', 'projects', 'ai', 'file-transfer'];
     var currentIndex = tabs.indexOf(tab);
     if (key === 'Home') {
         return tabs[0];

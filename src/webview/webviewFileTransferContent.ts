@@ -45,6 +45,10 @@ function pane(side: 'left' | 'right'): string {
             </div>
         </header>
         <div class="file-transfer-pane-toolbar" data-file-transfer-pane-toolbar="${side}">
+            <label class="file-transfer-filter">
+                <span>Filter</span>
+                <input type="search" data-file-transfer-filter="${side}" aria-label="Filter loaded files in ${label}" placeholder="Loaded files" disabled>
+            </label>
             <label class="file-transfer-show-hidden">
                 <input type="checkbox" data-file-transfer-show-hidden="${side}" disabled>
                 <span>Show hidden</span>

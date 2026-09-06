@@ -13434,6 +13434,7 @@ function initDashboard(options) {
         var directoryHistory = { left: [], right: [] };
         var fileTransferSort = { left: 'name', right: 'name' };
         var showHiddenEntries = { left: false, right: false };
+        var fileTransferFilter = { left: '', right: '' };
         var pendingCopyRequestId = null;
         var activeCopyTaskId = null;
         var pendingCopyItemCount = 0;
@@ -13598,6 +13599,7 @@ function initDashboard(options) {
             var status = pane.querySelector('[data-file-transfer-pane-status]');
             var refresh = pane.querySelector('[data-file-transfer-refresh]');
             var up = pane.querySelector('[data-file-transfer-up]');
+            var filter = pane.querySelector('[data-file-transfer-filter]');
             var showHidden = pane.querySelector('[data-file-transfer-show-hidden]');
             var sort = pane.querySelector('[data-file-transfer-sort]');
             var fileList = pane.querySelector('[data-file-transfer-file-list]');
@@ -13610,6 +13612,7 @@ function initDashboard(options) {
                 if (status) status.textContent = 'Choose an endpoint to browse its files.';
                 if (refresh) refresh.disabled = true;
                 if (up) up.disabled = true;
+                if (filter) filter.disabled = true;
                 if (showHidden) showHidden.disabled = true;
                 if (sort) sort.disabled = true;
                 if (fileList) {
@@ -13621,8 +13624,13 @@ function initDashboard(options) {
             if (name) name.textContent = option ? option.textContent : 'Selected endpoint';
             var directoryView = localRoots[side];
             var visibleEntries = directoryView ? directoryView.entries.filter(function (entry) {
-                return showHiddenEntries[side] || entry.name.charAt(0) !== '.';
+                return (showHiddenEntries[side] || entry.name.charAt(0) !== '.')
+                    && entry.name.toLocaleLowerCase().includes(fileTransferFilter[side]);
             }) : [];
+            if (filter) {
+                filter.disabled = !directoryView;
+                filter.value = fileTransferFilter[side];
+            }
             if (showHidden) {
                 showHidden.disabled = !directoryView;
                 showHidden.checked = showHiddenEntries[side];
@@ -13803,6 +13811,9 @@ function initDashboard(options) {
             var leftShowHidden = showHiddenEntries.left;
             showHiddenEntries.left = showHiddenEntries.right;
             showHiddenEntries.right = leftShowHidden;
+            var leftFilter = fileTransferFilter.left;
+            fileTransferFilter.left = fileTransferFilter.right;
+            fileTransferFilter.right = leftFilter;
             var leftFailure = paneFailures.left;
             paneFailures.left = paneFailures.right;
             paneFailures.right = leftFailure;
@@ -14130,6 +14141,14 @@ function initDashboard(options) {
         if (conflictPolicy) conflictPolicy.addEventListener('change', updateReviewStartAvailability);
         if (retry) retry.addEventListener('click', retryFailedCopy);
         if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
+        Array.from(panel.querySelectorAll('[data-file-transfer-filter]')).forEach(function (input) {
+            input.addEventListener('input', function () {
+                var side = input.getAttribute('data-file-transfer-filter');
+                if (side !== 'left' && side !== 'right') return;
+                fileTransferFilter[side] = input.value.slice(0, 255).toLocaleLowerCase();
+                updatePair();
+            });
+        });
         Array.from(panel.querySelectorAll('[data-file-transfer-show-hidden]')).forEach(function (checkbox) {
             checkbox.addEventListener('change', function () {
                 var side = checkbox.getAttribute('data-file-transfer-show-hidden');

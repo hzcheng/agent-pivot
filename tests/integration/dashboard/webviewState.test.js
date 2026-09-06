@@ -555,6 +555,19 @@ test('FILE-TRANSFER-UI-013 navigates known directories through opaque breadcrumb
     assert.match(dashboardSource, /openDirectory\(side, directory\.directoryId, false\);/);
 });
 
+test('FILE-TRANSFER-UI-014 filters only the files already loaded in each pane', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: { machines: [], environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [] },
+    });
+    assert.match(html, /data-file-transfer-filter="left"/);
+    assert.match(html, /aria-label="Filter loaded files in Left endpoint files"/);
+    assert.match(dashboardSource, /entry\.name\.toLocaleLowerCase\(\)\.includes\(fileTransferFilter\[side\]\)/);
+    assert.match(dashboardSource, /fileTransferFilter\[side\] = input\.value\.slice\(0, 255\)\.toLocaleLowerCase\(\);/);
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

@@ -229,6 +229,11 @@ import {
     parsePathAsUri,
 } from './projects/openProjectService';
 import {
+    collectLegacyAliases,
+    LegacyGroupRecord,
+    LegacySshEndpoint,
+} from './projects/managedRemote/legacyImport';
+import {
     findManagedEnvironmentForWorkspace,
     findManagedDevContainerSaveTarget,
     findManagedProjectForOpenProject,
@@ -3725,6 +3730,7 @@ async function initializeDashboard(
         switchToOpenWindow: () => workspaceNavigationQuickPickController.pickAndOpen(),
         sshToManagedMachine: () => runManagedMachineCommand('ssh'),
         copyManagedSshCommand: () => runManagedMachineCommand('copy'),
+        importLegacyProjects: () => importLegacyProjectsFromBackup(),
     };
 
     ownResource(() => vscode.workspace.onDidChangeConfiguration(
@@ -4215,6 +4221,68 @@ async function initializeDashboard(
             project: { name: projectName, remotePath: target.remotePath },
         });
         return true;
+    }
+
+
+    /**
+     * One-shot import of a legacy Group[] export into the Managed Remote catalog.
+     *
+     * Each SSH host alias is resolved against the user's own SSH config through
+     * the UI Bridge, because only the local extension host can read it. This is
+     * a manual recovery path for a dataset that predates the catalog, not an
+     * upgrade path the product maintains.
+     */
+    async function importLegacyProjectsFromBackup(): Promise<void> {
+        const picked = await vscode.window.showOpenDialog({
+            title: 'Import Projects From Legacy Backup',
+            openLabel: 'Import',
+            canSelectMany: false,
+            filters: { JSON: ['json'] },
+        });
+        const file = picked?.[0];
+        if (!file) { return; }
+        try {
+            const groups = JSON.parse(
+                Buffer.from(await vscode.workspace.fs.readFile(file)).toString('utf8'),
+            ) as LegacyGroupRecord[];
+            if (!Array.isArray(groups)) {
+                throw new Error('The backup must be an array of groups.');
+            }
+            const capability = managedRemoteCapability || await managedRemoteCapabilityPromise;
+            const endpoints = new Map<string, LegacySshEndpoint | null>();
+            for (const alias of collectLegacyAliases(groups)) {
+                const inspection = await managedRemoteBridgeClient
+                    .inspectLegacySshTarget(alias) as {
+                        endpoint?: LegacySshEndpoint;
+                    } | undefined;
+                endpoints.set(alias, inspection?.endpoint || null);
+            }
+            const unresolved = [...endpoints]
+                .filter(([, value]) => !value)
+                .map(([alias]) => alias);
+            if (unresolved.length) {
+                const proceed = await vscode.window.showWarningMessage(
+                    `Could not resolve ${unresolved.join(', ')} from this computer's SSH`
+                    + ' config. Their Projects will be skipped.',
+                    { modal: true },
+                    'Import anyway',
+                );
+                if (proceed !== 'Import anyway') { return; }
+            }
+            const { summary } = await capability.controller.importLegacyGroups(
+                groups, endpoints,
+            );
+            const detail = summary.skipped.length
+                ? ` ${summary.skipped.length} skipped.` : '';
+            await vscode.window.showInformationMessage(
+                `Imported ${summary.projects} Projects across ${summary.machines} Machines.`
+                + detail,
+            );
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logDashboardDiagnostic({ event: 'legacy-import-failed', message });
+            await vscode.window.showErrorMessage(`Agent Pivot: ${message}`);
+        }
     }
 
     function getSavedProjectForCurrentWorkspace(): Project | null {

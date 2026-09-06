@@ -75,6 +75,10 @@
                 "title": "Agent Pivot: Copy SSH Command…"
             },
             {
+                "command": "agentPivot.importLegacyProjects",
+                "title": "Agent Pivot: Import Projects From Legacy Backup…"
+            },
+            {
                 "command": "agentPivot.saveProject",
                 "title": "Agent Pivot: Save Project"
             },

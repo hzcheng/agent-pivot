@@ -9,6 +9,12 @@ import {
     ManagedRemoteCatalogService,
 } from './catalogService';
 import { distinctCandidateValues } from './causal';
+import {
+    applyLegacyGroups,
+    LegacyGroupRecord,
+    LegacyImportSummary,
+    LegacySshEndpoint,
+} from './legacyImport';
 import { createEmptyManagedRemoteCatalog, materializeManagedRemoteCatalog } from './merge';
 import {
     ManagedRemoteManagementSnapshot,
@@ -94,6 +100,28 @@ export class ManagedRemoteCatalogManagementStore implements ManagedRemoteManagem
         return this.mutate(expectedRevisionId, service => {
             service.addDevContainerProject(input);
         });
+    }
+
+    /**
+     * Apply a converted legacy Group[] store in one atomic revision.
+     *
+     * Endpoints are resolved by the caller because only the local extension
+     * host can read them; the summary is captured so the caller can report what
+     * was imported and what was left behind.
+     */
+    async importLegacyGroups(
+        expectedRevisionId: string | null,
+        groups: readonly LegacyGroupRecord[],
+        endpoints: ReadonlyMap<string, LegacySshEndpoint | null>,
+    ): Promise<{
+        snapshot: ManagedRemoteManagementSnapshot;
+        summary: LegacyImportSummary;
+    }> {
+        let summary: LegacyImportSummary | undefined;
+        const snapshot = await this.mutate(expectedRevisionId, service => {
+            summary = applyLegacyGroups(service, groups, endpoints);
+        });
+        return { snapshot, summary: summary as LegacyImportSummary };
     }
 
     editProject(

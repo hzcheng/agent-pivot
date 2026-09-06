@@ -91,25 +91,8 @@ export function classifyLegacyProjectPath(rawPath: unknown): Target {
     };
 }
 
-/**
- * Convert the legacy Group[] store into a Managed Remote catalog document.
- *
- * Groups become tags, because the new model groups Projects by the Machine they
- * belong to and a flat group has no other place to go. Local Projects are left
- * behind: they are machine-local by design and the catalog synchronizes.
- */
-export async function buildCatalogFromLegacyGroups(
-    groups: readonly LegacyGroupRecord[],
-    resolveEndpoint: LegacySshEndpointResolver,
-    options: { actorId: string; createId: (prefix: string) => string },
-): Promise<LegacyImportOutcome> {
-    const service = ManagedRemoteCatalogService.create(options.actorId, options.createId);
-    const skipped: Array<{ name: string; reason: string }> = [];
-    const machineByAlias = new Map<string, { id: string }>();
-    const containerByKey = new Map<string, { id: string }>();
-    let projects = 0;
-    let environments = 0;
-
+/** Every distinct SSH host alias the legacy Projects refer to, in first-seen order. */
+export function collectLegacyAliases(groups: readonly LegacyGroupRecord[]): string[] {
     const aliases: string[] = [];
     for (const group of groups || []) {
         for (const project of group.projects || []) {
@@ -120,9 +103,33 @@ export async function buildCatalogFromLegacyGroups(
             }
         }
     }
+    return aliases;
+}
 
-    for (const alias of aliases) {
-        const endpoint = await resolveEndpoint(alias);
+/**
+ * Apply the legacy Group[] store onto a catalog service.
+ *
+ * Groups become tags, because the new model groups Projects by the Machine they
+ * belong to and a flat group has no other place to go. Local Projects are left
+ * behind: they are machine-local by design and the catalog synchronizes.
+ *
+ * Endpoints are resolved up front by the caller because only the local
+ * extension host can read them, and applying a catalog change has to be
+ * synchronous to stay atomic.
+ */
+export function applyLegacyGroups(
+    service: ManagedRemoteCatalogService,
+    groups: readonly LegacyGroupRecord[],
+    endpoints: ReadonlyMap<string, LegacySshEndpoint | null>,
+): LegacyImportSummary {
+    const skipped: Array<{ name: string; reason: string }> = [];
+    const machineByAlias = new Map<string, { id: string }>();
+    const containerByKey = new Map<string, { id: string }>();
+    let projects = 0;
+    let environments = 0;
+
+    for (const alias of collectLegacyAliases(groups)) {
+        const endpoint = endpoints.get(alias);
         if (!endpoint || !endpoint.host || !endpoint.user) { continue; }
         const machine = service.addMachine({
             name: alias,
@@ -176,13 +183,23 @@ export async function buildCatalogFromLegacyGroups(
         }
     }
 
-    return {
-        document: service.getDocument(),
-        summary: {
-            machines: machineByAlias.size,
-            environments,
-            projects,
-            skipped,
-        },
-    };
+    return { machines: machineByAlias.size, environments, projects, skipped };
+}
+
+/**
+ * Convenience wrapper that resolves endpoints and builds a fresh catalog. Used
+ * by the offline conversion script and by tests.
+ */
+export async function buildCatalogFromLegacyGroups(
+    groups: readonly LegacyGroupRecord[],
+    resolveEndpoint: LegacySshEndpointResolver,
+    options: { actorId: string; createId: (prefix: string) => string },
+): Promise<LegacyImportOutcome> {
+    const service = ManagedRemoteCatalogService.create(options.actorId, options.createId);
+    const endpoints = new Map<string, LegacySshEndpoint | null>();
+    for (const alias of collectLegacyAliases(groups)) {
+        endpoints.set(alias, await resolveEndpoint(alias));
+    }
+    const summary = applyLegacyGroups(service, groups, endpoints);
+    return { document: service.getDocument(), summary };
 }

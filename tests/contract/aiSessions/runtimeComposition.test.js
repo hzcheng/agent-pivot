@@ -181,6 +181,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-AVAILABILITY-001 production activation exposes c
         'agentPivot.switchToOpenWindow',
         'agentPivot.sshToMachine',
         'agentPivot.copySshCommand',
+        'agentPivot.importLegacyProjects',
         'agentPivot.notify.setWebhook',
         'agentPivot.notify.showOutput',
         'agentPivot.notify.sendTest',

@@ -27,6 +27,7 @@ export interface DashboardCommandHandlers {
     switchToOpenWindow: DashboardCommandHandler;
     sshToManagedMachine: DashboardCommandHandler;
     copyManagedSshCommand: DashboardCommandHandler;
+    importLegacyProjects: DashboardCommandHandler;
 }
 
 export interface DashboardCommandRegistrationOptions<TDisposable extends DisposableLike = DisposableLike> {
@@ -61,6 +62,7 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.switchToOpenWindow', 'switchToOpenWindow'],
     ['agentPivot.sshToMachine', 'sshToManagedMachine'],
     ['agentPivot.copySshCommand', 'copyManagedSshCommand'],
+    ['agentPivot.importLegacyProjects', 'importLegacyProjects'],
 ];
 
 interface DashboardCommandGeneration {

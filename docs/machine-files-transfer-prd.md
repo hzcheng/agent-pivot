@@ -1,4 +1,4 @@
-# Machine Files / Cross-Machine Transfer PRD
+# File Transfer / Cross-Machine Transfer PRD
 
 > Status: draft for product and technical review
 > Date: 2026-09-06
@@ -6,7 +6,7 @@
 
 ## 1. Summary
 
-Agent Pivot adds **Machine Files**, a first-level workspace next to AI
+Agent Pivot adds **File Transfer**, a first-level workspace next to AI
 Conversation and Projects. It lets a user browse two transfer endpoints side by
 side and copy files or folders in either direction. An endpoint is either an
 existing Managed Machine or **This Computer**, rooted at a local directory the
@@ -62,6 +62,8 @@ can nevertheless authenticate to both through its own SSH configuration.
 - Arbitrary SSH endpoint entry, password/secret storage, or direct Webview SSH.
 - Access to unmanaged SSH aliases, local WSL, or local containers in the first
   release.
+- Local-directory-to-local-directory copy. VS Code's native Explorer remains the
+  appropriate tool for that single-computer workflow.
 - Silent overwrite, silent merge, or automatic execution initiated by an AI
   agent.
 - Resumable block-level transfer, schedules, and policy-managed deployment in
@@ -87,13 +89,13 @@ directory picker.
 
 ## 6. Information architecture
 
-Machine Files is a peer of the existing major Dashboard surfaces, not a detail
+File Transfer is a peer of the existing major Dashboard surfaces, not a detail
 screen hidden in a Project menu:
 
 ```text
 Dashboard
 ├── AI Conversation
-├── Machine Files       ← new
+├── File Transfer       ← new
 │   ├── Pair picker
 │   ├── Two-pane browser
 │   └── Transfers (running and recent)
@@ -101,12 +103,12 @@ Dashboard
     └── Managed Machines / Environments / Projects
 ```
 
-Projects may offer `Open in Machine Files` from a Machine's overflow menu as a
+Projects may offer `Open in File Transfer` from a Machine's overflow menu as a
 convenience entry point. That deep link preselects one Machine but does not make
 it the source and does not start a transfer.
 
-The page title is **Machine Files**. The primary page action is `Select
-machines`; during a running task the persistent badge/action is `Transfers (n)`.
+The page title is **File Transfer**. The primary page action is `Select
+endpoints`; during a running task the persistent badge/action is `Transfers (n)`.
 The page remains distinct from AI Conversation: an AI may open a reviewed,
 pre-filled transfer draft, but must never execute a task without a user action.
 
@@ -114,7 +116,7 @@ pre-filled transfer draft, but must never execute a task without a user action.
 
 ### 7.1 Select a pair
 
-1. The user opens Machine Files and chooses `Select endpoints`.
+1. The user opens File Transfer and chooses `Select endpoints`.
 2. A compact pair picker presents two equal controls, `Endpoint A` and
    `Endpoint B`, plus a swap-layout control. Neither control says source or
    destination.
@@ -283,7 +285,7 @@ resume is a later feature, not an implied guarantee.
 | Decision | Requirement and rationale |
 | --- | --- |
 | Pair, not fixed endpoints | Two endpoints are selected symmetrically. Each can be a Managed Machine or This Computer rooted at a user-selected local folder. Copy direction is set by the current selected pane or drag direction, avoiding needless reconfiguration for back-and-forth work. |
-| Dedicated surface | Machine Files is a peer Dashboard page because two independent remote trees, review, and task progress need more room and a durable mental model than a Project overflow dialog. |
+| Dedicated surface | File Transfer is a peer Dashboard page because two independent remote trees, review, and task progress need more room and a durable mental model than a Project overflow dialog. |
 | Visible intent | A fixed summary bar is present whenever items are selected. Copy is unavailable until its exact result can be described. |
 | Copy-first safety | The initial action is always copy. Move and sync have different destructive semantics and are excluded. |
 | Review before effects | Drag/drop, button, AI hand-off, retry, and saved plan all route through the same review policy. |
@@ -297,7 +299,7 @@ resume is a later feature, not an implied guarantee.
 ### 10.1 Architecture and trust boundary
 
 ```text
-Machine Files Webview (presentation only)
+File Transfer Webview (presentation only)
   │ request ID, Managed Machine IDs / local-root handles, UI intent, opaque entry/directory references
   ▼
 Main extension transfer controller (control plane)
@@ -361,7 +363,7 @@ and Machines that cannot reach one another.
 
 ### 10.4 UI implementation path
 
-- Add a first-level Machine Files tab/surface in the Dashboard shell and its
+- Add a first-level File Transfer tab/surface in the Dashboard shell and its
   generated/runtime Webview copies. It owns a small view state machine:
   `empty → pairing → browsing → reviewing → queued/running → settled`.
 - Use host-owned mutation messages following the existing Webview mutation
@@ -408,7 +410,7 @@ and Machines that cannot reach one another.
 
 ### Slice 1 — safe two-pane P0
 
-- First-level Machine Files surface and symmetric pair picker.
+- First-level File Transfer surface and symmetric pair picker.
 - Read-only paged browsing, pair recents, current path controls, accessibility,
   and connection preflight.
 - Multi-item copy of regular files/folders in either direction; review, Ask /
@@ -431,7 +433,7 @@ and Machines that cannot reach one another.
 
 ### Product and interaction
 
-- [ ] Machine Files is reachable as a first-level Dashboard surface next to AI
+- [ ] File Transfer is reachable as a first-level Dashboard surface next to AI
       Conversation and Projects; it is not only a Project overflow dialog.
 - [ ] The user can select exactly two different eligible endpoints and open them
       as equal left/right panes without choosing a fixed source or target. An
@@ -492,7 +494,7 @@ and Machines that cannot reach one another.
 
 ### Background behavior, privacy, and regression safety
 
-- [ ] A started transfer remains observable after leaving Machine Files and
+- [ ] A started transfer remains observable after leaving File Transfer and
       shows direction, item/byte progress, cancel, and a terminal result.
 - [ ] Restart/deactivation terminates active child processes safely and records
       the task as interrupted rather than pretending it can resume.

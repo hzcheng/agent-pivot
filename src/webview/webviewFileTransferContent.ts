@@ -60,7 +60,7 @@ export function getFileTransferContent(
         <p class="file-transfer-task-status" data-file-transfer-task-status aria-live="polite" hidden></p>
         <div class="file-transfer-pair" role="group" aria-label="Choose transfer endpoints">
             ${endpointPicker('left', options)}
-            <span class="file-transfer-pair-arrow" aria-hidden="true">↔</span>
+            <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Swap the left and right endpoint layout" aria-label="Swap endpoint layout">↔</button>
             ${endpointPicker('right', options)}
         </div>
         <p class="file-transfer-pair-hint" data-file-transfer-pair-hint>Select two endpoints. They are equal until you select files to copy.</p>

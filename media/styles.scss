@@ -1801,6 +1801,7 @@ body .project {
 }
 
 .file-transfer-tasks,
+.file-transfer-swap,
 .file-transfer-pane-header button,
 .file-transfer-action-bar button {
     border: 1px solid var(--vscode-panel-border);
@@ -1813,6 +1814,14 @@ body .project {
 
 .file-transfer-tasks {
     padding: 5px 8px;
+}
+
+.file-transfer-swap {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 3px;
+    border-radius: 50%;
+    font-size: 15px;
 }
 
 .file-transfer-tasks span {

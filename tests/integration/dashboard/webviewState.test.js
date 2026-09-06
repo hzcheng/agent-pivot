@@ -437,6 +437,7 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(html, /File Transfer/);
     assert.match(html, /data-file-transfer-endpoint="left"/);
     assert.match(html, /data-file-transfer-endpoint="right"/);
+    assert.match(html, /data-file-transfer-swap/);
     assert.match(html, /This Computer…/);
     assert.match(html, /Build &amp; Test/);
     assert.match(html, /data-file-transfer-task-status/);
@@ -446,6 +447,7 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(html, /data-file-transfer-review-items/);
     assert.match(dashboardSource, /displayPath/);
     assert.doesNotMatch(html, /Source endpoint|Destination endpoint/);
+    assert.match(dashboardSource, /swapEndpointLayout/);
 });
 
 test('FILE-TRANSFER-UI-002 treats cancellation as a terminal transfer result', () => {

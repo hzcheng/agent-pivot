@@ -547,6 +547,7 @@ function initDashboard(options) {
             return;
         }
         var selectors = Array.from(panel.querySelectorAll('[data-file-transfer-endpoint]'));
+        var swap = panel.querySelector('[data-file-transfer-swap]');
         var panes = {
             left: panel.querySelector('[data-file-transfer-pane="left"]'),
             right: panel.querySelector('[data-file-transfer-pane="right"]'),
@@ -815,6 +816,25 @@ function initDashboard(options) {
             updatePair();
         }
 
+        function swapEndpointLayout() {
+            var left = selectorFor('left');
+            var right = selectorFor('right');
+            if (!left || !right || pendingLocalRootRequests.left || pendingLocalRootRequests.right) return;
+            var leftValue = left.value;
+            left.value = right.value;
+            right.value = leftValue;
+            var leftRoot = localRoots.left;
+            localRoots.left = localRoots.right;
+            localRoots.right = leftRoot;
+            var leftSelection = selectedEntries.left;
+            selectedEntries.left = selectedEntries.right;
+            selectedEntries.right = leftSelection;
+            var leftHistory = directoryHistory.left;
+            directoryHistory.left = directoryHistory.right;
+            directoryHistory.right = leftHistory;
+            updatePair();
+        }
+
         function applyLocalRootMessage(message) {
             if (!message || (message.side !== 'left' && message.side !== 'right')
                 || pendingLocalRootRequests[message.side] !== message.requestId) {
@@ -985,6 +1005,7 @@ function initDashboard(options) {
         selectors.forEach(function (selector) {
             selector.addEventListener('change', onEndpointChange);
         });
+        if (swap) swap.addEventListener('click', swapEndpointLayout);
         if (review) review.addEventListener('click', openReview);
         if (reviewCancel) reviewCancel.addEventListener('click', closeReview);
         if (startCopy) startCopy.addEventListener('click', startReviewedCopy);

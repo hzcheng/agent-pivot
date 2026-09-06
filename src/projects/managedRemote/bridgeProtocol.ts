@@ -74,6 +74,8 @@ export interface FileTransferLocalRootResponse {
     rootId: string;
     directoryId: string;
     label: string;
+    /** A bounded display-only path relative to the approved endpoint root. */
+    displayPath: string;
     entries: FileTransferDirectoryEntry[];
 }
 

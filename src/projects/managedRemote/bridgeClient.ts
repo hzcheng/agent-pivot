@@ -249,12 +249,16 @@ export class ManagedRemoteBridgeClient {
 
 function parseFileTransferLocalRootResponse(value: unknown): FileTransferLocalRootResponse | null {
     if (!isRecord(value)
-        || !hasExactKeys(value, ['rootId', 'directoryId', 'label', 'entries'])
+        || !hasExactKeys(value, ['rootId', 'directoryId', 'label', 'displayPath', 'entries'])
         || !validFileTransferHandle(value.rootId)
         || !validFileTransferHandle(value.directoryId)
         || typeof value.label !== 'string'
         || value.label.length < 1
         || value.label.length > 255
+        || typeof value.displayPath !== 'string'
+        || value.displayPath.length < 1
+        || value.displayPath.length > 1_024
+        || /[\0\r\n]/u.test(value.displayPath)
         || !Array.isArray(value.entries)
         || value.entries.length > 1_000
         || !value.entries.every(validFileTransferDirectoryEntry)) {

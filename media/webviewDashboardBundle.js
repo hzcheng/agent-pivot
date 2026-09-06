@@ -12837,13 +12837,17 @@ function validateFileTransferLocalRootMessage(message) {
 function validateFileTransferLocalRoot(root) {
     return !!root && typeof root === 'object'
         && Object.keys(root).sort().join('\n') === [
-            'directoryId', 'entries', 'label', 'rootId',
+            'directoryId', 'displayPath', 'entries', 'label', 'rootId',
         ].join('\n')
         && /^[a-f0-9]{32}$/.test(root.rootId)
         && /^[a-f0-9]{32}$/.test(root.directoryId)
         && typeof root.label === 'string'
         && root.label.length > 0
         && root.label.length <= 255
+        && typeof root.displayPath === 'string'
+        && root.displayPath.length > 0
+        && root.displayPath.length <= 1024
+        && !/[\0\r\n]/.test(root.displayPath)
         && Array.isArray(root.entries)
         && root.entries.length <= 1000
         && root.entries.every(validateFileTransferDirectoryEntry);
@@ -13432,7 +13436,7 @@ function initDashboard(options) {
             }
             if (name) name.textContent = option ? option.textContent : 'Selected endpoint';
             var localRoot = value === 'local' ? localRoots[side] : null;
-            if (path) path.textContent = localRoot ? localRoot.label
+            if (path) path.textContent = localRoot ? localRoot.label + ' / ' + localRoot.displayPath
                 : value === 'local' ? 'Choose a local folder' : 'Managed Machine';
             if (status) {
                 status.textContent = localRoot
@@ -13620,8 +13624,10 @@ function initDashboard(options) {
             if (!source || !destination || !source.value || !destination.value) return;
             if (reviewSummary) {
                 reviewSummary.textContent = 'Copy ' + selectedEntries[sourceSide].size + ' item(s) from '
-                    + source.options[source.selectedIndex].textContent + ' to '
-                    + destination.options[destination.selectedIndex].textContent + '.';
+                    + source.options[source.selectedIndex].textContent + ' / '
+                    + (localRoots[sourceSide] ? localRoots[sourceSide].displayPath : '.') + ' to '
+                    + destination.options[destination.selectedIndex].textContent + ' / '
+                    + (localRoots[destinationSide] ? localRoots[destinationSide].displayPath : '.') + '.';
             }
             reviewSheet.hidden = false;
         }

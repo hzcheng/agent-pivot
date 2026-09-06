@@ -538,7 +538,11 @@ export class ManagedRemoteBridgeController {
             if (left.kind !== 'directory' && right.kind === 'directory') { return 1; }
             return left.name.localeCompare(right.name);
         });
-        return { rootId, directoryId: resolvedDirectoryId, label: root.label, entries };
+        const relativePath = path.relative(root.path, currentPath).split(path.sep).join('/') || '.';
+        return {
+            rootId, directoryId: resolvedDirectoryId, label: root.label,
+            displayPath: relativePath, entries,
+        };
     }
 
     private isWithinLocalRoot(rootPath: string, candidatePath: string): boolean {
@@ -590,6 +594,7 @@ export class ManagedRemoteBridgeController {
             rootId: machineIdToTransferRootId(machineId),
             directoryId: resolvedDirectoryId,
             label: target.machine.name,
+            displayPath: directory.path,
             entries,
         };
     }

@@ -212,6 +212,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
     assert.equal(selected.status, 'ok');
     assert.equal(coordinatorCreates, 0);
     assert.equal(selected.value.label, path.basename(root));
+    assert.equal(selected.value.displayPath, '.');
     assert.deepEqual(selected.value.entries.map(entry => [entry.name, entry.kind]), [
         ['folder', 'directory'], ['notes.txt', 'file'],
     ]);
@@ -226,6 +227,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
         },
     });
     assert.equal(listed.status, 'ok');
+    assert.equal(listed.value.displayPath, '.');
     const rejected = await controller.execute({
         ...request('listFileTransferLocalDirectory'),
         fileTransfer: {

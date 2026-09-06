@@ -398,7 +398,6 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.switchToOpenWindow',
     'agentPivot.sshToMachine',
     'agentPivot.copySshCommand',
-    'agentPivot.importLegacyProjects',
 ];
 
 // Registered directly from initializeDashboard, outside the dashboard command facade.
@@ -432,7 +431,6 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'switchToOpenWindow',
         'sshToManagedMachine',
         'copyManagedSshCommand',
-        'importLegacyProjects',
     ];
     const facade = new DashboardCommandRegistration({
         registerCommand: (command, callback) => {

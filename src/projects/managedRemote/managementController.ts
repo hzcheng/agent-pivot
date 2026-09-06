@@ -7,11 +7,6 @@ import type {
     EditManagedMachineInput,
     EditManagedProjectInput,
 } from './catalogService';
-import type {
-    LegacyGroupRecord,
-    LegacyImportSummary,
-    LegacySshEndpoint,
-} from './legacyImport';
 import {
     createManagedRemoteManagementSettlement,
     ManagedRemoteManagementOperation,
@@ -34,14 +29,6 @@ export interface ManagedRemoteManagementSnapshot {
 }
 
 export interface ManagedRemoteManagementStore {
-    importLegacyGroups(
-        expectedRevisionId: string | null,
-        groups: readonly LegacyGroupRecord[],
-        endpoints: ReadonlyMap<string, LegacySshEndpoint | null>,
-    ): Promise<{
-        snapshot: ManagedRemoteManagementSnapshot;
-        summary: LegacyImportSummary;
-    }>;
     getSnapshot(): Promise<ManagedRemoteManagementSnapshot>;
     addMachine(expectedRevisionId: string | null, input: AddManagedMachineInput): Promise<ManagedRemoteManagementSnapshot>;
     editMachine(expectedRevisionId: string | null, machineId: string, input: EditManagedMachineInput): Promise<ManagedRemoteManagementSnapshot>;
@@ -113,27 +100,6 @@ function affectedProjectCount(
 
 export class ManagedRemoteManagementController {
     constructor(private readonly options: ManagedRemoteManagementControllerOptions) {
-    }
-
-    /**
-     * Import a converted legacy Group[] export in one atomic revision, then
-     * refresh the authoritative view so the Project tab shows the result.
-     */
-    async importLegacyGroups(
-        groups: readonly LegacyGroupRecord[],
-        endpoints: ReadonlyMap<string, LegacySshEndpoint | null>,
-    ): Promise<{
-        snapshot: ManagedRemoteManagementSnapshot;
-        summary: LegacyImportSummary;
-    }> {
-        const current = await this.options.store.getSnapshot();
-        const result = await this.options.store.importLegacyGroups(
-            current.revisionId, groups, endpoints,
-        );
-        await this.options.refreshAuthoritative(
-            'legacy-import', 'addProject', result.snapshot,
-        );
-        return result;
     }
 
     /**

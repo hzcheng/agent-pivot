@@ -22,10 +22,13 @@ export const MANAGED_REMOTE_CATALOG_DATA_KEY = 'managedRemoteCatalogData';
 export const MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY = 'managedRemoteCatalogLocal.v1';
 
 /**
- * Marks the one-time recovery of a pre-catalog project store as attempted, so
- * it never runs twice. Recovery is not an upgrade path the product maintains.
+ * Settings that backed the pre-catalog project store. No code path reads them;
+ * they are cleared so nobody finds keys in settings.json that do nothing.
  */
-export const LEGACY_PROJECT_IMPORT_STATE_KEY = 'legacyProjectImport.v1';
+export const OBSOLETE_PROJECT_SETTING_KEYS = [
+    'projectData',
+    'projectSyncData',
+] as const;
 export const RECENT_COLORS_KEY = 'recentColors';
 export const AGENT_PIVOT_CONFIG_SECTION = 'agentPivot';
 export const AGENT_PIVOT_EXTENSION_ID = 'hzcheng.agent-pivot';

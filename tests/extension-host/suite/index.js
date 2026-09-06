@@ -25,8 +25,7 @@ const PUBLIC_COMMANDS = [
     'agentPivot.toggleLastAiSession',
     'agentPivot.switchToOpenWindow',
     'agentPivot.sshToMachine',
-    'agentPivot.copySshCommand',
-    'agentPivot.importLegacyProjects'
+    'agentPivot.copySshCommand'
 ];
 
 async function verifyExtensionHostLifecycle() {

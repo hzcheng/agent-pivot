@@ -29,8 +29,7 @@ const publicCommands = [
     'agentPivot.toggleLastAiSession',
     'agentPivot.switchToOpenWindow',
     'agentPivot.sshToMachine',
-    'agentPivot.copySshCommand',
-    'agentPivot.importLegacyProjects'
+    'agentPivot.copySshCommand'
 ];
 
 function loadSuite(vscode) {

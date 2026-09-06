@@ -585,7 +585,10 @@ test('FILE-TRANSFER-UI-016 limits a reviewed target name to one regular file', (
     });
     assert.match(html, /data-file-transfer-target-name-input/);
     assert.match(dashboardSource, /entries\.length === 1 && entries\[0\]\.kind === 'file'/);
-    assert.match(dashboardSource, /reviewedCopyPlan\.targetName = targetNameInput\.value;/);
+    assert.match(dashboardSource, /if \(targetNameInput\.value\) reviewedCopyPlan\.targetName = targetNameInput\.value;/);
+    assert.match(dashboardSource, /else delete reviewedCopyPlan\.targetName;/);
+    assert.match(dashboardSource, /\.\.\.\(plan\.targetName \? \{ targetName: plan\.targetName \} : \{\}\),/);
+    assert.match(dashboardSource, /\.\.\.\(pendingCopyPlan\.targetName \? \{ targetName: pendingCopyPlan\.targetName \} : \{\}\),/);
 });
 
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {

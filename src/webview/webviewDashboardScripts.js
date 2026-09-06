@@ -1307,6 +1307,7 @@ function initDashboard(options) {
             pendingCopyPlan = {
                 source: plan.source, destination: plan.destination,
                 entryIds: plan.entryIds.slice(), conflictPolicy: plan.conflictPolicy,
+                ...(plan.targetName ? { targetName: plan.targetName } : {}),
             };
             if (startCopy) startCopy.disabled = true;
             if (retry) retry.hidden = true;
@@ -1318,6 +1319,7 @@ function initDashboard(options) {
                 destination: pendingCopyPlan.destination,
                 entryIds: pendingCopyPlan.entryIds,
                 conflictPolicy: pendingCopyPlan.conflictPolicy,
+                ...(pendingCopyPlan.targetName ? { targetName: pendingCopyPlan.targetName } : {}),
             });
         }
 
@@ -1424,8 +1426,9 @@ function initDashboard(options) {
         if (startCopy) startCopy.addEventListener('click', startReviewedCopy);
         if (conflictPolicy) conflictPolicy.addEventListener('change', updateReviewStartAvailability);
         if (targetNameInput) targetNameInput.addEventListener('change', function () {
-            if (!reviewedCopyPlan || !targetNameInput.value) return;
-            reviewedCopyPlan.targetName = targetNameInput.value;
+            if (!reviewedCopyPlan) return;
+            if (targetNameInput.value) reviewedCopyPlan.targetName = targetNameInput.value;
+            else delete reviewedCopyPlan.targetName;
             requestCopyPreflight(reviewedCopyPlan);
         });
         if (retry) retry.addEventListener('click', retryFailedCopy);

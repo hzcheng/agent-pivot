@@ -518,6 +518,7 @@ test('FILE-TRANSFER-UI-008 renders correlated queued copy tasks with cancellatio
     assert.match(dashboardSource, /function renderSavedPairs\(\)/);
     assert.match(dashboardSource, /function selectSavedPair\(pair\)/);
     assert.match(dashboardSource, /file-transfer-request-saved-pairs/);
+    assert.match(dashboardSource, /savedPairLabel\(entry\.source\) \+ ' → ' \+ savedPairLabel\(entry\.destination\)/);
     assert.match(dashboardSource, /if \(wasPending\) closeReview\(\);/);
     assert.match(dashboardSource, /file-transfer-task-list/);
 });

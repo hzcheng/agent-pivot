@@ -13088,12 +13088,15 @@ function validateFileTransferHistory(message) {
         && message.entries.every(function (entry) {
             return !!entry && typeof entry === 'object'
                 && Object.keys(entry).every(function (key) {
-                    return ['at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems'].includes(key);
+                    return ['at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems', 'source', 'destination'].includes(key);
                 })
                 && Number.isSafeInteger(entry.at) && entry.at > 0
                 && (entry.status === 'copied' || entry.status === 'cancelled' || entry.status === 'failed')
                 && Number.isSafeInteger(entry.itemCount) && entry.itemCount > 0
-                && ['fail', 'skip', 'replace'].includes(entry.conflictPolicy);
+                && ['fail', 'skip', 'replace'].includes(entry.conflictPolicy)
+                && ((entry.source === undefined && entry.destination === undefined)
+                    || (validateFileTransferSavedPairEndpoint(entry.source)
+                        && validateFileTransferSavedPairEndpoint(entry.destination)));
         });
 }
 
@@ -13656,6 +13659,9 @@ function initDashboard(options) {
                     : entry.status === 'cancelled'
                         ? 'Cancelled after ' + (entry.completedItems || 0) + ' copied'
                     : 'Failed';
+                if (entry.source && entry.destination) {
+                    detail += ' · ' + savedPairLabel(entry.source) + ' → ' + savedPairLabel(entry.destination);
+                }
                 row.textContent = detail + ' · ' + entry.itemCount + ' item(s) · ' + entry.conflictPolicy;
                 historyList.appendChild(row);
             });

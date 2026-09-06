@@ -2861,6 +2861,12 @@ async function initializeDashboard(
             status,
             itemCount: Array.isArray(request.entryIds) ? request.entryIds.length : 0,
             conflictPolicy: String(request.conflictPolicy),
+            ...(compactFileTransferHistoryEndpoint(request.source)
+                && compactFileTransferHistoryEndpoint(request.destination)
+                ? {
+                    source: compactFileTransferHistoryEndpoint(request.source)!,
+                    destination: compactFileTransferHistoryEndpoint(request.destination)!,
+                } : {}),
             ...((status === 'copied' || status === 'cancelled') && isRecordFileTransferCopyResult(value)
                 ? { completedItems: value.completedItems, skippedItems: value.skippedItems }
                 : {}),
@@ -4994,13 +5000,24 @@ interface FileTransferHistoryEntry {
     conflictPolicy: string;
     completedItems?: number;
     skippedItems?: number;
+    source?: FileTransferSavedPairEndpoint;
+    destination?: FileTransferSavedPairEndpoint;
+}
+
+function compactFileTransferHistoryEndpoint(value: unknown): FileTransferSavedPairEndpoint | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return null; }
+    const endpoint = value as Record<string, unknown>;
+    if (endpoint.kind === 'local') { return { kind: 'local' }; }
+    return endpoint.kind === 'managedMachine' && typeof endpoint.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(endpoint.machineId)
+        ? { kind: 'managedMachine', machineId: endpoint.machineId } : null;
 }
 
 function isFileTransferHistoryEntry(value: unknown): value is FileTransferHistoryEntry {
     if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
     const entry = value as Record<string, unknown>;
     return Object.keys(entry).every(key => [
-        'at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems',
+        'at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems', 'source', 'destination',
     ].includes(key))
         && Number.isSafeInteger(entry.at) && (entry.at as number) > 0
         && (entry.status === 'copied' || entry.status === 'cancelled' || entry.status === 'failed')
@@ -5010,7 +5027,10 @@ function isFileTransferHistoryEntry(value: unknown): value is FileTransferHistor
         && (entry.completedItems === undefined
             || (Number.isSafeInteger(entry.completedItems) && (entry.completedItems as number) >= 0))
         && (entry.skippedItems === undefined
-            || (Number.isSafeInteger(entry.skippedItems) && (entry.skippedItems as number) >= 0));
+            || (Number.isSafeInteger(entry.skippedItems) && (entry.skippedItems as number) >= 0))
+        && ((entry.source === undefined && entry.destination === undefined)
+            || (isFileTransferSavedPairEndpoint(entry.source)
+                && isFileTransferSavedPairEndpoint(entry.destination)));
 }
 
 function isRecordFileTransferCopyResult(value: unknown): value is {

@@ -13483,11 +13483,13 @@ function initDashboard(options) {
                 var task = transferTasks[taskId];
                 var row = document.createElement('li');
                 var label = document.createElement('span');
+                var route = task.plan && task.plan.sourceLabel && task.plan.destinationLabel
+                    ? ' · ' + task.plan.sourceLabel + ' → ' + task.plan.destinationLabel : '';
                 label.textContent = task.status === 'running'
-                    ? 'Copying ' + task.itemCount + ' item(s)'
+                    ? 'Copying ' + task.itemCount + ' item(s)' + route
                     : task.status === 'cancelling'
-                        ? 'Cancelling ' + task.itemCount + ' item(s)'
-                        : 'Queued · ' + task.itemCount + ' item(s)';
+                        ? 'Cancelling ' + task.itemCount + ' item(s)' + route
+                        : 'Queued · ' + task.itemCount + ' item(s)' + route;
                 row.appendChild(label);
                 var cancel = document.createElement('button');
                 cancel.type = 'button';
@@ -14116,6 +14118,16 @@ function initDashboard(options) {
             });
         }
 
+        function fileTransferEndpointLabel(endpoint) {
+            if (!endpoint || endpoint.kind === 'local') return 'This Computer';
+            var selector = selectors.find(function (candidate) {
+                return candidate.value === 'managed:' + endpoint.machineId;
+            });
+            var option = selector && selector.options && selector.selectedIndex >= 0
+                ? selector.options[selector.selectedIndex] : null;
+            return option && option.textContent ? option.textContent : 'Managed Machine';
+        }
+
         function submitCopyPlan(plan) {
             if (!plan || pendingCopyRequestId) return;
             var requestId = 'file-transfer-copy-' + Date.now() + '-'
@@ -14125,6 +14137,8 @@ function initDashboard(options) {
             pendingCopyPlan = {
                 source: plan.source, destination: plan.destination,
                 entryIds: plan.entryIds.slice(), conflictPolicy: plan.conflictPolicy,
+                sourceLabel: fileTransferEndpointLabel(plan.source),
+                destinationLabel: fileTransferEndpointLabel(plan.destination),
                 ...(plan.targetName ? { targetName: plan.targetName } : {}),
             };
             if (startCopy) startCopy.disabled = true;
@@ -14193,7 +14207,9 @@ function initDashboard(options) {
             activeCopyTaskId = message.requestId;
             task.status = 'running';
             renderTaskCount();
-            renderTaskStatus('Copying ' + task.itemCount + ' item(s). Select Transfers to cancel.');
+            renderTaskStatus('Copying ' + task.itemCount + ' item(s) from '
+                + (task.plan.sourceLabel || 'the selected endpoint') + ' to '
+                + (task.plan.destinationLabel || 'the other endpoint') + '. Select Transfers to cancel.');
             updatePair();
             return true;
         }

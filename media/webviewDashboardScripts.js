@@ -947,6 +947,15 @@ function initDashboard(options) {
             var sourceSide = selectedEntries.left.size ? 'left'
                 : selectedEntries.right.size ? 'right' : null;
             var count = sourceSide ? selectedEntries[sourceSide].size : 0;
+            ['left', 'right'].forEach(function (side) {
+                var pane = panes[side];
+                var copyState = pane && pane.querySelector
+                    ? pane.querySelector('[data-file-transfer-pane-copy-state]') : null;
+                if (pane && pane.classList) {
+                    pane.classList.toggle('is-file-transfer-copy-source', sourceSide === side);
+                }
+                if (copyState) copyState.hidden = sourceSide !== side;
+            });
             if (summary) summary.textContent = sourceSide
                 ? 'Copy ' + count + ' selected item' + (count === 1 ? '' : 's')
                     + ' to the ' + (sourceSide === 'left' ? 'right' : 'left') + ' endpoint.'

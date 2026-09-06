@@ -1948,6 +1948,22 @@ body .project {
     flex: 1 1 auto;
 }
 
+.file-transfer-pane-copy-state {
+    display: inline-block;
+    margin: 3px 0 0;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--vscode-badge-foreground);
+    background: var(--vscode-badge-background);
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.file-transfer-pane.is-file-transfer-copy-source {
+    border-color: var(--vscode-focusBorder);
+    box-shadow: inset 0 0 0 1px var(--vscode-focusBorder);
+}
+
 .file-transfer-pane-header button {
     width: 28px;
     height: 28px;

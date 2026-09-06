@@ -37,6 +37,7 @@ function pane(side: 'left' | 'right'): string {
         <header class="file-transfer-pane-header">
             <div>
                 <strong data-file-transfer-pane-name>Choose an endpoint</strong>
+                <span class="file-transfer-pane-copy-state" data-file-transfer-pane-copy-state hidden>Copying from here</span>
                 <nav class="file-transfer-pane-path" data-file-transfer-pane-path aria-label="Current directory">—</nav>
             </div>
             <div class="file-transfer-pane-actions">

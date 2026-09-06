@@ -437,6 +437,7 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(html, /File Transfer/);
     assert.match(html, /data-file-transfer-endpoint="left"/);
     assert.match(html, /data-file-transfer-endpoint="right"/);
+    assert.match(html, /data-file-transfer-pane-copy-state hidden>Copying from here/);
     assert.match(html, /data-file-transfer-swap/);
     assert.match(html, /This Computer…/);
     assert.match(html, /Build &amp; Test/);
@@ -447,6 +448,7 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(html, /data-file-transfer-review-items/);
     assert.match(html, /data-file-transfer-retry/);
     assert.match(dashboardSource, /displayPath/);
+    assert.match(dashboardSource, /is-file-transfer-copy-source/);
     assert.doesNotMatch(html, /Source endpoint|Destination endpoint/);
     assert.match(dashboardSource, /swapEndpointLayout/);
 });

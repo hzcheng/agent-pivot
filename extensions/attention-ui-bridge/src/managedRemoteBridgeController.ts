@@ -14,6 +14,7 @@ import {
     FileTransferPreflightResult,
     FileTransferCopyRequest,
     FileTransferCopyResult,
+    FileTransferCopyStatus,
     FileTransferEndpointReference,
     FileTransferLocalRootResponse,
     ManagedRemoteBridgeRequest,
@@ -84,6 +85,11 @@ interface FileTransferRemoteDirectory extends FileTransferEntry {
 interface ActiveFileTransferCopy {
     cancelled: boolean;
     process?: ChildProcess;
+    phase?: FileTransferCopyStatus['phase'];
+    currentItemName?: string;
+    completedItems?: number;
+    skippedItems?: number;
+    totalItems?: number;
 }
 
 interface FileTransferTreeSummary {
@@ -505,6 +511,10 @@ export class ManagedRemoteBridgeController {
                 const cancellation = request.fileTransfer as { taskId: string };
                 return response(request.requestId, 'ok', this.cancelFileTransferCopy(cancellation.taskId));
             }
+            if (request.operation === 'getFileTransferCopyStatus') {
+                const status = request.fileTransfer as { taskId: string };
+                return response(request.requestId, 'ok', this.getFileTransferCopyStatus(status.taskId));
+            }
             if (request.operation === 'copyFileTransferEntries'
                 || request.operation === 'preflightFileTransfer') {
                 const plan = request.fileTransfer as FileTransferCopyRequest | FileTransferPreflightRequest;
@@ -837,7 +847,13 @@ export class ManagedRemoteBridgeController {
         if (request.source.kind === 'local' && request.destination.kind === 'local') {
             throw new Error('File Transfer does not copy between two local folders.');
         }
-        const active: ActiveFileTransferCopy = { cancelled: false };
+        const active: ActiveFileTransferCopy = {
+            cancelled: false,
+            phase: 'preparing',
+            completedItems: 0,
+            skippedItems: 0,
+            totalItems: request.entryIds.length,
+        };
         this.activeFileTransferCopies.set(request.taskId, active);
         let completedItems = 0;
         let skippedItems = 0;
@@ -847,6 +863,8 @@ export class ManagedRemoteBridgeController {
             const targetName = this.resolveFileTransferTargetName(source.entries, request.targetName);
             for (const entry of source.entries) {
                 if (active.cancelled) { throw new Error('File copy was cancelled.'); }
+                active.currentItemName = path.basename(entry.path).slice(0, 255);
+                active.phase = 'preparing';
                 if (entry.kind === 'directory') {
                     if (source.kind === 'local') {
                         await inspectLocalFileTransferTree(entry.path);
@@ -867,6 +885,7 @@ export class ManagedRemoteBridgeController {
                 if (collisionKind) {
                     if (request.conflictPolicy === 'skip') {
                         skippedItems += 1;
+                        active.skippedItems = skippedItems;
                         continue;
                     }
                     if (request.conflictPolicy !== 'replace') {
@@ -877,6 +896,7 @@ export class ManagedRemoteBridgeController {
                     }
                 }
                 const legacyScp = !await scpUsesSftpByDefault(coordinator.getExecutable());
+                active.phase = 'copying';
                 await copyFileTransferEntry(
                     coordinator.getExecutable(),
                     source.kind === 'managedMachine' && destination.kind === 'managedMachine',
@@ -898,6 +918,7 @@ export class ManagedRemoteBridgeController {
                     }
                 }
                 completedItems += 1;
+                active.completedItems = completedItems;
             }
         } catch (error) {
             if (active.cancelled) {
@@ -981,6 +1002,19 @@ export class ManagedRemoteBridgeController {
         active.cancelled = true;
         if (active.process) { stopFileTransferProcess(active.process); }
         return { cancelled: true };
+    }
+
+    private getFileTransferCopyStatus(taskId: string): FileTransferCopyStatus | { status: 'unknown' } {
+        const active = this.activeFileTransferCopies.get(taskId);
+        if (!active) { return { status: 'unknown' }; }
+        return {
+            status: 'running',
+            phase: active.phase || 'preparing',
+            completedItems: active.completedItems || 0,
+            skippedItems: active.skippedItems || 0,
+            totalItems: active.totalItems || 0,
+            ...(active.currentItemName ? { currentItemName: active.currentItemName } : {}),
+        };
     }
 
     private resolveFileTransferTargetName(entries: FileTransferEntry[], targetName: string | undefined): string | undefined {

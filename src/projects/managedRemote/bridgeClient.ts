@@ -11,6 +11,7 @@ import {
     FileTransferPreflightRequest,
     FileTransferPreflightResult,
     FileTransferCopyRequest,
+    FileTransferCopyStatus,
     ManagedRemoteBridgeOperation,
     ManagedRemoteBridgeResponse,
 } from './bridgeProtocol';
@@ -160,6 +161,19 @@ export class ManagedRemoteBridgeClient {
         );
     }
 
+    getFileTransferCopyStatus(taskId: string): Promise<FileTransferCopyStatus | { status: 'unknown' }> {
+        return this.executeAttempt(
+            'getFileTransferCopyStatus', undefined, undefined, undefined,
+            { kind: 'status', taskId }, true,
+        ).then(value => {
+            const parsed = parseFileTransferCopyStatus(value);
+            if (!parsed) {
+                throw new Error('Agent Pivot UI Bridge returned an invalid File Transfer task status.');
+            }
+            return parsed;
+        });
+    }
+
     private async executeAttempt(
         operation: ManagedRemoteBridgeOperation,
         expectedRevisionId: string | undefined,
@@ -171,6 +185,7 @@ export class ManagedRemoteBridgeClient {
             | FileTransferPreflightRequest
             | FileTransferCopyRequest
             | { kind: 'cancel'; taskId: string }
+            | { kind: 'status'; taskId: string }
         ) | undefined,
         retryExpiredSession: boolean,
     ): Promise<unknown> {
@@ -303,6 +318,33 @@ function validFileTransferNames(value: unknown): value is string[] {
             && name.length <= 255
             && !/[\0\r\n]/u.test(name))
         && new Set(value).size === value.length;
+}
+
+function parseFileTransferCopyStatus(value: unknown): FileTransferCopyStatus | { status: 'unknown' } | null {
+    if (!isRecord(value)) { return null; }
+    if (value.status === 'unknown') {
+        return hasExactKeys(value, ['status']) ? { status: 'unknown' } : null;
+    }
+    const completedItems = value.completedItems;
+    const skippedItems = value.skippedItems;
+    const totalItems = value.totalItems;
+    const expectedKeys = [
+        'status', 'phase', 'completedItems', 'skippedItems', 'totalItems',
+    ].concat(value.currentItemName === undefined ? [] : ['currentItemName']);
+    if (!hasExactKeys(value, expectedKeys)
+        || value.status !== 'running'
+        || (value.phase !== 'preparing' && value.phase !== 'copying')
+        || typeof completedItems !== 'number' || !Number.isSafeInteger(completedItems) || completedItems < 0
+        || typeof skippedItems !== 'number' || !Number.isSafeInteger(skippedItems) || skippedItems < 0
+        || typeof totalItems !== 'number' || !Number.isSafeInteger(totalItems) || totalItems < 1
+        || completedItems + skippedItems > totalItems
+        || (value.currentItemName !== undefined
+            && (typeof value.currentItemName !== 'string'
+                || value.currentItemName.length < 1 || value.currentItemName.length > 255
+                || /[\0\r\n]/u.test(value.currentItemName)))) {
+        return null;
+    }
+    return value as unknown as FileTransferCopyStatus;
 }
 
 function parseFileTransferLocalRootResponse(value: unknown): FileTransferLocalRootResponse | null {

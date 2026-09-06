@@ -12958,6 +12958,32 @@ function validateFileTransferCopyStarted(message) {
         ].join('\n');
 }
 
+function validateFileTransferCopyProgress(message) {
+    if (!message || message.type !== 'file-transfer-copy-progress'
+        || message.version !== 1
+        || typeof message.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        || Object.keys(message).sort().join('\n') !== [
+            'progress', 'requestId', 'type', 'version',
+        ].join('\n')) {
+        return false;
+    }
+    var progress = message.progress;
+    return !!progress && typeof progress === 'object'
+        && Object.keys(progress).every(function (key) {
+            return ['status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName'].includes(key);
+        })
+        && progress.status === 'running'
+        && (progress.phase === 'preparing' || progress.phase === 'copying')
+        && Number.isSafeInteger(progress.completedItems) && progress.completedItems >= 0
+        && Number.isSafeInteger(progress.skippedItems) && progress.skippedItems >= 0
+        && Number.isSafeInteger(progress.totalItems) && progress.totalItems > 0
+        && progress.completedItems + progress.skippedItems <= progress.totalItems
+        && (progress.currentItemName === undefined || (typeof progress.currentItemName === 'string'
+            && progress.currentItemName.length > 0 && progress.currentItemName.length <= 255
+            && !/[\0\r\n]/.test(progress.currentItemName)));
+}
+
 function validateFileTransferCopyQueued(message) {
     return !!message && message.type === 'file-transfer-copy-queued'
         && message.version === 1
@@ -13485,8 +13511,13 @@ function initDashboard(options) {
                 var label = document.createElement('span');
                 var route = task.plan && task.plan.sourceLabel && task.plan.destinationLabel
                     ? ' · ' + task.plan.sourceLabel + ' → ' + task.plan.destinationLabel : '';
+                var itemProgress = task.progress && Number.isSafeInteger(task.progress.completedItems)
+                    ? task.progress.completedItems + task.progress.skippedItems + '/' + task.progress.totalItems
+                    : String(task.itemCount);
                 label.textContent = task.status === 'running'
-                    ? 'Copying ' + task.itemCount + ' item(s)' + route
+                    ? 'Copying ' + itemProgress + ' item(s)'
+                        + (task.progress && task.progress.currentItemName
+                            ? ' · ' + task.progress.currentItemName : '') + route
                     : task.status === 'cancelling'
                         ? 'Cancelling ' + task.itemCount + ' item(s)' + route
                         : 'Queued · ' + task.itemCount + ' item(s)' + route;
@@ -14214,6 +14245,19 @@ function initDashboard(options) {
             return true;
         }
 
+        function applyCopyProgress(message) {
+            var task = transferTasks[message.requestId];
+            if (!task || task.status !== 'running') return false;
+            task.progress = message.progress;
+            renderTaskCount();
+            var current = message.progress.currentItemName
+                ? ' ' + message.progress.phase + ' ' + message.progress.currentItemName + '.'
+                : ' Preparing the next item.';
+            renderTaskStatus('Copying ' + (message.progress.completedItems + message.progress.skippedItems)
+                + ' of ' + message.progress.totalItems + ' item(s).' + current);
+            return true;
+        }
+
         function applyCopyQueued(message) {
             if (message.requestId !== pendingCopyRequestId) return false;
             transferTasks[message.requestId] = {
@@ -14361,6 +14405,7 @@ function initDashboard(options) {
             applyLocalRootMessage: applyLocalRootMessage,
             applyCopySettlement: applyCopySettlement,
             applyCopyStarted: applyCopyStarted,
+            applyCopyProgress: applyCopyProgress,
             applyCopyQueued: applyCopyQueued,
             applyCopyPreflight: applyCopyPreflight,
             applyHistory: applyHistory,
@@ -14447,6 +14492,10 @@ function initDashboard(options) {
         if (event && event.data && validateFileTransferCopyStarted(event.data)
             && fileTransferPanel) {
             fileTransferPanel.applyCopyStarted(event.data);
+        }
+        if (event && event.data && validateFileTransferCopyProgress(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopyProgress(event.data);
         }
         if (event && event.data && validateFileTransferCopyQueued(event.data)
             && fileTransferPanel) {
@@ -14535,6 +14584,8 @@ function initDashboard(options) {
             ? fileTransferPanel.applyCopySettlement : function () { return false; },
         applyFileTransferCopyStarted: fileTransferPanel
             ? fileTransferPanel.applyCopyStarted : function () { return false; },
+        applyFileTransferCopyProgress: fileTransferPanel
+            ? fileTransferPanel.applyCopyProgress : function () { return false; },
         applyFileTransferCopyQueued: fileTransferPanel
             ? fileTransferPanel.applyCopyQueued : function () { return false; },
         applyFileTransferHistory: fileTransferPanel

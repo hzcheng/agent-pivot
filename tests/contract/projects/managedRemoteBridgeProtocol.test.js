@@ -162,6 +162,19 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
         fileTransfer: { ...preflight.fileTransfer, path: '/untrusted' },
     }), null);
 
+    const progress = {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'getFileTransferCopyStatus',
+        fileTransfer: { kind: 'status', taskId: 'task-123456789012' },
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(progress), progress);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...progress,
+        fileTransfer: { ...progress.fileTransfer, path: '/untrusted' },
+    }), null);
+
 });
 
 test('MANAGED-REMOTE-BRIDGE-001 correlates the strict capability handshake', () => {

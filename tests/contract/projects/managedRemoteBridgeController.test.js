@@ -345,6 +345,35 @@ test('FILE-TRANSFER-COPY-002 permits only one active relay copy in a UI Bridge s
     );
 });
 
+test('FILE-TRANSFER-COPY-002A exposes only a correlated redacted active-task snapshot', async () => {
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { throw new Error('progress must not read catalog authority'); },
+    }, {
+        async create() { throw new Error('progress must not create a coordinator'); },
+    }, 'session-12345678');
+    controller.activeFileTransferCopies.set('running-task-123456', {
+        cancelled: false,
+        phase: 'copying',
+        currentItemName: 'report.txt',
+        completedItems: 2,
+        skippedItems: 1,
+        totalItems: 5,
+    });
+    const running = await controller.execute({
+        ...request('getFileTransferCopyStatus'),
+        fileTransfer: { kind: 'status', taskId: 'running-task-123456' },
+    });
+    assert.deepEqual(running.value, {
+        status: 'running', phase: 'copying', currentItemName: 'report.txt',
+        completedItems: 2, skippedItems: 1, totalItems: 5,
+    });
+    const missing = await controller.execute({
+        ...request('getFileTransferCopyStatus'),
+        fileTransfer: { kind: 'status', taskId: 'missing-task-123456' },
+    });
+    assert.deepEqual(missing.value, { status: 'unknown' });
+});
+
 test('FILE-TRANSFER-COPY-003 retains SFTP file sizes for post-copy verification', () => {
     const entries = parseSftpLongListing(
         '-rw-r--r--    1 user     group          4096 Jan 01 2026 report.txt\n'

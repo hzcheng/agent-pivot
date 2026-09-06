@@ -17,6 +17,7 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'fileTransferPreflightV1',
     'fileTransferCopyV1',
     'fileTransferCancelV1',
+    'fileTransferProgressV1',
 ] as const;
 
 export type ManagedRemoteBridgeOperation =
@@ -34,7 +35,8 @@ export type ManagedRemoteBridgeOperation =
     | 'listFileTransferRemoteDirectory'
     | 'preflightFileTransfer'
     | 'copyFileTransferEntries'
-    | 'cancelFileTransferCopy';
+    | 'cancelFileTransferCopy'
+    | 'getFileTransferCopyStatus';
 
 export interface FileTransferLocalRootRequest {
     kind: 'localRoot';
@@ -94,6 +96,22 @@ export interface FileTransferCancelRequest {
     taskId: string;
 }
 
+/** A read-only, redacted snapshot of a locally running transfer task. */
+export interface FileTransferCopyStatusRequest {
+    kind: 'status';
+    taskId: string;
+}
+
+export interface FileTransferCopyStatus {
+    status: 'running';
+    phase: 'preparing' | 'copying';
+    completedItems: number;
+    skippedItems: number;
+    totalItems: number;
+    /** The bounded display name of the entry currently being prepared or copied. */
+    currentItemName?: string;
+}
+
 export interface FileTransferLocalRootResponse {
     rootId: string;
     directoryId: string;
@@ -138,7 +156,8 @@ export interface ManagedRemoteBridgeRequest {
         | FileTransferRemoteDirectoryRequest
         | FileTransferPreflightRequest
         | FileTransferCopyRequest
-        | FileTransferCancelRequest;
+        | FileTransferCancelRequest
+        | FileTransferCopyStatusRequest;
 }
 
 export type ManagedRemoteBridgeResponse =
@@ -211,6 +230,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
             'preflightFileTransfer',
             'copyFileTransferEntries',
             'cancelFileTransferCopy',
+            'getFileTransferCopyStatus',
         ].includes(value.operation as string)
         || (value.expectedRevisionId !== undefined
             && (typeof value.expectedRevisionId !== 'string'
@@ -258,7 +278,8 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         || value.operation === 'listFileTransferRemoteDirectory'
         || value.operation === 'preflightFileTransfer'
         || value.operation === 'copyFileTransferEntries'
-        || value.operation === 'cancelFileTransferCopy';
+        || value.operation === 'cancelFileTransferCopy'
+        || value.operation === 'getFileTransferCopyStatus';
     if (value.operation === 'selectFileTransferLocalRoot') {
         if (value.fileTransfer !== undefined) { return null; }
     } else if (requiresFileTransfer) {
@@ -270,7 +291,9 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
                     ? validFileTransferPreflightRequest(value.fileTransfer)
                 : value.operation === 'copyFileTransferEntries'
                     ? validFileTransferCopyRequest(value.fileTransfer)
-                    : validFileTransferCancelRequest(value.fileTransfer);
+                    : value.operation === 'cancelFileTransferCopy'
+                        ? validFileTransferCancelRequest(value.fileTransfer)
+                        : validFileTransferCopyStatusRequest(value.fileTransfer);
         if (!valid) { return null; }
     } else if (value.fileTransfer !== undefined) {
         return null;
@@ -319,6 +342,13 @@ function validFileTransferCancelRequest(value: unknown): value is FileTransferCa
     return isRecord(value)
         && hasExactKeys(value, ['kind', 'taskId'])
         && value.kind === 'cancel'
+        && isCorrelationValue(value.taskId);
+}
+
+function validFileTransferCopyStatusRequest(value: unknown): value is FileTransferCopyStatusRequest {
+    return isRecord(value)
+        && hasExactKeys(value, ['kind', 'taskId'])
+        && value.kind === 'status'
         && isCorrelationValue(value.taskId);
 }
 

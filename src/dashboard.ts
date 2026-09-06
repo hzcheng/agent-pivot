@@ -2772,18 +2772,42 @@ async function initializeDashboard(
         }
         void Promise.resolve(provider.postMessage({
             type: 'file-transfer-copy-started', version: 1, requestId: task.requestId,
-        })).then(() => managedRemoteBridgeClient.copyFileTransferEntries(
-            managedRemoteSnapshot.revisionId!,
-            {
-                kind: 'copy',
-                taskId: task.requestId as string,
-                source: task.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
-                destination: task.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
-                entryIds: task.entryIds as string[],
-                conflictPolicy: task.conflictPolicy as 'fail' | 'skip' | 'replace',
-                ...(typeof task.targetName === 'string' ? { targetName: task.targetName } : {}),
-            },
-        )).then(
+        })).then(() => {
+            let pollTimer: NodeJS.Timeout | undefined;
+            let polling = true;
+            const scheduleProgressPoll = (): void => {
+                if (!polling || activeFileTransferTaskId !== task.requestId) { return; }
+                pollTimer = setTimeout(() => {
+                    if (!polling || activeFileTransferTaskId !== task.requestId) { return; }
+                    void managedRemoteBridgeClient.getFileTransferCopyStatus(task.requestId as string).then(
+                        status => {
+                            if (isRecordFileTransferCopyStatus(status)) {
+                                return provider.postMessage(fileTransferCopyProgress(task, status));
+                            }
+                            return undefined;
+                        },
+                        // Progress is advisory. The original copy request remains the sole terminal authority.
+                        () => undefined,
+                    ).then(scheduleProgressPoll, scheduleProgressPoll);
+                }, 500);
+            };
+            scheduleProgressPoll();
+            return managedRemoteBridgeClient.copyFileTransferEntries(
+                managedRemoteSnapshot.revisionId!,
+                {
+                    kind: 'copy',
+                    taskId: task.requestId as string,
+                    source: task.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                    destination: task.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                    entryIds: task.entryIds as string[],
+                    conflictPolicy: task.conflictPolicy as 'fail' | 'skip' | 'replace',
+                    ...(typeof task.targetName === 'string' ? { targetName: task.targetName } : {}),
+                },
+            ).finally(() => {
+                polling = false;
+                if (pollTimer) { clearTimeout(pollTimer); }
+            });
+        }).then(
             async result => {
                 const status = isRecordFileTransferCopyResult(result) && result.status === 'cancelled'
                     ? 'cancelled' : 'copied';
@@ -4835,6 +4859,23 @@ function fileTransferCopySettlement(
         : { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, message: value };
 }
 
+function fileTransferCopyProgress(
+    request: Record<string, unknown>,
+    progress: {
+        status: 'running';
+        phase: 'preparing' | 'copying';
+        completedItems: number;
+        skippedItems: number;
+        totalItems: number;
+        currentItemName?: string;
+    },
+): Record<string, unknown> {
+    return {
+        type: 'file-transfer-copy-progress', version: 1, requestId: request.requestId,
+        progress,
+    };
+}
+
 function fileTransferPreflightSettlement(
     request: Record<string, unknown>,
     result: unknown,
@@ -4893,6 +4934,30 @@ function isRecordFileTransferCopyResult(value: unknown): value is {
             || (value as Record<string, unknown>).status === 'cancelled')
         && Number.isSafeInteger((value as Record<string, unknown>).completedItems)
         && Number.isSafeInteger((value as Record<string, unknown>).skippedItems);
+}
+
+function isRecordFileTransferCopyStatus(value: unknown): value is {
+    status: 'running';
+    phase: 'preparing' | 'copying';
+    completedItems: number;
+    skippedItems: number;
+    totalItems: number;
+    currentItemName?: string;
+} {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const status = value as Record<string, unknown>;
+    return Object.keys(status).every(key => [
+        'status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName',
+    ].includes(key))
+        && status.status === 'running'
+        && (status.phase === 'preparing' || status.phase === 'copying')
+        && Number.isSafeInteger(status.completedItems) && (status.completedItems as number) >= 0
+        && Number.isSafeInteger(status.skippedItems) && (status.skippedItems as number) >= 0
+        && Number.isSafeInteger(status.totalItems) && (status.totalItems as number) > 0
+        && (status.completedItems as number) + (status.skippedItems as number) <= (status.totalItems as number)
+        && (status.currentItemName === undefined || (typeof status.currentItemName === 'string'
+            && status.currentItemName.length > 0 && status.currentItemName.length <= 255
+            && !/[\0\r\n]/u.test(status.currentItemName)));
 }
 
 function isFileTransferHistoryRequest(value: Record<string, unknown>): boolean {

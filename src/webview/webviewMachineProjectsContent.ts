@@ -21,7 +21,7 @@ export function renderMachineProjectsPanel(
     const addManagedMachine = managedRemoteRevisionId === undefined
         ? ''
         : `<button type="button" class="machine-toolbar-button" data-managed-operation="addMachine" aria-label="Add Managed Machine" title="Add Managed Machine">${Icons.add}<span class="managed-toolbar-label">Machine</span></button>`;
-    const openFileTransfer = `<button type="button" class="machine-toolbar-button machine-transfer-action" data-action="open-file-transfer" aria-label="Open File Transfer" title="Open File Transfer">${Icons.handoff}<span class="managed-toolbar-label">Transfer</span></button>`;
+    const openFileTransfer = `<button type="button" class="machine-toolbar-button" data-action="open-file-transfer" aria-label="Open File Transfer" title="Open File Transfer">${Icons.handoff}</button>`;
     const saveCurrentProject = `<button type="button" class="machine-toolbar-button" data-action="save-current-project" aria-label="Save Current Project" title="${canSaveCurrentProject ? 'Save Current Project' : 'Open a project before saving it'}"${canSaveCurrentProject ? '' : ' disabled'}>${Icons.save}</button>`;
     if (!model.machines.length) {
         return `<section class="machine-projects machine-projects-empty" data-machine-projects${managedAttributes} data-machine-project-count="0">

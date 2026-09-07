@@ -18,6 +18,7 @@ const { renderManagedRemoteProjectsPanel } = require('../../../out/webview/webvi
 const root = path.join(__dirname, '..', '..', '..');
 const dashboardHostSource = fs.readFileSync(path.join(root, 'src', 'dashboard.ts'), 'utf8');
 const dashboardContentSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewContent.ts'), 'utf8');
+const stylesSource = fs.readFileSync(path.join(root, 'media', 'styles.scss'), 'utf8');
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
 const generatedDashboardSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardScripts.js'), 'utf8');
 const skillPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewSkillPanelScripts.js'), 'utf8');
@@ -459,15 +460,24 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
 
 test('FILE-TRANSFER-EDITOR-001 opens File Transfer from Projects into a dedicated editor surface', () => {
     const { getFileTransferEditorContent } = require('../../../out/webview/webviewFileTransferEditorContent');
+    const transferButton = html => {
+        const match = html.match(/<button[^>]*data-action="open-file-transfer"[^>]*>[\s\S]*?<\/button>/);
+        assert.ok(match, 'expected a File Transfer button');
+        return match[0];
+    };
     const projectsHtml = renderMachineProjectsPanel({
         machines: [], favorites: [], tags: [], projectCount: 0,
     }, 'revision:abc');
     assert.match(projectsHtml, /data-action="open-file-transfer"/);
     assert.match(projectsHtml, /aria-label="Open File Transfer"/);
+    assert.doesNotMatch(transferButton(projectsHtml), />Transfer</);
     const managedProjectsHtml = renderManagedRemoteProjectsPanel({
         revisionId: 'revision:abc', lifecycle: 'active', machines: [], favorites: [], tags: [], projectCount: 0,
     });
     assert.match(managedProjectsHtml, /data-action="open-file-transfer"/);
+    assert.doesNotMatch(transferButton(managedProjectsHtml), />Transfer</);
+    assert.match(stylesSource, /\.dashboard-tab-list\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/);
+    assert.doesNotMatch(stylesSource, /\.machine-toolbar-button\.machine-transfer-action/);
 
     const html = getFileTransferEditorContent(
         { extensionPath: root },

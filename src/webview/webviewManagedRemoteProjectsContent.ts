@@ -157,7 +157,7 @@ export function renderManagedRemoteProjectsPanel(
         .map(tag => [tag.toLocaleLowerCase(), tag])).values())
         .sort((left, right) => left.localeCompare(right));
     const favoriteCount = model.favorites.length + localModel.favorites.length;
-    const openFileTransfer = `<button type="button" class="machine-toolbar-button machine-transfer-action" data-action="open-file-transfer" aria-label="Open File Transfer" title="Open File Transfer">${Icons.handoff}<span class="managed-toolbar-label">Transfer</span></button>`;
+    const openFileTransfer = `<button type="button" class="machine-toolbar-button" data-action="open-file-transfer" aria-label="Open File Transfer" title="Open File Transfer">${Icons.handoff}</button>`;
     return `<section class="machine-projects managed-remote-projects" data-machine-projects data-managed-remote-projects data-managed-revision-id="${escapeAttribute(revision)}" data-managed-lifecycle="${escapeAttribute(model.lifecycle)}" data-machine-project-count="${projectCount}">
         <div class="machine-projects-toolbar">
             <div class="machine-projects-summary" data-machine-projects-summary role="status" aria-live="polite">${projectCount} project${projectCount === 1 ? '' : 's'} on ${machineCount} machine${machineCount === 1 ? '' : 's'}</div>

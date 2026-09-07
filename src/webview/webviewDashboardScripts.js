@@ -1412,6 +1412,12 @@ function initDashboard(options) {
             }
             if (localRoots.left && localRoots.right) rememberCurrentPair(false);
             updatePair();
+            options.postMessage({
+                type: 'file-transfer-directory-applied',
+                version: 1,
+                requestId: message.requestId,
+                side: message.side,
+            });
             return true;
         }
 

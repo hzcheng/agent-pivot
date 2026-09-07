@@ -2783,6 +2783,46 @@ async function initializeDashboard(
         ? activeFileTransferEditor.webview.postMessage(message)
         : provider.postMessage(message);
     const fileTransferMessageProvider = { postMessage: postFileTransferMessage };
+    const fileTransferDirectoryDeliveries = new Map<string, {
+        side: 'left' | 'right';
+        message: Record<string, unknown>;
+        attempts: number;
+        retryTimer?: ReturnType<typeof setTimeout>;
+    }>();
+    const postFileTransferDirectoryResult = async (message: Record<string, unknown>): Promise<void> => {
+        const requestId = message.requestId;
+        const requestedSide = message.side;
+        if (typeof requestId !== 'string' || (requestedSide !== 'left' && requestedSide !== 'right')) {
+            await fileTransferMessageProvider.postMessage(message);
+            return;
+        }
+        const side = requestedSide as 'left' | 'right';
+        const delivery: {
+            side: 'left' | 'right';
+            message: Record<string, unknown>;
+            attempts: number;
+            retryTimer?: ReturnType<typeof setTimeout>;
+        } = { side, message, attempts: 0 };
+        fileTransferDirectoryDeliveries.set(requestId, delivery);
+        const deliver = async (): Promise<void> => {
+            if (fileTransferDirectoryDeliveries.get(requestId) !== delivery) {
+                return;
+            }
+            delivery.attempts += 1;
+            const delivered = await fileTransferMessageProvider.postMessage(message);
+            outputChannel.appendLine(`[FileTransfer] directory response delivered: side=${side} attempt=${delivery.attempts} accepted=${delivered}`);
+            if (fileTransferDirectoryDeliveries.get(requestId) !== delivery) {
+                return;
+            }
+            if (delivery.attempts >= 3) {
+                fileTransferDirectoryDeliveries.delete(requestId);
+                outputChannel.appendLine(`[FileTransfer] directory response was not acknowledged: side=${side}`);
+                return;
+            }
+            delivery.retryTimer = setTimeout(() => { void deliver(); }, 500);
+        };
+        await deliver();
+    };
     const openFileTransferEditor = (): void => {
         if (activeFileTransferEditor) {
             activeFileTransferEditor.reveal(vscode.ViewColumn.Active, false);
@@ -2816,6 +2856,12 @@ async function initializeDashboard(
             messageSubscription.dispose();
             if (activeFileTransferEditor === panel) {
                 activeFileTransferEditor = undefined;
+                for (const delivery of fileTransferDirectoryDeliveries.values()) {
+                    if (delivery.retryTimer) {
+                        clearTimeout(delivery.retryTimer);
+                    }
+                }
+                fileTransferDirectoryDeliveries.clear();
             }
         });
     };
@@ -3015,6 +3061,20 @@ async function initializeDashboard(
                 }
                 openFileTransferEditor();
             },
+            'file-transfer-directory-applied': async message => {
+                if (!isFileTransferDirectoryApplied(message)) {
+                    return;
+                }
+                const delivery = fileTransferDirectoryDeliveries.get(message.requestId as string);
+                if (!delivery || delivery.side !== message.side) {
+                    return;
+                }
+                if (delivery.retryTimer) {
+                    clearTimeout(delivery.retryTimer);
+                }
+                fileTransferDirectoryDeliveries.delete(message.requestId as string);
+                outputChannel.appendLine(`[FileTransfer] directory response applied: side=${message.side} attempts=${delivery.attempts}`);
+            },
             'file-transfer-select-local-root': async message => {
                 const provider = fileTransferMessageProvider;
                 if (!isFileTransferLocalRootRequest(message)) {
@@ -3022,7 +3082,7 @@ async function initializeDashboard(
                 }
                 try {
                     const root = await managedRemoteBridgeClient.selectFileTransferLocalRoot();
-                    await provider.postMessage({
+                    await postFileTransferDirectoryResult({
                         type: 'file-transfer-local-root-selected',
                         version: 1,
                         requestId: message.requestId,
@@ -3058,7 +3118,7 @@ async function initializeDashboard(
                         managedRemoteSnapshot.revisionId,
                         message.machineId as string,
                     );
-                    await provider.postMessage({
+                    await postFileTransferDirectoryResult({
                         type: 'file-transfer-remote-directory-listed',
                         version: 1,
                         requestId: message.requestId,
@@ -3086,7 +3146,7 @@ async function initializeDashboard(
                             endpoint.rootId, navigationPath === undefined ? endpoint.directoryId : undefined,
                             navigationPath,
                         );
-                        await provider.postMessage({
+                        await postFileTransferDirectoryResult({
                             type: 'file-transfer-local-root-selected',
                             version: 1,
                             requestId: message.requestId,
@@ -3103,7 +3163,7 @@ async function initializeDashboard(
                             navigationPath === undefined ? endpoint.directoryId : undefined,
                             navigationPath,
                         );
-                        await provider.postMessage({
+                        await postFileTransferDirectoryResult({
                             type: 'file-transfer-remote-directory-listed',
                             version: 1,
                             requestId: message.requestId,
@@ -4883,6 +4943,7 @@ function isFileTransferEditorMessage(value: unknown): value is Record<string, un
     return new Set([
         'file-transfer-select-local-root',
         'file-transfer-list-remote-directory',
+        'file-transfer-directory-applied',
         'file-transfer-open-directory',
         'file-transfer-copy',
         'file-transfer-preflight-copy',
@@ -4893,6 +4954,17 @@ function isFileTransferEditorMessage(value: unknown): value is Record<string, un
         'file-transfer-clear-history',
         'file-transfer-cancel-copy',
     ]).has((value as Record<string, unknown>).type as string);
+}
+
+function isFileTransferDirectoryApplied(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-directory-applied'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && (value.side === 'left' || value.side === 'right')
+        && Object.keys(value).sort().join('\n') === [
+            'requestId', 'side', 'type', 'version',
+        ].join('\n');
 }
 
 function isFileTransferLocalRootRequest(value: Record<string, unknown>): boolean {

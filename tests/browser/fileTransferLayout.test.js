@@ -155,6 +155,14 @@ test('FILE-TRANSFER-UI-006 keeps the selected Managed Machine after its director
     assert.equal(await endpoint.inputValue(), 'managed:machine:build');
     assert.match(await page.locator('[data-file-transfer-pane="left"] [data-file-transfer-pane-status]').textContent(),
         /0 items in this Managed Machine directory/i);
+    assert.deepEqual(await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-directory-applied'
+    )), {
+        type: 'file-transfer-directory-applied',
+        version: 1,
+        requestId: request.requestId,
+        side: 'left',
+    });
 });
 
 test('FILE-TRANSFER-UI-006 keeps a selected Managed Machine actionable when its directory reply is lost', async t => {

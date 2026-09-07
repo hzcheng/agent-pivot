@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
-const { getAiPanelContent } = require('../../out/prompts/webviewContent');
+const { getAiPanelContent, getPromptSurfaceContent } = require('../../out/prompts/webviewContent');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
 const protocol = fs.readFileSync(path.join(__dirname, '../../src/webview/webviewPromptProtocolScripts.js'), 'utf8');
@@ -108,6 +108,36 @@ test('Prompt groups participate in the sidebar-wide collapse and expand control'
         assert.equal(await page.locator('[data-prompt-list]').first().isHidden(), false);
         assert.equal(await page.locator('[data-prompt-list]').nth(1).isHidden(), false);
         assert.match(await toggle.getAttribute('title'), /Collapse/i);
+
+        await page.locator('#ai-tab-skills').click();
+        assert.equal(await toggle.isDisabled(), true, 'Skills does not expose hidden Prompt groups to the global toggle');
+    } finally { await browser.close(); }
+});
+
+test('Prompt group disclosure state and accessible name survive an authoritative refresh', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const featureToggle = page.locator('[data-prompt-group-id="feature"] [data-action="prompt-toggle-group"]');
+        await featureToggle.click();
+        assert.match(await featureToggle.getAttribute('aria-label'), /Expand Feature flow/);
+
+        const nextSnapshot = { ...snapshot(), revision: 2 };
+        const html = getPromptSurfaceContent(nextSnapshot);
+        const applied = await page.evaluate(payload => window.__agentPivotPrompts.applyRefresh(payload), {
+            type: 'prompt-panel-updated',
+            version: 1,
+            authoritySequence: 2,
+            target: 'global-prompt-library',
+            snapshot: nextSnapshot,
+            html,
+        });
+        assert.equal(applied, true);
+        assert.equal(await page.locator('[data-prompt-group-id="feature"] [data-prompt-list]').isHidden(), true);
+        assert.match(
+            await page.locator('[data-prompt-group-id="feature"] [data-action="prompt-toggle-group"]').getAttribute('aria-label'),
+            /Expand Feature flow/
+        );
     } finally { await browser.close(); }
 });
 
@@ -122,6 +152,8 @@ test('Prompt tree uses explicit menus for editing and supports Escape and outsid
         assert.equal(await createForm.isHidden(), false);
         await page.keyboard.press('Escape');
         assert.equal(await createForm.isHidden(), true, 'Escape cancels Prompt creation');
+        assert.equal(await page.locator('[data-action="prompt-new"]').first().evaluate(node => node === document.activeElement), true,
+            'cancelling Prompt creation returns focus to its opener');
 
         await page.locator('[data-action="prompt-group-new"]').click();
         assert.equal(await groupForm.isHidden(), false);
@@ -132,6 +164,9 @@ test('Prompt tree uses explicit menus for editing and supports Escape and outsid
         assert.match(await item.getAttribute('title'), /Prompt:/);
         assert.match(await item.getAttribute('title'), /Group: General/);
         assert.match(await item.getAttribute('title'), /Description:/);
+        const promptInfoId = await item.locator('.prompt-use-button').getAttribute('aria-describedby');
+        assert.ok(promptInfoId);
+        assert.match(await page.locator(`#${promptInfoId}`).textContent(), /Review focused implementation work/);
         await item.locator('.prompt-item-main').click();
         assert.equal(await item.locator('[data-prompt-form="edit"]').isHidden(), true,
             'clicking a Prompt row does not enter editing');
@@ -144,6 +179,8 @@ test('Prompt tree uses explicit menus for editing and supports Escape and outsid
         await page.keyboard.press('Escape');
         assert.equal(await item.locator('[data-prompt-form="edit"]').isHidden(), true,
             'Escape cancels Prompt editing');
+        assert.equal(await item.locator('.prompt-row-menu > summary').evaluate(node => node === document.activeElement), true,
+            'cancelling Prompt editing returns focus to the action menu');
 
         await item.locator('.prompt-row-menu > summary').click();
         await page.locator('.prompt-header').click();

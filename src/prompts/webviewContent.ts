@@ -52,12 +52,12 @@ function groupMenu(group: PromptGroupV1): string {
     return `<details class="prompt-row-menu"><summary aria-label="${escapeHtml(`${group.name} actions`)}">…</summary><div><button type="button" data-action="prompt-delete-group" data-prompt-group-id="${id}">Delete group</button></div></details>`;
 }
 
-function promptMenu(prompt: PromptV2, groups: readonly PromptGroupV1[], selected: boolean): string {
+function promptMenu(prompt: PromptV2, groups: readonly PromptGroupV1[], selected: boolean, infoId: string): string {
     const id = escapeHtml(prompt.id);
     const moves = groups.filter(group => group.id !== prompt.groupId).map(group =>
         `<button type="button" data-action="prompt-move" data-prompt-id="${id}" data-prompt-group-id="${escapeHtml(group.id)}">Move to ${escapeHtml(group.name)}</button>`
     ).join('');
-    return `<details class="prompt-row-menu"><summary aria-label="${escapeHtml(`${prompt.name} actions`)}">…</summary><div>
+    return `<details class="prompt-row-menu"><summary aria-label="${escapeHtml(`${prompt.name} actions`)}" aria-describedby="${escapeHtml(infoId)}">…</summary><div>
         <button type="button" data-action="prompt-copy" data-prompt-id="${id}">Duplicate</button>
         <button type="button" data-action="prompt-select-default" data-prompt-id="${id}" aria-pressed="${selected ? 'true' : 'false'}">${selected ? 'Clear default' : 'Set default'}</button>
         <button type="button" data-action="prompt-edit" data-prompt-id="${id}">Edit</button>${moves}
@@ -67,11 +67,13 @@ function promptMenu(prompt: PromptV2, groups: readonly PromptGroupV1[], selected
 
 function promptItem(prompt: PromptV2, groups: readonly PromptGroupV1[], selectedPromptId: string): string {
     const id = escapeHtml(prompt.id);
+    const infoId = `prompt-info-${prompt.id}`;
     const selected = prompt.id === selectedPromptId;
     return `<li class="prompt-item" data-prompt-id="${id}" title="${escapeHtml(promptTooltip(prompt, groups))}">
-        <div class="prompt-item-view"><button type="button" class="prompt-drag-handle steward-icon-button" draggable="true" data-drag-prompt-id="${id}" aria-label="${escapeHtml(`Drag ${prompt.name} to reorder`)}">${Icons.drag}</button>
+        <span id="${escapeHtml(infoId)}" class="prompt-accessible-info">${escapeHtml(promptTooltip(prompt, groups))}</span>
+        <div class="prompt-item-view"><button type="button" class="prompt-drag-handle steward-icon-button" draggable="true" data-drag-prompt-id="${id}" aria-label="${escapeHtml(`Drag ${prompt.name} to reorder`)}" aria-describedby="${escapeHtml(infoId)}">${Icons.drag}</button>
         <div class="prompt-item-main"><strong class="prompt-name">${escapeHtml(prompt.name)}</strong>${selected ? `<span class="prompt-default-marker" aria-label="Default Prompt">${Icons.starFilled}</span>` : ''}</div>
-        <button type="button" class="prompt-use-button steward-icon-button" data-action="prompt-insert-terminal" data-prompt-id="${id}" title="Use in active terminal" aria-label="${escapeHtml(`Use ${prompt.name} in the active terminal`)}">${Icons.terminalLine}</button>${promptMenu(prompt, groups, selected)}</div>
+        <button type="button" class="prompt-use-button steward-icon-button" data-action="prompt-insert-terminal" data-prompt-id="${id}" title="Use in active terminal" aria-label="${escapeHtml(`Use ${prompt.name} in the active terminal`)}" aria-describedby="${escapeHtml(infoId)}">${Icons.terminalLine}</button>${promptMenu(prompt, groups, selected, infoId)}</div>
         ${promptForm(prompt)}</li>`;
 }
 
@@ -80,7 +82,7 @@ function groupContent(group: PromptGroupV1, snapshot: PromptPanelSnapshot): stri
     const title = group.kind === 'general'
         ? ' title="Default group for prompts not assigned to a custom group."'
         : '';
-    return `<section class="prompt-group" data-prompt-group-id="${escapeHtml(group.id)}"><header class="prompt-group-header"><button type="button" class="prompt-group-toggle" data-action="prompt-toggle-group" aria-expanded="true" aria-label="Collapse ${escapeHtml(group.name)}">▾</button><strong${title}>${escapeHtml(group.name)}</strong><span class="steward-meta">${prompts.length}</span><button type="button" class="prompt-group-add" data-action="prompt-new" data-prompt-group-id="${escapeHtml(group.id)}" aria-label="Create Prompt in ${escapeHtml(group.name)}">＋</button>${groupMenu(group)}</header><ol class="prompt-list" data-prompt-list data-prompt-group-id="${escapeHtml(group.id)}">${prompts.length ? prompts.map(prompt => promptItem(prompt, snapshot.groups, snapshot.selectedPromptId)).join('') : '<li class="prompt-empty steward-meta">No Prompts yet.</li>'}</ol></section>`;
+    return `<section class="prompt-group" data-prompt-group-id="${escapeHtml(group.id)}" data-prompt-group-name="${escapeHtml(group.name)}"><header class="prompt-group-header"><button type="button" class="prompt-group-toggle" data-action="prompt-toggle-group" aria-expanded="true" aria-label="Collapse ${escapeHtml(group.name)}">▾</button><strong${title}>${escapeHtml(group.name)}</strong><span class="steward-meta">${prompts.length}</span><button type="button" class="prompt-group-add" data-action="prompt-new" data-prompt-group-id="${escapeHtml(group.id)}" aria-label="Create Prompt in ${escapeHtml(group.name)}">＋</button>${groupMenu(group)}</header><ol class="prompt-list" data-prompt-list data-prompt-group-id="${escapeHtml(group.id)}">${prompts.length ? prompts.map(prompt => promptItem(prompt, snapshot.groups, snapshot.selectedPromptId)).join('') : '<li class="prompt-empty steward-meta">No Prompts yet.</li>'}</ol></section>`;
 }
 
 function renderAiPanel(promptSurface: string, skillsSurface?: string): string {

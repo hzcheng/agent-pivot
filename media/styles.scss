@@ -7796,6 +7796,18 @@ body.steward-sidebar .prompt-tree .prompt-item {
     text-align: left;
 }
 
+.prompt-accessible-info {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: pre-wrap;
+    border: 0;
+}
+
 .prompt-use-button {
     width: 24px;
     height: 24px;

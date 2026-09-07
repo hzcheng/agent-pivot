@@ -88,6 +88,8 @@ function initProjectGroupCollapse() {
             && prompts
             && typeof prompts.isMounted === 'function'
             && prompts.isMounted()
+            && typeof prompts.getActiveSubtab === 'function'
+            && prompts.getActiveSubtab() === 'prompts'
             && typeof prompts.getGroupCollapsedStates === 'function'
             && typeof prompts.setAllGroupsCollapsed === 'function'
             ? prompts

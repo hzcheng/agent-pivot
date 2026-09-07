@@ -1433,6 +1433,8 @@ function initProjectGroupCollapse() {
             && prompts
             && typeof prompts.isMounted === 'function'
             && prompts.isMounted()
+            && typeof prompts.getActiveSubtab === 'function'
+            && prompts.getActiveSubtab() === 'prompts'
             && typeof prompts.getGroupCollapsedStates === 'function'
             && typeof prompts.setAllGroupsCollapsed === 'function'
             ? prompts
@@ -13748,6 +13750,14 @@ function tabName(tab) {
             if (exceptTarget && typeof menu.contains === 'function' && menu.contains(exceptTarget)) {
                 return;
             }
+            if (document.activeElement
+                && typeof menu.contains === 'function'
+                && menu.contains(document.activeElement)) {
+                var summary = menu.querySelector('summary');
+                if (summary && typeof summary.focus === 'function') {
+                    summary.focus();
+                }
+            }
             if (typeof menu.removeAttribute === 'function') {
                 menu.removeAttribute('open');
             }
@@ -13771,6 +13781,8 @@ function tabName(tab) {
             return false;
         }
         toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        var groupName = group.getAttribute('data-prompt-group-name') || 'Prompt Group';
+        toggle.setAttribute('aria-label', (expanded ? 'Collapse ' : 'Expand ') + groupName);
         toggle.textContent = expanded ? '▾' : '▸';
         groupList.hidden = !expanded;
         return true;
@@ -13789,6 +13801,23 @@ function tabName(tab) {
         });
     }
 
+    function getCollapsedPromptGroupIds() {
+        return promptGroups().filter(function (group) {
+            var toggle = group.querySelector('[data-action="prompt-toggle-group"]');
+            return toggle && toggle.getAttribute('aria-expanded') !== 'true';
+        }).map(function (group) {
+            return group.getAttribute('data-prompt-group-id');
+        }).filter(Boolean);
+    }
+
+    function restoreCollapsedPromptGroups(groupIds) {
+        var collapsed = new Set(Array.isArray(groupIds) ? groupIds : []);
+        promptGroups().forEach(function (group) {
+            var groupId = group.getAttribute('data-prompt-group-id');
+            setPromptGroupExpanded(group, !collapsed.has(groupId));
+        });
+    }
+
     function syncGlobalCollapseButton() {
         if (window.__agentPivotSyncCollapseButton
             && typeof window.__agentPivotSyncCollapseButton === 'function') {
@@ -13804,6 +13833,11 @@ function tabName(tab) {
             form.reset();
         }
         form.hidden = true;
+        var surface = getSurface();
+        var opener = surface && surface.querySelector('[data-action="prompt-group-new"]');
+        if (opener && typeof opener.focus === 'function') {
+            opener.focus();
+        }
         return true;
     }
 
@@ -14041,6 +14075,7 @@ function tabName(tab) {
             scrollY: panelScrollPort ? null : (typeof window.scrollY === 'number' ? window.scrollY : 0),
             draft: clonePromptValue(state.draft),
             activeSubtab: state.activeSubtab,
+            collapsedGroupIds: getCollapsedPromptGroupIds(),
         };
     }
 
@@ -14049,6 +14084,8 @@ function tabName(tab) {
             return;
         }
         activateSubtab(local.activeSubtab, false);
+        restoreCollapsedPromptGroups(local.collapsedGroupIds);
+        syncGlobalCollapseButton();
         restoreSemanticFocus(local.focus);
         var list = getPromptList();
         if (list) {
@@ -14526,6 +14563,13 @@ function tabName(tab) {
         resetPromptForm(form);
         state.draft = null;
         state.blockedDraft = false;
+        var promptId = form.getAttribute('data-prompt-id');
+        var opener = promptId
+            ? findPromptItem(promptId) && findPromptItem(promptId).querySelector('.prompt-row-menu > summary')
+            : getSurface() && getSurface().querySelector('[data-action="prompt-new"]');
+        if (opener && typeof opener.focus === 'function') {
+            opener.focus();
+        }
         return true;
     }
 
@@ -14647,6 +14691,7 @@ function tabName(tab) {
             panel.hidden = panel.id !== 'ai-panel-' + name;
         });
         state.activeSubtab = name;
+        syncGlobalCollapseButton();
         if (focus && selected && typeof selected.focus === 'function') {
             selected.focus();
         }
@@ -14839,6 +14884,7 @@ function tabName(tab) {
         applyInsertResult: applyInsertResult,
         applyRefresh: applyRefresh,
         isMounted: function () { return Boolean(getSurface()); },
+        getActiveSubtab: function () { return state.activeSubtab; },
         getGroupCollapsedStates: getPromptGroupCollapsedStates,
         setAllGroupsCollapsed: setAllPromptGroupsCollapsed,
         getState: function () { return state; },

@@ -139,10 +139,12 @@ Prompts  Skills
 
 ### 数据与迁移
 
-全局 Prompt library 及其树均可复用并保持同步；v1 不把 group 隐式绑定到
-当前工作区。未来可以在不改变 Prompt 单一归属语义的前提下支持嵌套 group，
-但 v1 只交付一层自定义 group。初始模型如下，持久化时应加入版本和 revision，
-并延续现有的乐观并发冲突检测与权威回执机制：
+全局 Prompt library 及其树均可跨项目复用；v1 不把 group 隐式绑定到当前工作
+区。`globalState` 的同步键只提供 Settings Sync 的最终传输，不承诺实时刷新或
+多窗口同时编辑的冲突安全性；并发编辑须在后续的记录级同步模型中解决。未来可以
+在不改变 Prompt 单一归属语义的前提下支持嵌套 group，但 v1 只交付一层自定义
+group。初始模型如下，持久化时应加入版本和 revision，并延续现有的单窗口乐观
+并发冲突检测与权威回执机制：
 
 ```ts
 interface PromptV2 {
@@ -165,7 +167,7 @@ interface PromptGroupV1 {
 `General` 使用稳定 id 和 `kind: 'general'`；它必须唯一、置顶且不可删除。旧
 PromptV1 数据须无损迁移：创建 General，将每个既有 Prompt 放入其中，保持
 `name`、`text` 和原有顺序不变，`description` 缺省。Group 的创建不依赖工作区；
-它与全局 Prompt 一样可以在任意窗口维护。
+它与全局 Prompt 一样可在任一窗口使用，但不支持多个窗口同时编辑同一 library。
 
 ## Skills
 

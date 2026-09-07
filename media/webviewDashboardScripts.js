@@ -1369,7 +1369,8 @@ function initDashboard(options) {
                 return false;
             }
             pendingLocalRootRequests[message.side] = null;
-            if (message.type === 'file-transfer-local-root-selected' && message.root) {
+            if ((message.type === 'file-transfer-local-root-selected'
+                || message.type === 'file-transfer-remote-directory-listed') && message.root) {
                 localRoots[message.side] = message.root;
                 paneFailures[message.side] = null;
             } else if (message.type === 'file-transfer-local-root-failed'

@@ -11,6 +11,9 @@ const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), '
 const dashboardScript = fs.readFileSync(
     path.join(__dirname, '../../src/webview/webviewDashboardScripts.js'), 'utf8'
 );
+const dashboardBundle = fs.readFileSync(
+    path.join(__dirname, '../../media/webviewDashboardBundle.js'), 'utf8'
+);
 
 let browser;
 
@@ -109,4 +112,47 @@ test('FILE-TRANSFER-EDITOR-001 opens a directory with one click while preserving
     await page.locator('[data-file-transfer-entry-id] input').click();
     assert.deepEqual(await page.evaluate(() => window.__fileTransferOpenedDirectories),
         ['0123456789abcdef0123456789abcdef']);
+});
+
+test('FILE-TRANSFER-UI-006 keeps the selected Managed Machine after its directory is listed', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'],
+            postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+    const endpoint = page.locator('[data-file-transfer-endpoint="left"]');
+    await endpoint.selectOption('managed:machine:build');
+    const request = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory'
+            && message.side === 'left'
+    ));
+    assert.ok(request, 'selecting a Managed Machine must request its directory');
+    await page.evaluate(message => {
+        window.dispatchEvent(new MessageEvent('message', { data: message }));
+    }, {
+        type: 'file-transfer-remote-directory-listed',
+        version: 1,
+        requestId: request.requestId,
+        side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: 'fedcba9876543210fedcba9876543210',
+            label: 'Build Machine',
+            displayPath: '/workspace',
+            entries: [],
+        },
+    });
+    assert.equal(await endpoint.inputValue(), 'managed:machine:build');
+    assert.match(await page.locator('[data-file-transfer-pane="left"] [data-file-transfer-pane-status]').textContent(),
+        /0 items in this Managed Machine directory/i);
 });

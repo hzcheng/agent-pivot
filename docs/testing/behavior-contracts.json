@@ -7330,6 +7330,22 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-UI-006",
+    "domain": "webview",
+    "title": "A successfully listed Managed Machine directory keeps its selected endpoint and renders the directory",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-EDITOR-001",
     "domain": "webview",
     "title": "Projects exposes File Transfer as an editor surface with equal left and right endpoints",

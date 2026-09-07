@@ -10116,6 +10116,8 @@ function createMachineProjectsUi() {
             applyFilters();
         } else if (action === 'save-current-project') {
             window.vscode.postMessage({ type: 'save-current-workspace' });
+        } else if (action === 'open-file-transfer') {
+            window.vscode.postMessage({ type: 'open-file-transfer', version: 1 });
         } else if (action === 'toggle-machine-favorite') {
             var favoriteRow = control.closest('[data-machine-project-row]');
             if (favoriteRow) {
@@ -13138,6 +13140,11 @@ function initDashboard(options) {
     var storageKey = 'agentPivot.activeDashboardTab';
     var scrollPositions = { open: 0, projects: 0, ai: 0, 'file-transfer': 0 };
     var activeTab = normalizeDashboardTab(readDashboardSessionValue(storageKey));
+    var enabledTabs = Array.isArray(options.enabledTabs) && options.enabledTabs.length
+        ? options.enabledTabs : ['open', 'projects', 'ai', 'file-transfer'];
+    if (enabledTabs.indexOf(activeTab) < 0) {
+        activeTab = enabledTabs.indexOf('open') >= 0 ? 'open' : enabledTabs[0];
+    }
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
         ? Number(options.panelRequestTimeoutMs)

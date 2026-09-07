@@ -858,6 +858,8 @@ function createMachineProjectsUi() {
             applyFilters();
         } else if (action === 'save-current-project') {
             window.vscode.postMessage({ type: 'save-current-workspace' });
+        } else if (action === 'open-file-transfer') {
+            window.vscode.postMessage({ type: 'open-file-transfer', version: 1 });
         } else if (action === 'toggle-machine-favorite') {
             var favoriteRow = control.closest('[data-machine-project-row]');
             if (favoriteRow) {

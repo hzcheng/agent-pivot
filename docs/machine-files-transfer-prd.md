@@ -6,9 +6,10 @@
 
 ## 1. Summary
 
-Agent Pivot adds **File Transfer**, a first-level workspace next to AI
-Conversation and Projects. It lets a user browse two transfer endpoints side by
-side and copy files or folders in either direction. An endpoint is either an
+Agent Pivot adds **File Transfer**, opened from the Transfer button at the top
+of Projects. It opens as a dedicated editor tab where a user browses two
+transfer endpoints side by side and copies files or folders in either
+direction. An endpoint is either an
 existing Managed Machine or **This Computer**, rooted at a local directory the
 user explicitly chooses.
 
@@ -91,23 +92,22 @@ directory picker.
 
 ## 6. Information architecture
 
-File Transfer is a peer of the existing major Dashboard surfaces, not a detail
-screen hidden in a Project menu:
+File Transfer is entered from the persistent Transfer button at the top of
+Projects and opens in the main editor area. It is not hidden in a per-project
+overflow menu:
 
 ```text
-Dashboard
-├── AI Conversation
-├── File Transfer       ← new
-│   ├── Pair picker
-│   ├── Two-pane browser
-│   └── Transfers (running and recent)
-└── Projects
-    └── Managed Machines / Environments / Projects
+Projects tab
+└── Transfer button
+    └── File Transfer editor tab
+        ├── Pair picker
+        ├── Two-pane browser
+        └── Transfers (running and recent)
 ```
 
-Projects may offer `Open in File Transfer` from a Machine's overflow menu as a
-convenience entry point. That deep link preselects one Machine but does not make
-it the source and does not start a transfer.
+The Transfer button is available regardless of the current Project selection.
+It opens a blank symmetric pair rather than pre-assigning a source or starting
+a transfer.
 
 The page title is **File Transfer**. The primary page action is `Select
 endpoints`; during a running task the persistent badge/action is `Transfers (n)`.
@@ -290,7 +290,7 @@ resume is a later feature, not an implied guarantee.
 | Decision | Requirement and rationale |
 | --- | --- |
 | Pair, not fixed endpoints | Two endpoints are selected symmetrically. Each can be a Managed Machine or This Computer rooted at a user-selected local folder. Copy direction is set by the current selected pane or drag direction, avoiding needless reconfiguration for back-and-forth work. |
-| Dedicated surface | File Transfer is a peer Dashboard page because two independent remote trees, review, and task progress need more room and a durable mental model than a Project overflow dialog. |
+| Dedicated editor surface | A persistent Transfer button at the top of Projects opens File Transfer in the main editor area. Two independent remote trees, review, and task progress need more room and a durable mental model than a Project overflow dialog. |
 | Visible intent | A fixed summary bar is present whenever items are selected. Copy is unavailable until its exact result can be described. |
 | Copy-first safety | The initial action is always copy. Move and sync have different destructive semantics and are excluded. |
 | Review before effects | Drag/drop, button, AI hand-off, retry, and saved plan all route through the same review policy. |
@@ -370,8 +370,8 @@ behavior; cancellation; and Machines that cannot reach one another.
 
 ### 10.4 UI implementation path
 
-- Add a first-level File Transfer tab/surface in the Agent Pivot shell and its
-  generated/runtime Webview copies. It owns a small view state machine:
+- Add a Transfer button to the top of Projects and open a dedicated File
+  Transfer editor Webview. It owns a small view state machine:
   `empty → pairing → browsing → reviewing → queued/running → settled`.
 - Use host-owned mutation messages following the existing Webview mutation
   protocol: UI actions have request IDs, pending states, stale acknowledgements
@@ -440,8 +440,9 @@ behavior; cancellation; and Machines that cannot reach one another.
 
 ### Product and interaction
 
-- [ ] File Transfer is reachable as a first-level Dashboard surface next to AI
-      Conversation and Projects; it is not only a Project overflow dialog.
+- [ ] File Transfer is reachable from a persistent Transfer button at the top
+      of Projects and opens in the main editor area; it is not only a Project
+      overflow dialog.
 - [ ] The user can select exactly two different eligible endpoints and open them
       as equal left/right panes without choosing a fixed source or target. An
       endpoint can be a Managed Machine or This Computer rooted at a local

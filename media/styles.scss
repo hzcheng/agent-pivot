@@ -793,6 +793,32 @@ body .project {
     }
 }
 
+.machine-toolbar-button.machine-transfer-action {
+    width: auto;
+    gap: 4px;
+    padding: 5px 7px;
+}
+
+.file-transfer-editor {
+    min-width: 0;
+    min-height: 100vh;
+    margin: 0;
+    background: var(--vscode-editor-background);
+}
+
+.file-transfer-editor-content {
+    box-sizing: border-box;
+    min-height: 100vh;
+    padding: 18px 22px 28px;
+}
+
+.file-transfer-editor-panel {
+    display: block;
+    max-width: 1600px;
+    min-height: calc(100vh - 46px);
+    margin: 0 auto;
+}
+
 .managed-toolbar-label {
     font-size: 11px;
 }

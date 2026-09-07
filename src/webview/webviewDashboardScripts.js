@@ -374,6 +374,11 @@ function initDashboard(options) {
     var storageKey = 'agentPivot.activeDashboardTab';
     var scrollPositions = { open: 0, projects: 0, ai: 0, 'file-transfer': 0 };
     var activeTab = normalizeDashboardTab(readDashboardSessionValue(storageKey));
+    var enabledTabs = Array.isArray(options.enabledTabs) && options.enabledTabs.length
+        ? options.enabledTabs : ['open', 'projects', 'ai', 'file-transfer'];
+    if (enabledTabs.indexOf(activeTab) < 0) {
+        activeTab = enabledTabs.indexOf('open') >= 0 ? 'open' : enabledTabs[0];
+    }
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
         ? Number(options.panelRequestTimeoutMs)

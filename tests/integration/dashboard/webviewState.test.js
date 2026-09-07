@@ -12,8 +12,12 @@ const {
 } = require('../../../out/webview/dashboardViewModel');
 const { getDashboardWebviewOptions } = require('../../../out/dashboard/webviewOptions');
 const { getFileTransferContent } = require('../../../out/webview/webviewFileTransferContent');
+const { renderMachineProjectsPanel } = require('../../../out/webview/webviewMachineProjectsContent');
+const { renderManagedRemoteProjectsPanel } = require('../../../out/webview/webviewManagedRemoteProjectsContent');
 
 const root = path.join(__dirname, '..', '..', '..');
+const dashboardHostSource = fs.readFileSync(path.join(root, 'src', 'dashboard.ts'), 'utf8');
+const dashboardContentSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewContent.ts'), 'utf8');
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
 const generatedDashboardSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardScripts.js'), 'utf8');
 const skillPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewSkillPanelScripts.js'), 'utf8');
@@ -451,6 +455,43 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(dashboardSource, /is-file-transfer-copy-source/);
     assert.doesNotMatch(html, /Source endpoint|Destination endpoint/);
     assert.match(dashboardSource, /swapEndpointLayout/);
+});
+
+test('FILE-TRANSFER-EDITOR-001 opens File Transfer from Projects into a dedicated editor surface', () => {
+    const { getFileTransferEditorContent } = require('../../../out/webview/webviewFileTransferEditorContent');
+    const projectsHtml = renderMachineProjectsPanel({
+        machines: [], favorites: [], tags: [], projectCount: 0,
+    }, 'revision:abc');
+    assert.match(projectsHtml, /data-action="open-file-transfer"/);
+    assert.match(projectsHtml, /aria-label="Open File Transfer"/);
+    const managedProjectsHtml = renderManagedRemoteProjectsPanel({
+        revisionId: 'revision:abc', lifecycle: 'active', machines: [], favorites: [], tags: [], projectCount: 0,
+    });
+    assert.match(managedProjectsHtml, /data-action="open-file-transfer"/);
+
+    const html = getFileTransferEditorContent(
+        { extensionPath: root },
+        {
+            cspSource: 'vscode-webview-resource:',
+            asWebviewUri: value => value.toString(),
+        },
+        {
+            revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+            catalog: { machines: [], environments: [], projects: [],
+                layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+                conflicts: [] },
+        },
+    );
+    assert.match(html, /<title>File Transfer<\/title>/);
+    assert.match(html, /id="dashboard-tab-file-transfer"/);
+    assert.match(html, /data-file-transfer-endpoint="left"/);
+    assert.match(html, /data-file-transfer-endpoint="right"/);
+    assert.doesNotMatch(html, /data-dashboard-tab="file-transfer"/);
+    assert.match(dashboardHostSource, /AGENT_PIVOT_FILE_TRANSFER_VIEW_TYPE/);
+    assert.match(dashboardHostSource, /createWebviewPanel\(/);
+    assert.match(dashboardHostSource, /'open-file-transfer': async message/);
+    assert.match(dashboardHostSource, /postFileTransferMessage/);
+    assert.doesNotMatch(dashboardContentSource, /data-dashboard-tab="file-transfer"/);
 });
 
 test('FILE-TRANSFER-UI-002 treats cancellation as a terminal transfer result', () => {

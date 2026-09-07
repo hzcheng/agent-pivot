@@ -9,6 +9,7 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getStewardContent } from './webview/webviewContent';
+import { getFileTransferEditorContent } from './webview/webviewFileTransferEditorContent';
 import {
     buildMachineProjectsViewModel,
     isLocalMachineProjectPath,
@@ -35,6 +36,7 @@ import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
     AGENT_PIVOT_DASHBOARD_VIEW_ID,
+    AGENT_PIVOT_FILE_TRANSFER_VIEW_TYPE,
     OBSOLETE_PROJECT_SETTING_KEYS,
     MANAGED_REMOTE_CATALOG_DATA_KEY,
     MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
@@ -2775,8 +2777,51 @@ async function initializeDashboard(
             || (machineIds.has(endpoint.machineId) && !blockedMachineIds.has(endpoint.machineId)));
     };
     let activeFileTransferTaskId: string | undefined;
+    let activeFileTransferEditor: vscode.WebviewPanel | undefined;
+    let routeFileTransferEditorMessage: ((message: Record<string, unknown>) => void) | undefined;
+    const postFileTransferMessage = (message: unknown) => activeFileTransferEditor
+        ? activeFileTransferEditor.webview.postMessage(message)
+        : provider.postMessage(message);
+    const fileTransferMessageProvider = { postMessage: postFileTransferMessage };
+    const openFileTransferEditor = (): void => {
+        if (activeFileTransferEditor) {
+            activeFileTransferEditor.reveal(vscode.ViewColumn.Active, false);
+            return;
+        }
+        const panel = vscode.window.createWebviewPanel(
+            AGENT_PIVOT_FILE_TRANSFER_VIEW_TYPE,
+            'File Transfer',
+            vscode.ViewColumn.Active,
+            {
+                ...getDashboardWebviewOptions(context.extensionPath, vscode.Uri.file),
+                retainContextWhenHidden: true,
+            },
+        );
+        activeFileTransferEditor = panel;
+        panel.webview.html = getFileTransferEditorContent(
+            { extensionPath: context.extensionPath, createFileUri: vscode.Uri.file },
+            panel.webview as unknown as {
+                cspSource: string;
+                asWebviewUri(resource: unknown): { toString(): string };
+            },
+            managedRemoteSnapshot,
+        );
+        const messageSubscription = panel.webview.onDidReceiveMessage(message => {
+            if (!isFileTransferEditorMessage(message) || !routeFileTransferEditorMessage) {
+                return;
+            }
+            routeFileTransferEditorMessage(message);
+        });
+        panel.onDidDispose(() => {
+            messageSubscription.dispose();
+            if (activeFileTransferEditor === panel) {
+                activeFileTransferEditor = undefined;
+            }
+        });
+    };
     const queuedFileTransferTasks: Record<string, unknown>[] = [];
     const runNextFileTransferTask = (): void => {
+        const provider = fileTransferMessageProvider;
         if (activeFileTransferTaskId || queuedFileTransferTasks.length === 0) {
             return;
         }
@@ -2963,7 +3008,15 @@ async function initializeDashboard(
             'managed-remote-client-action': async message => {
                 await managedRemoteActions.handleMessage(message);
             },
+            'open-file-transfer': async message => {
+                if (Object.keys(message).sort().join('\n') !== ['type', 'version'].join('\n')
+                    || message.version !== 1) {
+                    return;
+                }
+                openFileTransferEditor();
+            },
             'file-transfer-select-local-root': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferLocalRootRequest(message)) {
                     return;
                 }
@@ -2988,6 +3041,7 @@ async function initializeDashboard(
                 }
             },
             'file-transfer-list-remote-directory': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferRemoteDirectoryRequest(message)) {
                     return;
                 }
@@ -3016,6 +3070,7 @@ async function initializeDashboard(
                 }
             },
             'file-transfer-open-directory': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferOpenDirectoryRequest(message)) {
                     return;
                 }
@@ -3058,6 +3113,7 @@ async function initializeDashboard(
                 }
             },
             'file-transfer-copy': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferCopyRequest(message)) {
                     return;
                 }
@@ -3082,6 +3138,7 @@ async function initializeDashboard(
                 runNextFileTransferTask();
             },
             'file-transfer-preflight-copy': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferPreflightRequest(message)) {
                     return;
                 }
@@ -3109,6 +3166,7 @@ async function initializeDashboard(
                 }
             },
             'file-transfer-request-history': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferHistoryRequest(message)) {
                     return;
                 }
@@ -3117,6 +3175,7 @@ async function initializeDashboard(
                 });
             },
             'file-transfer-request-saved-pairs': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferSavedPairsRequest(message)) {
                     return;
                 }
@@ -3125,6 +3184,7 @@ async function initializeDashboard(
                 });
             },
             'file-transfer-save-pair': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferSavedPairMutation(message)) {
                     return;
                 }
@@ -3154,6 +3214,7 @@ async function initializeDashboard(
                 }
             },
             'file-transfer-set-saved-pair-pinned': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferSavedPairPinMutation(message)) {
                     return;
                 }
@@ -3182,6 +3243,7 @@ async function initializeDashboard(
                 }
             },
             'file-transfer-clear-history': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferHistoryClearRequest(message)) {
                     return;
                 }
@@ -3200,6 +3262,7 @@ async function initializeDashboard(
                 }
             },
             'file-transfer-cancel-copy': async message => {
+                const provider = fileTransferMessageProvider;
                 if (!isFileTransferCancelRequest(message)) {
                     return;
                 }
@@ -3340,6 +3403,7 @@ async function initializeDashboard(
             );
         },
     });
+    routeFileTransferEditorMessage = message => { void dashboardMessageRouter(message); };
     const providerOptions: AgentPivotViewProviderOptions = {
         getWebviewOptions: () => getDashboardWebviewOptions(context.extensionPath, vscode.Uri.file),
         renderContent: (webview, documentGeneration) => {
@@ -4806,6 +4870,25 @@ async function initializeDashboard(
 
 }
 
+}
+
+function isFileTransferEditorMessage(value: unknown): value is Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+    }
+    return new Set([
+        'file-transfer-select-local-root',
+        'file-transfer-list-remote-directory',
+        'file-transfer-open-directory',
+        'file-transfer-copy',
+        'file-transfer-preflight-copy',
+        'file-transfer-request-history',
+        'file-transfer-request-saved-pairs',
+        'file-transfer-save-pair',
+        'file-transfer-set-saved-pair-pinned',
+        'file-transfer-clear-history',
+        'file-transfer-cancel-copy',
+    ]).has((value as Record<string, unknown>).type as string);
 }
 
 function isFileTransferLocalRootRequest(value: Record<string, unknown>): boolean {

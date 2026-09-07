@@ -1,4 +1,5 @@
 import {
+    GENERAL_PROMPT_GROUP_ID,
     PromptMutationErrorCode,
     PromptMutationOperation,
     PromptPanelSnapshot,
@@ -29,11 +30,16 @@ const PROMPT_OPERATIONS = new Set<PromptMutationOperation>([
     'delete',
     'reorder',
     'select-default',
+    'create-group',
+    'rename-group',
+    'delete-group',
+    'move',
 ]);
 const UNAVAILABLE_SNAPSHOT: PromptPanelSnapshot = Object.freeze({
-    version: 1,
+    version: 2,
     revision: 0,
     selectedPromptId: null,
+    groups: Object.freeze([{ id: GENERAL_PROMPT_GROUP_ID, name: 'General', kind: 'general' as const }]),
     prompts: Object.freeze([]),
     readOnlyReason: 'invalid-data',
 });
@@ -85,9 +91,16 @@ export interface PromptDeleteConfirmation {
     readonly name: string;
 }
 
+export interface PromptGroupDeleteConfirmation {
+    readonly id: string;
+    readonly name: string;
+    readonly promptCount: number;
+}
+
 export interface PromptDashboardControllerOptions {
     readonly service: PromptService;
     readonly confirmDelete: (prompt: PromptDeleteConfirmation) => Promise<boolean>;
+    readonly confirmDeleteGroup?: (group: PromptGroupDeleteConfirmation) => Promise<boolean>;
     readonly renderPromptSurface?: (snapshot: PromptPanelSnapshot) => string;
     readonly renderAiPanel?: (snapshot: PromptPanelSnapshot) => string;
 }
@@ -137,6 +150,19 @@ function requireExactPayload(value: unknown, keys: readonly string[]): UnknownRe
     return value;
 }
 
+function requirePayloadWithOptional(
+    value: unknown,
+    required: readonly string[],
+    optional: readonly string[],
+): UnknownRecord {
+    if (!isRecord(value)
+        || !required.every(key => Object.prototype.hasOwnProperty.call(value, key))
+        || Object.keys(value).some(key => required.indexOf(key) < 0 && optional.indexOf(key) < 0)) {
+        throw new PromptCommandValidationError('invalid');
+    }
+    return value;
+}
+
 function requireString(value: unknown): string {
     if (typeof value !== 'string') {
         throw new PromptCommandValidationError('invalid');
@@ -178,6 +204,7 @@ function correlationKey(message: PromptCommandMessage): string {
 export class PromptDashboardController {
     private readonly service: PromptService;
     private readonly confirmDelete: (prompt: PromptDeleteConfirmation) => Promise<boolean>;
+    private readonly confirmDeleteGroup: (group: PromptGroupDeleteConfirmation) => Promise<boolean>;
     private readonly renderPromptSurface: (snapshot: PromptPanelSnapshot) => string;
     private readonly renderAiPanel: (snapshot: PromptPanelSnapshot) => string;
     private readonly claimedCorrelationKeys = new Set<string>();
@@ -186,6 +213,7 @@ export class PromptDashboardController {
     constructor(options: PromptDashboardControllerOptions) {
         this.service = options.service;
         this.confirmDelete = options.confirmDelete;
+        this.confirmDeleteGroup = options.confirmDeleteGroup || (async () => false);
         this.renderPromptSurface = options.renderPromptSurface || getPromptSurfaceContent;
         this.renderAiPanel = options.renderAiPanel || getAiPanelContent;
     }
@@ -343,19 +371,22 @@ export class PromptDashboardController {
 
         switch (message.operation) {
             case 'create': {
-                const payload = requireExactPayload(message.payload, ['name', 'text']);
+                const payload = requirePayloadWithOptional(message.payload, ['name', 'text'], ['description', 'groupId']);
                 return this.service.createPrompt(message.expectedRevision, {
                     name: requireString(payload.name),
+                    ...(payload.description === undefined ? {} : { description: requireString(payload.description) }),
                     text: requireString(payload.text),
+                    ...(payload.groupId === undefined ? {} : { groupId: requirePromptId(payload.groupId) }),
                 });
             }
             case 'update': {
-                const payload = requireExactPayload(message.payload, ['promptId', 'name', 'text']);
+                const payload = requirePayloadWithOptional(message.payload, ['promptId', 'name', 'text'], ['description']);
                 const promptId = requirePromptId(payload.promptId);
                 this.requirePrompt(snapshot, promptId);
                 return this.service.updatePrompt(message.expectedRevision, {
                     promptId,
                     name: requireString(payload.name),
+                    ...(payload.description === undefined ? {} : { description: requireString(payload.description) }),
                     text: requireString(payload.text),
                 });
             }
@@ -370,12 +401,15 @@ export class PromptDashboardController {
                 return this.service.deletePrompt(message.expectedRevision, promptId);
             }
             case 'reorder': {
-                const payload = requireExactPayload(message.payload, ['promptIds']);
+                const payload = requirePayloadWithOptional(message.payload, ['promptIds'], ['groupId']);
+                const groupId = payload.groupId === undefined
+                    ? GENERAL_PROMPT_GROUP_ID
+                    : requirePromptId(payload.groupId);
                 const promptIds = requirePromptIds(payload.promptIds);
-                if (!this.isExactPromptPermutation(snapshot, promptIds)) {
+                if (!this.isExactPromptPermutation(snapshot, groupId, promptIds)) {
                     throw new PromptCommandValidationError('invalid');
                 }
-                return this.service.reorderPrompts(message.expectedRevision, promptIds);
+                return this.service.reorderPrompts(message.expectedRevision, groupId, promptIds);
             }
             case 'select-default': {
                 const payload = requireExactPayload(message.payload, ['promptId']);
@@ -386,6 +420,36 @@ export class PromptDashboardController {
                     this.requirePrompt(snapshot, promptId);
                 }
                 return this.service.selectDefault(message.expectedRevision, promptId);
+            }
+            case 'create-group': {
+                const payload = requireExactPayload(message.payload, ['name']);
+                return this.service.createGroup(message.expectedRevision, requireString(payload.name));
+            }
+            case 'rename-group': {
+                const payload = requireExactPayload(message.payload, ['groupId', 'name']);
+                this.requireCustomGroup(snapshot, requirePromptId(payload.groupId));
+                return this.service.renameGroup(
+                    message.expectedRevision, requirePromptId(payload.groupId), requireString(payload.name),
+                );
+            }
+            case 'delete-group': {
+                const payload = requireExactPayload(message.payload, ['groupId']);
+                const group = this.requireCustomGroup(snapshot, requirePromptId(payload.groupId));
+                const promptCount = snapshot.prompts.filter(prompt => prompt.groupId === group.id).length;
+                const confirmed = await this.confirmDeleteGroup({
+                    id: group.id, name: group.name, promptCount,
+                });
+                if (!confirmed) {
+                    throw new PromptCommandValidationError('cancelled');
+                }
+                return this.service.deleteGroup(message.expectedRevision, group.id);
+            }
+            case 'move': {
+                const payload = requireExactPayload(message.payload, ['promptId', 'groupId']);
+                const promptId = requirePromptId(payload.promptId);
+                this.requirePrompt(snapshot, promptId);
+                this.requireGroup(snapshot, requirePromptId(payload.groupId));
+                return this.service.movePrompt(message.expectedRevision, promptId, requirePromptId(payload.groupId));
             }
         }
     }
@@ -400,14 +464,32 @@ export class PromptDashboardController {
 
     private isExactPromptPermutation(
         snapshot: PromptPanelSnapshot,
+        groupId: string,
         promptIds: readonly string[],
     ): boolean {
-        if (snapshot.prompts.length !== promptIds.length) {
+        const groupPrompts = snapshot.prompts.filter(prompt => prompt.groupId === groupId);
+        if (groupPrompts.length !== promptIds.length) {
             return false;
         }
         const requestedIds = new Set(promptIds);
         return requestedIds.size === promptIds.length
-            && snapshot.prompts.every(prompt => requestedIds.has(prompt.id));
+            && groupPrompts.every(prompt => requestedIds.has(prompt.id));
+    }
+
+    private requireGroup(snapshot: PromptPanelSnapshot, groupId: string) {
+        const group = snapshot.groups.find(candidate => candidate.id === groupId);
+        if (!group) {
+            throw new PromptCommandValidationError('not-found');
+        }
+        return group;
+    }
+
+    private requireCustomGroup(snapshot: PromptPanelSnapshot, groupId: string) {
+        const group = this.requireGroup(snapshot, groupId);
+        if (group.kind !== 'custom') {
+            throw new PromptCommandValidationError('invalid');
+        }
+        return group;
     }
 
     private getSnapshotForContent(): PromptContentSnapshot {

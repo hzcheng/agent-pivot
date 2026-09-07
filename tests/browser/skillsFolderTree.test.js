@@ -132,6 +132,28 @@ async function openSkillsPage(browser, records, view = {}) {
     return page;
 }
 
+test('WEBVIEW-AI-SKILL-PANEL-001 skill rows stay inert and editing requires the row menu', async () => {
+    const browser = await chromium.launch();
+    try {
+        const page = await openSkillsPage(browser, [makeRecord()]);
+        const row = '.skill-row[data-skill-dir="/home/dev/.kimi/skills/demo"]';
+        assert.equal(await page.locator('.skill-detail').isHidden(), true);
+        await page.click(row);
+        assert.equal(await page.locator('.skill-detail').isHidden(), true,
+            'clicking the row must not reveal or navigate to editing');
+
+        await page.click('[data-skill-menu="/home/dev/.kimi/skills/demo"]');
+        assert.match(await page.locator('.skill-menu').textContent(), /^Edit/);
+        await page.click('.skill-menu [data-skill-open]');
+        assert.deepEqual(await page.evaluate(() => window.__skillMessages), [{
+            type: 'open-skill-file',
+            skillFilePath: '/home/dev/.kimi/skills/demo/SKILL.md',
+        }]);
+    } finally {
+        await browser.close();
+    }
+});
+
 test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pending state and authoritative replacement', async () => {
     const browser = await chromium.launch();
     try {
@@ -151,9 +173,9 @@ test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pendin
         assert.equal(await page.textContent(globalButton), 'Use in project');
         assert.equal(await page.textContent(projectButton), 'Move to Global');
 
-        // Scope actions live in the expandable detail panel now.
-        await page.click('.skill-row[data-skill-dir="/home/dev/.skills/superpowers/alpha"]');
-        await page.click(globalButton);
+        // Scope actions are intentional row-menu actions, not row-click side effects.
+        await page.click('[data-skill-menu="/home/dev/.skills/superpowers/alpha"]');
+        await page.click(`.skill-menu ${globalButton}`);
         const afterClick = await page.evaluate(selector => {
             const button = document.querySelector(selector);
             return {
@@ -163,7 +185,7 @@ test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pendin
                 ariaDisabled: button.getAttribute('aria-disabled'),
                 pending: button.classList.contains('pending'),
             };
-        }, globalButton);
+        }, `.skill-menu ${globalButton}`);
         assert.equal(afterClick.messages.length, 1);
         assert.equal(afterClick.messages[0].type, 'skill-scope-action');
         assert.equal(afterClick.messages[0].version, 1);
@@ -177,7 +199,7 @@ test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pendin
                 ariaDisabled: afterClick.ariaDisabled,
                 pending: afterClick.pending,
             },
-            { text: 'Applying…', disabled: false, ariaDisabled: 'true', pending: true });
+            { text: 'Applying…', disabled: undefined, ariaDisabled: 'true', pending: true });
 
         const { getSkillsPanelContent } = loadSkillContent();
         const linked = centralRecord({
@@ -222,8 +244,8 @@ test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pendin
         assert.deepEqual(malformed, {
             text: 'Applying…',
             status: '',
-            focused: '/home/dev/.skills/superpowers/alpha',
-        }, 'same-id malformed settlement is ignored and pending focus survives replacement');
+            focused: null,
+        }, 'same-id malformed settlement leaves the hidden detail inert after replacement');
 
         await page.evaluate(({ html }) => {
             const request = window.__skillMessages[0];
@@ -252,8 +274,8 @@ test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pendin
         },
             'matching settlement clears pending only after authoritative HTML replacement');
 
-        await page.click('.skill-row[data-skill-dir="/work/app/.skills/project-only"]');
-        await page.click(projectButton);
+        await page.click('[data-skill-menu="/work/app/.skills/project-only"]');
+        await page.click(`.skill-menu ${projectButton}`);
         const movedRecord = centralRecord({
             name: 'project-only',
             scope: 'user',
@@ -279,15 +301,13 @@ test('PERSIST-AI-SKILL-SCOPE-ACTION-001 card scope actions use correlated pendin
             });
         }, { html: movedHtml });
         const moveFocus = await page.evaluate(() => ({
-            dirPath: document.activeElement?.getAttribute('data-skill-scope-action'),
-            operation: document.activeElement?.getAttribute('data-skill-scope-operation'),
+            dirPath: document.activeElement?.getAttribute('data-skill-menu'),
             status: document.querySelector('[data-skill-scope-status]').textContent,
         }));
         assert.deepEqual(moveFocus, {
             dirPath: '/home/dev/.skills/project-only',
-            operation: 'apply-to-project',
             status: 'Skill moved to Global management.',
-        }, 'move success focuses the new Global card action');
+        }, 'move success focuses the new Global card menu');
     } finally {
         await browser.close();
     }

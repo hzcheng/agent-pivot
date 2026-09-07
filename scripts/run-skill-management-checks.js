@@ -237,8 +237,10 @@ function runSkillRenderingChecks() {
     assert.ok(!html.includes('skill-collection-icon'), 'collection icons retired from headers');
     assert.ok(!html.includes('data-skill-delete='), 'Delete lives in the row ⋯ menu, not the static markup');
     assert.ok(!html.includes('data-skill-toggle='), 'master toggle retired');
-    assert.ok(html.includes('data-skill-open="/home/dev/.kimi/skills/demo/SKILL.md"'),
-        'clean records (no shadowing, no diagnostics) render the Open SKILL.md action');
+    assert.ok(html.includes('data-skill-file-path="/home/dev/.kimi/skills/demo/SKILL.md"'),
+        'clean records retain their file path for the explicit Edit menu action');
+    assert.ok(!html.includes('data-skill-open="/home/dev/.kimi/skills/demo/SKILL.md"'),
+        'editing is not a persistent row action');
     assert.ok(!html.includes('class="skill-chip agent-kimi"'), 'agent chips retired on rows');
     assert.ok(!html.includes('class="skill-chip agent-absent"'), 'absent chips retired on rows');
     assert.ok(!html.includes('skill-chip'), 'chips retired entirely (rows use dots + a warn glyph)');
@@ -538,7 +540,10 @@ function runSkillWebviewScriptChecks() {
     assert.ok(script.includes('data-skill-delete'));
     assert.ok(!script.includes('data-skill-toggle'), 'toggle markup wiring retired');
     assert.ok(!script.includes('data-skill-parked-toggle'), 'parked disclosure wiring retired');
-    assert.ok(script.includes('skill-detail-open'), 'card click expands the detail panel');
+    assert.ok(script.includes("appendMenuAction(menu, 'skill-menu-open', 'Edit')"),
+        'the row ⋯ menu contains the explicit Edit action');
+    assert.ok(!script.includes('detail.hidden = !detail.hidden'),
+        'clicking a skill row does not navigate or expand an edit surface');
     assert.ok(script.includes('layoutSkillsSplit'), 'split pane layout wiring present');
     assert.ok(script.includes('data-skills-pane-resizer'), 'pane resizer wiring present');
     assert.ok(script.includes('onSkillsPaneResizerPointerDown'), 'resizer pointer drag wiring present');

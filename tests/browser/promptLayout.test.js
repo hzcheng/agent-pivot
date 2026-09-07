@@ -1,1059 +1,500 @@
 'use strict';
 
+// Covers WEBVIEW-AI-PROMPT-INTERACTION-001.
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
-const {
-    getAiPanelContent,
-    getPromptSurfaceContent,
-} = require('../../out/prompts/webviewContent');
+const { getAiPanelContent, getPromptSurfaceContent } = require('../../out/prompts/webviewContent');
 
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
-const promptProtocolScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewPromptProtocolScripts.js'),
+const protocol = fs.readFileSync(path.join(__dirname, '../../src/webview/webviewPromptProtocolScripts.js'), 'utf8');
+const promptScript = fs.readFileSync(path.join(__dirname, '../../src/webview/webviewPromptScripts.js'), 'utf8');
+const projectCollapseScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewProjectCollapseScripts.js'),
     'utf8'
 );
-const promptScript = fs.readFileSync(
-    path.join(__dirname, '../../src/webview/webviewPromptScripts.js'),
-    'utf8'
-);
-const longName = `Prompt-${'name'.repeat(42)}`;
-const longBody = `Preview-${'body'.repeat(52)}`;
 
-function snapshotAt(revision) {
-    return {
-        version: 1,
-        revision,
-        selectedPromptId: null,
-        prompts: [{
-            id: 'prompt-a',
-            name: longName,
-            text: longBody,
-        }],
-    };
+function snapshot() {
+    return { version: 2, revision: 1, selectedPromptId: null,
+        groups: [{ id: 'general', name: 'General', kind: 'general' }, { id: 'feature', name: 'Feature flow', kind: 'custom' }],
+        prompts: [
+            { id: 'review', name: `Review ${'a very long Prompt name '.repeat(4)}`, description: 'Review focused implementation work', text: 'Review.', groupId: 'general' },
+            { id: 'plan', name: 'Plan the feature', text: 'Plan.', groupId: 'feature' },
+        ] };
 }
 
-function renderDashboardShell() {
-    const vscode = {
-        Uri: {
-            file(value) {
-                return {
-                    fsPath: value,
-                    path: value,
-                    toString() {
-                        return `file://${value}`;
-                    },
-                };
-            },
-        },
-    };
-    const contentPath = require.resolve('../../out/webview/webviewContent');
-    const previousLoad = Module._load;
-    let getStewardContent;
-    try {
-        Module._load = function (request, parent, isMain) {
-            if (request === 'vscode') return vscode;
-            return previousLoad.call(this, request, parent, isMain);
-        };
-        ({ getStewardContent } = require(contentPath));
-    } finally {
-        Module._load = previousLoad;
-    }
-    const html = getStewardContent(
-        { extensionPath: '/extension' },
-        {
-            cspSource: 'test',
-            asWebviewUri: resource => resource,
-        },
-        [],
-        {
-            config: {
-                get(_key, fallback) {
-                    return fallback;
-                },
-                displayProjectPath: true,
-                searchIsActiveByDefault: false,
-                showAddGroupButtonTile: false,
-            },
-            relevantExtensionsInstalls: {
-                remoteSSH: false,
-                remoteContainers: false,
-            },
-            otherStorageHasData: false,
-        },
-        true,
-    );
-    return html
-        .replace('class="dashboard-styles-pending"', '')
-        .replace(/<link\b[^>]*>/gi, '')
-        .replace(/<script\b[\s\S]*?<\/script>/gi, '')
-        .replace('</head>', `<style>${styles}</style></head>`);
-}
-
-async function openPromptPage(browser, snapshot) {
-    const page = await browser.newPage({ viewport: { width: 320, height: 420 } });
-    await page.setContent(`<!doctype html>
-        <html>
-            <head><style>${styles}</style></head>
-            <body class="steward-sidebar">
-                <main id="ai-host">${getAiPanelContent(snapshot)}</main>
-                <div style="height: 1200px" aria-hidden="true"></div>
-            </body>
-        </html>`);
+async function open(browser, width) {
+    const page = await browser.newPage({ viewport: { width, height: 480 } });
+    const data = snapshot();
+    await page.setContent(`<style>${styles}</style><body class="steward-sidebar"><main id="host">${getAiPanelContent(data)}</main></body>`);
     await page.evaluate(() => {
         window.__promptMessages = [];
-        window.vscode = {
-            postMessage(message) {
-                window.__promptMessages.push(message);
-            },
-        };
+        window.vscode = { postMessage(message) { window.__promptMessages.push(message); } };
     });
-    await page.addScriptTag({ content: promptProtocolScript });
+    await page.addScriptTag({ content: protocol });
     await page.addScriptTag({ content: promptScript });
-    assert.equal(await page.evaluate(initialSnapshot =>
-        window.__agentPivotPrompts.mount(document.getElementById('ai-host'), {
-            authoritySequence: 1,
-            snapshot: initialSnapshot,
-        }), snapshot
-    ), true);
+    assert.equal(await page.evaluate(value => window.__agentPivotPrompts.mount(document.getElementById('host'), { authoritySequence: 1, snapshot: value }), data), true);
     return page;
 }
 
-async function captureFocusAndViewport(page) {
-    return page.evaluate(() => {
-        const active = document.activeElement;
-        const form = active && active.closest
-            ? active.closest('[data-prompt-form]')
-            : null;
-        return {
-            action: active && active.getAttribute
-                ? active.getAttribute('data-action')
-                : null,
-            fieldName: active && active.getAttribute
-                ? active.getAttribute('name')
-                : null,
-            formAction: active && active.getAttribute
-                ? active.getAttribute('data-prompt-form-action')
-                : null,
-            formKind: form ? form.getAttribute('data-prompt-form') : null,
-            promptId: form
-                ? form.getAttribute('data-prompt-id')
-                : active && active.getAttribute
-                    ? active.getAttribute('data-prompt-id')
-                    : null,
-            scrollY: Math.round(window.scrollY),
-        };
-    });
-}
-
-async function applyPostedCommandResult(page, snapshot) {
-    const request = await page.evaluate(() => window.__promptMessages[0]);
-    assert.ok(request);
-    assert.equal(await page.evaluate(({ request, snapshot, html }) =>
-        window.__agentPivotPrompts.applyCommandResult({
-            type: 'prompt-command-result',
-            version: request.version,
-            authoritySequence: 2,
-            requestId: request.requestId,
-            target: request.target,
-            operation: request.operation,
-            success: true,
-            snapshot,
-            html,
-        }), {
-        request,
-        snapshot,
-        html: getPromptSurfaceContent(snapshot),
-    }), true);
-}
-
-async function assertNoHorizontalOverflow(page, width, label) {
-    const layout = await page.evaluate(() => {
-        const viewportWidth = document.documentElement.clientWidth;
-        const surface = document.querySelector('[data-prompt-surface]');
-        const overflowingElements = Array.from(document.querySelectorAll(
-            '[data-ai-panel], [data-prompt-surface], [data-prompt-surface] *'
-        )).filter(element => {
-            if (element.hidden || getComputedStyle(element).display === 'none') return false;
-            const bounds = element.getBoundingClientRect();
-            return bounds.left < -0.5 || bounds.right > viewportWidth + 0.5;
-        }).map(element => ({
-            tag: element.tagName,
-            className: element.className,
-            left: element.getBoundingClientRect().left,
-            right: element.getBoundingClientRect().right,
-        }));
-        return {
-            documentClientWidth: viewportWidth,
-            documentScrollWidth: document.documentElement.scrollWidth,
-            surfaceClientWidth: surface.clientWidth,
-            surfaceScrollWidth: surface.scrollWidth,
-            overflowingElements,
-        };
-    });
-    assert.ok(
-        layout.documentScrollWidth <= layout.documentClientWidth,
-        `${label} document overflows at ${width}px: ${JSON.stringify(layout)}`
-    );
-    assert.ok(
-        layout.surfaceScrollWidth <= layout.surfaceClientWidth,
-        `${label} Prompt surface overflows at ${width}px: ${JSON.stringify(layout)}`
-    );
-    assert.deepEqual(
-        layout.overflowingElements,
-        [],
-        `${label} elements overflow at ${width}px`
-    );
-}
-
-async function assertReachable(page, selector, width) {
-    const controls = await page.locator(selector).evaluateAll(elements => elements.map(element => {
-        const bounds = element.getBoundingClientRect();
-        const centerX = bounds.left + bounds.width / 2;
-        const centerY = bounds.top + bounds.height / 2;
-        const hit = document.elementFromPoint(centerX, centerY);
-        return {
-            label: element.getAttribute('aria-label') || element.textContent.trim(),
-            visible: bounds.width > 0
-                && bounds.height > 0
-                && bounds.left >= 0
-                && bounds.right <= document.documentElement.clientWidth
-                && bounds.top >= 0
-                && bounds.bottom <= document.documentElement.clientHeight
-                && Boolean(hit && (hit === element || element.contains(hit))),
-        };
-    }));
-    assert.ok(controls.length > 0, `missing ${selector} at ${width}px`);
-    assert.ok(
-        controls.every(control => control.visible),
-        `${selector} must remain visible and reachable at ${width}px: ${JSON.stringify(controls)}`
-    );
-}
-
-async function waitForPromptActions(page) {
-    await page.waitForFunction(() => {
-        const actions = document.querySelector('.prompt-management-actions');
-        if (!actions) return false;
-        const styles = getComputedStyle(actions);
-        return styles.opacity === '1' && styles.pointerEvents === 'auto';
-    });
-}
-
-async function revealPromptActions(page) {
-    await page.locator('.prompt-item').hover();
-    await waitForPromptActions(page);
-}
-
-test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps Prompt controls and text usable in narrow sidebars', async t => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-    t.after(() => browser.close());
-
-    for (const width of [240, 280, 320, 420]) {
-        await t.test(`${width}px`, async () => {
-            const page = await browser.newPage({ viewport: { width, height: 1000 } });
-            t.after(() => page.close());
-            const initialSnapshot = snapshotAt(1);
-
-            await page.setContent(`<!doctype html>
-                <html>
-                    <head><style>${styles}</style></head>
-                    <body class="steward-sidebar">
-                        <main id="ai-host">${getAiPanelContent(initialSnapshot)}</main>
-                    </body>
-                </html>`);
-            await page.evaluate(() => {
-                window.vscode = { postMessage() {} };
-            });
-            await page.addScriptTag({ content: promptProtocolScript });
-            await page.addScriptTag({ content: promptScript });
-            assert.equal(await page.evaluate(snapshot =>
-                window.__agentPivotPrompts.mount(document.getElementById('ai-host'), {
-                    authoritySequence: 1,
-                    snapshot,
-                }), initialSnapshot
-            ), true);
-
-            await assertNoHorizontalOverflow(page, width, 'initial');
-            await assertReachable(page, '[data-action="prompt-new"]', width);
-
-            assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
-                getComputedStyle(element).opacity
-            ), '0');
-            assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
-                getComputedStyle(element).pointerEvents
-            ), 'none');
-            assert.equal(await page.locator('[data-action="prompt-insert-terminal"]').evaluate(element =>
-                getComputedStyle(element).pointerEvents
-            ), 'none');
-            assert.deepEqual(await page.locator('.prompt-management-actions').evaluate(element =>
-                Array.from(element.querySelectorAll('[data-action]')).map(action =>
-                    action.getAttribute('data-action')
-                )
-            ), [
-                'prompt-insert-terminal',
-                'prompt-copy',
-                'prompt-select-default',
-                'prompt-edit',
-                'prompt-delete',
-            ]);
-
-            const boundedText = await page.evaluate(() => {
-                const measure = selector => {
-                    const element = document.querySelector(selector);
-                    const styles = getComputedStyle(element);
-                    return {
-                        clientWidth: element.clientWidth,
-                        scrollWidth: element.scrollWidth,
-                        height: element.getBoundingClientRect().height,
-                        lineHeight: parseFloat(styles.lineHeight) || parseFloat(styles.fontSize) * 1.2,
-                        overflowWrap: styles.overflowWrap,
-                        textOverflow: styles.textOverflow,
-                        whiteSpace: styles.whiteSpace,
-                    };
-                };
-                return {
-                    name: measure('.prompt-name'),
-                    preview: measure('.prompt-preview'),
-                };
-            });
-            assert.ok(
-                boundedText.name.height <= boundedText.name.lineHeight * 1.2,
-                `name must remain one line at ${width}px`
-            );
-            assert.equal(boundedText.name.textOverflow, 'ellipsis');
-            assert.equal(boundedText.name.whiteSpace, 'nowrap');
-            assert.ok(
-                boundedText.preview.height <= boundedText.preview.lineHeight * 2.1,
-                `preview must remain within two lines at ${width}px`
-            );
-
-            await revealPromptActions(page);
-            assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
-                getComputedStyle(element).opacity
-            ), '1');
-            await assertReachable(page, '[data-action="prompt-insert-terminal"]', width);
-            await assertReachable(page, '[data-action="prompt-copy"]', width);
-            await assertReachable(page, '[data-action="prompt-select-default"]', width);
-            await assertReachable(page, '[data-action="prompt-edit"]', width);
-            await assertReachable(page, '[data-action="prompt-delete"]', width);
-            const copyIconStyle = await page.locator('[data-action="prompt-copy"] svg').evaluate(element => ({
-                fill: getComputedStyle(element).fill,
-                stroke: getComputedStyle(element).stroke,
-            }));
-            assert.equal(copyIconStyle.fill, 'none');
-            assert.notEqual(copyIconStyle.stroke, 'none');
-            const hoverLayout = await page.evaluate(() => {
-                const name = document.querySelector('.prompt-name').getBoundingClientRect();
-                const actions = document.querySelector('.prompt-management-actions').getBoundingClientRect();
-                return {
-                    nameRight: name.right,
-                    actionsLeft: actions.left,
-                };
-            });
-            assert.ok(
-                hoverLayout.nameRight <= hoverLayout.actionsLeft,
-                `Prompt name must not overlap management actions at ${width}px: ${JSON.stringify(hoverLayout)}`
-            );
-
-            await page.locator('[data-action="prompt-edit"]').focus();
-            await waitForPromptActions(page);
-            assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
-                getComputedStyle(element).opacity
-            ), '1');
-
-            await page.locator('[data-action="prompt-new"]').click();
-            const textarea = page.locator('[data-prompt-form="create"] textarea');
-            await textarea.fill('A usable narrow Prompt body');
-            const textareaLayout = await textarea.evaluate(element => {
-                const bounds = element.getBoundingClientRect();
-                return {
-                    left: bounds.left,
-                    right: bounds.right,
-                    width: bounds.width,
-                    resize: getComputedStyle(element).resize,
-                    value: element.value,
-                };
-            });
-            assert.ok(textareaLayout.width >= 120, `textarea is too narrow at ${width}px`);
-            assert.ok(textareaLayout.left >= 0 && textareaLayout.right <= width);
-            assert.equal(textareaLayout.resize, 'vertical');
-            assert.equal(textareaLayout.value, 'A usable narrow Prompt body');
-            await assertReachable(page, '.prompt-create-form .prompt-form-actions button', width);
-            await assertNoHorizontalOverflow(page, width, 'open create form');
-            await page.locator('[data-action="prompt-cancel-create"]').click();
-
-            await page.locator('[data-action="prompt-edit"]').focus();
-            const nextSnapshot = snapshotAt(2);
-            assert.equal(await page.evaluate(({ snapshot, html }) =>
-                window.__agentPivotPrompts.applyRefresh({
-                    type: 'prompt-panel-updated',
-                    version: 1,
-                    authoritySequence: 2,
-                    target: 'global-prompt-library',
-                    snapshot,
-                    html,
-                }), {
-                snapshot: nextSnapshot,
-                html: getPromptSurfaceContent(nextSnapshot),
-            }), true);
-            const restoredFocus = await page.evaluate(() => ({
-                action: document.activeElement.getAttribute('data-action'),
-                promptId: document.activeElement.getAttribute('data-prompt-id'),
-            }));
-            assert.deepEqual(restoredFocus, {
-                action: 'prompt-edit',
-                promptId: 'prompt-a',
-            });
-            await assertReachable(page, '[data-action="prompt-edit"]', width);
-            await assertNoHorizontalOverflow(page, width, 'authoritative replacement');
-        });
-    }
-});
-
-test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps all Prompt actions visible without hover', async t => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-    t.after(() => browser.close());
-    const width = 240;
-    const page = await browser.newPage({
-        viewport: { width, height: 1000 },
-        hasTouch: true,
-    });
-    t.after(() => page.close());
-    const initialSnapshot = snapshotAt(1);
-
-    await page.setContent(`<!doctype html>
-        <html>
-            <head><style>${styles}</style></head>
-            <body class="steward-sidebar">
-                <main id="ai-host">${getAiPanelContent(initialSnapshot)}</main>
-            </body>
-        </html>`);
+async function openWithGlobalGroupToggle(browser) {
+    const page = await browser.newPage({ viewport: { width: 320, height: 480 } });
+    const data = snapshot();
+    await page.setContent(`<style>${styles}</style><body class="steward-sidebar">
+        <button type="button" data-action="toggle-all-groups">Collapse all groups</button>
+        <div id="outside">Outside</div>
+        <main id="host">${getAiPanelContent(data)}</main>
+    </body>`);
     await page.evaluate(() => {
         window.vscode = { postMessage() {} };
+        window.__agentPivotDashboard = { getActiveTab() { return 'ai'; } };
+        document.getElementById('outside').addEventListener('click', event => event.stopPropagation());
     });
-    await page.addScriptTag({ content: promptProtocolScript });
+    await page.addScriptTag({ content: protocol });
+    await page.addScriptTag({ content: projectCollapseScript });
     await page.addScriptTag({ content: promptScript });
-    assert.equal(await page.evaluate(snapshot =>
-        window.__agentPivotPrompts.mount(document.getElementById('ai-host'), {
+    await page.evaluate(value => {
+        window.groupCollapse = initProjectGroupCollapse();
+        document.querySelector('[data-action="toggle-all-groups"]').addEventListener(
+            'click',
+            () => window.groupCollapse.toggleAllGroups()
+        );
+        return window.__agentPivotPrompts.mount(document.getElementById('host'), {
             authoritySequence: 1,
-            snapshot,
-        }), initialSnapshot
-    ), true);
+            snapshot: value,
+        });
+    }, data);
+    return page;
+}
 
-    assert.equal(await page.evaluate(() => matchMedia('(hover: none)').matches), true);
-    assert.equal(await page.locator('.prompt-management-actions').evaluate(element =>
-        getComputedStyle(element).pointerEvents
-    ), 'auto');
-    for (const action of [
-        'prompt-insert-terminal',
-        'prompt-copy',
-        'prompt-select-default',
-        'prompt-edit',
-        'prompt-delete',
-    ]) {
-        await assertReachable(page, `[data-action="${action}"]`, width);
-    }
-    await assertNoHorizontalOverflow(page, width, 'no-hover');
+test('Prompt tree remains a compact single-column sidebar at supported narrow widths', async t => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        for (const width of [240, 280, 320, 420]) {
+            await t.test(`${width}px`, async () => {
+                const page = await open(browser, width);
+                try {
+                    const dimensions = await page.locator('.prompt-tree').evaluate(node => ({ scrollWidth: node.scrollWidth, clientWidth: node.clientWidth }));
+                    assert.ok(dimensions.scrollWidth <= dimensions.clientWidth);
+                    assert.equal(await page.locator('input[type="search"]').count(), 0);
+                    assert.equal(await page.locator('[data-prompt-group-id="general"] li[data-prompt-id="review"]').count(), 1);
+                    assert.equal(await page.locator('[data-prompt-group-id="feature"] li[data-prompt-id="plan"]').count(), 1);
+                    assert.equal(await page.locator('.prompt-item .prompt-preview').count(), 0);
+                    const promptRow = await page.locator('[data-prompt-id="review"] .prompt-item-view').evaluate(node => node.getBoundingClientRect().height);
+                    assert.ok(promptRow <= 36, `one-line Prompt row should remain compact, received ${promptRow}px`);
+                    for (const selector of ['.prompt-use-button', '.prompt-row-menu > summary']) {
+                        const bounds = await page.locator(`[data-prompt-id="review"] ${selector}`).evaluate(node => node.getBoundingClientRect());
+                        assert.ok(bounds.width > 0 && bounds.right <= width, `${selector} must remain reachable at ${width}px`);
+                    }
+                } finally { await page.close(); }
+            });
+        }
+    } finally { await browser.close(); }
 });
 
-test('WEBVIEW-AI-PROMPT-INTERACTION-001 opens and restores an exact copied Prompt draft in Chromium', async t => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-    t.after(() => browser.close());
-    const initialSnapshot = {
-        version: 1,
-        revision: 0,
-        selectedPromptId: null,
-        prompts: [{
-            id: 'prompt-a',
-            name: 'Review',
-            text: 'Review this diff.\nKeep details.',
-        }],
-    };
-    const page = await openPromptPage(browser, initialSnapshot);
-    t.after(() => page.close());
+test('Prompt tree supports collapse without changing stored group ownership', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        await page.locator('[data-prompt-group-id="feature"] [data-action="prompt-toggle-group"]').click();
+        assert.equal(await page.locator('[data-prompt-group-id="feature"] [data-prompt-list]').isHidden(), true);
+        assert.equal(await page.locator('[data-prompt-group-id="general"] [data-prompt-list]').isHidden(), false);
+    } finally { await browser.close(); }
+});
 
-    await revealPromptActions(page);
-    await page.locator('[data-action="prompt-copy"]').click();
-    assert.deepEqual(await page.evaluate(() => ({
-        messages: window.__promptMessages,
-        name: document.querySelector('[data-prompt-form="create"] [name="name"]').value,
-        text: document.querySelector('[data-prompt-form="create"] [name="text"]').value,
-        focusedName: document.activeElement
-            === document.querySelector('[data-prompt-form="create"] [name="name"]'),
-    })), {
-        messages: [],
-        name: 'Review copy',
-        text: 'Review this diff.\nKeep details.',
-        focusedName: true,
-    });
+test('Prompt groups participate in the sidebar-wide collapse and expand control', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await openWithGlobalGroupToggle(browser);
+        const toggle = page.locator('[data-action="toggle-all-groups"]');
+        assert.equal(await toggle.isDisabled(), false, 'AI Prompt groups make the global toggle available');
 
-    const refreshedSnapshot = {
-        ...initialSnapshot,
-        revision: 1,
-        prompts: [{
-            id: 'prompt-a',
-            name: 'Review renamed elsewhere',
-            text: 'Changed elsewhere',
-        }],
-    };
-    assert.equal(await page.evaluate(({ snapshot, html }) =>
-        window.__agentPivotPrompts.applyRefresh({
+        await toggle.click();
+        assert.equal(await page.locator('[data-prompt-list]').first().isHidden(), true);
+        assert.equal(await page.locator('[data-prompt-list]').nth(1).isHidden(), true);
+        assert.match(await toggle.getAttribute('title'), /Expand/i);
+
+        await toggle.click();
+        assert.equal(await page.locator('[data-prompt-list]').first().isHidden(), false);
+        assert.equal(await page.locator('[data-prompt-list]').nth(1).isHidden(), false);
+        assert.match(await toggle.getAttribute('title'), /Collapse/i);
+
+        await page.locator('#ai-tab-skills').click();
+        assert.equal(await toggle.isDisabled(), true, 'Skills does not expose hidden Prompt groups to the global toggle');
+    } finally { await browser.close(); }
+});
+
+test('Prompt group disclosure state and accessible name survive an authoritative refresh', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const featureToggle = page.locator('[data-prompt-group-id="feature"] [data-action="prompt-toggle-group"]');
+        await featureToggle.click();
+        assert.match(await featureToggle.getAttribute('aria-label'), /Expand Feature flow/);
+
+        const nextSnapshot = { ...snapshot(), revision: 2 };
+        const html = getPromptSurfaceContent(nextSnapshot);
+        const applied = await page.evaluate(payload => window.__agentPivotPrompts.applyRefresh(payload), {
             type: 'prompt-panel-updated',
             version: 1,
             authoritySequence: 2,
             target: 'global-prompt-library',
-            snapshot,
+            snapshot: nextSnapshot,
             html,
-        }), {
-        snapshot: refreshedSnapshot,
-        html: getPromptSurfaceContent(refreshedSnapshot),
-    }), true);
-    assert.deepEqual(await page.evaluate(() => ({
-        name: document.querySelector('[data-prompt-form="create"] [name="name"]').value,
-        text: document.querySelector('[data-prompt-form="create"] [name="text"]').value,
-        focusedName: document.activeElement
-            === document.querySelector('[data-prompt-form="create"] [name="name"]'),
-    })), {
-        name: 'Review copy',
-        text: 'Review this diff.\nKeep details.',
-        focusedName: true,
-    });
-});
-
-test('SESSION-AI-PROMPT-TERMINAL-INSERTION-001 preserves keyboard focus through pending replacement and acknowledgement', async t => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-    t.after(() => browser.close());
-    const initialSnapshot = snapshotAt(1);
-    const page = await openPromptPage(browser, initialSnapshot);
-    t.after(() => page.close());
-    const insert = page.locator('[data-action="prompt-insert-terminal"]');
-
-    await insert.focus();
-    await page.keyboard.press('Enter');
-    const request = await page.evaluate(() => window.__promptMessages[0]);
-    assert.ok(request);
-    assert.deepEqual(await page.evaluate(() => ({
-        action: document.activeElement.getAttribute('data-action'),
-        disabled: document.activeElement.disabled,
-        pending: document.activeElement.getAttribute('aria-disabled'),
-    })), {
-        action: 'prompt-insert-terminal',
-        disabled: false,
-        pending: 'true',
-    });
-
-    const replacement = snapshotAt(2);
-    assert.equal(await page.evaluate(({ snapshot, html }) =>
-        window.__agentPivotPrompts.applyRefresh({
-            type: 'prompt-panel-updated',
-            version: 1,
-            authoritySequence: 2,
-            target: 'global-prompt-library',
-            snapshot,
-            html,
-        }), {
-        snapshot: replacement,
-        html: getPromptSurfaceContent(replacement),
-    }), true);
-    assert.deepEqual(await page.evaluate(() => ({
-        action: document.activeElement.getAttribute('data-action'),
-        promptId: document.activeElement.getAttribute('data-prompt-id'),
-        disabled: document.activeElement.disabled,
-        pending: document.activeElement.getAttribute('aria-disabled'),
-    })), {
-        action: 'prompt-insert-terminal',
-        promptId: 'prompt-a',
-        disabled: false,
-        pending: 'true',
-    });
-
-    assert.equal(await page.evaluate(request =>
-        window.__agentPivotPrompts.applyInsertResult({
-            type: 'prompt-insert-terminal-result',
-            version: request.version,
-            requestId: request.requestId,
-            target: request.target,
-            success: true,
-            errorCode: null,
-        }), request
-    ), true);
-    assert.deepEqual(await page.evaluate(() => ({
-        action: document.activeElement.getAttribute('data-action'),
-        promptId: document.activeElement.getAttribute('data-prompt-id'),
-        disabled: document.activeElement.disabled,
-        pending: document.activeElement.getAttribute('aria-disabled'),
-    })), {
-        action: 'prompt-insert-terminal',
-        promptId: 'prompt-a',
-        disabled: false,
-        pending: null,
-    });
-});
-
-test('WEBVIEW-AI-PROMPT-INTERACTION-001 restores form and New Prompt focus with the real viewport in Chromium', async t => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-    t.after(() => browser.close());
-
-    for (const scenario of [
-        {
-            name: 'create textarea after failed result',
-            setup: async page => {
-                await page.locator('[data-action="prompt-new"]').click();
-                await page.locator('[data-prompt-form="create"] [name="name"]').fill('Local create');
-                await page.locator('[data-prompt-form="create"] [name="text"]').fill('Local body');
-                await page.locator('[data-prompt-form="create"] [name="text"]').focus();
-            },
-            replace: async (page, snapshot) => {
-                await page.locator('[data-prompt-form="create"]').evaluate(form => {
-                    form.dispatchEvent(new Event('submit', {
-                        bubbles: true,
-                        cancelable: true,
-                    }));
-                });
-                const request = await page.evaluate(() => window.__promptMessages[0]);
-                assert.ok(request);
-                assert.equal(await page.evaluate(({ request, snapshot, html }) =>
-                    window.__agentPivotPrompts.applyCommandResult({
-                        type: 'prompt-command-result',
-                        version: request.version,
-                        authoritySequence: 2,
-                        requestId: request.requestId,
-                        target: request.target,
-                        operation: request.operation,
-                        success: false,
-                        errorCode: 'storage',
-                        snapshot,
-                        html,
-                    }), {
-                    request,
-                    snapshot,
-                    html: getPromptSurfaceContent(snapshot),
-                }), true);
-            },
-            expected: {
-                action: null,
-                fieldName: 'text',
-                formAction: null,
-                formKind: 'create',
-                promptId: null,
-            },
-        },
-        {
-            name: 'create submit after failed result',
-            setup: async page => {
-                await page.locator('[data-action="prompt-new"]').click();
-                await page.locator('[data-prompt-form="create"] [name="name"]').fill('Local create');
-                await page.locator('[data-prompt-form="create"] [name="text"]').fill('Local body');
-                await page.locator('[data-prompt-form="create"] [type="submit"]').focus();
-            },
-            replace: async (page, snapshot) => {
-                await page.locator('[data-prompt-form="create"]').evaluate(form => {
-                    form.dispatchEvent(new Event('submit', {
-                        bubbles: true,
-                        cancelable: true,
-                    }));
-                });
-                const request = await page.evaluate(() => window.__promptMessages[0]);
-                assert.ok(request);
-                assert.equal(await page.evaluate(({ request, snapshot, html }) =>
-                    window.__agentPivotPrompts.applyCommandResult({
-                        type: 'prompt-command-result',
-                        version: request.version,
-                        authoritySequence: 2,
-                        requestId: request.requestId,
-                        target: request.target,
-                        operation: request.operation,
-                        success: false,
-                        errorCode: 'storage',
-                        snapshot,
-                        html,
-                    }), {
-                    request,
-                    snapshot,
-                    html: getPromptSurfaceContent(snapshot),
-                }), true);
-            },
-            expected: {
-                action: null,
-                fieldName: null,
-                formAction: 'submit',
-                formKind: 'create',
-                promptId: null,
-            },
-        },
-        {
-            name: 'edit name after external refresh',
-            setup: async page => {
-                await revealPromptActions(page);
-                await page.locator('[data-action="prompt-edit"]').click();
-                await page.locator('[data-prompt-form="edit"] [name="name"]').focus();
-            },
-            replace: async page => {
-                const snapshot = snapshotAt(2);
-                assert.equal(await page.evaluate(({ snapshot, html }) =>
-                    window.__agentPivotPrompts.applyRefresh({
-                        type: 'prompt-panel-updated',
-                        version: 1,
-                        authoritySequence: 2,
-                        target: 'global-prompt-library',
-                        snapshot,
-                        html,
-                    }), {
-                    snapshot,
-                    html: getPromptSurfaceContent(snapshot),
-                }), true);
-            },
-            expected: {
-                action: null,
-                fieldName: 'name',
-                formAction: null,
-                formKind: 'edit',
-                promptId: 'prompt-a',
-            },
-        },
-        {
-            name: 'edit cancel after external refresh',
-            setup: async page => {
-                await revealPromptActions(page);
-                await page.locator('[data-action="prompt-edit"]').click();
-                await page.locator('[data-action="prompt-cancel-edit"]').focus();
-            },
-            replace: async page => {
-                const snapshot = snapshotAt(2);
-                assert.equal(await page.evaluate(({ snapshot, html }) =>
-                    window.__agentPivotPrompts.applyRefresh({
-                        type: 'prompt-panel-updated',
-                        version: 1,
-                        authoritySequence: 2,
-                        target: 'global-prompt-library',
-                        snapshot,
-                        html,
-                    }), {
-                    snapshot,
-                    html: getPromptSurfaceContent(snapshot),
-                }), true);
-            },
-            expected: {
-                action: 'prompt-cancel-edit',
-                fieldName: null,
-                formAction: 'cancel',
-                formKind: 'edit',
-                promptId: 'prompt-a',
-            },
-        },
-        {
-            name: 'New Prompt after external refresh',
-            setup: async page => {
-                await page.locator('[data-action="prompt-new"]').focus();
-            },
-            replace: async page => {
-                const snapshot = snapshotAt(2);
-                assert.equal(await page.evaluate(({ snapshot, html }) =>
-                    window.__agentPivotPrompts.applyRefresh({
-                        type: 'prompt-panel-updated',
-                        version: 1,
-                        authoritySequence: 2,
-                        target: 'global-prompt-library',
-                        snapshot,
-                        html,
-                    }), {
-                    snapshot,
-                    html: getPromptSurfaceContent(snapshot),
-                }), true);
-            },
-            expected: {
-                action: 'prompt-new',
-                fieldName: null,
-                formAction: null,
-                formKind: null,
-                promptId: null,
-            },
-        },
-    ]) {
-        await t.test(scenario.name, async () => {
-            const snapshot = snapshotAt(1);
-            const page = await openPromptPage(browser, snapshot);
-            try {
-                await scenario.setup(page);
-                const beforeScrollY = await page.evaluate(() => {
-                    window.scrollTo(0, 167);
-                    return Math.round(window.scrollY);
-                });
-                assert.ok(beforeScrollY > 0);
-                await scenario.replace(page, snapshot);
-                assert.deepEqual(await captureFocusAndViewport(page), {
-                    ...scenario.expected,
-                    scrollY: beforeScrollY,
-                });
-            } finally {
-                await page.close();
-            }
         });
-    }
+        assert.equal(applied, true);
+        assert.equal(await page.locator('[data-prompt-group-id="feature"] [data-prompt-list]').isHidden(), true);
+        assert.match(
+            await page.locator('[data-prompt-group-id="feature"] [data-action="prompt-toggle-group"]').getAttribute('aria-label'),
+            /Expand Feature flow/
+        );
+    } finally { await browser.close(); }
 });
 
-test('WEBVIEW-AI-PROMPT-INTERACTION-001 moves successful Prompt form focus to stable controls in Chromium', async t => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-    t.after(() => browser.close());
-
-    for (const scenario of [
-        {
-            name: 'create success returns to New Prompt',
-            setup: async page => {
-                await page.locator('[data-action="prompt-new"]').click();
-                await page.locator('[data-prompt-form="create"] [name="name"]').fill('Created');
-                await page.locator('[data-prompt-form="create"] [name="text"]').fill('Created body');
-                await page.locator('[data-prompt-form="create"] [type="submit"]').focus();
-                await page.locator('[data-prompt-form="create"]').evaluate(form => {
-                    form.dispatchEvent(new Event('submit', {
-                        bubbles: true,
-                        cancelable: true,
-                    }));
-                });
-            },
-            savedSnapshot: snapshot => ({
-                ...snapshotAt(2),
-                prompts: snapshot.prompts.concat({
-                    id: 'prompt-created',
-                    name: 'Created',
-                    text: 'Created body',
-                }),
-            }),
-            expected: {
-                action: 'prompt-new',
-                fieldName: null,
-                formAction: null,
-                formKind: null,
-                promptId: null,
-            },
-        },
-        {
-            name: 'update success returns to the updated Edit action',
-            setup: async page => {
-                await revealPromptActions(page);
-                await page.locator('[data-action="prompt-edit"][data-prompt-id="prompt-a"]').click();
-                await page.locator('[data-prompt-form="edit"] [name="name"]').fill('Updated');
-                await page.locator('[data-prompt-form="edit"] [type="submit"]').focus();
-                await page.locator('[data-prompt-form="edit"]').evaluate(form => {
-                    form.dispatchEvent(new Event('submit', {
-                        bubbles: true,
-                        cancelable: true,
-                    }));
-                });
-            },
-            savedSnapshot: () => ({
-                ...snapshotAt(2),
-                prompts: [{
-                    id: 'prompt-a',
-                    name: 'Updated',
-                    text: longBody,
-                }],
-            }),
-            expected: {
-                action: 'prompt-edit',
-                fieldName: null,
-                formAction: null,
-                formKind: null,
-                promptId: 'prompt-a',
-            },
-        },
-    ]) {
-        await t.test(scenario.name, async () => {
-            const snapshot = snapshotAt(1);
-            const page = await openPromptPage(browser, snapshot);
-            try {
-                await scenario.setup(page);
-                const beforeScrollY = await page.evaluate(() => {
-                    window.scrollTo(0, 143);
-                    return Math.round(window.scrollY);
-                });
-                assert.ok(beforeScrollY > 0);
-                await applyPostedCommandResult(page, scenario.savedSnapshot(snapshot));
-                assert.deepEqual(await captureFocusAndViewport(page), {
-                    ...scenario.expected,
-                    scrollY: beforeScrollY,
-                });
-            } finally {
-                await page.close();
-            }
-        });
-    }
+test('New Group focus survives an external authoritative refresh', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const newGroup = page.locator('[data-action="prompt-group-new"]');
+        await newGroup.focus();
+        const next = { ...snapshot(), revision: 2 };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyRefresh(payload), {
+            type: 'prompt-panel-updated', version: 1, authoritySequence: 2,
+            target: 'global-prompt-library', snapshot: next, html: getPromptSurfaceContent(next),
+        }), true);
+        assert.equal(await page.locator('[data-action="prompt-group-new"]').evaluate(
+            node => node === document.activeElement
+        ), true);
+    } finally { await browser.close(); }
 });
 
-test('WEBVIEW-AI-PROMPT-INTERACTION-001 keeps the complete three-tab Dashboard shell on one row', async t => {
-    const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'] });
-    t.after(() => browser.close());
-    const dashboardHtml = renderDashboardShell();
-    let fullWidthFontSize;
+test('Failed Group creation keeps the typed inline draft available for correction', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const form = page.locator('[data-prompt-group-form]');
+        await page.locator('[data-action="prompt-group-new"]').click();
+        await form.locator('[name="name"]').fill('Release checklist');
+        await form.locator('[type="submit"]').focus();
+        await form.evaluate(node => node.dispatchEvent(new Event('submit', {
+            bubbles: true,
+            cancelable: true,
+        })));
+        const request = await page.evaluate(() => window.__promptMessages[0]);
+        assert.ok(request);
+        assert.equal(request.operation, 'create-group');
 
-    for (const width of [600, 480, 460, 320, 280, 240]) {
-        await t.test(`${width}px`, async () => {
-            const page = await browser.newPage({ viewport: { width, height: 700 } });
-            try {
-                await page.setContent(dashboardHtml);
-                assert.equal(
-                    await page.locator('.dashboard-style-loading-tab').count(),
-                    3,
-                    'the startup skeleton must match the three-tab dashboard'
-                );
-                const layout = await page.evaluate(() => {
-                    const viewportWidth = document.documentElement.clientWidth;
-                    const boundsOf = element => {
-                        const bounds = element.getBoundingClientRect();
-                        return {
-                            left: bounds.left,
-                            right: bounds.right,
-                            top: bounds.top,
-                            bottom: bounds.bottom,
-                            width: bounds.width,
-                            height: bounds.height,
-                        };
-                    };
-                    const tabs = Array.from(document.querySelectorAll('[data-dashboard-tab]'));
-                    const tabDetails = tabs.map(tab => {
-                        const icon = tab.querySelector('.dashboard-tab-icon');
-                        const label = tab.querySelector('.dashboard-tab-label');
-                        const svg = icon ? icon.querySelector('svg') : null;
-                        const svgBounds = svg ? svg.getBoundingClientRect() : null;
-                        const artworkBounds = svg ? svg.getBBox() : null;
-                        const viewBox = svg ? svg.viewBox.baseVal : null;
-                        const artworkWidth = svg && viewBox.width
-                            ? artworkBounds.width / viewBox.width * svgBounds.width
-                            : 0;
-                        const artworkHeight = svg && viewBox.height
-                            ? artworkBounds.height / viewBox.height * svgBounds.height
-                            : 0;
-                        return {
-                            ariaLabel: tab.getAttribute('aria-label'),
-                            title: tab.getAttribute('title'),
-                            iconDisplay: icon ? getComputedStyle(icon).display : null,
-                            iconWidth: icon ? icon.getBoundingClientRect().width : 0,
-                            iconHeight: icon ? icon.getBoundingClientRect().height : 0,
-                            artworkArea: artworkWidth * artworkHeight,
-                            labelDisplay: label ? getComputedStyle(label).display : null,
-                            fontSize: getComputedStyle(tab).fontSize,
-                        };
-                    });
-                    const rowTops = [];
-                    const rowCounts = [];
-                    tabs.forEach(tab => {
-                        const top = tab.getBoundingClientRect().top;
-                        let row = rowTops.findIndex(candidate => Math.abs(candidate - top) < 1);
-                        if (row < 0) {
-                            rowTops.push(top);
-                            rowCounts.push(0);
-                            row = rowCounts.length - 1;
-                        }
-                        rowCounts[row] += 1;
-                    });
-                    const controls = Array.from(document.querySelectorAll(
-                        '#filter, .toggle-all-groups-button, .settings-button, [data-dashboard-tab]'
-                    )).map(element => ({
-                        label: element.getAttribute('aria-label')
-                            || element.textContent.trim(),
-                        bounds: boundsOf(element),
-                        clientWidth: element.clientWidth,
-                        scrollWidth: element.scrollWidth,
-                    }));
-                    return {
-                        documentClientWidth: viewportWidth,
-                        documentScrollWidth: document.documentElement.scrollWidth,
-                        labels: tabs.map(tab => tab.textContent.trim()),
-                        tabDetails,
-                        rowCounts,
-                        tabList: boundsOf(document.querySelector('.dashboard-tab-list')),
-                        filterWrapper: boundsOf(document.querySelector('.filter-wrapper')),
-                        controls,
-                    };
-                });
+        const next = { ...snapshot(), revision: 2 };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyCommandResult(payload), {
+            type: 'prompt-command-result', version: request.version, authoritySequence: 2,
+            requestId: request.requestId, target: request.target, operation: request.operation,
+            success: false, errorCode: 'storage', snapshot: next, html: getPromptSurfaceContent(next),
+        }), true);
+        assert.equal(await form.isHidden(), false);
+        assert.equal(await form.locator('[name="name"]').inputValue(), 'Release checklist');
+        assert.equal(await form.locator('[type="submit"]').evaluate(node => node === document.activeElement), true);
+    } finally { await browser.close(); }
+});
 
-                assert.deepEqual(layout.labels, ['OPEN', 'PROJECTS', 'AI']);
-                assert.deepEqual(
-                    layout.tabDetails.map(tab => tab.ariaLabel),
-                    ['Open', 'Projects', 'AI']
-                );
-                assert.deepEqual(
-                    layout.tabDetails.map(tab => tab.title),
-                    ['Open', 'Projects', 'AI']
-                );
-                assert.ok(
-                    layout.tabDetails.every(tab =>
-                        tab.iconDisplay !== 'none'
-                        && tab.iconWidth === 19
-                        && tab.iconHeight === 19),
-                    `Dashboard tab icons must remain 19px at ${width}px: ${JSON.stringify(layout)}`
-                );
-                const artworkAreas = layout.tabDetails.map(tab => tab.artworkArea);
-                assert.ok(
-                    Math.max(...artworkAreas) / Math.min(...artworkAreas) <= 1.03,
-                    `Dashboard tab artwork must have consistent optical area at ${width}px: `
-                    + JSON.stringify(layout)
-                );
-                if (fullWidthFontSize === undefined) {
-                    fullWidthFontSize = layout.tabDetails[0].fontSize;
-                }
-                assert.ok(
-                    layout.tabDetails.every(tab => tab.fontSize === fullWidthFontSize),
-                    `Dashboard tab text must not shrink at ${width}px: ${JSON.stringify(layout)}`
-                );
-                assert.ok(
-                    layout.tabDetails.every(tab =>
-                        width <= 460
-                            ? tab.labelDisplay === 'none'
-                            : tab.labelDisplay !== 'none'),
-                    `Dashboard tab labels have the wrong visibility at ${width}px: ${JSON.stringify(layout)}`
-                );
-                assert.ok(
-                    layout.documentScrollWidth <= layout.documentClientWidth,
-                    `Dashboard document overflows at ${width}px: ${JSON.stringify(layout)}`
-                );
-                const tabs = layout.controls.filter(control =>
-                    ['Open', 'Projects', 'AI'].includes(control.label));
-                assert.equal(tabs.length, 3, `Dashboard tabs are missing at ${width}px`);
-                assert.ok(
-                    Math.max(...tabs.map(tab => tab.bounds.width))
-                        - Math.min(...tabs.map(tab => tab.bounds.width)) <= 1,
-                    `Dashboard tabs must split the strip evenly at ${width}px: ${JSON.stringify(tabs)}`
-                );
-                assert.ok(
-                    Math.abs(tabs[0].bounds.left - layout.tabList.left) <= 1
-                        && Math.abs(tabs.at(-1).bounds.right - layout.tabList.right) <= 1,
-                    `Dashboard tabs must span the complete strip at ${width}px: ${JSON.stringify({
-                        tabs,
-                        tabList: layout.tabList,
-                    })}`
-                );
-                for (const [shellName, shell] of [
-                    ['filter wrapper', layout.filterWrapper],
-                    ['tab list', layout.tabList],
-                ]) {
-                    assert.ok(
-                        shell.width > 0
-                            && shell.left >= -0.5
-                            && shell.right <= width + 0.5,
-                        `${shellName} must fit at ${width}px: ${JSON.stringify(shell)}`
-                    );
-                }
-                for (const control of layout.controls) {
-                    assert.ok(
-                        control.bounds.width > 0
-                            && control.bounds.height > 0
-                            && control.bounds.left >= -0.5
-                            && control.bounds.right <= width + 0.5,
-                        `${control.label} must fit at ${width}px: ${JSON.stringify(control)}`
-                    );
-                    assert.ok(
-                        control.scrollWidth <= control.clientWidth,
-                        `${control.label} clips at ${width}px: ${JSON.stringify(control)}`
-                    );
-                }
-                assert.deepEqual(layout.rowCounts, [3]);
-            } finally {
-                await page.close();
-            }
+test('Successful Group creation returns focus to the stable New Group action', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const form = page.locator('[data-prompt-group-form]');
+        await page.locator('[data-action="prompt-group-new"]').click();
+        await form.locator('[name="name"]').fill('Release checklist');
+        await form.locator('[type="submit"]').focus();
+        await form.evaluate(node => node.dispatchEvent(new Event('submit', {
+            bubbles: true,
+            cancelable: true,
+        })));
+        const request = await page.evaluate(() => window.__promptMessages[0]);
+        const next = {
+            ...snapshot(), revision: 2,
+            groups: snapshot().groups.concat({ id: 'release', name: 'Release checklist', kind: 'custom' }),
+        };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyCommandResult(payload), {
+            type: 'prompt-command-result', version: request.version, authoritySequence: 2,
+            requestId: request.requestId, target: request.target, operation: request.operation,
+            success: true, snapshot: next, html: getPromptSurfaceContent(next),
+        }), true);
+        assert.equal(await page.locator('[data-action="prompt-group-new"]').evaluate(node => node === document.activeElement), true);
+    } finally { await browser.close(); }
+});
+
+test('Group settlement does not steal an explicit focus change while pending', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const form = page.locator('[data-prompt-group-form]');
+        await page.locator('[data-action="prompt-group-new"]').click();
+        await form.locator('[name="name"]').fill('Release checklist');
+        await form.locator('[type="submit"]').focus();
+        await form.evaluate(node => node.dispatchEvent(new Event('submit', {
+            bubbles: true,
+            cancelable: true,
+        })));
+        const request = await page.evaluate(() => window.__promptMessages[0]);
+        await page.evaluate(() => {
+            const external = document.createElement('input');
+            external.id = 'external-focus';
+            document.body.prepend(external);
+            external.focus();
         });
-    }
+        const next = { ...snapshot(), revision: 2 };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyCommandResult(payload), {
+            type: 'prompt-command-result', version: request.version, authoritySequence: 2,
+            requestId: request.requestId, target: request.target, operation: request.operation,
+            success: false, errorCode: 'storage', snapshot: next, html: getPromptSurfaceContent(next),
+        }), true);
+        assert.equal(await page.locator('#external-focus').evaluate(node => node === document.activeElement), true);
+        assert.equal(await form.locator('[name="name"]').inputValue(), 'Release checklist');
+    } finally { await browser.close(); }
+});
+
+test('Group move and delete actions settle against the V2 Prompt tree', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const review = page.locator('[data-prompt-id="review"]');
+        await review.locator('.prompt-row-menu > summary').click();
+        await review.locator('[data-action="prompt-move"][data-prompt-group-id="feature"]').click();
+        const move = await page.evaluate(() => window.__promptMessages[0]);
+        assert.deepEqual({ operation: move.operation, payload: move.payload }, {
+            operation: 'move', payload: { promptId: 'review', groupId: 'feature' },
+        });
+
+        const moved = {
+            ...snapshot(), revision: 2,
+            prompts: snapshot().prompts.map(prompt => prompt.id === 'review'
+                ? { ...prompt, groupId: 'feature' }
+                : prompt),
+        };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyCommandResult(payload), {
+            type: 'prompt-command-result', version: move.version, authoritySequence: 2,
+            requestId: move.requestId, target: move.target, operation: move.operation,
+            success: true, snapshot: moved, html: getPromptSurfaceContent(moved),
+        }), true);
+        assert.equal(await page.locator('.prompt-group[data-prompt-group-id="feature"] li.prompt-item[data-prompt-id="review"]').count(), 1);
+        assert.equal(await page.locator('[data-prompt-id="review"] .prompt-row-menu > summary').evaluate(
+            node => node === document.activeElement
+        ), true);
+
+        const feature = page.locator('.prompt-group[data-prompt-group-id="feature"]');
+        await feature.locator('.prompt-group-header .prompt-row-menu > summary').click();
+        await feature.locator('[data-action="prompt-delete-group"]').click();
+        const deletion = await page.evaluate(() => window.__promptMessages[1]);
+        assert.deepEqual({ operation: deletion.operation, payload: deletion.payload }, {
+            operation: 'delete-group', payload: { groupId: 'feature' },
+        });
+
+        const deleted = {
+            version: 2, revision: 3, selectedPromptId: null,
+            groups: [{ id: 'general', name: 'General', kind: 'general' }],
+            prompts: moved.prompts.map(prompt => ({ ...prompt, groupId: 'general' })),
+        };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyCommandResult(payload), {
+            type: 'prompt-command-result', version: deletion.version, authoritySequence: 3,
+            requestId: deletion.requestId, target: deletion.target, operation: deletion.operation,
+            success: true, snapshot: deleted, html: getPromptSurfaceContent(deleted),
+        }), true);
+        assert.equal(await page.locator('[data-prompt-group-id="feature"]').count(), 0);
+        assert.equal(await page.locator('.prompt-group[data-prompt-group-id="general"] li.prompt-item[data-prompt-id="review"]').count(), 1);
+        assert.equal(await page.locator('[data-action="prompt-group-new"]').evaluate(
+            node => node === document.activeElement
+        ), true);
+    } finally { await browser.close(); }
+});
+
+test('Failed Group deletion restores focus to a stable action', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const feature = page.locator('.prompt-group[data-prompt-group-id="feature"]');
+        await feature.locator('.prompt-group-header .prompt-row-menu > summary').click();
+        await feature.locator('[data-action="prompt-delete-group"]').focus();
+        await feature.locator('[data-action="prompt-delete-group"]').click();
+        const request = await page.evaluate(() => window.__promptMessages[0]);
+        const next = { ...snapshot(), revision: 2 };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyCommandResult(payload), {
+            type: 'prompt-command-result', version: request.version, authoritySequence: 2,
+            requestId: request.requestId, target: request.target, operation: request.operation,
+            success: false, errorCode: 'storage', snapshot: next, html: getPromptSurfaceContent(next),
+        }), true);
+        assert.equal(await page.locator('[data-action="prompt-group-new"]').evaluate(
+            node => node === document.activeElement
+        ), true);
+    } finally { await browser.close(); }
+});
+
+test('Prompt row-menu mutations restore focus to visible stable actions', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const review = page.locator('[data-prompt-id="review"]');
+        await review.locator('.prompt-row-menu > summary').click();
+        await review.locator('[data-action="prompt-select-default"]').focus();
+        await review.locator('[data-action="prompt-select-default"]').click();
+        const selection = await page.evaluate(() => window.__promptMessages[0]);
+        const selected = { ...snapshot(), revision: 2, selectedPromptId: 'review' };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyCommandResult(payload), {
+            type: 'prompt-command-result', version: selection.version, authoritySequence: 2,
+            requestId: selection.requestId, target: selection.target, operation: selection.operation,
+            success: true, snapshot: selected, html: getPromptSurfaceContent(selected),
+        }), true);
+        assert.equal(await review.locator('.prompt-row-menu > summary').evaluate(
+            node => node === document.activeElement
+        ), true);
+
+        await review.locator('.prompt-row-menu > summary').click();
+        await review.locator('[data-action="prompt-delete"]').focus();
+        await review.locator('[data-action="prompt-delete"]').click();
+        const deletion = await page.evaluate(() => window.__promptMessages[1]);
+        const deleted = {
+            ...selected,
+            revision: 3,
+            selectedPromptId: null,
+            prompts: selected.prompts.filter(prompt => prompt.id !== 'review'),
+        };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyCommandResult(payload), {
+            type: 'prompt-command-result', version: deletion.version, authoritySequence: 3,
+            requestId: deletion.requestId, target: deletion.target, operation: deletion.operation,
+            success: true, snapshot: deleted, html: getPromptSurfaceContent(deleted),
+        }), true);
+        assert.equal(await page.locator('.prompt-header [data-action="prompt-new"]').evaluate(
+            node => node === document.activeElement
+        ), true);
+    } finally { await browser.close(); }
+});
+
+test('Prompt tree uses explicit menus for editing and supports Escape and outside-click dismissal', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const createForm = page.locator('[data-prompt-form="create"]');
+        const groupForm = page.locator('[data-prompt-group-form]');
+
+        await page.locator('[data-action="prompt-new"]').first().click();
+        assert.equal(await createForm.isHidden(), false);
+        await page.keyboard.press('Escape');
+        assert.equal(await createForm.isHidden(), true, 'Escape cancels Prompt creation');
+        assert.equal(await page.locator('[data-action="prompt-new"]').first().evaluate(node => node === document.activeElement), true,
+            'cancelling Prompt creation returns focus to its opener');
+
+        await page.locator('[data-action="prompt-group-new"]').click();
+        assert.equal(await groupForm.isHidden(), false);
+        await page.keyboard.press('Escape');
+        assert.equal(await groupForm.isHidden(), true, 'Escape cancels Group creation');
+
+        const item = page.locator('li.prompt-item[data-prompt-id="review"]');
+        assert.match(await item.getAttribute('title'), /Prompt:/);
+        assert.match(await item.getAttribute('title'), /Group: General/);
+        assert.match(await item.getAttribute('title'), /Description:/);
+        const promptInfoId = await item.locator('.prompt-use-button').getAttribute('aria-describedby');
+        assert.ok(promptInfoId);
+        assert.match(await page.locator(`#${promptInfoId}`).textContent(), /Review focused implementation work/);
+        await item.locator('.prompt-item-main').click();
+        assert.equal(await item.locator('[data-prompt-form="edit"]').isHidden(), true,
+            'clicking a Prompt row does not enter editing');
+
+        await item.locator('.prompt-row-menu > summary').click();
+        assert.equal(await item.locator('.prompt-row-menu').getAttribute('open'), '');
+        await item.locator('[data-action="prompt-edit"]').click();
+        assert.equal(await item.locator('[data-prompt-form="edit"]').isHidden(), false,
+            'Edit in the action menu opens the inline editor');
+        await page.keyboard.press('Escape');
+        assert.equal(await item.locator('[data-prompt-form="edit"]').isHidden(), true,
+            'Escape cancels Prompt editing');
+        assert.equal(await item.locator('.prompt-row-menu > summary').evaluate(node => node === document.activeElement), true,
+            'cancelling Prompt editing returns focus to the action menu');
+
+        await item.locator('.prompt-row-menu > summary').click();
+        await page.locator('.prompt-header').click();
+        assert.equal(await item.locator('.prompt-row-menu').getAttribute('open'), null,
+            'clicking away closes the Prompt action menu');
+    } finally { await browser.close(); }
+});
+
+test('Prompt row actions remain reachable on touch and preserve copied drafts through refresh', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await browser.newPage({ viewport: { width: 240, height: 480 }, hasTouch: true });
+        const data = snapshot();
+        await page.setContent(`<style>${styles}</style><body class="steward-sidebar"><main id="host">${getAiPanelContent(data)}</main></body>`);
+        await page.evaluate(() => {
+            window.__promptMessages = [];
+            window.vscode = { postMessage(message) { window.__promptMessages.push(message); } };
+        });
+        await page.addScriptTag({ content: protocol });
+        await page.addScriptTag({ content: promptScript });
+        assert.equal(await page.evaluate(value => window.__agentPivotPrompts.mount(document.getElementById('host'), {
+            authoritySequence: 1,
+            snapshot: value,
+        }), data), true);
+
+        const item = page.locator('[data-prompt-id="review"]');
+        assert.equal(await item.locator('.prompt-use-button').isVisible(), true);
+        assert.equal(await item.locator('.prompt-row-menu > summary').isVisible(), true);
+        await item.locator('.prompt-row-menu > summary').click();
+        for (const action of ['prompt-copy', 'prompt-select-default', 'prompt-edit', 'prompt-delete']) {
+            assert.equal(await item.locator(`[data-action="${action}"]`).isVisible(), true, `${action} must be reachable on touch`);
+        }
+        await item.locator('[data-action="prompt-copy"]').click();
+        const copiedName = `${data.prompts[0].name} copy`;
+        assert.equal(await page.locator('[data-prompt-form="create"] [name="name"]').inputValue(), copiedName);
+
+        const next = { ...snapshot(), revision: 2 };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyRefresh(payload), {
+            type: 'prompt-panel-updated', version: 1, authoritySequence: 2,
+            target: 'global-prompt-library', snapshot: next, html: getPromptSurfaceContent(next),
+        }), true);
+        assert.equal(await page.locator('[data-prompt-form="create"] [name="name"]').inputValue(), copiedName);
+        assert.equal(await page.locator('[data-prompt-form="create"] [name="name"]').evaluate(node => node === document.activeElement), true);
+    } finally { await browser.close(); }
+});
+
+test('Prompt Use keeps keyboard focus through authoritative replacement and acknowledgement', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const use = page.locator('[data-prompt-id="review"] [data-action="prompt-insert-terminal"]');
+        await use.focus();
+        await page.keyboard.press('Enter');
+        const request = await page.evaluate(() => window.__promptMessages[0]);
+        assert.ok(request);
+
+        const next = { ...snapshot(), revision: 2 };
+        assert.equal(await page.evaluate(payload => window.__agentPivotPrompts.applyRefresh(payload), {
+            type: 'prompt-panel-updated', version: 1, authoritySequence: 2,
+            target: 'global-prompt-library', snapshot: next, html: getPromptSurfaceContent(next),
+        }), true);
+        assert.deepEqual(await page.evaluate(() => ({
+            action: document.activeElement.getAttribute('data-action'),
+            promptId: document.activeElement.getAttribute('data-prompt-id'),
+            pending: document.activeElement.getAttribute('aria-disabled'),
+        })), { action: 'prompt-insert-terminal', promptId: 'review', pending: 'true' });
+
+        assert.equal(await page.evaluate(value => window.__agentPivotPrompts.applyInsertResult({
+            type: 'prompt-insert-terminal-result', version: value.version, requestId: value.requestId,
+            target: value.target, success: true, errorCode: null,
+        }), request), true);
+        assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-disabled')), null);
+    } finally { await browser.close(); }
+});
+
+test('Prompt action menu closes when an outside sidebar handler stops click propagation', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await openWithGlobalGroupToggle(browser);
+        const item = page.locator('li.prompt-item[data-prompt-id="review"]');
+        await item.locator('.prompt-row-menu > summary').click();
+        assert.equal(await item.locator('.prompt-row-menu').getAttribute('open'), '');
+
+        await page.locator('#outside').click();
+        assert.equal(await item.locator('.prompt-row-menu').getAttribute('open'), null,
+            'outside pointer interaction closes the Prompt action menu before click handlers can stop it');
+    } finally { await browser.close(); }
 });

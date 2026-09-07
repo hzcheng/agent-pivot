@@ -3117,7 +3117,7 @@
   {
     "id": "PERSIST-AI-PROMPT-STORE-001",
     "domain": "persistence",
-    "title": "Global Prompt data remains versioned, ordered, synchronized, and revision guarded",
+    "title": "Global Prompt data remains versioned, ordered, reusable, and revision guarded",
     "priority": "P0",
     "status": "automated",
     "owners": [

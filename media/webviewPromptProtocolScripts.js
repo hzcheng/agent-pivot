@@ -1,4 +1,5 @@
 var PROMPT_VERSION = 1;
+var PROMPT_DATA_VERSION = 2;
 
 var PROMPT_TARGET = 'global-prompt-library';
 
@@ -10,6 +11,10 @@ var OPERATIONS = new Set([
     'delete',
     'reorder',
     'select-default',
+    'create-group',
+    'rename-group',
+    'delete-group',
+    'move',
 ]);
 
 var ERROR_CODES = new Set([
@@ -78,12 +83,18 @@ function isAuthoritySequence(value) {
 }
 
 function isPromptSnapshot(snapshot) {
-    if (!hasExactKeys(
+    var isLegacySnapshot = hasExactKeys(
         snapshot,
         ['version', 'revision', 'selectedPromptId', 'prompts'],
         ['readOnlyReason']
+    ) && snapshot && snapshot.version === 1;
+    if (!hasExactKeys(
+        snapshot,
+        ['version', 'revision', 'selectedPromptId', 'groups', 'prompts'],
+        ['readOnlyReason']
     )
-        || snapshot.version !== PROMPT_VERSION
+        && !isLegacySnapshot
+        || (!isLegacySnapshot && snapshot.version !== PROMPT_DATA_VERSION)
         || !Number.isSafeInteger(snapshot.revision)
         || snapshot.revision < 0
         || (snapshot.selectedPromptId !== null
@@ -96,16 +107,52 @@ function isPromptSnapshot(snapshot) {
         return false;
     }
 
+    var groupIds = new Set(['general']);
+    if (isLegacySnapshot) {
+        var legacyIds = new Set();
+        var legacyNames = new Set();
+        for (var legacyPromptIndex = 0; legacyPromptIndex < snapshot.prompts.length; legacyPromptIndex += 1) {
+            var legacyPrompt = snapshot.prompts[legacyPromptIndex];
+            if (!hasExactKeys(legacyPrompt, ['id', 'name', 'text'])
+                || typeof legacyPrompt.id !== 'string' || !legacyPrompt.id
+                || typeof legacyPrompt.name !== 'string' || !legacyPrompt.name.trim()
+                || typeof legacyPrompt.text !== 'string' || !legacyPrompt.text.trim()
+                || legacyIds.has(legacyPrompt.id) || legacyNames.has(legacyPrompt.name.toLowerCase())) return false;
+            legacyIds.add(legacyPrompt.id); legacyNames.add(legacyPrompt.name.toLowerCase());
+        }
+        return snapshot.selectedPromptId === null || legacyIds.has(snapshot.selectedPromptId);
+    }
+    groupIds = new Set();
+    for (var groupIndex = 0; groupIndex < snapshot.groups.length; groupIndex += 1) {
+        var group = snapshot.groups[groupIndex];
+        if (!hasExactKeys(group, ['id', 'name', 'kind'])
+            || typeof group.id !== 'string' || !group.id
+            || typeof group.name !== 'string' || !group.name.trim()
+            || (group.kind !== 'general' && group.kind !== 'custom')
+            || groupIds.has(group.id)) {
+            return false;
+        }
+        groupIds.add(group.id);
+    }
+    if (snapshot.groups.length === 0
+        || snapshot.groups[0].id !== 'general'
+        || snapshot.groups[0].name !== 'General'
+        || snapshot.groups[0].kind !== 'general') {
+        return false;
+    }
     var ids = new Set();
     var names = new Set();
     for (var prompt of snapshot.prompts) {
-        if (!hasExactKeys(prompt, ['id', 'name', 'text'])
+        if (!hasExactKeys(prompt, ['id', 'name', 'text', 'groupId'], ['description'])
             || typeof prompt.id !== 'string'
             || prompt.id.length === 0
             || typeof prompt.name !== 'string'
             || prompt.name.trim().length === 0
             || typeof prompt.text !== 'string'
             || prompt.text.trim().length === 0
+            || typeof prompt.groupId !== 'string'
+            || !groupIds.has(prompt.groupId)
+            || (prompt.description !== undefined && typeof prompt.description !== 'string')
             || ids.has(prompt.id)
             || names.has(prompt.name.toLowerCase())) {
             return false;
@@ -195,6 +242,10 @@ function mutationAnnouncement(operation) {
     if (operation === 'update') return 'Saving Prompt changes…';
     if (operation === 'delete') return 'Waiting for Prompt deletion confirmation…';
     if (operation === 'reorder') return 'Saving Prompt order…';
+    if (operation === 'create-group') return 'Creating Prompt group…';
+    if (operation === 'rename-group') return 'Renaming Prompt group…';
+    if (operation === 'delete-group') return 'Moving Prompts to General…';
+    if (operation === 'move') return 'Moving Prompt…';
     return 'Saving default Prompt…';
 }
 
@@ -203,6 +254,10 @@ function successAnnouncement(operation) {
     if (operation === 'update') return 'Prompt updated.';
     if (operation === 'delete') return 'Prompt deleted.';
     if (operation === 'reorder') return 'Prompt order saved.';
+    if (operation === 'create-group') return 'Prompt group created.';
+    if (operation === 'rename-group') return 'Prompt group renamed.';
+    if (operation === 'delete-group') return 'Prompt group deleted. Its Prompts moved to General.';
+    if (operation === 'move') return 'Prompt moved.';
     return 'Default Prompt updated.';
 }
 

@@ -16,15 +16,25 @@ const source = fs.readFileSync(
 );
 
 function snapshotAt(revision, overrides = {}) {
-    return {
-        version: 1,
+    const snapshot = {
+        version: 2,
         revision,
         selectedPromptId: null,
+        groups: [{ id: 'general', name: 'General', kind: 'general' }],
         prompts: [
-            { id: 'prompt-a', name: 'Alpha', text: 'First body' },
-            { id: 'prompt-b', name: 'Bravo', text: 'Second body' },
+            { id: 'prompt-a', name: 'Alpha', description: '', text: 'First body', groupId: 'general' },
+            { id: 'prompt-b', name: 'Bravo', description: '', text: 'Second body', groupId: 'general' },
         ],
         ...overrides,
+    };
+    return {
+        ...snapshot,
+        groups: snapshot.groups || [{ id: 'general', name: 'General', kind: 'general' }],
+        prompts: snapshot.prompts.map(prompt => ({
+            description: '',
+            groupId: 'general',
+            ...prompt,
+        })),
     };
 }
 
@@ -54,7 +64,7 @@ function surfaceHtml(revision, promptIds = ['prompt-a', 'prompt-b'], marker = ''
             <button type="submit" data-prompt-form-action="submit">Save</button>
             <button type="button" data-action="prompt-cancel-create" data-prompt-form-action="cancel">Cancel</button>
         </form>
-        <ol data-prompt-list>${items}</ol>
+        <ol data-prompt-list data-prompt-group-id="general">${items}</ol>
         <div data-prompt-status role="status" aria-live="polite"></div>${marker}
     </div>`;
 }
@@ -65,6 +75,9 @@ function matches(element, selector) {
     if (selector === '[data-prompt-id]') return element.getAttribute('data-prompt-id') !== null;
     if (selector === '[data-drag-prompt-id]') {
         return element.getAttribute('data-drag-prompt-id') !== null;
+    }
+    if (selector === '[data-prompt-list]') {
+        return element.getAttribute('data-prompt-list') !== null;
     }
     if (selector === '[data-prompt-form]') {
         return element.getAttribute('data-prompt-form') !== null;
@@ -136,7 +149,9 @@ function createForm(document, kind, promptId) {
     form.noValidate = false;
     const fields = {
         name: createElement(document, { name: 'name' }),
+        description: createElement(document, { name: 'description' }),
         text: createElement(document, { name: 'text' }),
+        groupId: createElement(document, { name: 'groupId' }),
     };
     const errors = {
         name: createElement(document, { 'data-prompt-field-error': 'name' }),
@@ -230,7 +245,7 @@ function createPromptRoot(document, initialHtml, rootId = '') {
             return root.items.find(item => item.getAttribute('data-prompt-id') === promptId);
         },
     };
-    root.tabs = ['prompts', 'skills', 'mcp', 'hooks'].map((name, index) => {
+    root.tabs = ['prompts', 'skills'].map((name, index) => {
         const tab = createElement(document, {
             role: 'tab',
             id: `ai-tab-${name}`,
@@ -284,7 +299,7 @@ function createPromptRoot(document, initialHtml, rootId = '') {
             'aria-live': 'polite',
         });
         root.status.ownerRoot = root;
-        root.list = createElement(document, { 'data-prompt-list': '' });
+        root.list = createElement(document, { 'data-prompt-list': '', 'data-prompt-group-id': 'general' });
         root.list.ownerRoot = root;
 
         const newButton = createElement(document, { 'data-action': 'prompt-new' });
@@ -376,6 +391,7 @@ function createPromptRoot(document, initialHtml, rootId = '') {
             return root.querySelector(selector);
         };
         surface.querySelectorAll = selector => {
+            if (selector === '[data-prompt-list]') return [root.list];
             if (selector === 'button, input, textarea, select, [data-drag-prompt-id]') {
                 return root.controls;
             }
@@ -638,7 +654,9 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 opens a copied Prompt as an exact unsave
         kind: 'create',
         promptId: null,
         name: 'Review copy',
+        description: '',
         text: 'Review this diff.\nKeep details.',
+        groupId: 'general',
     });
     assert.equal(harness.controller.getState().snapshot.selectedPromptId, 'prompt-b');
 
@@ -646,7 +664,9 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 opens a copied Prompt as an exact unsave
     assert.equal(harness.messages.length, 1);
     assert.deepEqual(harness.messages[0].payload, {
         name: 'Review copy',
+        description: '',
         text: 'Review this diff.\nKeep details.',
+        groupId: 'general',
     });
     assert.equal(harness.messages[0].operation, 'create');
     assert.equal(harness.controller.getState().snapshot.selectedPromptId, 'prompt-b');
@@ -741,7 +761,9 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 validates forms and posts exact create a
     harness.root.dispatch('submit', eventFor(create));
     assert.deepEqual(harness.messages[0].payload, {
         name: '  Review  ',
+        description: '',
         text: '  Keep exact spacing.  ',
+        groupId: 'general',
     });
     assert.equal(harness.messages.length, 1);
 
@@ -757,6 +779,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 validates forms and posts exact create a
     assert.deepEqual(harness.messages[1].payload, {
         promptId: 'prompt-a',
         name: 'Alpha revised',
+        description: '',
         text: 'Revised body',
     });
     assert.equal(harness.messages.length, 2);
@@ -869,6 +892,7 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 sends set, replace, clear, delete, and e
     reordered.root.dispatch('drop', eventFor(reordered.root.list));
     assert.equal(reordered.messages[0].operation, 'reorder');
     assert.deepEqual(reordered.messages[0].payload, {
+        groupId: 'general',
         promptIds: ['prompt-b', 'prompt-a'],
     });
     assert.deepEqual(
@@ -912,7 +936,9 @@ test('WEBVIEW-AI-PROMPT-MUTATION-001 retains failed drafts and locks conflicts u
         kind: 'edit',
         promptId: 'prompt-a',
         name: 'Draft name',
+        description: '',
         text: 'Private draft body',
+        groupId: 'general',
     });
     assert.equal(harness.controller.getState().blockedDraft, true);
     edit = harness.root.getForm('edit', 'prompt-a');
@@ -1317,8 +1343,8 @@ test('WEBVIEW-AI-PROMPT-INTERACTION-001 provides automatic roving AI subtab keyb
         key: 'End',
         preventDefault() { prevented += 1; },
     }));
-    assert.equal(harness.controller.getState().activeSubtab, 'hooks');
-    harness.root.dispatch('keydown', eventFor(harness.root.tabs[3], {
+    assert.equal(harness.controller.getState().activeSubtab, 'skills');
+    harness.root.dispatch('keydown', eventFor(harness.root.tabs[1], {
         key: 'Home',
         preventDefault() { prevented += 1; },
     }));

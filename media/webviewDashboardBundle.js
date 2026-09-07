@@ -1372,19 +1372,18 @@ function initProjectGroupCollapse() {
     }
 
     function getCollapseButtonState(tab, collapsedStates) {
-        if (tab === 'ai') {
-            return {
-                disabled: true,
-                collapsed: false,
-                title: 'No groups to collapse in AI',
-            };
-        }
         var labels = tab === 'open'
             ? {
                 empty: 'No worktrees to collapse',
                 collapse: 'Collapse all worktrees',
                 expand: 'Expand all worktrees',
             }
+            : tab === 'ai'
+                ? {
+                    empty: 'No Prompt Groups to collapse',
+                    collapse: 'Collapse all Prompt Groups',
+                    expand: 'Expand all Prompt Groups',
+                }
             : {
                 empty: 'No project groups to collapse',
                 collapse: 'Collapse All Groups',
@@ -1425,6 +1424,20 @@ function initProjectGroupCollapse() {
             && typeof machineProjects.getDisclosureCollapsedStates === 'function'
             && typeof machineProjects.setAllDisclosuresCollapsed === 'function'
             ? machineProjects
+            : null;
+    }
+
+    function getActivePromptGroups() {
+        var prompts = window.__agentPivotPrompts;
+        return getActiveDashboardTab() === 'ai'
+            && prompts
+            && typeof prompts.isMounted === 'function'
+            && prompts.isMounted()
+            && typeof prompts.getActiveSubtab === 'function'
+            && prompts.getActiveSubtab() === 'prompts'
+            && typeof prompts.getGroupCollapsedStates === 'function'
+            && typeof prompts.setAllGroupsCollapsed === 'function'
+            ? prompts
             : null;
     }
 
@@ -1499,6 +1512,14 @@ function initProjectGroupCollapse() {
             ));
             return;
         }
+        var promptGroups = getActivePromptGroups();
+        if (promptGroups) {
+            updateToggleAllGroupsButton(getCollapseButtonState(
+                'ai',
+                promptGroups.getGroupCollapsedStates()
+            ));
+            return;
+        }
         var machineProjects = getActiveMachineProjects();
         if (machineProjects) {
             updateToggleAllGroupsButton(getCollapseButtonState(
@@ -1521,6 +1542,15 @@ function initProjectGroupCollapse() {
             if (typeof window.__agentPivotToggleAllAiSessionWorktrees === 'function') {
                 window.__agentPivotToggleAllAiSessionWorktrees(worktreeTarget.projectDiv);
             }
+            syncCollapseButton();
+            return;
+        }
+        var promptGroups = getActivePromptGroups();
+        if (promptGroups) {
+            var promptCollapsedStates = promptGroups.getGroupCollapsedStates();
+            promptGroups.setAllGroupsCollapsed(
+                promptCollapsedStates.some(function (collapsed) { return !collapsed; })
+            );
             syncCollapseButton();
             return;
         }
@@ -10460,6 +10490,18 @@ function initSkillPanel(options) {
         return null;
     }
 
+    function findSkillMenuButton(dirPath) {
+        var buttons = document.querySelectorAll
+            ? document.querySelectorAll('[data-skill-menu]')
+            : [];
+        for (var i = 0; i < buttons.length; i++) {
+            if (buttons[i].getAttribute('data-skill-menu') === dirPath) {
+                return buttons[i];
+            }
+        }
+        return null;
+    }
+
     function markSkillScopeActionPending(button, pending) {
         if (!button || !pending) {
             return;
@@ -10588,12 +10630,6 @@ function initSkillPanel(options) {
             closeSkillFolderMenu();
         }
         var folderMenuState = captureSkillFolderMenuState();
-        var focused = document.activeElement && document.activeElement.getAttribute
-            ? {
-                dirPath: document.activeElement.getAttribute('data-skill-scope-action'),
-                operation: document.activeElement.getAttribute('data-skill-scope-operation'),
-            }
-            : null;
         var candidatePending = settlement ? skillScopeActionPending[settlement.requestId] : null;
         var settledPending = candidatePending && isMatchingSkillScopeSettlement(settlement, candidatePending)
             ? candidatePending
@@ -10611,25 +10647,14 @@ function initSkillPanel(options) {
         layoutSkillsSplit();
         restoreSkillsListScroll(nextSkillsWrapper, listScroll);
         announceSkillScopeSettlement(settlement, settledPending);
-        if (focused && focused.dirPath) {
-            var nextFocused = findSkillScopeActionButton(focused.dirPath, focused.operation);
-            if (!nextFocused && settledPending && settlement.ok && settlement.resultDirPath) {
-                nextFocused = findSkillScopeActionButton(settlement.resultDirPath, 'apply-to-project');
-            }
+        if (settledPending) {
+            var focusDir = settlement.ok && settlement.resultDirPath
+                ? settlement.resultDirPath
+                : settledPending.dirPath;
+            var nextFocused = findSkillMenuButton(focusDir);
             if (nextFocused && typeof nextFocused.focus === 'function') {
-                // The target may sit in a collapsed detail (e.g. the record moved
-                // scopes): open it so the focus continuation stays visible.
-                var focusHolder = nextFocused.closest('.skill-row-holder');
-                var focusDetail = focusHolder && focusHolder.querySelector('.skill-detail');
-                if (focusDetail && focusDetail.hidden) {
-                    focusDetail.hidden = false;
-                    var focusRow = focusHolder.querySelector('.skill-row[data-skill-dir]');
-                    if (focusRow) {
-                        focusRow.classList.add('skill-detail-open');
-                    }
-                }
                 nextFocused.focus();
-            } else if (settledPending && nextSkillsWrapper && typeof nextSkillsWrapper.focus === 'function') {
+            } else if (nextSkillsWrapper && typeof nextSkillsWrapper.focus === 'function') {
                 nextSkillsWrapper.setAttribute('tabindex', '-1');
                 nextSkillsWrapper.focus();
             }
@@ -10889,9 +10914,19 @@ function initSkillPanel(options) {
         var holder = button.closest('.skill-row-holder');
         var menu = document.createElement('div');
         menu.className = 'custom-context-menu skill-folder-menu skill-menu visible';
-        var openButton = holder && holder.querySelector('.skill-acts [data-skill-open]');
-        var openItem = appendMenuAction(menu, 'skill-menu-open', 'Open SKILL.md');
-        openItem.setAttribute('data-skill-open', openButton ? openButton.getAttribute('data-skill-open') || '' : '');
+        var skillRow = holder && holder.querySelector('.skill-row[data-skill-file-path]');
+        var editItem = appendMenuAction(menu, 'skill-menu-open', 'Edit');
+        editItem.setAttribute('data-skill-open', skillRow ? skillRow.getAttribute('data-skill-file-path') || '' : '');
+        var scopeAction = holder && holder.querySelector('[data-skill-scope-action]');
+        if (scopeAction) {
+            var scopeItem = appendMenuAction(menu, 'skill-menu-scope-action', scopeAction.textContent || 'Use in project');
+            scopeItem.setAttribute('data-skill-scope-action', scopeAction.getAttribute('data-skill-scope-action') || '');
+            scopeItem.setAttribute('data-skill-scope-operation', scopeAction.getAttribute('data-skill-scope-operation') || '');
+            if (scopeAction.getAttribute('aria-disabled') === 'true') {
+                scopeItem.setAttribute('aria-disabled', 'true');
+                scopeItem.classList.add('pending');
+            }
+        }
         if (holder && holder.querySelector('[data-skill-centralize]')) {
             var centralizeItem = appendMenuAction(menu, 'skill-menu-centralize', 'Centralize');
             centralizeItem.setAttribute('data-skill-centralize', dirPath);
@@ -11698,17 +11733,6 @@ function initSkillPanel(options) {
             options.postMessage({ type: 'open-skill-file', skillFilePath: openButton.getAttribute('data-skill-open') });
             return;
         }
-        var skillCard = event.target && event.target.closest ? event.target.closest('.skill-row[data-skill-dir]') : null;
-        if (skillCard) {
-            if (event.target.closest && event.target.closest('.skill-detail')) {
-                return;
-            }
-            var detail = getSkillRowDetail(skillCard);
-            if (detail) {
-                detail.hidden = !detail.hidden;
-                skillCard.classList.toggle('skill-detail-open', !detail.hidden);
-            }
-        }
     }
 
     function setSkillAgentFilter(value) {
@@ -12114,10 +12138,10 @@ function hasExactObjectKeys(value, requiredKeys, optionalKeys) {
 function validatePromptPanelSnapshot(snapshot) {
     if (!hasExactObjectKeys(
         snapshot,
-        ['version', 'revision', 'selectedPromptId', 'prompts'],
+        ['version', 'revision', 'selectedPromptId', 'groups', 'prompts'],
         ['readOnlyReason']
     )
-        || snapshot.version !== 1
+        || snapshot.version !== 2
         || !Number.isSafeInteger(snapshot.revision)
         || snapshot.revision < 0
         || (snapshot.selectedPromptId !== null
@@ -12129,16 +12153,30 @@ function validatePromptPanelSnapshot(snapshot) {
         return false;
     }
 
+    var groupIds = new Set();
+    for (var group of snapshot.groups) {
+        if (!hasExactObjectKeys(group, ['id', 'name', 'kind'])
+            || typeof group.id !== 'string' || !group.id
+            || typeof group.name !== 'string' || !group.name.trim()
+            || (group.kind !== 'general' && group.kind !== 'custom')
+            || groupIds.has(group.id)) return false;
+        groupIds.add(group.id);
+    }
+    if (!snapshot.groups.length || snapshot.groups[0].id !== 'general'
+        || snapshot.groups[0].name !== 'General' || snapshot.groups[0].kind !== 'general') return false;
     var promptIds = new Set();
     var promptNames = new Set();
     for (var prompt of snapshot.prompts) {
-        if (!hasExactObjectKeys(prompt, ['id', 'name', 'text'])
+        if (!hasExactObjectKeys(prompt, ['id', 'name', 'text', 'groupId'], ['description'])
             || typeof prompt.id !== 'string'
             || !prompt.id
             || typeof prompt.name !== 'string'
             || !prompt.name.trim()
             || typeof prompt.text !== 'string'
             || !prompt.text.trim()
+            || typeof prompt.groupId !== 'string'
+            || !groupIds.has(prompt.groupId)
+            || (prompt.description !== undefined && typeof prompt.description !== 'string')
             || promptIds.has(prompt.id)
             || promptNames.has(prompt.name.toLowerCase())) {
             return false;
@@ -13253,6 +13291,7 @@ function initDashboard(options) {
 
 /* src/webview/webviewPromptProtocolScripts.js */
 var PROMPT_VERSION = 1;
+var PROMPT_DATA_VERSION = 2;
 
 var PROMPT_TARGET = 'global-prompt-library';
 
@@ -13264,6 +13303,10 @@ var OPERATIONS = new Set([
     'delete',
     'reorder',
     'select-default',
+    'create-group',
+    'rename-group',
+    'delete-group',
+    'move',
 ]);
 
 var ERROR_CODES = new Set([
@@ -13332,12 +13375,18 @@ function isAuthoritySequence(value) {
 }
 
 function isPromptSnapshot(snapshot) {
-    if (!hasExactKeys(
+    var isLegacySnapshot = hasExactKeys(
         snapshot,
         ['version', 'revision', 'selectedPromptId', 'prompts'],
         ['readOnlyReason']
+    ) && snapshot && snapshot.version === 1;
+    if (!hasExactKeys(
+        snapshot,
+        ['version', 'revision', 'selectedPromptId', 'groups', 'prompts'],
+        ['readOnlyReason']
     )
-        || snapshot.version !== PROMPT_VERSION
+        && !isLegacySnapshot
+        || (!isLegacySnapshot && snapshot.version !== PROMPT_DATA_VERSION)
         || !Number.isSafeInteger(snapshot.revision)
         || snapshot.revision < 0
         || (snapshot.selectedPromptId !== null
@@ -13350,16 +13399,52 @@ function isPromptSnapshot(snapshot) {
         return false;
     }
 
+    var groupIds = new Set(['general']);
+    if (isLegacySnapshot) {
+        var legacyIds = new Set();
+        var legacyNames = new Set();
+        for (var legacyPromptIndex = 0; legacyPromptIndex < snapshot.prompts.length; legacyPromptIndex += 1) {
+            var legacyPrompt = snapshot.prompts[legacyPromptIndex];
+            if (!hasExactKeys(legacyPrompt, ['id', 'name', 'text'])
+                || typeof legacyPrompt.id !== 'string' || !legacyPrompt.id
+                || typeof legacyPrompt.name !== 'string' || !legacyPrompt.name.trim()
+                || typeof legacyPrompt.text !== 'string' || !legacyPrompt.text.trim()
+                || legacyIds.has(legacyPrompt.id) || legacyNames.has(legacyPrompt.name.toLowerCase())) return false;
+            legacyIds.add(legacyPrompt.id); legacyNames.add(legacyPrompt.name.toLowerCase());
+        }
+        return snapshot.selectedPromptId === null || legacyIds.has(snapshot.selectedPromptId);
+    }
+    groupIds = new Set();
+    for (var groupIndex = 0; groupIndex < snapshot.groups.length; groupIndex += 1) {
+        var group = snapshot.groups[groupIndex];
+        if (!hasExactKeys(group, ['id', 'name', 'kind'])
+            || typeof group.id !== 'string' || !group.id
+            || typeof group.name !== 'string' || !group.name.trim()
+            || (group.kind !== 'general' && group.kind !== 'custom')
+            || groupIds.has(group.id)) {
+            return false;
+        }
+        groupIds.add(group.id);
+    }
+    if (snapshot.groups.length === 0
+        || snapshot.groups[0].id !== 'general'
+        || snapshot.groups[0].name !== 'General'
+        || snapshot.groups[0].kind !== 'general') {
+        return false;
+    }
     var ids = new Set();
     var names = new Set();
     for (var prompt of snapshot.prompts) {
-        if (!hasExactKeys(prompt, ['id', 'name', 'text'])
+        if (!hasExactKeys(prompt, ['id', 'name', 'text', 'groupId'], ['description'])
             || typeof prompt.id !== 'string'
             || prompt.id.length === 0
             || typeof prompt.name !== 'string'
             || prompt.name.trim().length === 0
             || typeof prompt.text !== 'string'
             || prompt.text.trim().length === 0
+            || typeof prompt.groupId !== 'string'
+            || !groupIds.has(prompt.groupId)
+            || (prompt.description !== undefined && typeof prompt.description !== 'string')
             || ids.has(prompt.id)
             || names.has(prompt.name.toLowerCase())) {
             return false;
@@ -13449,6 +13534,10 @@ function mutationAnnouncement(operation) {
     if (operation === 'update') return 'Saving Prompt changes…';
     if (operation === 'delete') return 'Waiting for Prompt deletion confirmation…';
     if (operation === 'reorder') return 'Saving Prompt order…';
+    if (operation === 'create-group') return 'Creating Prompt group…';
+    if (operation === 'rename-group') return 'Renaming Prompt group…';
+    if (operation === 'delete-group') return 'Moving Prompts to General…';
+    if (operation === 'move') return 'Moving Prompt…';
     return 'Saving default Prompt…';
 }
 
@@ -13457,6 +13546,10 @@ function successAnnouncement(operation) {
     if (operation === 'update') return 'Prompt updated.';
     if (operation === 'delete') return 'Prompt deleted.';
     if (operation === 'reorder') return 'Prompt order saved.';
+    if (operation === 'create-group') return 'Prompt group created.';
+    if (operation === 'rename-group') return 'Prompt group renamed.';
+    if (operation === 'delete-group') return 'Prompt group deleted. Its Prompts moved to General.';
+    if (operation === 'move') return 'Prompt moved.';
     return 'Default Prompt updated.';
 }
 
@@ -13648,6 +13741,159 @@ function tabName(tab) {
             : null;
     }
 
+    function closePromptMenus(exceptTarget) {
+        var surface = getSurface();
+        if (!surface || typeof surface.querySelectorAll !== 'function') {
+            return;
+        }
+        Array.from(surface.querySelectorAll('.prompt-row-menu[open]')).forEach(function (menu) {
+            if (exceptTarget && typeof menu.contains === 'function' && menu.contains(exceptTarget)) {
+                return;
+            }
+            if (document.activeElement
+                && typeof menu.contains === 'function'
+                && menu.contains(document.activeElement)) {
+                var summary = menu.querySelector('summary');
+                if (summary && typeof summary.focus === 'function') {
+                    summary.focus();
+                }
+            }
+            if (typeof menu.removeAttribute === 'function') {
+                menu.removeAttribute('open');
+            }
+        });
+    }
+
+    function promptGroups() {
+        var surface = getSurface();
+        return surface && typeof surface.querySelectorAll === 'function'
+            ? Array.from(surface.querySelectorAll('.prompt-group[data-prompt-group-id]'))
+            : [];
+    }
+
+    function setPromptGroupExpanded(group, expanded) {
+        if (!group || typeof group.querySelector !== 'function') {
+            return false;
+        }
+        var toggle = group.querySelector('[data-action="prompt-toggle-group"]');
+        var groupList = group.querySelector('[data-prompt-list]');
+        if (!toggle || !groupList) {
+            return false;
+        }
+        toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        var groupName = group.getAttribute('data-prompt-group-name') || 'Prompt Group';
+        toggle.setAttribute('aria-label', (expanded ? 'Collapse ' : 'Expand ') + groupName);
+        toggle.textContent = expanded ? '▾' : '▸';
+        groupList.hidden = !expanded;
+        return true;
+    }
+
+    function getPromptGroupCollapsedStates() {
+        return promptGroups().map(function (group) {
+            var toggle = group.querySelector('[data-action="prompt-toggle-group"]');
+            return !toggle || toggle.getAttribute('aria-expanded') !== 'true';
+        });
+    }
+
+    function setAllPromptGroupsCollapsed(collapsed) {
+        promptGroups().forEach(function (group) {
+            setPromptGroupExpanded(group, !collapsed);
+        });
+    }
+
+    function getCollapsedPromptGroupIds() {
+        return promptGroups().filter(function (group) {
+            var toggle = group.querySelector('[data-action="prompt-toggle-group"]');
+            return toggle && toggle.getAttribute('aria-expanded') !== 'true';
+        }).map(function (group) {
+            return group.getAttribute('data-prompt-group-id');
+        }).filter(Boolean);
+    }
+
+    function restoreCollapsedPromptGroups(groupIds) {
+        var collapsed = new Set(Array.isArray(groupIds) ? groupIds : []);
+        promptGroups().forEach(function (group) {
+            var groupId = group.getAttribute('data-prompt-group-id');
+            setPromptGroupExpanded(group, !collapsed.has(groupId));
+        });
+    }
+
+    function syncGlobalCollapseButton() {
+        if (window.__agentPivotSyncCollapseButton
+            && typeof window.__agentPivotSyncCollapseButton === 'function') {
+            window.__agentPivotSyncCollapseButton();
+        }
+    }
+
+    function cancelGroupForm(form) {
+        if (!form) {
+            return false;
+        }
+        if (typeof form.reset === 'function') {
+            form.reset();
+        }
+        form.hidden = true;
+        var surface = getSurface();
+        var opener = surface && surface.querySelector('[data-action="prompt-group-new"]');
+        if (opener && typeof opener.focus === 'function') {
+            opener.focus();
+        }
+        return true;
+    }
+
+    function captureGroupFormDraft() {
+        var surface = getSurface();
+        var form = surface && typeof surface.querySelector === 'function'
+            ? surface.querySelector('[data-prompt-group-form]')
+            : null;
+        if (!form || form.hidden === true
+            || typeof form.hasAttribute === 'function' && form.hasAttribute('hidden')) {
+            return null;
+        }
+        var name = form.querySelector('[name="name"]');
+        var submit = form.querySelector('[type="submit"]');
+        var cancel = form.querySelector('[data-action="prompt-group-cancel"]');
+        return {
+            name: name && typeof name.value === 'string' ? name.value : '',
+            focus: name === document.activeElement
+                ? 'name'
+                : submit === document.activeElement
+                    ? 'submit'
+                    : cancel === document.activeElement
+                        ? 'cancel'
+                        : null,
+        };
+    }
+
+    function restoreGroupFormDraft(draft) {
+        if (!draft) {
+            return false;
+        }
+        var surface = getSurface();
+        var form = surface && typeof surface.querySelector === 'function'
+            ? surface.querySelector('[data-prompt-group-form]')
+            : null;
+        if (!form) {
+            return false;
+        }
+        form.hidden = false;
+        var name = form.querySelector('[name="name"]');
+        var control = draft.focus === 'name'
+            ? name
+            : draft.focus === 'submit'
+                ? form.querySelector('[type="submit"]')
+                : draft.focus === 'cancel'
+                    ? form.querySelector('[data-action="prompt-group-cancel"]')
+                    : null;
+        if (name) {
+            name.value = draft.name || '';
+        }
+        if (control && typeof control.focus === 'function') {
+            control.focus();
+        }
+        return true;
+    }
+
     function getPromptForms() {
         var surface = getSurface();
         if (!surface) {
@@ -13753,7 +13999,7 @@ function tabName(tab) {
                 : null;
             if ((formKind === 'create' || formKind === 'edit')
                 && (formKind === 'create' || formPromptId)
-                && (fieldName === 'name' || fieldName === 'text')) {
+                && (fieldName === 'name' || fieldName === 'description' || fieldName === 'text')) {
                 return {
                     formKind: formKind,
                     promptId: formPromptId,
@@ -13777,7 +14023,10 @@ function tabName(tab) {
         if (!action && closest(active, '[data-drag-prompt-id]')) {
             action = 'prompt-drag';
         }
-        return action && (promptId || action === 'prompt-new')
+        return action && (promptId
+            || action === 'prompt-new'
+            || action === 'prompt-group-new'
+            || action === 'prompt-delete-group')
             ? { promptId: promptId, action: action }
             : null;
     }
@@ -13828,10 +14077,10 @@ function tabName(tab) {
             }
             return;
         }
-        if (target.action === 'prompt-new') {
+        if (target.action === 'prompt-new' || target.action === 'prompt-group-new') {
             var surface = getSurface();
             var newPrompt = surface && typeof surface.querySelector === 'function'
-                ? surface.querySelector('[data-action="prompt-new"]')
+                ? surface.querySelector('[data-action="' + target.action + '"]')
                 : null;
             if (newPrompt && typeof newPrompt.focus === 'function') {
                 newPrompt.focus();
@@ -13847,6 +14096,8 @@ function tabName(tab) {
                 .find(function (candidate) {
                     return candidate.getAttribute('data-drag-prompt-id') === target.promptId;
                 })
+            : target.action === 'prompt-menu'
+                ? item.querySelector('.prompt-row-menu > summary')
             : Array.from(item.querySelectorAll('[data-action]'))
                 .find(function (candidate) {
                     return candidate.getAttribute('data-action') === target.action;
@@ -13856,11 +14107,12 @@ function tabName(tab) {
         }
     }
 
-    function getPromptList() {
+    function getPromptList(groupId) {
         var surface = getSurface();
-        return surface && typeof surface.querySelector === 'function'
-            ? surface.querySelector('[data-prompt-list]')
-            : null;
+        if (!surface || typeof surface.querySelectorAll !== 'function') return null;
+        return Array.from(surface.querySelectorAll('[data-prompt-list]')).find(function (list) {
+            return !groupId || list.getAttribute('data-prompt-group-id') === groupId;
+        }) || null;
     }
 
     function getPromptPanelScrollPort() {
@@ -13880,7 +14132,9 @@ function tabName(tab) {
             panelScrollTop: panelScrollPort ? panelScrollPort.scrollTop : null,
             scrollY: panelScrollPort ? null : (typeof window.scrollY === 'number' ? window.scrollY : 0),
             draft: clonePromptValue(state.draft),
+            groupDraft: captureGroupFormDraft(),
             activeSubtab: state.activeSubtab,
+            collapsedGroupIds: getCollapsedPromptGroupIds(),
         };
     }
 
@@ -13889,6 +14143,9 @@ function tabName(tab) {
             return;
         }
         activateSubtab(local.activeSubtab, false);
+        restoreCollapsedPromptGroups(local.collapsedGroupIds);
+        restoreGroupFormDraft(local.groupDraft);
+        syncGlobalCollapseButton();
         restoreSemanticFocus(local.focus);
         var list = getPromptList();
         if (list) {
@@ -13980,9 +14237,13 @@ function tabName(tab) {
         });
         form.hidden = false;
         var name = form.querySelector('[name="name"]');
+        var description = form.querySelector('[name="description"]');
         var text = form.querySelector('[name="text"]');
+        var groupId = form.querySelector('[name="groupId"]');
         if (name) name.value = draft.name;
+        if (description) description.value = draft.description || '';
         if (text) text.value = draft.text;
+        if (groupId) groupId.value = draft.groupId || 'general';
         return true;
     }
 
@@ -14044,6 +14305,7 @@ function tabName(tab) {
             operation: message.operation,
             payload: clonePromptValue(message.payload),
             draft: local.draft,
+            groupDraft: local.groupDraft,
             focus: local.focus,
             scrollTop: local.scrollTop,
             panelScrollTop: local.panelScrollTop,
@@ -14141,10 +14403,11 @@ function tabName(tab) {
         }
 
         var local = captureLocalState();
-        if (!local.focus
+        var restorePendingFocus = !local.focus
             && pending.focus
             && (!document.activeElement || document.activeElement === document.body)
-            && local.activeSubtab === pending.activeSubtab) {
+            && local.activeSubtab === pending.activeSubtab;
+        if (restorePendingFocus) {
             local.focus = clonePromptValue(pending.focus);
         }
         if (message.success && local.focus && local.focus.formKind) {
@@ -14158,6 +14421,40 @@ function tabName(tab) {
                     action: 'prompt-edit',
                 };
             }
+        }
+        var restorePendingGroupFocus = !local.focus
+            && pending.groupDraft
+            && pending.groupDraft.focus
+            && (!document.activeElement || document.activeElement === document.body)
+            && local.activeSubtab === pending.activeSubtab;
+        if (message.success && message.operation === 'create-group') {
+            local.groupDraft = null;
+            if (restorePendingGroupFocus) {
+                local.focus = { promptId: null, action: 'prompt-group-new' };
+            }
+        } else if (!message.success && message.operation === 'create-group') {
+            local.groupDraft = clonePromptValue(pending.groupDraft || local.groupDraft);
+            if (!restorePendingGroupFocus && local.groupDraft) {
+                local.groupDraft.focus = null;
+            }
+        }
+        if (message.operation === 'delete-group'
+            && restorePendingFocus
+            && pending.focus.action === 'prompt-delete-group') {
+            local.focus = { promptId: null, action: 'prompt-group-new' };
+        }
+        if (restorePendingFocus
+            && pending.focus.promptId
+            && pending.payload
+            && pending.payload.promptId === pending.focus.promptId
+            && (message.operation === 'move' || message.operation === 'select-default')) {
+            local.focus = { promptId: pending.focus.promptId, action: 'prompt-menu' };
+        } else if (restorePendingFocus
+            && pending.focus.promptId
+            && pending.payload
+            && pending.payload.promptId === pending.focus.promptId
+            && message.operation === 'delete') {
+            local.focus = { promptId: null, action: 'prompt-new' };
         }
         if (!installAuthoritative(message)) {
             setMutationLock(true);
@@ -14234,6 +14531,7 @@ function tabName(tab) {
             return false;
         }
         var name = readField(form, 'name');
+        var description = readField(form, 'description');
         var text = readField(form, 'text');
         clearFieldError(form, 'name');
         clearFieldError(form, 'text');
@@ -14254,18 +14552,21 @@ function tabName(tab) {
             kind: kind,
             promptId: kind === 'edit' ? form.getAttribute('data-prompt-id') : null,
             name: name,
+            description: description,
             text: text,
+            groupId: readField(form, 'groupId') || 'general',
         };
         return kind === 'create'
-            ? dispatch('create', { name: name, text: text })
+            ? dispatch('create', { name: name, description: description, text: text, groupId: state.draft.groupId })
             : dispatch('update', {
                 promptId: state.draft.promptId,
                 name: name,
+                description: description,
                 text: text,
             });
     }
 
-    function showCreateForm() {
+    function showCreateForm(groupId) {
         var surface = getSurface();
         var form = surface && surface.querySelector('[data-prompt-form="create"]');
         if (!form) {
@@ -14273,7 +14574,7 @@ function tabName(tab) {
         }
         var retained = state.blockedDraft && state.draft && state.draft.kind === 'create'
             ? clonePromptValue(state.draft)
-            : { kind: 'create', promptId: null, name: '', text: '' };
+            : { kind: 'create', promptId: null, name: '', description: '', text: '', groupId: groupId || 'general' };
         resetOpenDraft();
         state.draft = retained;
         applyDraft(retained);
@@ -14312,7 +14613,9 @@ function tabName(tab) {
             kind: 'create',
             promptId: null,
             name: nextCopyName(prompt.name),
+            description: prompt.description || '',
             text: prompt.text,
+            groupId: prompt.groupId,
         };
         applyDraft(state.draft);
         var name = form.querySelector('[name="name"]');
@@ -14338,7 +14641,9 @@ function tabName(tab) {
             kind: 'edit',
             promptId: promptId,
             name: readField(form, 'name'),
+            description: readField(form, 'description'),
             text: readField(form, 'text'),
+            groupId: readField(form, 'groupId'),
         };
         state.draft = retained;
         applyDraft(retained);
@@ -14354,10 +14659,18 @@ function tabName(tab) {
         resetPromptForm(form);
         state.draft = null;
         state.blockedDraft = false;
+        var promptId = form.getAttribute('data-prompt-id');
+        var opener = promptId
+            ? findPromptItem(promptId) && findPromptItem(promptId).querySelector('.prompt-row-menu > summary')
+            : getSurface() && getSurface().querySelector('[data-action="prompt-new"]');
+        if (opener && typeof opener.focus === 'function') {
+            opener.focus();
+        }
         return true;
     }
 
     function onClick(event) {
+        closePromptMenus(event.target);
         var tab = closest(event.target, '[role="tab"]');
         if (tab) {
             activateSubtab(tabName(tab), true);
@@ -14369,8 +14682,24 @@ function tabName(tab) {
         }
         var action = actionTarget.getAttribute('data-action');
         var promptId = actionTarget.getAttribute('data-prompt-id');
+        var actionMenu = closest(actionTarget, '.prompt-row-menu');
+        if (actionMenu && typeof actionMenu.removeAttribute === 'function') {
+            actionMenu.removeAttribute('open');
+        }
         if (action === 'prompt-new') {
-            showCreateForm();
+            showCreateForm(actionTarget.getAttribute('data-prompt-group-id'));
+        } else if (action === 'prompt-group-new') {
+            var groupForm = getSurface() && getSurface().querySelector('[data-prompt-group-form]');
+            if (groupForm) { groupForm.hidden = false; var groupName = groupForm.querySelector('[name="name"]'); if (groupName) groupName.focus(); }
+        } else if (action === 'prompt-group-cancel') {
+            var cancelledGroupForm = closest(actionTarget, '[data-prompt-group-form]');
+            cancelGroupForm(cancelledGroupForm);
+        } else if (action === 'prompt-toggle-group') {
+            var header = closest(actionTarget, '.prompt-group-header');
+            var group = header && closest(header, '[data-prompt-group-id]');
+            var expanded = actionTarget.getAttribute('aria-expanded') === 'true';
+            setPromptGroupExpanded(group, !expanded);
+            syncGlobalCollapseButton();
         } else if (action === 'prompt-cancel-create') {
             closeDraft(closest(actionTarget, '[data-prompt-form]'));
         } else if (action === 'prompt-copy') {
@@ -14387,12 +14716,26 @@ function tabName(tab) {
             dispatch('select-default', {
                 promptId: actionTarget.getAttribute('aria-pressed') === 'true'
                     ? null
-                    : promptId,
+                : promptId,
             });
+        } else if (action === 'prompt-delete-group') {
+            dispatch('delete-group', { groupId: actionTarget.getAttribute('data-prompt-group-id') });
+        } else if (action === 'prompt-move') {
+            dispatch('move', { promptId: promptId, groupId: actionTarget.getAttribute('data-prompt-group-id') });
+        } else if (action === 'prompt-rename-group') {
+            announce('Rename group is coming next.');
         }
     }
 
     function onSubmit(event) {
+        var groupForm = closest(event.target, '[data-prompt-group-form]');
+        if (groupForm) {
+            event.preventDefault();
+            var groupName = readField(groupForm, 'name');
+            if (!groupName.trim()) { announce('Enter a group name.'); return; }
+            dispatch('create-group', { name: groupName });
+            return;
+        }
         var form = closest(event.target, '[data-prompt-form]');
         if (!form) {
             return;
@@ -14409,7 +14752,7 @@ function tabName(tab) {
             return;
         }
         var name = field.getAttribute && field.getAttribute('name');
-        if (name !== 'name' && name !== 'text') {
+        if (name !== 'name' && name !== 'description' && name !== 'text') {
             return;
         }
         var kind = form.getAttribute('data-prompt-form');
@@ -14424,7 +14767,7 @@ function tabName(tab) {
 
 
     function activateSubtab(name, focus) {
-        if (!root || ['prompts', 'skills', 'mcp', 'hooks'].indexOf(name) < 0) {
+        if (!root || ['prompts', 'skills'].indexOf(name) < 0) {
             return false;
         }
         var tabs = typeof root.querySelectorAll === 'function'
@@ -14444,6 +14787,7 @@ function tabName(tab) {
             panel.hidden = panel.id !== 'ai-panel-' + name;
         });
         state.activeSubtab = name;
+        syncGlobalCollapseButton();
         if (focus && selected && typeof selected.focus === 'function') {
             selected.focus();
         }
@@ -14451,6 +14795,22 @@ function tabName(tab) {
     }
 
     function onKeyDown(event) {
+        if (event.key === 'Escape') {
+            var promptForm = closest(event.target, '[data-prompt-form]');
+            if (promptForm && !promptForm.hidden) {
+                event.preventDefault();
+                closeDraft(promptForm);
+                return;
+            }
+            var groupForm = closest(event.target, '[data-prompt-group-form]');
+            if (groupForm && !groupForm.hidden) {
+                event.preventDefault();
+                cancelGroupForm(groupForm);
+                return;
+            }
+            closePromptMenus();
+            return;
+        }
         var tab = closest(event.target, '[role="tab"]');
         if (!tab) {
             return;
@@ -14474,7 +14834,7 @@ function tabName(tab) {
             return;
         }
         draggedPromptId = handle.getAttribute('data-drag-prompt-id');
-        dragOriginList = getPromptList();
+        dragOriginList = closest(handle, '[data-prompt-list]');
         dragOriginNodes = dragOriginList && typeof dragOriginList.querySelectorAll === 'function'
             ? Array.from(dragOriginList.querySelectorAll(':scope > [data-prompt-id]'))
             : [];
@@ -14497,7 +14857,7 @@ function tabName(tab) {
         var targetPromptId = targetElement && targetElement.getAttribute('data-prompt-id');
         var draggedItem = findPromptItem(draggedPromptId);
         var targetItem = targetPromptId ? findPromptItem(targetPromptId) : null;
-        var list = getPromptList();
+        var list = closest(targetElement, '[data-prompt-list]');
         if (!list
             || !draggedItem
             || !targetItem
@@ -14519,7 +14879,7 @@ function tabName(tab) {
             return;
         }
         event.preventDefault();
-        var list = getPromptList();
+        var list = dragOriginList;
         var items = list && typeof list.querySelectorAll === 'function'
             ? Array.from(list.querySelectorAll(':scope > [data-prompt-id]'))
             : [];
@@ -14533,12 +14893,11 @@ function tabName(tab) {
             announce('Could not save Prompt order. Reload the Agent Pivot view and try again.');
             return;
         }
-        dispatch('reorder', { promptIds: promptIds });
+        dispatch('reorder', { groupId: list.getAttribute('data-prompt-group-id'), promptIds: promptIds });
     }
 
     function restoreDragOrigin() {
         if (dragOriginList
-            && dragOriginList === getPromptList()
             && typeof dragOriginList.appendChild === 'function') {
             dragOriginNodes.forEach(function (item) {
                 if (item.parentElement === dragOriginList) {
@@ -14600,7 +14959,16 @@ function tabName(tab) {
             root.addEventListener('dragover', onDragOver);
             root.addEventListener('drop', onDrop);
             root.addEventListener('dragend', onDragEnd);
+            if (document
+                && typeof document.addEventListener === 'function'
+                && !document.__agentPivotPromptMenuDismissalMounted) {
+                document.__agentPivotPromptMenuDismissalMounted = true;
+                document.addEventListener('pointerdown', function (event) {
+                    closePromptMenus(event.target);
+                }, true);
+            }
         }
+        syncGlobalCollapseButton();
         return true;
     }
 
@@ -14611,6 +14979,10 @@ function tabName(tab) {
         applyCommandResult: applyCommandResult,
         applyInsertResult: applyInsertResult,
         applyRefresh: applyRefresh,
+        isMounted: function () { return Boolean(getSurface()); },
+        getActiveSubtab: function () { return state.activeSubtab; },
+        getGroupCollapsedStates: getPromptGroupCollapsedStates,
+        setAllGroupsCollapsed: setAllPromptGroupsCollapsed,
         getState: function () { return state; },
     };
 })();

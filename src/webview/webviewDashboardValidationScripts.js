@@ -90,10 +90,10 @@ function hasExactObjectKeys(value, requiredKeys, optionalKeys) {
 function validatePromptPanelSnapshot(snapshot) {
     if (!hasExactObjectKeys(
         snapshot,
-        ['version', 'revision', 'selectedPromptId', 'prompts'],
+        ['version', 'revision', 'selectedPromptId', 'groups', 'prompts'],
         ['readOnlyReason']
     )
-        || snapshot.version !== 1
+        || snapshot.version !== 2
         || !Number.isSafeInteger(snapshot.revision)
         || snapshot.revision < 0
         || (snapshot.selectedPromptId !== null
@@ -105,16 +105,30 @@ function validatePromptPanelSnapshot(snapshot) {
         return false;
     }
 
+    var groupIds = new Set();
+    for (var group of snapshot.groups) {
+        if (!hasExactObjectKeys(group, ['id', 'name', 'kind'])
+            || typeof group.id !== 'string' || !group.id
+            || typeof group.name !== 'string' || !group.name.trim()
+            || (group.kind !== 'general' && group.kind !== 'custom')
+            || groupIds.has(group.id)) return false;
+        groupIds.add(group.id);
+    }
+    if (!snapshot.groups.length || snapshot.groups[0].id !== 'general'
+        || snapshot.groups[0].name !== 'General' || snapshot.groups[0].kind !== 'general') return false;
     var promptIds = new Set();
     var promptNames = new Set();
     for (var prompt of snapshot.prompts) {
-        if (!hasExactObjectKeys(prompt, ['id', 'name', 'text'])
+        if (!hasExactObjectKeys(prompt, ['id', 'name', 'text', 'groupId'], ['description'])
             || typeof prompt.id !== 'string'
             || !prompt.id
             || typeof prompt.name !== 'string'
             || !prompt.name.trim()
             || typeof prompt.text !== 'string'
             || !prompt.text.trim()
+            || typeof prompt.groupId !== 'string'
+            || !groupIds.has(prompt.groupId)
+            || (prompt.description !== undefined && typeof prompt.description !== 'string')
             || promptIds.has(prompt.id)
             || promptNames.has(prompt.name.toLowerCase())) {
             return false;

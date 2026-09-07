@@ -194,9 +194,10 @@ function makeAiSessionsUpdatedMessage(projectionRevision, overrides = {}) {
 
 function makePromptSnapshot(revision = 0) {
     return {
-        version: 1,
+        version: 2,
         revision,
         selectedPromptId: null,
+        groups: [{ id: 'general', name: 'General', kind: 'general' }],
         prompts: [],
     };
 }
@@ -2616,7 +2617,7 @@ function assertCollapseButtonBehavior(context) {
     assert.equal(context.window.__agentPivotGetCollapseButtonState('open', [true]).title, 'Expand all worktrees');
     assert.equal(context.window.__agentPivotGetCollapseButtonState('projects', [false, true]).title, 'Collapse All Groups');
     assert.deepEqual(toPlain(context.window.__agentPivotGetCollapseButtonState('ai', [false])), {
-        disabled: true, collapsed: false, title: 'No groups to collapse in AI',
+        disabled: false, collapsed: false, title: 'Collapse all Prompt Groups',
     });
 }
 

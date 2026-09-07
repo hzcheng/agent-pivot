@@ -5972,8 +5972,8 @@ body.steward-sidebar {
     }
 
     // Skill rows: quiet list grammar — tinted icon box, two-line meta, agent
-    // dots at rest; actions fade in on hover/focus-within (progressive
-    // disclosure instead of always-visible pill buttons).
+    // dots and a persistent ⋯ menu; destructive or migration actions remain
+    // progressive disclosure on hover/focus-within.
     .skill-row-holder {
         position: relative;
         margin: 1px 0;
@@ -5986,8 +5986,6 @@ body.steward-sidebar {
         gap: 8px;
         padding: 3px 6px;
         border-radius: 5px;
-        cursor: pointer;
-
         &:hover,
         &:focus-within {
             background: var(--vscode-list-hoverBackground);
@@ -6062,11 +6060,15 @@ body.steward-sidebar {
     .skill-acts {
         position: absolute;
         top: 50%;
-        right: 6px;
+        right: 30px;
         display: none;
         align-items: center;
         gap: 2px;
         transform: translateY(-50%);
+    }
+
+    .skill-row-more {
+        flex: none;
     }
 
     .skill-icon-btn {
@@ -7436,6 +7438,18 @@ body.steward-sidebar .ai-tablist {
 
 .prompt-header {
     @extend .prompt-command-bar;
+
+    > .prompt-header-actions {
+        flex: 0 0 auto;
+        flex-wrap: nowrap;
+        gap: 2px;
+    }
+
+    .steward-icon-button svg {
+        width: 14px;
+        height: 14px;
+        fill: currentColor;
+    }
 }
 
 .prompt-list {
@@ -7692,6 +7706,149 @@ body.steward-sidebar .prompt-item {
 
 .prompt-status {
     @extend .prompt-live-region;
+}
+
+// Compact, single-column Prompt tree for the side panel.
+.prompt-tree {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.prompt-group {
+    min-width: 0;
+    border-top: 1px solid var(--vscode-panel-border, var(--vscode-widget-border));
+}
+
+.prompt-group-header {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    min-height: 34px;
+    gap: 4px;
+
+    strong {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+}
+
+.prompt-group-toggle,
+.prompt-group-add,
+.prompt-use-button,
+.prompt-item-main,
+.prompt-row-menu > summary,
+.prompt-row-menu button {
+    border: 0;
+    color: inherit;
+    background: transparent;
+}
+
+.prompt-group-toggle,
+.prompt-group-add,
+.prompt-row-menu > summary,
+.prompt-row-menu button {
+    cursor: pointer;
+}
+
+.prompt-group-toggle {
+    color: var(--vscode-descriptionForeground);
+}
+
+.prompt-group-add,
+.prompt-use-button {
+    color: var(--vscode-textLink-foreground);
+    font-weight: 600;
+}
+
+.prompt-tree .prompt-list {
+    gap: 0;
+    padding-left: 20px;
+}
+
+body.steward-sidebar .prompt-tree .prompt-item {
+    min-height: 34px;
+    padding: 0;
+    border: 0;
+    border-top: 1px solid var(--vscode-list-hoverBackground, transparent);
+    background: transparent;
+    box-shadow: none;
+}
+
+.prompt-tree .prompt-item-view {
+    grid-template-columns: 18px minmax(0, 1fr) auto auto;
+    min-height: 34px;
+    gap: 4px;
+}
+
+.prompt-tree .prompt-drag-handle {
+    width: 18px;
+    height: 24px;
+}
+
+.prompt-item-main {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    padding: 3px 0;
+    text-align: left;
+}
+
+.prompt-accessible-info {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: pre-wrap;
+    border: 0;
+}
+
+.prompt-use-button {
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+}
+
+.prompt-row-menu {
+    position: relative;
+
+    > summary {
+        width: 24px;
+        list-style: none;
+        text-align: center;
+    }
+
+    > summary::-webkit-details-marker { display: none; }
+
+    > div {
+        position: absolute;
+        z-index: 20;
+        top: 25px;
+        right: 0;
+        display: grid;
+        min-width: 132px;
+        padding: 4px;
+        border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border));
+        background: var(--vscode-menu-background, var(--vscode-editor-background));
+        box-shadow: 0 4px 12px rgba(0, 0, 0, .2);
+    }
+
+    button {
+        padding: 5px 7px;
+        text-align: left;
+
+        &:hover { background: var(--vscode-menu-selectionBackground); }
+    }
+}
+
+.prompt-general-info {
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
 }
 
 .ai-subtabs > button:focus-visible,

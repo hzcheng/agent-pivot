@@ -125,7 +125,8 @@
       "symbol": "window.__agentPivotPrompts",
       "producer": "src/webview/webviewPromptScripts.js",
       "consumers": [
-        "src/webview/webviewDashboardAiPanelScripts.js"
+        "src/webview/webviewDashboardAiPanelScripts.js",
+        "src/webview/webviewProjectCollapseScripts.js"
       ]
     },
     {
@@ -177,6 +178,7 @@
         "src/webview/webviewAiSessionViewStateScripts.js",
         "src/webview/webviewMachineProjectsScripts.js",
         "src/webview/webviewProjectAiSessionControlsScripts.js",
+        "src/webview/webviewPromptScripts.js",
         "src/webview/webviewWorkspaceUpdateScripts.js"
       ]
     },

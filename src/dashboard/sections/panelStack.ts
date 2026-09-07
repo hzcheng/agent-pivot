@@ -95,6 +95,15 @@ export function createPanelStack(deps: PanelStackDeps): PanelStack {
             );
             return choice === 'Delete';
         },
+        confirmDeleteGroup: async group => {
+            const promptSummary = group.promptCount === 1 ? '1 Prompt' : `${group.promptCount} Prompts`;
+            const choice = await vscode.window.showWarningMessage(
+                `Delete Prompt group "${group.name}"? ${promptSummary} will move to General.`,
+                { modal: true },
+                'Delete group'
+            );
+            return choice === 'Delete group';
+        },
         renderPromptSurface: getPromptSurfaceContent,
         renderAiPanel: snapshot => getAiPanelContent(
             snapshot,

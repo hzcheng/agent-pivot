@@ -30,6 +30,18 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   window ambiguous and no longer shows Save for a Project that is already
   stored.
 
+## [1.4.1] - 2026-09-07
+
+### Added
+
+- Add File Transfer to Projects: browse local folders and Managed Machine
+  directories, select files or folders on either side, review the operation,
+  and run it as a cancellable background copy.
+
+### Changed
+
+- Publish the File Transfer experience and its local UI Bridge through the VS Code Marketplace while retaining the existing Workspace Trust declaration and progressively rendered AI Conversation experience.
+
 ## [1.4.0] - 2026-08-30
 
 ### Fixed

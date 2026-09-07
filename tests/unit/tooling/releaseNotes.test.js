@@ -14,7 +14,7 @@ test('release content validation cannot satisfy current facts from historical no
     const changelog = [
         '# Changelog',
         '',
-        '## [1.4.0] - 2026-08-30',
+        '## [1.4.1] - 2026-09-07',
         '',
         '- An unrelated documentation fix.',
         '',
@@ -37,11 +37,11 @@ test('release content validation cannot satisfy current facts from historical no
             changelog,
             packageMetadata: {
                 displayName: 'Agent Pivot',
-                version: '1.4.0',
+                version: '1.4.1',
                 description: 'Workspace command center.',
             },
         }),
-        /1\.4\.0 CHANGELOG release must document the Marketplace release channel/,
+        /1\.4\.1 CHANGELOG release must document the Marketplace release channel/,
     );
 });
 
@@ -49,7 +49,7 @@ test('release content validation preserves the tagged previous release', () => {
     const changelog = [
         '# Changelog',
         '',
-        '## [1.4.0] - 2026-08-30',
+        '## [1.4.1] - 2026-09-07',
         '',
         '- VS Code Marketplace release with Workspace Trust and progressively rendered Conversation content.',
         '',
@@ -61,7 +61,7 @@ test('release content validation preserves the tagged previous release', () => {
             changelog,
             packageMetadata: {
                 displayName: 'Agent Pivot',
-                version: '1.4.0',
+                version: '1.4.1',
                 description: 'Workspace command center.',
             },
         }),

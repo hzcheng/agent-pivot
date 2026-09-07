@@ -152,6 +152,59 @@
         return true;
     }
 
+    function captureGroupFormDraft() {
+        var surface = getSurface();
+        var form = surface && typeof surface.querySelector === 'function'
+            ? surface.querySelector('[data-prompt-group-form]')
+            : null;
+        if (!form || form.hidden === true
+            || typeof form.hasAttribute === 'function' && form.hasAttribute('hidden')) {
+            return null;
+        }
+        var name = form.querySelector('[name="name"]');
+        var submit = form.querySelector('[type="submit"]');
+        var cancel = form.querySelector('[data-action="prompt-group-cancel"]');
+        return {
+            name: name && typeof name.value === 'string' ? name.value : '',
+            focus: name === document.activeElement
+                ? 'name'
+                : submit === document.activeElement
+                    ? 'submit'
+                    : cancel === document.activeElement
+                        ? 'cancel'
+                        : null,
+        };
+    }
+
+    function restoreGroupFormDraft(draft) {
+        if (!draft) {
+            return false;
+        }
+        var surface = getSurface();
+        var form = surface && typeof surface.querySelector === 'function'
+            ? surface.querySelector('[data-prompt-group-form]')
+            : null;
+        if (!form) {
+            return false;
+        }
+        form.hidden = false;
+        var name = form.querySelector('[name="name"]');
+        var control = draft.focus === 'name'
+            ? name
+            : draft.focus === 'submit'
+                ? form.querySelector('[type="submit"]')
+                : draft.focus === 'cancel'
+                    ? form.querySelector('[data-action="prompt-group-cancel"]')
+                    : null;
+        if (name) {
+            name.value = draft.name || '';
+        }
+        if (control && typeof control.focus === 'function') {
+            control.focus();
+        }
+        return true;
+    }
+
     function getPromptForms() {
         var surface = getSurface();
         if (!surface) {
@@ -281,7 +334,10 @@
         if (!action && closest(active, '[data-drag-prompt-id]')) {
             action = 'prompt-drag';
         }
-        return action && (promptId || action === 'prompt-new')
+        return action && (promptId
+            || action === 'prompt-new'
+            || action === 'prompt-group-new'
+            || action === 'prompt-delete-group')
             ? { promptId: promptId, action: action }
             : null;
     }
@@ -332,10 +388,10 @@
             }
             return;
         }
-        if (target.action === 'prompt-new') {
+        if (target.action === 'prompt-new' || target.action === 'prompt-group-new') {
             var surface = getSurface();
             var newPrompt = surface && typeof surface.querySelector === 'function'
-                ? surface.querySelector('[data-action="prompt-new"]')
+                ? surface.querySelector('[data-action="' + target.action + '"]')
                 : null;
             if (newPrompt && typeof newPrompt.focus === 'function') {
                 newPrompt.focus();
@@ -351,6 +407,8 @@
                 .find(function (candidate) {
                     return candidate.getAttribute('data-drag-prompt-id') === target.promptId;
                 })
+            : target.action === 'prompt-menu'
+                ? item.querySelector('.prompt-row-menu > summary')
             : Array.from(item.querySelectorAll('[data-action]'))
                 .find(function (candidate) {
                     return candidate.getAttribute('data-action') === target.action;
@@ -385,6 +443,7 @@
             panelScrollTop: panelScrollPort ? panelScrollPort.scrollTop : null,
             scrollY: panelScrollPort ? null : (typeof window.scrollY === 'number' ? window.scrollY : 0),
             draft: clonePromptValue(state.draft),
+            groupDraft: captureGroupFormDraft(),
             activeSubtab: state.activeSubtab,
             collapsedGroupIds: getCollapsedPromptGroupIds(),
         };
@@ -396,6 +455,7 @@
         }
         activateSubtab(local.activeSubtab, false);
         restoreCollapsedPromptGroups(local.collapsedGroupIds);
+        restoreGroupFormDraft(local.groupDraft);
         syncGlobalCollapseButton();
         restoreSemanticFocus(local.focus);
         var list = getPromptList();
@@ -556,6 +616,7 @@
             operation: message.operation,
             payload: clonePromptValue(message.payload),
             draft: local.draft,
+            groupDraft: local.groupDraft,
             focus: local.focus,
             scrollTop: local.scrollTop,
             panelScrollTop: local.panelScrollTop,
@@ -653,10 +714,11 @@
         }
 
         var local = captureLocalState();
-        if (!local.focus
+        var restorePendingFocus = !local.focus
             && pending.focus
             && (!document.activeElement || document.activeElement === document.body)
-            && local.activeSubtab === pending.activeSubtab) {
+            && local.activeSubtab === pending.activeSubtab;
+        if (restorePendingFocus) {
             local.focus = clonePromptValue(pending.focus);
         }
         if (message.success && local.focus && local.focus.formKind) {
@@ -670,6 +732,40 @@
                     action: 'prompt-edit',
                 };
             }
+        }
+        var restorePendingGroupFocus = !local.focus
+            && pending.groupDraft
+            && pending.groupDraft.focus
+            && (!document.activeElement || document.activeElement === document.body)
+            && local.activeSubtab === pending.activeSubtab;
+        if (message.success && message.operation === 'create-group') {
+            local.groupDraft = null;
+            if (restorePendingGroupFocus) {
+                local.focus = { promptId: null, action: 'prompt-group-new' };
+            }
+        } else if (!message.success && message.operation === 'create-group') {
+            local.groupDraft = clonePromptValue(pending.groupDraft || local.groupDraft);
+            if (!restorePendingGroupFocus && local.groupDraft) {
+                local.groupDraft.focus = null;
+            }
+        }
+        if (message.operation === 'delete-group'
+            && restorePendingFocus
+            && pending.focus.action === 'prompt-delete-group') {
+            local.focus = { promptId: null, action: 'prompt-group-new' };
+        }
+        if (restorePendingFocus
+            && pending.focus.promptId
+            && pending.payload
+            && pending.payload.promptId === pending.focus.promptId
+            && (message.operation === 'move' || message.operation === 'select-default')) {
+            local.focus = { promptId: pending.focus.promptId, action: 'prompt-menu' };
+        } else if (restorePendingFocus
+            && pending.focus.promptId
+            && pending.payload
+            && pending.payload.promptId === pending.focus.promptId
+            && message.operation === 'delete') {
+            local.focus = { promptId: null, action: 'prompt-new' };
         }
         if (!installAuthoritative(message)) {
             setMutationLock(true);

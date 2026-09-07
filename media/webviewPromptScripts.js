@@ -67,6 +67,48 @@
         });
     }
 
+    function promptGroups() {
+        var surface = getSurface();
+        return surface && typeof surface.querySelectorAll === 'function'
+            ? Array.from(surface.querySelectorAll('.prompt-group[data-prompt-group-id]'))
+            : [];
+    }
+
+    function setPromptGroupExpanded(group, expanded) {
+        if (!group || typeof group.querySelector !== 'function') {
+            return false;
+        }
+        var toggle = group.querySelector('[data-action="prompt-toggle-group"]');
+        var groupList = group.querySelector('[data-prompt-list]');
+        if (!toggle || !groupList) {
+            return false;
+        }
+        toggle.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        toggle.textContent = expanded ? '▾' : '▸';
+        groupList.hidden = !expanded;
+        return true;
+    }
+
+    function getPromptGroupCollapsedStates() {
+        return promptGroups().map(function (group) {
+            var toggle = group.querySelector('[data-action="prompt-toggle-group"]');
+            return !toggle || toggle.getAttribute('aria-expanded') !== 'true';
+        });
+    }
+
+    function setAllPromptGroupsCollapsed(collapsed) {
+        promptGroups().forEach(function (group) {
+            setPromptGroupExpanded(group, !collapsed);
+        });
+    }
+
+    function syncGlobalCollapseButton() {
+        if (window.__agentPivotSyncCollapseButton
+            && typeof window.__agentPivotSyncCollapseButton === 'function') {
+            window.__agentPivotSyncCollapseButton();
+        }
+    }
+
     function cancelGroupForm(form) {
         if (!form) {
             return false;
@@ -828,11 +870,9 @@
         } else if (action === 'prompt-toggle-group') {
             var header = closest(actionTarget, '.prompt-group-header');
             var group = header && closest(header, '[data-prompt-group-id]');
-            var groupList = group && group.querySelector('[data-prompt-list]');
             var expanded = actionTarget.getAttribute('aria-expanded') === 'true';
-            actionTarget.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-            actionTarget.textContent = expanded ? '▸' : '▾';
-            if (groupList) groupList.hidden = expanded;
+            setPromptGroupExpanded(group, !expanded);
+            syncGlobalCollapseButton();
         } else if (action === 'prompt-cancel-create') {
             closeDraft(closest(actionTarget, '[data-prompt-form]'));
         } else if (action === 'prompt-copy') {
@@ -1091,12 +1131,16 @@
             root.addEventListener('dragover', onDragOver);
             root.addEventListener('drop', onDrop);
             root.addEventListener('dragend', onDragEnd);
-            if (document && typeof document.addEventListener === 'function') {
-                document.addEventListener('click', function (event) {
+            if (document
+                && typeof document.addEventListener === 'function'
+                && !document.__agentPivotPromptMenuDismissalMounted) {
+                document.__agentPivotPromptMenuDismissalMounted = true;
+                document.addEventListener('pointerdown', function (event) {
                     closePromptMenus(event.target);
-                });
+                }, true);
             }
         }
+        syncGlobalCollapseButton();
         return true;
     }
 
@@ -1107,6 +1151,9 @@
         applyCommandResult: applyCommandResult,
         applyInsertResult: applyInsertResult,
         applyRefresh: applyRefresh,
+        isMounted: function () { return Boolean(getSurface()); },
+        getGroupCollapsedStates: getPromptGroupCollapsedStates,
+        setAllGroupsCollapsed: setAllPromptGroupsCollapsed,
         getState: function () { return state; },
     };
 })();

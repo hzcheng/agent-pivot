@@ -27,19 +27,18 @@ function initProjectGroupCollapse() {
     }
 
     function getCollapseButtonState(tab, collapsedStates) {
-        if (tab === 'ai') {
-            return {
-                disabled: true,
-                collapsed: false,
-                title: 'No groups to collapse in AI',
-            };
-        }
         var labels = tab === 'open'
             ? {
                 empty: 'No worktrees to collapse',
                 collapse: 'Collapse all worktrees',
                 expand: 'Expand all worktrees',
             }
+            : tab === 'ai'
+                ? {
+                    empty: 'No Prompt Groups to collapse',
+                    collapse: 'Collapse all Prompt Groups',
+                    expand: 'Expand all Prompt Groups',
+                }
             : {
                 empty: 'No project groups to collapse',
                 collapse: 'Collapse All Groups',
@@ -80,6 +79,18 @@ function initProjectGroupCollapse() {
             && typeof machineProjects.getDisclosureCollapsedStates === 'function'
             && typeof machineProjects.setAllDisclosuresCollapsed === 'function'
             ? machineProjects
+            : null;
+    }
+
+    function getActivePromptGroups() {
+        var prompts = window.__agentPivotPrompts;
+        return getActiveDashboardTab() === 'ai'
+            && prompts
+            && typeof prompts.isMounted === 'function'
+            && prompts.isMounted()
+            && typeof prompts.getGroupCollapsedStates === 'function'
+            && typeof prompts.setAllGroupsCollapsed === 'function'
+            ? prompts
             : null;
     }
 
@@ -154,6 +165,14 @@ function initProjectGroupCollapse() {
             ));
             return;
         }
+        var promptGroups = getActivePromptGroups();
+        if (promptGroups) {
+            updateToggleAllGroupsButton(getCollapseButtonState(
+                'ai',
+                promptGroups.getGroupCollapsedStates()
+            ));
+            return;
+        }
         var machineProjects = getActiveMachineProjects();
         if (machineProjects) {
             updateToggleAllGroupsButton(getCollapseButtonState(
@@ -176,6 +195,15 @@ function initProjectGroupCollapse() {
             if (typeof window.__agentPivotToggleAllAiSessionWorktrees === 'function') {
                 window.__agentPivotToggleAllAiSessionWorktrees(worktreeTarget.projectDiv);
             }
+            syncCollapseButton();
+            return;
+        }
+        var promptGroups = getActivePromptGroups();
+        if (promptGroups) {
+            var promptCollapsedStates = promptGroups.getGroupCollapsedStates();
+            promptGroups.setAllGroupsCollapsed(
+                promptCollapsedStates.some(function (collapsed) { return !collapsed; })
+            );
             syncCollapseButton();
             return;
         }

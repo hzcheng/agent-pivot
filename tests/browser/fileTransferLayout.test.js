@@ -88,7 +88,7 @@ test('FILE-TRANSFER-EDITOR-001 FILE-TRANSFER-UI-011 keeps sorting controls reada
     }
 });
 
-test('FILE-TRANSFER-EDITOR-001 opens a directory with one click while preserving its copy checkbox', async t => {
+test('FILE-TRANSFER-EDITOR-001 expands a directory with one click while preserving its copy checkbox', async t => {
     const page = await browser.newPage({ viewport: { width: 480, height: 320 } });
     t.after(() => page.close());
     await page.setContent('<!doctype html><ul data-file-transfer-file-list></ul>');
@@ -105,13 +105,74 @@ test('FILE-TRANSFER-EDITOR-001 opens a directory with one click while preserving
             () => {},
         );
     });
-    await page.locator('[data-file-transfer-entry-id]').click();
+    await page.locator('[data-file-transfer-entry-id] .file-transfer-tree-toggle').click();
     assert.deepEqual(await page.evaluate(() => window.__fileTransferOpenedDirectories),
         ['0123456789abcdef0123456789abcdef']);
 
     await page.locator('[data-file-transfer-entry-id] input').click();
     assert.deepEqual(await page.evaluate(() => window.__fileTransferOpenedDirectories),
         ['0123456789abcdef0123456789abcdef']);
+});
+
+test('FILE-TRANSFER-UI-017 expands a folder inline without replacing its endpoint tree', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'],
+            postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+    const endpoint = page.locator('[data-file-transfer-endpoint="left"]');
+    await endpoint.selectOption('managed:machine:build');
+    const initialRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.side === 'left'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1,
+        requestId: initialRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: 'fedcba9876543210fedcba9876543210', label: 'Build Machine',
+            displayPath: '/workspace', entries: [
+                { id: '11111111111111111111111111111111', name: 'src', kind: 'directory' },
+                { id: '22222222222222222222222222222222', name: 'README.md', kind: 'file', size: 12 },
+            ],
+        },
+    });
+    await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] .file-transfer-tree-toggle').click();
+    const expandRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-open-directory'
+            && message.endpoint && message.endpoint.directoryId === '11111111111111111111111111111111'
+    ));
+    assert.ok(expandRequest, 'expanding a tree folder must request only that folder');
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1,
+        requestId: expandRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: '11111111111111111111111111111111', label: 'Build Machine',
+            displayPath: '/workspace/src', entries: [
+                { id: '33333333333333333333333333333333', name: 'index.ts', kind: 'file', size: 21 },
+            ],
+        },
+    });
+
+    assert.equal(await endpoint.inputValue(), 'managed:machine:build');
+    assert.equal(await page.locator('[data-file-transfer-path-input="left"]').inputValue(), '/workspace');
+    assert.equal(await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"]')
+        .getAttribute('aria-expanded'), 'true');
+    assert.equal(await page.locator('[data-file-transfer-entry-id="33333333333333333333333333333333"]')
+        .getAttribute('aria-level'), '2');
+    assert.equal(await page.locator('[data-file-transfer-pane-copy-state]').first().isVisible(), false,
+        'the copy-source indicator must stay out of the layout until a file is selected');
 });
 
 test('FILE-TRANSFER-UI-006 keeps the selected Managed Machine after its directory is listed', async t => {
@@ -154,7 +215,7 @@ test('FILE-TRANSFER-UI-006 keeps the selected Managed Machine after its director
     });
     assert.equal(await endpoint.inputValue(), 'managed:machine:build');
     assert.match(await page.locator('[data-file-transfer-pane="left"] [data-file-transfer-pane-status]').textContent(),
-        /0 items in this Managed Machine directory/i);
+        /0 items loaded in this Managed Machine directory/i);
     assert.deepEqual(await page.evaluate(() => window.__fileTransferMessages.find(message =>
         message.type === 'file-transfer-directory-applied'
     )), {

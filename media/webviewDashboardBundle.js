@@ -12795,30 +12795,60 @@ function renderLocalFileTransferEntries(
     entries,
     selectedIds,
     onChange,
-    onOpenDirectory,
+    onToggleDirectory,
     onDragStart,
     onDragEnd,
 ) {
+    var previousScrollTop = fileList.scrollTop;
     fileList.textContent = '';
-    entries.forEach(function (entry) {
+    entries.forEach(function (treeEntry) {
+        var entry = treeEntry.entry || treeEntry;
+        var depth = Number.isSafeInteger(treeEntry.depth) ? treeEntry.depth : 0;
+        var directoryId = treeEntry.directoryId || null;
         var row = document.createElement('li');
         row.className = 'file-transfer-file-row';
+        row.style.setProperty('--file-transfer-tree-depth', String(Math.max(0, depth)));
         if (entry.kind === 'symlink' || entry.kind === 'unsupported') {
             row.className += ' is-unsupported';
         }
         row.setAttribute('data-file-transfer-entry-id', entry.id);
+        row.setAttribute('role', 'treeitem');
+        row.setAttribute('aria-level', String(depth + 1));
         if (entry.kind === 'directory') {
-            row.title = 'Open this folder';
+            var expanded = !!treeEntry.expanded;
+            row.title = expanded ? 'Collapse this folder' : 'Expand this folder';
+            row.setAttribute('aria-expanded', String(expanded));
             row.addEventListener('click', function (event) {
                 var target = event.target;
-                if (target && typeof target.closest === 'function' && target.closest('input')) return;
-                onOpenDirectory(entry.id);
+                if (target && typeof target.closest === 'function'
+                    && target.closest('input, button, label')) return;
+                onToggleDirectory(entry.id, expanded);
             });
         }
         if (entry.kind === 'directory' || entry.kind === 'file') {
             row.draggable = true;
-            row.addEventListener('dragstart', function (event) { onDragStart(entry.id, event); });
+            row.addEventListener('dragstart', function (event) {
+                onDragStart(entry.id, directoryId, event);
+            });
             row.addEventListener('dragend', onDragEnd);
+        }
+        if (entry.kind === 'directory') {
+            var disclosure = document.createElement('button');
+            disclosure.type = 'button';
+            disclosure.className = 'file-transfer-tree-toggle';
+            disclosure.textContent = treeEntry.loading ? '…'
+                : (treeEntry.failed ? '!' : (treeEntry.expanded ? '⌄' : '›'));
+            disclosure.disabled = !!treeEntry.loading;
+            disclosure.title = treeEntry.failed || row.title;
+            disclosure.setAttribute('aria-label', (treeEntry.failed || row.title) + ': ' + entry.name);
+            disclosure.setAttribute('aria-expanded', String(!!treeEntry.expanded));
+            disclosure.addEventListener('click', function () { onToggleDirectory(entry.id, !!treeEntry.expanded); });
+            row.appendChild(disclosure);
+        } else {
+            var spacer = document.createElement('span');
+            spacer.className = 'file-transfer-tree-spacer';
+            spacer.setAttribute('aria-hidden', 'true');
+            row.appendChild(spacer);
         }
         var label = document.createElement('label');
         var checkbox = document.createElement('input');
@@ -12826,11 +12856,14 @@ function renderLocalFileTransferEntries(
         checkbox.checked = selectedIds.has(entry.id);
         checkbox.disabled = entry.kind !== 'directory' && entry.kind !== 'file';
         checkbox.addEventListener('change', function () {
-            onChange(entry.id, checkbox.checked);
+            onChange(entry.id, directoryId, checkbox.checked);
         });
         var kind = entry.kind === 'directory' ? 'Folder' : entry.kind === 'file' ? 'File' : entry.kind;
         label.appendChild(checkbox);
-        label.appendChild(document.createTextNode(kind + '  ' + entry.name));
+        var entryName = document.createElement('span');
+        entryName.className = 'file-transfer-file-name';
+        entryName.textContent = kind + '  ' + entry.name;
+        label.appendChild(entryName);
         var meta = [];
         if (Number.isSafeInteger(entry.size)) meta.push(formatFileTransferBytes(entry.size));
         if (Number.isSafeInteger(entry.modifiedAt)) {
@@ -12848,6 +12881,7 @@ function renderLocalFileTransferEntries(
         row.appendChild(label);
         fileList.appendChild(row);
     });
+    fileList.scrollTop = previousScrollTop;
 }
 
 function sortFileTransferEntries(entries, sort) {
@@ -13560,7 +13594,12 @@ function initDashboard(options) {
         var pendingLocalRootRequests = { left: null, right: null };
         var pendingLocalRootTimeouts = { left: null, right: null };
         var selectedEntries = { left: new Set(), right: new Set() };
+        var selectedEntryDirectoryIds = { left: null, right: null };
         var directoryHistory = { left: [], right: [] };
+        var loadedDirectories = { left: Object.create(null), right: Object.create(null) };
+        var expandedDirectoryIds = { left: new Set(), right: new Set() };
+        var directoryLoadFailures = { left: Object.create(null), right: Object.create(null) };
+        var pendingDirectoryOperations = { left: null, right: null };
         var fileTransferSort = { left: 'name', right: 'name' };
         var showHiddenEntries = { left: false, right: false };
         var fileTransferFilter = { left: '', right: '' };
@@ -13734,6 +13773,50 @@ function initDashboard(options) {
             }) || null;
         }
 
+        function resetDirectoryTree(side, root) {
+            loadedDirectories[side] = Object.create(null);
+            expandedDirectoryIds[side] = new Set();
+            directoryLoadFailures[side] = Object.create(null);
+            if (root) loadedDirectories[side][root.directoryId] = root;
+        }
+
+        function visibleFileTransferTreeEntries(side, root) {
+            if (!root) return [];
+            var filter = fileTransferFilter[side];
+            var pendingOperation = pendingDirectoryOperations[side];
+            function visit(directory, depth) {
+                var rows = [];
+                sortFileTransferEntries(directory.entries, fileTransferSort[side]).forEach(function (entry) {
+                    var expanded = entry.kind === 'directory' && expandedDirectoryIds[side].has(entry.id);
+                    var child = expanded ? loadedDirectories[side][entry.id] : null;
+                    var children = child ? visit(child, depth + 1) : [];
+                    var matches = !filter || entry.name.toLocaleLowerCase().includes(filter);
+                    if (!matches && children.length === 0) return;
+                    rows.push({
+                        entry: entry,
+                        depth: depth,
+                        directoryId: directory.directoryId,
+                        expanded: expanded,
+                        loading: !!pendingOperation && pendingOperation.mode === 'expand'
+                            && pendingOperation.directoryId === entry.id,
+                        failed: directoryLoadFailures[side][entry.id] || null,
+                    });
+                    rows.push.apply(rows, children);
+                });
+                return rows;
+            }
+            return visit(root, 0);
+        }
+
+        function selectedDirectoryEntries(side) {
+            var directoryId = selectedEntryDirectoryIds[side];
+            var directory = directoryId ? loadedDirectories[side][directoryId] : null;
+            var entries = directory && Array.isArray(directory.entries) ? directory.entries : [];
+            return Array.from(selectedEntries[side]).map(function (entryId) {
+                return entries.find(function (entry) { return entry.id === entryId; }) || null;
+            }).filter(Boolean);
+        }
+
         function renderPaneBreadcrumbs(side, pathElement, directoryView, fallback) {
             if (!pathElement) return;
             pathElement.textContent = '';
@@ -13801,7 +13884,10 @@ function initDashboard(options) {
             if (!value) {
                 if (name) name.textContent = 'Choose an endpoint';
                 renderPaneBreadcrumbs(side, path, null, '—');
-                if (status) status.textContent = 'Choose an endpoint to browse its files.';
+                if (status) {
+                    status.classList.remove('is-directory-ready');
+                    status.textContent = 'Choose an endpoint to browse its files.';
+                }
                 if (refresh) refresh.disabled = true;
                 if (up) up.disabled = true;
                 if (filter) filter.disabled = true;
@@ -13819,10 +13905,10 @@ function initDashboard(options) {
             }
             if (name) name.textContent = option ? option.textContent : 'Selected endpoint';
             var directoryView = localRoots[side];
-            var visibleEntries = directoryView ? directoryView.entries.filter(function (entry) {
-                return (showHiddenEntries[side] || entry.name.charAt(0) !== '.')
-                    && entry.name.toLocaleLowerCase().includes(fileTransferFilter[side]);
-            }) : [];
+            var treeEntries = directoryView ? visibleFileTransferTreeEntries(side, directoryView)
+                .filter(function (treeEntry) {
+                    return showHiddenEntries[side] || treeEntry.entry.name.charAt(0) !== '.';
+                }) : [];
             if (filter) {
                 filter.disabled = !directoryView;
                 filter.value = fileTransferFilter[side];
@@ -13846,15 +13932,14 @@ function initDashboard(options) {
                 value === 'local' ? 'Choose a local folder' : 'Managed Machine',
             );
             if (status) {
+                status.classList.toggle('is-directory-ready', !!directoryView);
                 status.textContent = paneFailures[side]
                     ? paneFailures[side] + ' Select Refresh to try again.'
                     : directoryView
-                    ? (showHiddenEntries[side] || visibleEntries.length === directoryView.entries.length
-                        ? visibleEntries.length + ' items'
-                        : visibleEntries.length + ' of ' + directoryView.entries.length + ' items')
+                    ? treeEntries.length + ' items loaded'
                         + (directoryView.hasMore ? ' (showing the first 1,000; enter a narrower path to browse more).' : '') + (value === 'local'
-                        ? ' in this approved local folder.'
-                        : ' in this Managed Machine directory.')
+                        ? ' in this approved local folder. Expand a folder to browse it here.'
+                        : ' in this Managed Machine directory. Expand a folder to browse it here.')
                     : value === 'local' && pendingLocalRootRequests[side]
                         ? 'Opening the local folder chooser…'
                     : value.indexOf('managed:') === 0 && pendingLocalRootRequests[side]
@@ -13866,11 +13951,15 @@ function initDashboard(options) {
             if (fileList) {
                 renderLocalFileTransferEntries(
                     fileList,
-                    sortFileTransferEntries(visibleEntries, fileTransferSort[side]),
+                    treeEntries,
                     selectedEntries[side],
-                    function (entryId, selected) { updateSelection(side, entryId, selected); },
-                    function (directoryId) { openDirectory(side, directoryId); },
-                    function (entryId, event) { beginFileTransferDrag(side, entryId, event); },
+                    function (entryId, directoryId, selected) {
+                        updateSelection(side, entryId, directoryId, selected);
+                    },
+                    function (directoryId) { toggleDirectory(side, directoryId); },
+                    function (entryId, directoryId, event) {
+                        beginFileTransferDrag(side, entryId, directoryId, event);
+                    },
                     function () { draggedFileTransferEntry = null; },
                 );
                 fileList.hidden = !directoryView;
@@ -13912,21 +14001,34 @@ function initDashboard(options) {
                 || !sourceSide || !left || !right || !left.value || !right.value;
         }
 
-        function updateSelection(side, entryId, selected) {
+        function updateSelection(side, entryId, directoryId, selected) {
             var otherSide = side === 'left' ? 'right' : 'left';
             selectedEntries[otherSide].clear();
-            if (selected) selectedEntries[side].add(entryId);
-            else selectedEntries[side].delete(entryId);
+            selectedEntryDirectoryIds[otherSide] = null;
+            if (selected) {
+                if (selectedEntryDirectoryIds[side]
+                    && selectedEntryDirectoryIds[side] !== directoryId) {
+                    selectedEntries[side].clear();
+                }
+                selectedEntryDirectoryIds[side] = directoryId;
+                selectedEntries[side].add(entryId);
+            } else {
+                selectedEntries[side].delete(entryId);
+                if (selectedEntries[side].size === 0) selectedEntryDirectoryIds[side] = null;
+            }
             updatePair();
         }
 
-        function beginFileTransferDrag(side, entryId, event) {
+        function beginFileTransferDrag(side, entryId, directoryId, event) {
             if (!selectedEntries[side].has(entryId)) {
                 selectedEntries.left.clear();
                 selectedEntries.right.clear();
+                selectedEntryDirectoryIds.left = null;
+                selectedEntryDirectoryIds.right = null;
                 selectedEntries[side].add(entryId);
+                selectedEntryDirectoryIds[side] = directoryId;
             }
-            draggedFileTransferEntry = { side: side, entryId: entryId };
+            draggedFileTransferEntry = { side: side, entryId: entryId, directoryId: directoryId };
             if (event.dataTransfer) {
                 event.dataTransfer.effectAllowed = 'copy';
                 event.dataTransfer.setData('text/plain', 'agent-pivot-file-transfer');
@@ -13939,6 +14041,8 @@ function initDashboard(options) {
             event.preventDefault();
             selectedEntries[destinationSide].clear();
             selectedEntries[draggedFileTransferEntry.side].add(draggedFileTransferEntry.entryId);
+            selectedEntryDirectoryIds[destinationSide] = null;
+            selectedEntryDirectoryIds[draggedFileTransferEntry.side] = draggedFileTransferEntry.directoryId;
             draggedFileTransferEntry = null;
             updatePair();
             openReview();
@@ -13949,18 +14053,28 @@ function initDashboard(options) {
                 cancelTimeout(pendingLocalRootTimeouts[side]);
                 pendingLocalRootTimeouts[side] = null;
             }
+            pendingDirectoryOperations[side] = null;
         }
 
-        function startDirectoryRequest(side, requestId) {
+        function startDirectoryRequest(side, requestId, operation) {
             clearPendingDirectoryRequest(side);
             pendingLocalRootRequests[side] = requestId;
+            pendingDirectoryOperations[side] = operation || { mode: 'navigate' };
             if (!scheduleTimeout) return;
             pendingLocalRootTimeouts[side] = scheduleTimeout(function () {
                 if (pendingLocalRootRequests[side] !== requestId) return;
                 pendingLocalRootRequests[side] = null;
                 pendingLocalRootTimeouts[side] = null;
-                localRoots[side] = null;
-                paneFailures[side] = 'The directory request did not reply. Check the local Agent Pivot UI Bridge.';
+                var timedOutOperation = pendingDirectoryOperations[side];
+                pendingDirectoryOperations[side] = null;
+                if (timedOutOperation && timedOutOperation.mode === 'expand') {
+                    directoryLoadFailures[side][timedOutOperation.directoryId]
+                        = 'This folder did not reply. Select its chevron to try again.';
+                } else {
+                    localRoots[side] = null;
+                    resetDirectoryTree(side, null);
+                    paneFailures[side] = 'The directory request did not reply. Check the local Agent Pivot UI Bridge.';
+                }
                 updatePair();
             }, fileTransferDirectoryRequestTimeoutMs);
         }
@@ -13968,7 +14082,7 @@ function initDashboard(options) {
         function requestLocalRoot(side) {
             var requestId = 'file-transfer-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
-            startDirectoryRequest(side, requestId);
+            startDirectoryRequest(side, requestId, { mode: 'root' });
             options.postMessage({
                 type: 'file-transfer-select-local-root',
                 version: 1,
@@ -13980,7 +14094,7 @@ function initDashboard(options) {
         function requestRemoteDirectory(side, machineId) {
             var requestId = 'file-transfer-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
-            startDirectoryRequest(side, requestId);
+            startDirectoryRequest(side, requestId, { mode: 'root' });
             options.postMessage({
                 type: 'file-transfer-list-remote-directory',
                 version: 1,
@@ -13999,8 +14113,9 @@ function initDashboard(options) {
             }
             var requestId = 'file-transfer-open-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
-            startDirectoryRequest(side, requestId);
+            startDirectoryRequest(side, requestId, { mode: 'navigate', directoryId: directoryId });
             selectedEntries[side].clear();
+            selectedEntryDirectoryIds[side] = null;
             if (selector.value === 'local') {
                 options.postMessage({
                     type: 'file-transfer-open-directory',
@@ -14025,14 +14140,53 @@ function initDashboard(options) {
             updatePair();
         }
 
+        function toggleDirectory(side, directoryId) {
+            var root = localRoots[side];
+            if (!root || !directoryId) return;
+            if (expandedDirectoryIds[side].has(directoryId)) {
+                expandedDirectoryIds[side].delete(directoryId);
+                updatePair();
+                return;
+            }
+            if (loadedDirectories[side][directoryId]) {
+                expandedDirectoryIds[side].add(directoryId);
+                delete directoryLoadFailures[side][directoryId];
+                updatePair();
+                return;
+            }
+            var selector = selectorFor(side);
+            if (!selector) return;
+            var requestId = 'file-transfer-expand-' + side + '-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            startDirectoryRequest(side, requestId, { mode: 'expand', directoryId: directoryId });
+            delete directoryLoadFailures[side][directoryId];
+            if (selector.value === 'local') {
+                options.postMessage({
+                    type: 'file-transfer-open-directory', version: 1, requestId: requestId, side: side,
+                    endpoint: { kind: 'local', rootId: root.rootId, directoryId: directoryId },
+                });
+            } else if (selector.value.indexOf('managed:') === 0) {
+                options.postMessage({
+                    type: 'file-transfer-open-directory', version: 1, requestId: requestId, side: side,
+                    endpoint: {
+                        kind: 'managedMachine',
+                        machineId: selector.value.slice('managed:'.length),
+                        directoryId: directoryId,
+                    },
+                });
+            }
+            updatePair();
+        }
+
         function openPath(side, navigationPath) {
             var selector = selectorFor(side);
             var root = localRoots[side];
             if (!selector || !root || !navigationPath) return;
             var requestId = 'file-transfer-path-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
-            startDirectoryRequest(side, requestId);
+            startDirectoryRequest(side, requestId, { mode: 'navigate' });
             selectedEntries[side].clear();
+            selectedEntryDirectoryIds[side] = null;
             directoryHistory[side] = [];
             var endpoint = selector.value === 'local'
                 ? { kind: 'local', rootId: root.rootId, directoryId: root.directoryId }
@@ -14053,10 +14207,12 @@ function initDashboard(options) {
         function activateEndpointSelection(side, selector) {
             if (side !== 'left' && side !== 'right' || !selector) return;
             localRoots[side] = null;
+            resetDirectoryTree(side, null);
             paneFailures[side] = null;
             clearPendingDirectoryRequest(side);
             pendingLocalRootRequests[side] = null;
             selectedEntries[side].clear();
+            selectedEntryDirectoryIds[side] = null;
             directoryHistory[side] = [];
             lastRememberedPairKey = null;
             if (reviewSheet) reviewSheet.hidden = true;
@@ -14137,9 +14293,21 @@ function initDashboard(options) {
             var leftSelection = selectedEntries.left;
             selectedEntries.left = selectedEntries.right;
             selectedEntries.right = leftSelection;
+            var leftSelectionDirectoryId = selectedEntryDirectoryIds.left;
+            selectedEntryDirectoryIds.left = selectedEntryDirectoryIds.right;
+            selectedEntryDirectoryIds.right = leftSelectionDirectoryId;
             var leftHistory = directoryHistory.left;
             directoryHistory.left = directoryHistory.right;
             directoryHistory.right = leftHistory;
+            var leftDirectories = loadedDirectories.left;
+            loadedDirectories.left = loadedDirectories.right;
+            loadedDirectories.right = leftDirectories;
+            var leftExpandedDirectories = expandedDirectoryIds.left;
+            expandedDirectoryIds.left = expandedDirectoryIds.right;
+            expandedDirectoryIds.right = leftExpandedDirectories;
+            var leftDirectoryFailures = directoryLoadFailures.left;
+            directoryLoadFailures.left = directoryLoadFailures.right;
+            directoryLoadFailures.right = leftDirectoryFailures;
             var leftSort = fileTransferSort.left;
             fileTransferSort.left = fileTransferSort.right;
             fileTransferSort.right = leftSort;
@@ -14160,21 +14328,40 @@ function initDashboard(options) {
                 || pendingLocalRootRequests[message.side] !== message.requestId) {
                 return false;
             }
+            var operation = pendingDirectoryOperations[message.side];
             clearPendingDirectoryRequest(message.side);
             pendingLocalRootRequests[message.side] = null;
             if ((message.type === 'file-transfer-local-root-selected'
                 || message.type === 'file-transfer-remote-directory-listed') && message.root) {
-                localRoots[message.side] = message.root;
+                if (operation && operation.mode === 'expand' && operation.directoryId) {
+                    loadedDirectories[message.side][operation.directoryId] = message.root;
+                    expandedDirectoryIds[message.side].add(operation.directoryId);
+                    delete directoryLoadFailures[message.side][operation.directoryId];
+                } else {
+                    localRoots[message.side] = message.root;
+                    resetDirectoryTree(message.side, message.root);
+                    selectedEntries[message.side].clear();
+                    selectedEntryDirectoryIds[message.side] = null;
+                }
                 paneFailures[message.side] = null;
             } else if (message.type === 'file-transfer-local-root-failed'
                 || message.type === 'file-transfer-remote-directory-failed') {
-                localRoots[message.side] = null;
-                paneFailures[message.side] = message.message || 'Could not open this endpoint.';
+                if (operation && operation.mode === 'expand' && operation.directoryId) {
+                    directoryLoadFailures[message.side][operation.directoryId]
+                        = message.message || 'Could not expand this folder.';
+                } else {
+                    localRoots[message.side] = null;
+                    resetDirectoryTree(message.side, null);
+                    paneFailures[message.side] = message.message || 'Could not open this endpoint.';
+                }
             } else {
                 var selector = selectorFor(message.side);
                 if (selector) selector.value = '';
                 localRoots[message.side] = null;
+                resetDirectoryTree(message.side, null);
                 paneFailures[message.side] = null;
+                selectedEntries[message.side].clear();
+                selectedEntryDirectoryIds[message.side] = null;
             }
             if (localRoots.left && localRoots.right) rememberCurrentPair(false);
             updatePair();
@@ -14199,18 +14386,19 @@ function initDashboard(options) {
             return true;
         }
 
-        function endpointReference(side) {
+        function endpointReference(side, directoryId) {
             var selector = selectorFor(side);
             var root = localRoots[side];
             if (!selector || !root) return null;
+            var resolvedDirectoryId = directoryId || root.directoryId;
             if (selector.value === 'local') {
-                return { kind: 'local', rootId: root.rootId, directoryId: root.directoryId };
+                return { kind: 'local', rootId: root.rootId, directoryId: resolvedDirectoryId };
             }
             if (selector.value.indexOf('managed:') === 0) {
                 return {
                     kind: 'managedMachine',
                     machineId: selector.value.slice('managed:'.length),
-                    directoryId: root.directoryId,
+                    directoryId: resolvedDirectoryId,
                 };
             }
             return null;
@@ -14221,11 +14409,7 @@ function initDashboard(options) {
         }
 
         function selectedEntryDetails(side) {
-            var root = localRoots[side];
-            var entries = root && Array.isArray(root.entries) ? root.entries : [];
-            return Array.from(selectedEntries[side]).map(function (entryId) {
-                return entries.find(function (entry) { return entry.id === entryId; }) || null;
-            }).filter(Boolean);
+            return selectedDirectoryEntries(side);
         }
 
         function renderReviewItems(entries) {
@@ -14346,7 +14530,7 @@ function initDashboard(options) {
             renderReviewItems(entries);
             reviewSheet.hidden = false;
             reviewedCopyPlan = {
-                source: endpointReference(sourceSide),
+                source: endpointReference(sourceSide, selectedEntryDirectoryIds[sourceSide]),
                 destination: endpointReference(destinationSide),
                 entryIds: Array.from(selectedEntries[sourceSide]),
                 ...(canRename && targetNameInput ? { targetName: targetNameInput.value } : {}),
@@ -14620,10 +14804,14 @@ function initDashboard(options) {
                 var side = checkbox.getAttribute('data-file-transfer-show-hidden');
                 if (side !== 'left' && side !== 'right') return;
                 showHiddenEntries[side] = checkbox.checked;
-                if (!showHiddenEntries[side] && localRoots[side]) {
-                    localRoots[side].entries.forEach(function (entry) {
-                        if (entry.name.charAt(0) === '.') selectedEntries[side].delete(entry.id);
-                    });
+                if (!showHiddenEntries[side] && selectedEntryDirectoryIds[side]) {
+                    var selectedDirectory = loadedDirectories[side][selectedEntryDirectoryIds[side]];
+                    if (selectedDirectory) {
+                        selectedDirectory.entries.forEach(function (entry) {
+                            if (entry.name.charAt(0) === '.') selectedEntries[side].delete(entry.id);
+                        });
+                    }
+                    if (selectedEntries[side].size === 0) selectedEntryDirectoryIds[side] = null;
                 }
                 updatePair();
             });

@@ -598,8 +598,8 @@ test('FILE-TRANSFER-UI-010 filters hidden entries and sorts each endpoint indepe
     assert.match(html, /Recent endpoint pairs/);
     assert.ok(html.indexOf('data-file-transfer-saved-pairs') < html.indexOf('data-file-transfer-endpoint="left"'));
     assert.match(dashboardSource, /function sortFileTransferEntries/);
-    assert.match(dashboardSource, /showHiddenEntries\[side\] \|\| entry\.name\.charAt\(0\) !== '\.'/);
-    assert.match(dashboardSource, /sortFileTransferEntries\(visibleEntries, fileTransferSort\[side\]\)/);
+    assert.match(dashboardSource, /showHiddenEntries\[side\] \|\| treeEntry\.entry\.name\.charAt\(0\) !== '\.'/);
+    assert.match(dashboardSource, /sortFileTransferEntries\(directory\.entries, fileTransferSort\[side\]\)/);
 });
 
 test('FILE-TRANSFER-UI-012 requires a correlated preflight before starting a copy', () => {
@@ -635,7 +635,7 @@ test('FILE-TRANSFER-UI-014 filters only the files already loaded in each pane', 
     });
     assert.match(html, /data-file-transfer-filter="left"/);
     assert.match(html, /aria-label="Filter loaded files in Left endpoint files"/);
-    assert.match(dashboardSource, /entry\.name\.toLocaleLowerCase\(\)\.includes\(fileTransferFilter\[side\]\)/);
+    assert.match(dashboardSource, /entry\.name\.toLocaleLowerCase\(\)\.includes\(filter\)/);
     assert.match(dashboardSource, /fileTransferFilter\[side\] = input\.value\.slice\(0, 255\)\.toLocaleLowerCase\(\);/);
 });
 

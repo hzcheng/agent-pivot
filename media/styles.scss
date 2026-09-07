@@ -802,14 +802,14 @@ body .project {
 
 .file-transfer-editor-content {
     box-sizing: border-box;
-    min-height: 100vh;
-    padding: 18px 22px 28px;
+    min-height: 0;
+    padding: 14px 18px 22px;
 }
 
 .file-transfer-editor-panel {
     display: block;
     max-width: 1600px;
-    min-height: calc(100vh - 46px);
+    min-height: 0;
     margin: 0 auto;
 }
 
@@ -1786,9 +1786,10 @@ body .project {
 
 .file-transfer {
     display: grid;
+    align-content: start;
     gap: 12px;
-    min-height: 100%;
-    padding: 14px 12px;
+    min-height: 0;
+    padding: 8px 6px 14px;
     color: var(--vscode-foreground);
     box-sizing: border-box;
 }
@@ -1818,6 +1819,10 @@ body .project {
     margin: 3px 0 0;
     color: var(--vscode-descriptionForeground);
     font-size: 12px;
+}
+
+.file-transfer-header p {
+    max-width: 560px;
 }
 
 .file-transfer-tasks,
@@ -1889,7 +1894,7 @@ body .project {
 .file-transfer-pair {
     justify-content: center;
     gap: 8px;
-    padding: 10px;
+    padding: 8px 10px;
     border: 1px solid var(--vscode-panel-border);
     border-radius: 7px;
     background: var(--vscode-editor-inactiveSelectionBackground, transparent);
@@ -1970,8 +1975,8 @@ body .project {
 }
 
 .file-transfer-pair-hint {
-    min-height: 18px;
-    margin: -5px 1px 0;
+    min-height: 0;
+    margin: -6px 2px 0;
 }
 
 .file-transfer-panes {
@@ -2044,6 +2049,10 @@ body .project {
     background: var(--vscode-badge-background);
     font-size: 10px;
     font-weight: 600;
+}
+
+.file-transfer-pane-copy-state[hidden] {
+    display: none;
 }
 
 .file-transfer-pane.is-file-transfer-copy-source {
@@ -2161,6 +2170,14 @@ body .project {
     text-align: center;
 }
 
+.file-transfer-pane-status.is-directory-ready {
+    display: block;
+    min-height: 0;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    text-align: left;
+}
+
 .file-transfer-file-list {
     margin: 0;
     padding: 0;
@@ -2168,8 +2185,11 @@ body .project {
 }
 
 .file-transfer-file-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     overflow: hidden;
-    padding: 7px 10px;
+    padding: 5px 10px 5px calc(10px + var(--file-transfer-tree-depth, 0) * 16px);
     border-bottom: 1px solid var(--vscode-panel-border);
     color: var(--vscode-foreground);
     font-size: 12px;
@@ -2190,7 +2210,47 @@ body .project {
     align-items: center;
     gap: 7px;
     min-width: 0;
+    flex: 1 1 auto;
     cursor: pointer;
+}
+
+.file-transfer-tree-toggle,
+.file-transfer-tree-spacer {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+}
+
+.file-transfer-tree-toggle {
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    color: var(--vscode-descriptionForeground);
+    background: transparent;
+    font: inherit;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        color: var(--vscode-foreground);
+        background: var(--vscode-list-hoverBackground);
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: -1px;
+    }
+}
+
+.file-transfer-file-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .file-transfer-file-meta {

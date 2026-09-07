@@ -69,7 +69,7 @@ function pane(side: 'left' | 'right'): string {
             </label>
         </div>
         <div class="file-transfer-pane-status" data-file-transfer-pane-status role="status">Choose an endpoint to browse its files.</div>
-        <ul class="file-transfer-file-list" data-file-transfer-file-list hidden></ul>
+        <ul class="file-transfer-file-list" data-file-transfer-file-list role="tree" aria-label="${label} directory tree" hidden></ul>
     </section>`;
 }
 
@@ -85,7 +85,7 @@ export function getFileTransferContent(
         <header class="file-transfer-header">
             <div>
                 <h2>File Transfer</h2>
-                <p>Browse two endpoints and copy in either direction.</p>
+                <p>Choose two endpoints, expand folders inline, and copy in either direction.</p>
             </div>
             <button type="button" class="file-transfer-tasks" data-file-transfer-tasks disabled title="Transfer tasks will appear here">Transfers <span>0</span></button>
         </header>

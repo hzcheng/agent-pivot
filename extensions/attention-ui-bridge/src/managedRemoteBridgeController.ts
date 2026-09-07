@@ -185,6 +185,10 @@ function machineIdToTransferRootId(machineId: string): string {
 }
 
 function remoteChildPath(parent: string, name: string): string {
+    // Some SFTP servers identify entries with their absolute path. Re-prefixing
+    // such a name turns `/home/user/.config` into `.//home/user/.config`, which
+    // makes a perfectly valid folder impossible to open from File Transfer.
+    if (path.posix.isAbsolute(name)) { return name; }
     return parent === '.' ? `./${name}` : `${parent}/${name}`;
 }
 

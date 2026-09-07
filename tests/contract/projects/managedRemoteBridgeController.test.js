@@ -295,6 +295,59 @@ test('FILE-TRANSFER-LOCAL-BROWSE-002 binds selected file handles to the reviewed
     );
 });
 
+test('FILE-TRANSFER-REMOTE-BROWSE-002 preserves an absolute directory name returned by SFTP when opening that folder', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-remote-path-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const commandLog = path.join(root, 'sftp-commands.log');
+    const ssh = path.join(root, 'ssh');
+    const sftp = path.join(root, 'sftp');
+    fs.writeFileSync(ssh, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+    fs.writeFileSync(sftp, `#!/bin/sh
+IFS= read -r command
+printf '%s\\n' "$command" >> "${commandLog}"
+case "$command" in
+  'ls -la "."')
+    printf '%s\\n' 'drwxr-xr-x    2 user     group          4096 Jan 01 2026 /home/hzcheng/.config'
+    ;;
+  'ls -la "/home/hzcheng/.config"')
+    printf '%s\\n' '-rw-r--r--    1 user     group             7 Jan 01 2026 settings.json'
+    ;;
+  *)
+    printf 'unexpected directory request: %s\\n' "$command" >&2
+    exit 1
+    ;;
+esac
+`, { mode: 0o700 });
+    const { envelope, slot } = activeEnvelope();
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { return envelope; },
+    }, {
+        async create() { return { getExecutable() { return ssh; } }; },
+    }, 'session-12345678', undefined, {
+        schedule() {}, async ensureReady() {},
+    });
+
+    const rootListing = await controller.execute({
+        ...request('listFileTransferRemoteDirectory', slot.revisionId),
+        targetId: 'machine:one',
+        fileTransfer: { kind: 'managedMachine' },
+    });
+    assert.equal(rootListing.status, 'ok', rootListing.message);
+    const folder = rootListing.value.entries.find(entry => entry.name === '/home/hzcheng/.config');
+    assert.ok(folder, 'the observed absolute directory name must remain an opaque selectable entry');
+
+    const nestedListing = await controller.execute({
+        ...request('listFileTransferRemoteDirectory', slot.revisionId),
+        requestId: 'request-absolute-directory-123456',
+        targetId: 'machine:one',
+        fileTransfer: { kind: 'managedMachine', directoryId: folder.id },
+    });
+    assert.equal(nestedListing.status, 'ok', nestedListing.message);
+    assert.deepEqual(nestedListing.value.entries.map(entry => entry.name), ['settings.json']);
+    assert.equal(fs.readFileSync(commandLog, 'utf8'),
+        'ls -la "."\nls -la "/home/hzcheng/.config"\n');
+});
+
 test('FILE-TRANSFER-COPY-001 rejects local-to-local copy even with approved handles', async t => {
     const sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-source-'));
     const destinationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-destination-'));

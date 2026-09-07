@@ -106,7 +106,7 @@ export interface FileTransferCopyStatusRequest {
 
 export interface FileTransferCopyStatus {
     status: 'running';
-    phase: 'preparing' | 'copying';
+    phase: 'preparing' | 'downloading' | 'uploading' | 'verifying';
     completedItems: number;
     skippedItems: number;
     totalItems: number;

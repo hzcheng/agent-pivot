@@ -1992,6 +1992,37 @@ body .project {
     margin: -6px 2px 0;
 }
 
+.file-transfer-readiness {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 7px 0 0;
+}
+
+.file-transfer-readiness span {
+    padding: 3px 6px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 999px;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-editor-background);
+    font-size: 11px;
+}
+
+.file-transfer-readiness.is-ready span {
+    border-color: var(--vscode-testing-iconPassed, var(--vscode-focusBorder));
+    color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+}
+
+.file-transfer-pane-role {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--vscode-focusBorder);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
 .file-transfer-panes {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -20,7 +20,7 @@ function machineOptions(snapshot: ManagedRemoteManagementSnapshot | undefined): 
 }
 
 function endpointPicker(side: 'left' | 'right', machineOptionHtml: string): string {
-    const label = side === 'left' ? 'Left endpoint' : 'Right endpoint';
+    const label = side === 'left' ? 'Source' : 'Target';
     return `<label class="file-transfer-endpoint-picker">
         <span>${label}</span>
         <select data-file-transfer-endpoint="${side}" aria-label="${label}">
@@ -32,12 +32,13 @@ function endpointPicker(side: 'left' | 'right', machineOptionHtml: string): stri
 }
 
 function pane(side: 'left' | 'right'): string {
-    const label = side === 'left' ? 'Left endpoint files' : 'Right endpoint files';
+    const label = side === 'left' ? 'Source files' : 'Target folder';
+    const role = side === 'left' ? 'Source' : 'Target folder';
     return `<section class="file-transfer-pane" data-file-transfer-pane="${side}" aria-label="${label}">
         <header class="file-transfer-pane-header">
             <div>
+                <span class="file-transfer-pane-role" data-file-transfer-pane-role>${role}</span>
                 <strong data-file-transfer-pane-name>Choose an endpoint</strong>
-                <span class="file-transfer-pane-copy-state" data-file-transfer-pane-copy-state hidden>Copying from here</span>
                 <nav class="file-transfer-pane-path" data-file-transfer-pane-path aria-label="Current directory">—</nav>
                 <label class="file-transfer-path-input">
                     <span>Path</span>
@@ -86,7 +87,7 @@ export function getFileTransferContent(
             <header class="file-transfer-header">
                 <div>
                     <h2>File Transfer</h2>
-                    <p>Choose endpoints, browse folders, and copy in either direction.</p>
+                    <p>Choose a source and target folder. Files are relayed securely through this computer.</p>
                 </div>
                 <button type="button" class="file-transfer-tasks" data-file-transfer-tasks disabled title="Transfer tasks will appear here">Transfers <span>0</span></button>
             </header>
@@ -96,10 +97,15 @@ export function getFileTransferContent(
             </section>
             <div class="file-transfer-pair" role="group" aria-label="Choose transfer endpoints">
                 ${endpointPicker('left', options)}
-                <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Swap the left and right endpoint layout" aria-label="Swap endpoint layout">↔</button>
+                <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Switch source and target" aria-label="Switch source and target">⇄</button>
                 ${endpointPicker('right', options)}
             </div>
-            <p class="file-transfer-pair-hint" data-file-transfer-pair-hint>Select two endpoints. They are equal until you select files to copy.</p>
+            <p class="file-transfer-pair-hint" data-file-transfer-pair-hint>Select a source and a target. Source files always travel left to right.</p>
+            <section class="file-transfer-readiness" data-file-transfer-readiness aria-live="polite">
+                <span data-file-transfer-bridge-status>UI Bridge waiting</span>
+                <span data-file-transfer-source-status>Source not selected</span>
+                <span data-file-transfer-target-status>Target not selected</span>
+            </section>
         </div>
         <p class="file-transfer-task-status" data-file-transfer-task-status aria-live="polite" hidden></p>
         <button type="button" class="file-transfer-reveal-target" data-file-transfer-reveal-target hidden>Reveal target</button>
@@ -110,31 +116,9 @@ export function getFileTransferContent(
             ${pane('right')}
         </div>
         <footer class="file-transfer-action-bar" data-file-transfer-action-bar>
-            <span data-file-transfer-summary>Select files in either pane to choose a copy direction.</span>
-            <button type="button" data-file-transfer-review disabled>Review copy ${Icons.handoff}</button>
+            <span data-file-transfer-summary>Select source files after both endpoints are ready.</span>
+            <button type="button" data-file-transfer-start-copy disabled>Transfer</button>
         </footer>
-        <section class="file-transfer-review" data-file-transfer-review-sheet role="dialog" aria-modal="true" aria-label="Review file copy" tabindex="-1" hidden>
-            <h3>Review copy</h3>
-            <p data-file-transfer-review-summary></p>
-            <p data-file-transfer-review-size></p>
-            <p class="file-transfer-review-preflight" data-file-transfer-review-preflight role="status">Checking the selected targets…</p>
-            <ul class="file-transfer-review-items" data-file-transfer-review-items></ul>
-            <label class="file-transfer-target-name" data-file-transfer-target-name hidden>Destination name
-                <input type="text" data-file-transfer-target-name-input maxlength="255">
-            </label>
-            <label class="file-transfer-conflict-policy">If a target already exists
-                <select data-file-transfer-conflict-policy>
-                    <option value="fail">Stop and show the conflict</option>
-                    <option value="skip">Skip the existing item</option>
-                    <option value="replace">Replace the existing item</option>
-                </select>
-            </label>
-            <p class="file-transfer-review-note" data-file-transfer-review-note>Copy will begin only after you select Start copy.</p>
-            <div class="file-transfer-review-actions">
-                <button type="button" data-file-transfer-review-cancel>Back</button>
-                <button type="button" data-file-transfer-start-copy>Start copy</button>
-            </div>
-        </section>
         <section class="file-transfer-history" aria-label="Recent transfers">
             <div class="file-transfer-history-heading">
                 <h3>Recent transfers</h3>

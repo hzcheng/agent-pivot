@@ -424,7 +424,7 @@ function loadWebviewModules(options = {}) {
 
 const webviewModules = loadWebviewModules();
 
-test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a source', () => {
+test('FILE-TRANSFER-UI-001 renders explicit Source and Target endpoint pickers', () => {
     const html = getFileTransferContent({
         revisionId: 'revision:abc',
         lifecycle: 'active',
@@ -442,19 +442,19 @@ test('FILE-TRANSFER-UI-001 renders equal endpoint pickers without assigning a so
     assert.match(html, /File Transfer/);
     assert.match(html, /data-file-transfer-endpoint="left"/);
     assert.match(html, /data-file-transfer-endpoint="right"/);
-    assert.match(html, /data-file-transfer-pane-copy-state hidden>Copying from here/);
+    assert.match(html, /aria-label="Source"/);
+    assert.match(html, /aria-label="Target"/);
+    assert.match(html, /data-file-transfer-readiness/);
     assert.match(html, /data-file-transfer-swap/);
     assert.match(html, /This Computer…/);
     assert.match(html, /Build &amp; Test/);
     assert.match(html, /data-file-transfer-task-status/);
-    assert.match(html, /data-file-transfer-conflict-policy/);
     assert.match(html, /data-file-transfer-clear-history/);
-    assert.match(html, /data-file-transfer-review-size/);
-    assert.match(html, /data-file-transfer-review-items/);
     assert.match(html, /data-file-transfer-retry/);
     assert.match(dashboardSource, /displayPath/);
-    assert.match(dashboardSource, /is-file-transfer-copy-source/);
-    assert.doesNotMatch(html, /Source endpoint|Destination endpoint/);
+    assert.match(dashboardSource, /function endpointReady\(side\)/);
+    assert.match(dashboardSource, /side === 'left'/);
+    assert.doesNotMatch(html, /data-file-transfer-review-sheet/);
     assert.match(dashboardSource, /swapEndpointLayout/);
 });
 
@@ -565,14 +565,15 @@ test('FILE-TRANSFER-UI-008 renders correlated queued copy tasks with cancellatio
     assert.match(dashboardSource, /task\.plan\.sourceLabel \+ ' → ' \+ task\.plan\.destinationLabel/);
     assert.match(dashboardSource, /function validateFileTransferCopyProgress\(message\)/);
     assert.match(dashboardSource, /function applyCopyProgress\(message\)/);
-    assert.match(dashboardSource, /function revealCompletedTarget\(\)/);
+    assert.match(dashboardSource, /function revealCompletedTarget\(silent\)/);
     assert.match(dashboardSource, /data-file-transfer-reveal-target/);
     assert.match(dashboardSource, /function validateFileTransferSavedPairs\(message\)/);
     assert.match(dashboardSource, /function renderSavedPairs\(\)/);
     assert.match(dashboardSource, /function selectSavedPair\(pair\)/);
     assert.match(dashboardSource, /file-transfer-request-saved-pairs/);
     assert.match(dashboardSource, /savedPairLabel\(entry\.source\) \+ ' → ' \+ savedPairLabel\(entry\.destination\)/);
-    assert.match(dashboardSource, /if \(wasPending\) closeReview\(\);/);
+    assert.match(dashboardSource, /Downloading from source/);
+    assert.match(dashboardSource, /Uploading to target/);
     assert.match(dashboardSource, /file-transfer-task-list/);
 });
 
@@ -602,13 +603,14 @@ test('FILE-TRANSFER-UI-010 filters hidden entries and sorts each endpoint indepe
     assert.match(dashboardSource, /sortFileTransferEntries\(directory\.entries, fileTransferSort\[side\]\)/);
 });
 
-test('FILE-TRANSFER-UI-012 requires a correlated preflight before starting a copy', () => {
-    assert.match(dashboardSource, /validateFileTransferCopyPreflight/);
-    assert.match(dashboardSource, /file-transfer-preflight-copy/);
-    assert.match(dashboardSource, /file-transfer-copy-preflighted/);
-    assert.match(dashboardSource, /Checking source access and target collisions/);
-    assert.match(dashboardSource, /Existing folders and non-files cannot be safely replaced/);
-    assert.match(dashboardSource, /pendingPreflightRequestId/);
+test('FILE-TRANSFER-UI-012 requires ready source and target directories before direct transfer', () => {
+    assert.match(dashboardSource, /function updateReadiness\(\)/);
+    assert.match(dashboardSource, /UI Bridge responding/);
+    assert.match(dashboardSource, /Source directory ready/);
+    assert.match(dashboardSource, /Target directory ready/);
+    assert.match(dashboardSource, /function startDirectCopy\(\)/);
+    assert.match(dashboardSource, /conflictPolicy: 'fail'/);
+    assert.doesNotMatch(dashboardSource, /function openReview\(\)/);
 });
 
 test('FILE-TRANSFER-UI-013 navigates known directories through opaque breadcrumbs', () => {
@@ -634,34 +636,30 @@ test('FILE-TRANSFER-UI-014 filters only the files already loaded in each pane', 
             conflicts: [] },
     });
     assert.match(html, /data-file-transfer-filter="left"/);
-    assert.match(html, /aria-label="Filter loaded files in Left endpoint files"/);
+    assert.match(html, /aria-label="Filter loaded files in Source files"/);
     assert.match(dashboardSource, /entry\.name\.toLocaleLowerCase\(\)\.includes\(filter\)/);
     assert.match(dashboardSource, /fileTransferFilter\[side\] = input\.value\.slice\(0, 255\)\.toLocaleLowerCase\(\);/);
 });
 
-test('FILE-TRANSFER-UI-015 routes a cross-pane drag through the reviewed copy flow', () => {
-    assert.match(dashboardSource, /function beginFileTransferDrag/);
-    assert.match(dashboardSource, /function dropFileTransferEntry/);
-    assert.match(dashboardSource, /event\.dataTransfer\.effectAllowed = 'copy';/);
-    assert.match(dashboardSource, /openReview\(\);/);
-    assert.match(dashboardSource, /row\.draggable = true;/);
+test('FILE-TRANSFER-UI-015 keeps transfer deliberate instead of allowing a drag to execute it', () => {
+    assert.doesNotMatch(dashboardSource, /function beginFileTransferDrag/);
+    assert.doesNotMatch(dashboardSource, /function dropFileTransferEntry/);
+    assert.match(dashboardSource, /typeof onDragStart === 'function'/);
+    assert.match(dashboardSource, /startCopy\.addEventListener\('click', startDirectCopy\)/);
 });
 
-test('FILE-TRANSFER-UI-016 limits a reviewed target name to one regular file', () => {
+test('FILE-TRANSFER-UI-016 keeps P0 destination naming and replacement out of the direct transfer path', () => {
     const html = getFileTransferContent({
         revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
         catalog: { machines: [], environments: [], projects: [],
             layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
             conflicts: [] },
     });
-    assert.match(html, /data-file-transfer-target-name-input/);
-    assert.match(html, /data-file-transfer-review-sheet[^>]*tabindex="-1"/);
-    assert.match(dashboardSource, /entries\.length === 1 && entries\[0\]\.kind === 'file'/);
-    assert.match(dashboardSource, /if \(targetNameInput\.value\) reviewedCopyPlan\.targetName = targetNameInput\.value;/);
-    assert.match(dashboardSource, /else delete reviewedCopyPlan\.targetName;/);
-    assert.match(dashboardSource, /\.\.\.\(plan\.targetName \? \{ targetName: plan\.targetName \} : \{\}\),/);
-    assert.match(dashboardSource, /\.\.\.\(pendingCopyPlan\.targetName \? \{ targetName: pendingCopyPlan\.targetName \} : \{\}\),/);
-    assert.match(dashboardSource, /event\.key !== 'Escape' \|\| !reviewSheet \|\| reviewSheet\.hidden/);
+    assert.doesNotMatch(html, /data-file-transfer-target-name-input/);
+    assert.doesNotMatch(html, /data-file-transfer-review-sheet/);
+    assert.match(dashboardSource, /conflictPolicy: 'fail'/);
+    assert.doesNotMatch(dashboardSource, /targetNameInput/);
+    assert.doesNotMatch(dashboardSource, /reviewedCopyPlan/);
 });
 
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {

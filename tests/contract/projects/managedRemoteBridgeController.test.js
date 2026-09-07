@@ -428,7 +428,7 @@ test('FILE-TRANSFER-COPY-002A exposes only a correlated redacted active-task sna
     }, 'session-12345678');
     controller.activeFileTransferCopies.set('running-task-123456', {
         cancelled: false,
-        phase: 'copying',
+        phase: 'uploading',
         currentItemName: 'report.txt',
         completedItems: 2,
         skippedItems: 1,
@@ -439,7 +439,7 @@ test('FILE-TRANSFER-COPY-002A exposes only a correlated redacted active-task sna
         fileTransfer: { kind: 'status', taskId: 'running-task-123456' },
     });
     assert.deepEqual(running.value, {
-        status: 'running', phase: 'copying', currentItemName: 'report.txt',
+        status: 'running', phase: 'uploading', currentItemName: 'report.txt',
         completedItems: 2, skippedItems: 1, totalItems: 5,
     });
     const missing = await controller.execute({

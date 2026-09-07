@@ -5116,7 +5116,7 @@ function fileTransferCopyProgress(
     request: Record<string, unknown>,
     progress: {
         status: 'running';
-        phase: 'preparing' | 'copying';
+        phase: 'preparing' | 'downloading' | 'uploading' | 'verifying';
         completedItems: number;
         skippedItems: number;
         totalItems: number;
@@ -5216,7 +5216,7 @@ function isRecordFileTransferCopyResult(value: unknown): value is {
 
 function isRecordFileTransferCopyStatus(value: unknown): value is {
     status: 'running';
-    phase: 'preparing' | 'copying';
+    phase: 'preparing' | 'downloading' | 'uploading' | 'verifying';
     completedItems: number;
     skippedItems: number;
     totalItems: number;
@@ -5228,7 +5228,7 @@ function isRecordFileTransferCopyStatus(value: unknown): value is {
         'status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName',
     ].includes(key))
         && status.status === 'running'
-        && (status.phase === 'preparing' || status.phase === 'copying')
+        && ['preparing', 'downloading', 'uploading', 'verifying'].includes(status.phase as string)
         && Number.isSafeInteger(status.completedItems) && (status.completedItems as number) >= 0
         && Number.isSafeInteger(status.skippedItems) && (status.skippedItems as number) >= 0
         && Number.isSafeInteger(status.totalItems) && (status.totalItems as number) > 0

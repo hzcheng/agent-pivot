@@ -595,8 +595,10 @@ async function relayFileTransferEntry(
     const stagingDirectory = await mkdtemp(path.join(tmpdir(), 'agent-pivot-file-transfer-'));
     const stagedPath = path.join(stagingDirectory, stagedName);
     try {
+        active.phase = 'downloading';
         await copyFileTransferEntry(sshExecutable, recursive, source, stagedPath, active);
         if (active.cancelled) { throw new Error('File copy was cancelled.'); }
+        active.phase = 'uploading';
         await copyFileTransferEntry(sshExecutable, recursive, stagedPath, destination, active);
     } finally {
         await rm(stagingDirectory, { recursive: true, force: true });
@@ -1052,7 +1054,6 @@ export class ManagedRemoteBridgeController {
                     }
                 }
                 const legacyScp = !await scpUsesSftpByDefault(coordinator.getExecutable());
-                active.phase = 'copying';
                 const copySource = source.kind === 'managedMachine'
                     ? scpRemotePath(source.alias, entry.path, legacyScp) : entry.path;
                 const copyDestination = destination.kind === 'managedMachine'
@@ -1063,11 +1064,13 @@ export class ManagedRemoteBridgeController {
                         copyDestination, path.basename(entry.path), active,
                     );
                 } else {
+                    active.phase = source.kind === 'managedMachine' ? 'downloading' : 'uploading';
                     await copyFileTransferEntry(
                         coordinator.getExecutable(), entry.kind === 'directory', copySource,
                         copyDestination, active,
                     );
                 }
+                active.phase = 'verifying';
                 if (entry.kind === 'directory' && entryTree) {
                     await verifyCopiedFileTransferTree(
                         entryTree, destination, destinationPath, coordinator.getExecutable(),

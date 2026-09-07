@@ -30,6 +30,20 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   window ambiguous and no longer shows Save for a Project that is already
   stored.
 
+## [1.4.3] - 2026-09-07
+
+### Fixed
+
+- Make File Transfer's source, target, readiness, destination navigation, and
+  relay progress explicit; remove the blocking Review Copy dialog and refresh
+  the target directory automatically after a successful copy.
+
+### Changed
+
+- Publish this update through the VS Code Marketplace while retaining the
+  existing Workspace Trust declaration and progressively rendered AI
+  Conversation experience.
+
 ## [1.4.2] - 2026-09-07
 
 ### Fixed

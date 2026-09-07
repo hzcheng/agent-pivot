@@ -12808,7 +12808,9 @@ function renderLocalFileTransferEntries(
     onToggleDirectory,
     onDragStart,
     onDragEnd,
+    selectionEnabled,
 ) {
+    var allowSelection = selectionEnabled !== false;
     var previousScrollTop = fileList.scrollTop;
     fileList.textContent = '';
     entries.forEach(function (treeEntry) {
@@ -12835,12 +12837,13 @@ function renderLocalFileTransferEntries(
                 onToggleDirectory(entry.id, expanded);
             });
         }
-        if (entry.kind === 'directory' || entry.kind === 'file') {
+        if (allowSelection && typeof onDragStart === 'function'
+            && (entry.kind === 'directory' || entry.kind === 'file')) {
             row.draggable = true;
             row.addEventListener('dragstart', function (event) {
                 onDragStart(entry.id, directoryId, event);
             });
-            row.addEventListener('dragend', onDragEnd);
+            if (typeof onDragEnd === 'function') row.addEventListener('dragend', onDragEnd);
         }
         if (entry.kind === 'directory') {
             var disclosure = document.createElement('button');
@@ -12865,15 +12868,17 @@ function renderLocalFileTransferEntries(
         }
         var entryContent = document.createElement('div');
         entryContent.className = 'file-transfer-file-entry';
-        var checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = selectedIds.has(entry.id);
-        checkbox.disabled = entry.kind !== 'directory' && entry.kind !== 'file';
-        checkbox.setAttribute('aria-label', 'Select ' + entry.name);
-        checkbox.addEventListener('change', function () {
-            onChange(entry.id, directoryId, checkbox.checked);
-        });
-        entryContent.appendChild(checkbox);
+        if (allowSelection) {
+            var checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = selectedIds.has(entry.id);
+            checkbox.disabled = entry.kind !== 'directory' && entry.kind !== 'file';
+            checkbox.setAttribute('aria-label', 'Select ' + entry.name);
+            checkbox.addEventListener('change', function () {
+                onChange(entry.id, directoryId, checkbox.checked);
+            });
+            entryContent.appendChild(checkbox);
+        }
         var entryName = entry.kind === 'directory'
             ? document.createElement('button') : document.createElement('span');
         entryName.className = 'file-transfer-file-name';
@@ -13060,7 +13065,7 @@ function validateFileTransferCopyProgress(message) {
             return ['status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName'].includes(key);
         })
         && progress.status === 'running'
-        && (progress.phase === 'preparing' || progress.phase === 'copying')
+        && ['preparing', 'downloading', 'uploading', 'verifying'].includes(progress.phase)
         && Number.isSafeInteger(progress.completedItems) && progress.completedItems >= 0
         && Number.isSafeInteger(progress.skippedItems) && progress.skippedItems >= 0
         && Number.isSafeInteger(progress.totalItems) && progress.totalItems > 0
@@ -13218,9 +13223,6 @@ function initDashboard(options) {
     var fileTransferDirectoryRequestTimeoutMs = Number(options.fileTransferDirectoryRequestTimeoutMs) > 0
         ? Number(options.fileTransferDirectoryRequestTimeoutMs)
         : 20000;
-    var fileTransferPreflightTimeoutMs = Number(options.fileTransferPreflightTimeoutMs) > 0
-        ? Number(options.fileTransferPreflightTimeoutMs)
-        : 15000;
     var scheduleTimeout = options.setTimeout
         || (typeof setTimeout === 'function' ? setTimeout : null);
     var cancelTimeout = options.clearTimeout
@@ -13598,10 +13600,13 @@ function initDashboard(options) {
             right: panel.querySelector('[data-file-transfer-pane="right"]'),
         };
         var hint = panel.querySelector('[data-file-transfer-pair-hint]');
+        var readiness = panel.querySelector('[data-file-transfer-readiness]');
+        var bridgeStatus = panel.querySelector('[data-file-transfer-bridge-status]');
+        var sourceStatus = panel.querySelector('[data-file-transfer-source-status]');
+        var targetStatus = panel.querySelector('[data-file-transfer-target-status]');
         var summary = panel.querySelector('[data-file-transfer-summary]');
         var savedPairsPanel = panel.querySelector('[data-file-transfer-saved-pairs]');
         var savedPairList = panel.querySelector('[data-file-transfer-saved-pair-list]');
-        var review = panel.querySelector('[data-file-transfer-review]');
         var tasks = panel.querySelector('[data-file-transfer-tasks]');
         var taskStatus = panel.querySelector('[data-file-transfer-task-status]');
         var revealTarget = panel.querySelector('[data-file-transfer-reveal-target]');
@@ -13609,16 +13614,6 @@ function initDashboard(options) {
         var taskList = panel.querySelector('[data-file-transfer-task-list]');
         var historyList = panel.querySelector('[data-file-transfer-history-list]');
         var clearHistory = panel.querySelector('[data-file-transfer-clear-history]');
-        var reviewSheet = panel.querySelector('[data-file-transfer-review-sheet]');
-        var reviewSummary = panel.querySelector('[data-file-transfer-review-summary]');
-        var reviewSize = panel.querySelector('[data-file-transfer-review-size]');
-        var reviewPreflight = panel.querySelector('[data-file-transfer-review-preflight]');
-        var reviewNote = panel.querySelector('[data-file-transfer-review-note]');
-        var reviewItems = panel.querySelector('[data-file-transfer-review-items]');
-        var targetNameField = panel.querySelector('[data-file-transfer-target-name]');
-        var targetNameInput = panel.querySelector('[data-file-transfer-target-name-input]');
-        var conflictPolicy = panel.querySelector('[data-file-transfer-conflict-policy]');
-        var reviewCancel = panel.querySelector('[data-file-transfer-review-cancel]');
         var startCopy = panel.querySelector('[data-file-transfer-start-copy]');
         var localRoots = { left: null, right: null };
         var paneFailures = { left: null, right: null };
@@ -13638,18 +13633,29 @@ function initDashboard(options) {
         var activeCopyTaskId = null;
         var pendingCopyItemCount = 0;
         var pendingCopyPlan = null;
-        var pendingPreflightRequestId = null;
-        var pendingPreflightTimeout = null;
-        var reviewedCopyPlan = null;
-        var reviewPreflightResult = null;
         var lastFailedCopyPlan = null;
         var lastCompletedCopyPlan = null;
         var savedPairs = [];
         var lastRememberedPairKey = null;
         var transferTasks = {};
         var pendingHistoryClearRequestId = null;
-        var draggedFileTransferEntry = null;
-        var reviewReturnFocus = null;
+
+        function endpointReady(side) {
+            return !!localRoots[side] && !paneFailures[side] && !pendingLocalRootRequests[side];
+        }
+
+        function updateReadiness() {
+            var bridgeIsResponding = endpointReady('left') || endpointReady('right');
+            if (bridgeStatus) bridgeStatus.textContent = bridgeIsResponding
+                ? 'UI Bridge responding' : 'UI Bridge waiting for an endpoint response';
+            if (sourceStatus) sourceStatus.textContent = endpointReady('left')
+                ? 'Source directory ready' : 'Source directory not ready';
+            if (targetStatus) targetStatus.textContent = endpointReady('right')
+                ? 'Target directory ready' : 'Target directory not ready';
+            if (readiness && readiness.classList) {
+                readiness.classList.toggle('is-ready', endpointReady('left') && endpointReady('right'));
+            }
+        }
 
         function renderTaskCount() {
             if (!tasks) return;
@@ -13988,11 +13994,13 @@ function initDashboard(options) {
                     function (entryId, directoryId, selected) {
                         updateSelection(side, entryId, directoryId, selected);
                     },
-                    function (directoryId) { toggleDirectory(side, directoryId); },
-                    function (entryId, directoryId, event) {
-                        beginFileTransferDrag(side, entryId, directoryId, event);
+                    function (directoryId) {
+                        if (side === 'right') openDirectory(side, directoryId);
+                        else toggleDirectory(side, directoryId);
                     },
-                    function () { draggedFileTransferEntry = null; },
+                    null,
+                    null,
+                    side === 'left',
                 );
                 fileList.hidden = !directoryView;
             }
@@ -14005,38 +14013,34 @@ function initDashboard(options) {
             var right = selectorFor('right');
             if (left && right && left.value && left.value === right.value) {
                 right.value = '';
-                if (hint) hint.textContent = 'Choose two different endpoints.';
+                if (hint) hint.textContent = 'Source and target must be different endpoints.';
             } else if (left && right && left.value && right.value) {
-                if (hint) hint.textContent = 'Endpoints are paired. Select files in either pane to choose a copy direction.';
+                if (hint) hint.textContent = 'Select files in Source, then transfer them to Target.';
             } else if (hint) {
-                hint.textContent = 'Select two endpoints. They are equal until you select files to copy.';
+                hint.textContent = 'Select a source and a target. Source files always travel left to right.';
             }
             updatePane('left', left);
             updatePane('right', right);
-            var sourceSide = selectedEntries.left.size ? 'left'
-                : selectedEntries.right.size ? 'right' : null;
-            var count = sourceSide ? selectedEntries[sourceSide].size : 0;
-            ['left', 'right'].forEach(function (side) {
-                var pane = panes[side];
-                var copyState = pane && pane.querySelector
-                    ? pane.querySelector('[data-file-transfer-pane-copy-state]') : null;
-                if (pane && pane.classList) {
-                    pane.classList.toggle('is-file-transfer-copy-source', sourceSide === side);
-                }
-                if (copyState) copyState.hidden = sourceSide !== side;
-            });
-            if (summary) summary.textContent = sourceSide
-                ? 'Copy ' + count + ' selected item' + (count === 1 ? '' : 's')
-                    + ' to the ' + (sourceSide === 'left' ? 'right' : 'left') + ' endpoint.'
-                : 'Select files in either pane to choose a copy direction.';
-            if (review) review.disabled = !!pendingCopyRequestId
-                || !sourceSide || !left || !right || !left.value || !right.value;
+            var count = selectedEntries.left.size;
+            var sourceLabel = left && left.options && left.selectedIndex >= 0
+                ? left.options[left.selectedIndex].textContent : 'Source';
+            var targetLabel = right && right.options && right.selectedIndex >= 0
+                ? right.options[right.selectedIndex].textContent : 'Target';
+            var sourcePath = localRoots.left ? localRoots.left.displayPath : '—';
+            var targetPath = localRoots.right ? localRoots.right.displayPath : '—';
+            if (summary) summary.textContent = count
+                ? count + ' selected item' + (count === 1 ? '' : 's') + ' · '
+                    + sourceLabel + ' ' + sourcePath + ' → ' + targetLabel + ' ' + targetPath
+                : 'Select source files · ' + sourceLabel + ' ' + sourcePath + ' → ' + targetLabel + ' ' + targetPath;
+            if (startCopy) {
+                startCopy.disabled = !!pendingCopyRequestId || !count || !endpointReady('left') || !endpointReady('right');
+                startCopy.textContent = count ? 'Transfer ' + count + ' item' + (count === 1 ? '' : 's') : 'Transfer';
+            }
+            updateReadiness();
         }
 
         function updateSelection(side, entryId, directoryId, selected) {
-            var otherSide = side === 'left' ? 'right' : 'left';
-            selectedEntries[otherSide].clear();
-            selectedEntryDirectoryIds[otherSide] = null;
+            if (side !== 'left') return;
             if (selected) {
                 if (selectedEntryDirectoryIds[side]
                     && selectedEntryDirectoryIds[side] !== directoryId) {
@@ -14049,35 +14053,6 @@ function initDashboard(options) {
                 if (selectedEntries[side].size === 0) selectedEntryDirectoryIds[side] = null;
             }
             updatePair();
-        }
-
-        function beginFileTransferDrag(side, entryId, directoryId, event) {
-            if (!selectedEntries[side].has(entryId)) {
-                selectedEntries.left.clear();
-                selectedEntries.right.clear();
-                selectedEntryDirectoryIds.left = null;
-                selectedEntryDirectoryIds.right = null;
-                selectedEntries[side].add(entryId);
-                selectedEntryDirectoryIds[side] = directoryId;
-            }
-            draggedFileTransferEntry = { side: side, entryId: entryId, directoryId: directoryId };
-            if (event.dataTransfer) {
-                event.dataTransfer.effectAllowed = 'copy';
-                event.dataTransfer.setData('text/plain', 'agent-pivot-file-transfer');
-            }
-        }
-
-        function dropFileTransferEntry(destinationSide, event) {
-            if (!draggedFileTransferEntry || draggedFileTransferEntry.side === destinationSide
-                || !localRoots[destinationSide]) return;
-            event.preventDefault();
-            selectedEntries[destinationSide].clear();
-            selectedEntries[draggedFileTransferEntry.side].add(draggedFileTransferEntry.entryId);
-            selectedEntryDirectoryIds[destinationSide] = null;
-            selectedEntryDirectoryIds[draggedFileTransferEntry.side] = draggedFileTransferEntry.directoryId;
-            draggedFileTransferEntry = null;
-            updatePair();
-            openReview();
         }
 
         function clearPendingDirectoryRequest(side) {
@@ -14247,7 +14222,6 @@ function initDashboard(options) {
             selectedEntryDirectoryIds[side] = null;
             directoryHistory[side] = [];
             lastRememberedPairKey = null;
-            if (reviewSheet) reviewSheet.hidden = true;
             if (selector.value === 'local') {
                 requestLocalRoot(side);
             } else if (selector.value.indexOf('managed:') === 0) {
@@ -14436,188 +14410,16 @@ function initDashboard(options) {
             return null;
         }
 
-        function selectedSourceSide() {
-            return selectedEntries.left.size ? 'left' : selectedEntries.right.size ? 'right' : null;
-        }
-
-        function selectedEntryDetails(side) {
-            return selectedDirectoryEntries(side);
-        }
-
-        function renderReviewItems(entries) {
-            if (!reviewItems) return;
-            reviewItems.textContent = '';
-            entries.slice(0, 5).forEach(function (entry) {
-                var item = document.createElement('li');
-                item.textContent = entry.name + (entry.kind === 'directory' ? ' (folder)' : '');
-                reviewItems.appendChild(item);
-            });
-            if (entries.length > 5) {
-                var more = document.createElement('li');
-                more.textContent = 'and ' + (entries.length - 5) + ' more item(s)';
-                reviewItems.appendChild(more);
-            }
-        }
-
-        function updateReviewStartAvailability() {
-            if (!startCopy || !reviewSheet || reviewSheet.hidden) return;
-            var result = reviewPreflightResult;
-            var policy = conflictPolicy ? conflictPolicy.value : 'fail';
-            var existingFileCount = result ? result.existingFileNames.length : 0;
-            var existingDirectoryCount = result ? result.existingDirectoryNames.length : 0;
-            var canStart = !!reviewedCopyPlan && !pendingCopyRequestId;
-            if (canStart && (existingFileCount || existingDirectoryCount) && policy === 'fail') {
-                canStart = false;
-                if (reviewNote) reviewNote.textContent = (existingFileCount + existingDirectoryCount)
-                    + ' existing target item(s) need a Skip or Replace choice before copy can start.';
-            } else if (canStart && existingDirectoryCount && policy === 'replace') {
-                canStart = false;
-                if (reviewNote) reviewNote.textContent = 'Existing folders and non-files cannot be safely replaced. Select Skip existing or another folder.';
-            } else if (canStart) {
-                if (reviewNote) reviewNote.textContent = pendingPreflightRequestId
-                    ? 'Checking source access and target collisions… Start copy will validate the selected items.'
-                    : result
-                    ? 'Copy will begin only after you select Start copy.'
-                    : 'Preflight is unavailable. Start copy will validate the selected items.';
-            }
-            startCopy.disabled = !canStart;
-        }
-
-        function clearPendingCopyPreflight() {
-            if (pendingPreflightTimeout !== null) {
-                cancelTimeout(pendingPreflightTimeout);
-                pendingPreflightTimeout = null;
-            }
-            pendingPreflightRequestId = null;
-        }
-
-        function requestCopyPreflight(plan) {
-            var requestId = 'file-transfer-preflight-' + Date.now() + '-'
-                + Math.random().toString(16).slice(2, 18);
-            clearPendingCopyPreflight();
-            pendingPreflightRequestId = requestId;
-            reviewPreflightResult = null;
-            if (reviewPreflight) reviewPreflight.textContent = 'Checking source access and target collisions…';
-            updateReviewStartAvailability();
-            options.postMessage({
-                type: 'file-transfer-preflight-copy',
-                version: 1,
-                requestId: requestId,
-                source: plan.source,
-                destination: plan.destination,
-                entryIds: plan.entryIds.slice(),
-                ...(plan.targetName ? { targetName: plan.targetName } : {}),
-            });
-            if (!scheduleTimeout) return;
-            pendingPreflightTimeout = scheduleTimeout(function () {
-                if (pendingPreflightRequestId !== requestId || !reviewSheet || reviewSheet.hidden) return;
-                pendingPreflightTimeout = null;
-                pendingPreflightRequestId = null;
-                reviewPreflightResult = null;
-                if (reviewPreflight) reviewPreflight.textContent = 'Preflight did not reply. Copy will validate the selected items.';
-                updateReviewStartAvailability();
-            }, fileTransferPreflightTimeoutMs);
-        }
-
-        function applyCopyPreflight(message) {
-            if (message.requestId !== pendingPreflightRequestId) return false;
-            clearPendingCopyPreflight();
-            if (message.type === 'file-transfer-copy-preflighted') {
-                reviewPreflightResult = message.result;
-                var existingCount = message.result.existingFileNames.length
-                    + message.result.existingDirectoryNames.length;
-                if (reviewSize) {
-                    reviewSize.textContent = message.result.unknownSizeItems
-                        ? 'Known size: ' + formatFileTransferBytes(message.result.knownBytes) + '. '
-                            + message.result.unknownSizeItems + ' folder or item size will be determined during copy.'
-                        : 'Total size: ' + formatFileTransferBytes(message.result.knownBytes) + '.';
-                }
-                if (reviewPreflight) {
-                    reviewPreflight.textContent = existingCount
-                        ? existingCount + ' target item(s) already exist ('
-                            + message.result.existingFileNames.length + ' file(s), '
-                            + message.result.existingDirectoryNames.length + ' folder or non-file item(s)).'
-                        : 'Source access is ready. No target collisions were found.';
-                }
-            } else {
-                reviewPreflightResult = null;
-                if (reviewPreflight) reviewPreflight.textContent = 'Could not complete review: ' + message.message;
-            }
-            updateReviewStartAvailability();
-            return true;
-        }
-
-        function openReview() {
-            var sourceSide = selectedSourceSide();
-            if (!sourceSide || !reviewSheet) return;
-            var destinationSide = sourceSide === 'left' ? 'right' : 'left';
-            var source = selectorFor(sourceSide);
-            var destination = selectorFor(destinationSide);
-            if (!source || !destination || !source.value || !destination.value) return;
-            var entries = selectedEntryDetails(sourceSide);
-            var canRename = entries.length === 1 && entries[0].kind === 'file';
-            if (targetNameField) targetNameField.hidden = !canRename;
-            if (targetNameInput) targetNameInput.value = canRename ? entries[0].name : '';
-            var knownBytes = entries.reduce(function (total, entry) {
-                return total + (Number.isSafeInteger(entry.size) ? entry.size : 0);
-            }, 0);
-            var unknownSizeCount = entries.filter(function (entry) {
-                return !Number.isSafeInteger(entry.size);
-            }).length;
-            if (reviewSummary) {
-                reviewSummary.textContent = 'Copy ' + selectedEntries[sourceSide].size + ' item(s) from '
-                    + source.options[source.selectedIndex].textContent + ' / '
-                    + (localRoots[sourceSide] ? localRoots[sourceSide].displayPath : '.') + ' to '
-                    + destination.options[destination.selectedIndex].textContent + ' / '
-                    + (localRoots[destinationSide] ? localRoots[destinationSide].displayPath : '.') + '.';
-            }
-            if (reviewSize) {
-                reviewSize.textContent = unknownSizeCount
-                    ? 'Known size: ' + formatFileTransferBytes(knownBytes) + '. '
-                        + unknownSizeCount + ' folder or item size will be determined during copy.'
-                    : 'Total size: ' + formatFileTransferBytes(knownBytes) + '.';
-            }
-            reviewReturnFocus = document.activeElement;
-            renderReviewItems(entries);
-            reviewSheet.hidden = false;
-            reviewedCopyPlan = {
-                source: endpointReference(sourceSide, selectedEntryDirectoryIds[sourceSide]),
-                destination: endpointReference(destinationSide),
-                entryIds: Array.from(selectedEntries[sourceSide]),
-                ...(canRename && targetNameInput ? { targetName: targetNameInput.value } : {}),
-            };
-            if (!reviewedCopyPlan.source || !reviewedCopyPlan.destination) {
-                closeReview();
-                return;
-            }
-            requestCopyPreflight(reviewedCopyPlan);
-            setTimeout(function () {
-                if (!reviewSheet || reviewSheet.hidden) return;
-                var initialFocus = canRename ? targetNameInput : reviewCancel;
-                if (initialFocus && typeof initialFocus.focus === 'function') initialFocus.focus();
-            }, 0);
-        }
-
-        function closeReview() {
-            if (reviewSheet) reviewSheet.hidden = true;
-            clearPendingCopyPreflight();
-            reviewedCopyPlan = null;
-            reviewPreflightResult = null;
-            if (reviewReturnFocus && typeof reviewReturnFocus.focus === 'function') {
-                reviewReturnFocus.focus();
-            }
-            reviewReturnFocus = null;
-        }
-
-        function startReviewedCopy() {
-            if (!reviewedCopyPlan || pendingCopyRequestId
-                || (startCopy && startCopy.disabled)) return;
+        function startDirectCopy() {
+            if (pendingCopyRequestId || (startCopy && startCopy.disabled)) return;
+            var source = endpointReference('left', selectedEntryDirectoryIds.left);
+            var destination = endpointReference('right');
+            if (!source || !destination || selectedEntries.left.size === 0) return;
             submitCopyPlan({
-                source: reviewedCopyPlan.source,
-                destination: reviewedCopyPlan.destination,
-                entryIds: reviewedCopyPlan.entryIds.slice(),
-                conflictPolicy: conflictPolicy ? conflictPolicy.value : 'fail',
-                ...(reviewedCopyPlan.targetName ? { targetName: reviewedCopyPlan.targetName } : {}),
+                source: source,
+                destination: destination,
+                entryIds: Array.from(selectedEntries.left),
+                conflictPolicy: 'fail',
             });
         }
 
@@ -14679,7 +14481,6 @@ function initDashboard(options) {
                     ? message.value.skippedItems : 0;
                 renderTaskStatus('Copy complete: ' + completed + ' copied'
                     + (skipped ? ', ' + skipped + ' skipped.' : '.'));
-                if (wasPending) closeReview();
                 lastCompletedCopyPlan = task && task.plan ? task.plan : null;
                 if (revealTarget) revealTarget.hidden = !lastCompletedCopyPlan;
                 if (task && task.plan === lastFailedCopyPlan) {
@@ -14687,13 +14488,11 @@ function initDashboard(options) {
                     if (retry) retry.hidden = true;
                 }
                 updatePair();
+                revealCompletedTarget(true);
             } else if (message.status === 'cancelled') {
                 var cancelledAfter = message.value && Number.isSafeInteger(message.value.completedItems)
                     ? message.value.completedItems : 0;
                 renderTaskStatus('Copy cancelled after ' + cancelledAfter + ' item(s).');
-                if (wasPending && reviewSummary) {
-                    reviewSummary.textContent = 'Copy cancelled. Your selection is still available to retry.';
-                }
             } else {
                 var failedAfter = message.value && Number.isSafeInteger(message.value.completedItems)
                     ? message.value.completedItems : 0;
@@ -14705,9 +14504,6 @@ function initDashboard(options) {
                     + (failedSkipped ? ', ' + failedSkipped + ' skipped' : '') + ': ' + failureMessage);
                 lastFailedCopyPlan = task && task.plan ? task.plan : null;
                 if (retry) retry.hidden = !lastFailedCopyPlan;
-                if (wasPending && reviewSummary) {
-                    reviewSummary.textContent = failureMessage;
-                }
             }
             options.postMessage({ type: 'file-transfer-request-history', version: 1 });
             return true;
@@ -14731,9 +14527,16 @@ function initDashboard(options) {
             if (!task || task.status !== 'running') return false;
             task.progress = message.progress;
             renderTaskCount();
+            var phaseLabels = {
+                preparing: 'Preparing secure relay',
+                downloading: 'Downloading from source',
+                uploading: 'Uploading to target',
+                verifying: 'Verifying delivery',
+            };
+            var phase = phaseLabels[message.progress.phase] || 'Preparing transfer';
             var current = message.progress.currentItemName
-                ? ' ' + message.progress.phase + ' ' + message.progress.currentItemName + '.'
-                : ' Preparing the next item.';
+                ? ' ' + phase + ' · ' + message.progress.currentItemName + '.'
+                : ' ' + phase + '.';
             renderTaskStatus('Copying ' + (message.progress.completedItems + message.progress.skippedItems)
                 + ' of ' + message.progress.totalItems + ' item(s).' + current);
             return true;
@@ -14750,7 +14553,6 @@ function initDashboard(options) {
             if (startCopy) startCopy.disabled = false;
             selectedEntries.left.clear();
             selectedEntries.right.clear();
-            closeReview();
             renderTaskStatus('Copy queued in position ' + message.position + '.');
             renderTaskCount();
             updatePair();
@@ -14783,7 +14585,7 @@ function initDashboard(options) {
                 : left.machineId === right.machineId;
         }
 
-        function revealCompletedTarget() {
+        function revealCompletedTarget(silent) {
             if (!lastCompletedCopyPlan || !lastCompletedCopyPlan.destination) return;
             var destination = lastCompletedCopyPlan.destination;
             var side = ['left', 'right'].find(function (candidate) {
@@ -14793,7 +14595,7 @@ function initDashboard(options) {
                 renderTaskStatus('Select the original destination endpoint to reveal this copy target.');
                 return;
             }
-            renderTaskStatus('Opening the completed copy target…');
+            if (!silent) renderTaskStatus('Opening the completed copy target…');
             openDirectory(side, destination.directoryId);
         }
 
@@ -14801,35 +14603,10 @@ function initDashboard(options) {
             selector.addEventListener('change', onEndpointChange);
         });
         if (swap) swap.addEventListener('click', swapEndpointLayout);
-        if (review) review.addEventListener('click', openReview);
-        if (reviewCancel) reviewCancel.addEventListener('click', closeReview);
-        if (startCopy) startCopy.addEventListener('click', startReviewedCopy);
-        if (conflictPolicy) conflictPolicy.addEventListener('change', updateReviewStartAvailability);
-        if (targetNameInput) targetNameInput.addEventListener('change', function () {
-            if (!reviewedCopyPlan) return;
-            if (targetNameInput.value) reviewedCopyPlan.targetName = targetNameInput.value;
-            else delete reviewedCopyPlan.targetName;
-            requestCopyPreflight(reviewedCopyPlan);
-        });
+        if (startCopy) startCopy.addEventListener('click', startDirectCopy);
         if (retry) retry.addEventListener('click', retryFailedCopy);
         if (revealTarget) revealTarget.addEventListener('click', revealCompletedTarget);
         if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
-        panel.addEventListener('keydown', function (event) {
-            if (event.key !== 'Escape' || !reviewSheet || reviewSheet.hidden) return;
-            event.preventDefault();
-            closeReview();
-        });
-        ['left', 'right'].forEach(function (side) {
-            var pane = panes[side];
-            if (!pane) return;
-            pane.addEventListener('dragover', function (event) {
-                if (draggedFileTransferEntry && draggedFileTransferEntry.side !== side && localRoots[side]) {
-                    event.preventDefault();
-                    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
-                }
-            });
-            pane.addEventListener('drop', function (event) { dropFileTransferEntry(side, event); });
-        });
         Array.from(panel.querySelectorAll('[data-file-transfer-filter]')).forEach(function (input) {
             input.addEventListener('input', function () {
                 var side = input.getAttribute('data-file-transfer-filter');
@@ -14914,7 +14691,6 @@ function initDashboard(options) {
             applyCopyStarted: applyCopyStarted,
             applyCopyProgress: applyCopyProgress,
             applyCopyQueued: applyCopyQueued,
-            applyCopyPreflight: applyCopyPreflight,
             applyHistory: applyHistory,
             applySavedPairs: applySavedPairs,
             applySavedPairsFailure: applySavedPairsFailure,
@@ -15009,10 +14785,6 @@ function initDashboard(options) {
         if (event && event.data && validateFileTransferCopyQueued(event.data)
             && fileTransferPanel) {
             fileTransferPanel.applyCopyQueued(event.data);
-        }
-        if (event && event.data && validateFileTransferCopyPreflight(event.data)
-            && fileTransferPanel) {
-            fileTransferPanel.applyCopyPreflight(event.data);
         }
         if (event && event.data && validateFileTransferSavedPairs(event.data)
             && fileTransferPanel) {

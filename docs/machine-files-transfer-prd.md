@@ -44,8 +44,9 @@ can nevertheless authenticate to both through its own SSH configuration.
 
 1. Let a user select two Managed Machines, or one Managed Machine plus an
    explicitly chosen local directory, and browse their files in one workspace.
-2. Let a user copy a file or folder in either direction without first assigning
-   permanent source/destination roles.
+2. Let a user copy a file or folder in either direction by explicitly choosing
+   a source and target for the current transfer; switching direction is a
+   visible action, never inferred from an item checkbox.
 3. Make every copy's source, destination, size, collision policy, and outcome
    unmistakable before irreversible effects occur.
 4. Keep a transfer running visibly in the background, with cancel, failure
@@ -78,10 +79,10 @@ can nevertheless authenticate to both through its own SSH configuration.
 | --- | --- | --- |
 | Managed Machine endpoint | An existing catalog Machine with a stable ID and non-secret SSH endpoint. | Managed remote catalog; synced. |
 | Local directory endpoint | This Computer, scoped to one user-selected local root and its descendants. | Local UI-host state; never synced. |
-| Transfer pair | Two endpoint references plus locally remembered directories and display order. It is symmetric, not a source/destination binding. | Local UI-host state; not synced by default. |
-| Source selection | One or more files/folders selected in one pane for the next copy. | Ephemeral UI state. |
-| Destination directory | The current directory in the opposite pane. | Ephemeral UI state. |
-| Transfer task | One reviewed copy request and its lifecycle/result. | Local UI Bridge task store and UI state; history is local. |
+| Transfer route | A source endpoint, a target endpoint, and locally remembered directories. The user may switch the roles before selecting items. | Local UI-host state; not synced by default. |
+| Source selection | One or more files/folders selected only in the Source pane for the next copy. | Ephemeral UI state. |
+| Target directory | The current directory in the Target pane. | Ephemeral UI state. |
+| Transfer task | One explicit copy request and its lifecycle/result. | Local UI Bridge task store and UI state; history is local. |
 
 Only the existing managed catalog owns Managed Machine identity and endpoint
 data. Local roots, recent locations, transfer history, conflict choices, and
@@ -106,8 +107,7 @@ Projects tab
 ```
 
 The Transfer button is available regardless of the current Project selection.
-It opens a blank symmetric pair rather than pre-assigning a source or starting
-a transfer.
+It opens a blank source/target route rather than starting a transfer.
 
 The page title is **File Transfer**. The primary page action is `Select
 endpoints`; during a running task the persistent badge/action is `Transfers (n)`.
@@ -119,79 +119,61 @@ pre-filled transfer draft, but must never execute a task without a user action.
 ### 7.1 Select a pair
 
 1. The user opens File Transfer and chooses `Select endpoints`.
-2. A compact pair picker presents two equal controls, `Endpoint A` and
-   `Endpoint B`, plus a swap-layout control. Neither control says source or
-   destination.
+2. A compact route picker presents `Source` and `Target`, plus a `Switch
+   source and target` control. The roles are explicit at all times.
 3. Each control can select an eligible Managed Machine or `This Computer`.
    Selecting This Computer opens a native folder picker; the selected folder is
    the local endpoint root. Each option shows display name, endpoint-safe
    identity, connection readiness, and any catalog-conflict reason. The same
    endpoint cannot be selected twice, so the local endpoint appears at most once.
-4. On `Open files`, the UI performs a non-mutating preflight against both
-   endpoints. It opens the last locally remembered directory for that pair, or
-   the remote home directory / selected local root if there is no remembered
-   directory.
-5. A failed preflight keeps the picker open and offers a human-readable remedy;
-   it does not show raw credentials, SSH config, or unbounded stderr.
+4. Opening each directory is the endpoint health check. A fixed readiness strip
+   states `UI Bridge responding`, `Source directory ready`, and `Target
+   directory ready`; a transfer remains unavailable until all three are true.
+5. A failed check leaves the selected endpoint visible and offers Refresh with
+   a human-readable remedy; it does not show raw credentials, SSH config, or
+   unbounded stderr.
 
-Recent and user-pinned pairs appear above the endpoint list. A saved pair is
-still symmetric: swapping sides changes only visual layout. A remembered local
-root is displayed only as a local label/path after the user has selected it on
+Recent and user-pinned routes appear above the endpoint list. Switching source
+and target swaps the roles and clears the pending source selection. A remembered
+local root is displayed only as a local label/path after the user has selected it on
 this computer; it is never synchronized to another computer.
 
 ### 7.2 Browse and select
 
-The two-pane browser has equal headers: endpoint name, reachable status, current
-path breadcrumbs, an editable bounded path field, Refresh, and Up. Both panes
+The two-pane browser has clear Source and Target folder headers: endpoint name,
+reachable status, current path breadcrumbs, an editable bounded path field,
+Refresh, and Up. Both panes
 may be navigated independently. A local pane additionally offers `Choose local
 folder`; it can navigate only within the user-selected local root, and choosing
 a different root goes through the native picker again.
 
-- A source pane supports checkboxes for multiple files and folders.
-- The other pane is a directory navigator. Its current directory is the copy
-  destination; opening a directory deliberately changes that destination.
-- Selecting source items on one side clears source selection on the other side.
-  This prevents an ambiguous bidirectional copy request.
-- A user can reverse direction simply by selecting files on the other side. The
-  selected side gains a subtle temporary `Copying from here` state; the pair
-  itself never gains a source label.
-- A file or folder can also be dragged to the opposite pane. The drop location
-  determines the destination directory and opens the same review, never an
-  immediate copy.
+- The Source pane supports checkboxes for multiple files and folders.
+- The Target pane is only a directory navigator. Its current directory is the
+  copy destination; opening a directory deliberately changes that destination.
+- A user reverses direction with `Switch source and target`, which clears the
+  selection and makes the new source role obvious before any file can be chosen.
+- The fixed action bar always names the exact source endpoint/path and target
+  endpoint/path. Dragging is not a primary P0 path.
 
 For a single selected file, the review may expose `Destination name` to create a
 copy under a new name. For multiple selected items or a folder, the target is a
 directory and child names are preserved. The UI must explain the resulting path,
 for example: `dist/` → `/opt/app/releases/dist/`.
 
-### 7.3 Review and start
+### 7.3 Transfer and start
 
-`Copy 2 items → Staging` (or `Copy 2 items → This Computer`) appears only after a source selection exists. It opens a
-review sheet that remains visibly tied to both pane headers and contains:
-
-- source endpoint and canonical source paths;
-- destination endpoint and the exact resolved destination paths;
-- item count and calculated total size (or `Calculating…` until known);
-- discovered collisions grouped as new, same, changed, and inaccessible;
-- conflict policy, initially **Ask before replacing**;
-- any warning about unsupported file types, inaccessible child paths, or an
-  unavailable integrity check.
-
-Permitted release-one collision policies are `Ask`, `Skip existing`, and
-`Replace existing`. `Replace existing` is a deliberate per-task choice and must
-display the number of affected existing paths. `Keep both / rename` is available
-for a single file in the review sheet. No policy may delete source files.
-
-The enabled final action is `Start copy`. Its confirmation text includes both
-endpoint names, both base paths, the copy direction, and size. If the preflight
-or catalog revision becomes stale, the review must refresh before it can start.
+The fixed action bar becomes `Transfer N items` only when both directories and
+the UI Bridge are ready and source items are selected. It states the endpoint
+names and both current paths immediately beside the action. The first release
+uses a safe default collision policy: stop and name the conflict. It never
+offers silent overwrite or source deletion.
 
 ### 7.4 Run, complete, and recover
 
 After starting, the task moves to Transfers and can run while the user browses
-other files, switches Dashboard surfaces, or closes the review sheet. A task row
-shows direction, current path, completed/total bytes, item progress, speed,
-estimated remaining time when defensible, and Cancel.
+other files or switches Dashboard surfaces. A task row and live status name the
+real relay stage: `Preparing secure relay`, `Downloading from source`,
+`Uploading to target`, or `Verifying delivery`, plus item progress and Cancel.
 
 Completion shows `Copied`, `Copied with skipped/conflicted items`, `Cancelled`,
 or `Failed`; no vague “done” status. A completed task offers `Reveal target`.
@@ -289,11 +271,11 @@ resume is a later feature, not an implied guarantee.
 
 | Decision | Requirement and rationale |
 | --- | --- |
-| Pair, not fixed endpoints | Two endpoints are selected symmetrically. Each can be a Managed Machine or This Computer rooted at a user-selected local folder. Copy direction is set by the current selected pane or drag direction, avoiding needless reconfiguration for back-and-forth work. |
-| Dedicated editor surface | A persistent Transfer button at the top of Projects opens File Transfer in the main editor area. Two independent remote trees, review, and task progress need more room and a durable mental model than a Project overflow dialog. |
+| Explicit route roles | Source and Target are explicit for the current route. Each can be a Managed Machine or This Computer rooted at a user-selected local folder. Switching roles is one visible control and clears selection, avoiding direction inference. |
+| Dedicated editor surface | A persistent Transfer button at the top of Projects opens File Transfer in the main editor area. Two independent remote trees, fixed readiness, and task progress need more room and a durable mental model than a Project overflow dialog. |
 | Visible intent | A fixed summary bar is present whenever items are selected. Copy is unavailable until its exact result can be described. |
 | Copy-first safety | The initial action is always copy. Move and sync have different destructive semantics and are excluded. |
-| Review before effects | Drag/drop, button, AI hand-off, retry, and saved plan all route through the same review policy. |
+| Direct but described execution | The action bar provides the exact route and item count. Readiness is checked before activation; collision and copy validation remain authoritative in the bridge. |
 | Local is first-class but scoped | This Computer can be paired with any Managed Machine in P0. Native folder selection establishes an explicit local root, so the transfer UI cannot browse the user's whole disk by default. |
 | Convenient recurrence | Recent/pinned symmetric pairs and locally remembered folders speed repeated workflows without synchronizing operational paths. |
 | Explicit uncertainty | Unknown size, partial directory access, or unsupported entries appear as warnings, never as deceptive success. Target free space is not queried before copy; a disk-full error is reported at transfer time. |
@@ -357,9 +339,9 @@ platform exclusion is permitted for release.
 
 | Path | Use | Benefits | Limits / decision |
 | --- | --- | --- | --- |
-| A. OpenSSH CLI transport (recommended P0) | Bridge invokes the discovered local OpenSSH tooling with the Agent Pivot-generated config. Bounded SFTP batch operations list/stat paths; `scp -3` relays Managed Machine-to-Machine copies through this computer, while ordinary `scp` handles local-root ↔ Managed Machine copies. | Reuses the exact local auth and config already trusted by Managed Machines; no secret handling or remote-to-remote reachability. | Needs an implementation spike for structured SFTP parsing, current-platform `scp -3` behavior, progress extraction, names with special characters, local-root containment, and collision preflight. P0 ships only after this matrix passes. |
+| A. OpenSSH CLI transport (recommended P0) | Bridge invokes the discovered local OpenSSH tooling with the Agent Pivot-generated config. Bounded SFTP batch operations list/stat paths; Managed Machine-to-Machine copy is always two ordinary SCP hops through a per-operation temporary directory on this computer, while ordinary SCP handles local-root ↔ Managed Machine copies. | Reuses the exact local auth and config already trusted by Managed Machines; no secret handling or remote-to-remote reachability. | The temporary directory is cleaned after every result. The product does not pre-check its free space; a disk-full transfer fails truthfully at the affected relay phase. |
 | B. Native SFTP client in the bridge | A later implementation uses a locally authenticated SFTP session per Managed Machine and streams remote reads/writes to the other remote session or native local-root filesystem stream with backpressure. | Precise progress, deterministic file enumeration and collision behavior, no temporary full-file staging. | Must faithfully honor existing SSH config, host-key, proxy, and agent behavior. Do not introduce it until this parity is proven; never copy credentials out of OpenSSH. |
-| C. Local temporary staging | Download then upload using SFTP/scp. | Simple fallback for a single small file. | Not a normal product path: consumes disk, leaks data at rest, and doubles I/O. It may be used only as a documented, explicitly consented recovery fallback, not silently. |
+| C. Local temporary staging | Download then upload using SFTP/scp. | Required relay mechanism when two Managed Machines cannot reach one another. | Consumes local disk and doubles I/O. It is cleaned after every task; insufficient disk is reported rather than pre-blocked. |
 | D. Remote-to-remote transport | Source directly reaches target. | Potentially efficient on networks that allow it. | Explicitly out of scope. It violates the topology promise and makes policy/credential behavior inconsistent. |
 
 The P0 transport spike is a delivery gate, not an optional polish item. It must
@@ -443,32 +425,27 @@ behavior; cancellation; and Machines that cannot reach one another.
 - [ ] File Transfer is reachable from a persistent Transfer button at the top
       of Projects and opens in the main editor area; it is not only a Project
       overflow dialog.
-- [ ] The user can select exactly two different eligible endpoints and open them
-      as equal left/right panes without choosing a fixed source or target. An
-      endpoint can be a Managed Machine or This Computer rooted at a local
-      directory chosen through the native picker.
+- [ ] The user can select exactly two different eligible endpoints as explicit
+      Source and Target roles, and can switch those roles with one visible
+      action before choosing files. An endpoint can be a Managed Machine or
+      This Computer rooted at a local directory chosen through the native picker.
 - [ ] A catalog-conflicted, unavailable, duplicate, or unmanaged Machine cannot
       begin a pair; This Computer cannot begin a pair until a readable local
       root is selected; the UI gives an accessible reason and recovery path.
 - [ ] The user can navigate each pane independently and the UI keeps a clear
       visible current directory for both sides.
-- [ ] Selecting items on either side enables a direction-specific copy action to
-      the other side's current directory; reversing selection reverses the
-      operation without reselecting the pair.
-- [ ] Selecting source items in the opposite pane removes the prior source
-      selection and never produces an ambiguous two-way action.
-- [ ] Dragging left-to-right or right-to-left opens review with the correct
-      source selection and destination directory, never an immediate transfer.
-- [ ] Review accurately shows both endpoint names, canonical input and output
-      paths, item count, known/unknown size, collision result, and policy.
-- [ ] Default collision handling is Ask. Replace Existing cannot be selected or
-      executed accidentally; copy never deletes source data.
-- [ ] A file can be copied under a reviewed different name; folders and multiple
-      selections preserve child names beneath a selected destination directory.
+- [ ] Only the Source pane exposes selection controls; the Target pane is a
+      directory navigator and cannot create an ambiguous second selection.
+- [ ] The fixed action bar names both endpoint/path values and is enabled only
+      after UI Bridge, Source directory, Target directory, and selection are ready.
+- [ ] Default collision handling stops at the conflict; silent replacement is
+      impossible and copy never deletes source data.
+- [ ] Folders and multiple selections preserve child names beneath the selected
+      target directory.
 - [ ] Files, directories, symlinks, unsupported special files, hidden items,
       unreadable paths, and partially accessible directories each have the
       documented behavior in this PRD.
-- [ ] All browse, selection, direction, review, start, task, retry, and cancel
+- [ ] All browse, selection, direction switching, start, task, retry, and cancel
       actions are fully keyboard accessible and convey Machine/path context.
 
 ### Transfer topology, safety, and correctness

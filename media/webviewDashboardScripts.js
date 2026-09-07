@@ -1699,7 +1699,7 @@ function initDashboard(options) {
             var policy = conflictPolicy ? conflictPolicy.value : 'fail';
             var existingFileCount = result ? result.existingFileNames.length : 0;
             var existingDirectoryCount = result ? result.existingDirectoryNames.length : 0;
-            var canStart = !!reviewedCopyPlan && !pendingPreflightRequestId && !pendingCopyRequestId;
+            var canStart = !!reviewedCopyPlan && !pendingCopyRequestId;
             if (canStart && (existingFileCount || existingDirectoryCount) && policy === 'fail') {
                 canStart = false;
                 if (reviewNote) reviewNote.textContent = (existingFileCount + existingDirectoryCount)
@@ -1708,11 +1708,11 @@ function initDashboard(options) {
                 canStart = false;
                 if (reviewNote) reviewNote.textContent = 'Existing folders and non-files cannot be safely replaced. Select Skip existing or another folder.';
             } else if (canStart) {
-                if (reviewNote) reviewNote.textContent = result
+                if (reviewNote) reviewNote.textContent = pendingPreflightRequestId
+                    ? 'Checking source access and target collisions… Start copy will validate the selected items.'
+                    : result
                     ? 'Copy will begin only after you select Start copy.'
                     : 'Preflight is unavailable. Start copy will validate the selected items.';
-            } else if (pendingPreflightRequestId && reviewNote) {
-                reviewNote.textContent = 'Checking source access and existing target items…';
             }
             startCopy.disabled = !canStart;
         }
@@ -1844,7 +1844,7 @@ function initDashboard(options) {
         }
 
         function startReviewedCopy() {
-            if (!reviewedCopyPlan || pendingCopyRequestId || pendingPreflightRequestId
+            if (!reviewedCopyPlan || pendingCopyRequestId
                 || (startCopy && startCopy.disabled)) return;
             submitCopyPlan({
                 source: reviewedCopyPlan.source,

@@ -315,11 +315,10 @@ test('FILE-TRANSFER-UI-019 keeps Start copy available when a copy preflight does
         message.type === 'file-transfer-preflight-copy'
     ));
     assert.ok(preflightRequest, 'opening review must request its advisory preflight');
-    await page.waitForTimeout(30);
 
     const startCopy = page.locator('[data-file-transfer-start-copy]');
     assert.equal(await startCopy.isEnabled(), true,
-        'a missing advisory preflight must not strand a selected file behind a disabled Start copy button');
+        'an advisory preflight must not strand a selected file behind a disabled Start copy button');
     await startCopy.click();
     const copyRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
         message.type === 'file-transfer-copy'

@@ -2420,6 +2420,13 @@ body .project {
     padding: 6px 9px;
     color: var(--vscode-button-foreground);
     background: var(--vscode-button-background);
+    white-space: nowrap;
+}
+
+.file-transfer-action-bar button svg {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
 }
 
 .file-transfer button:disabled {
@@ -2444,8 +2451,10 @@ body .project {
     }
 
     .file-transfer-action-bar {
-        align-items: stretch;
-        flex-direction: column;
+        align-items: center;
+        flex-direction: row;
+        gap: 8px;
+        padding: 8px;
     }
 
     .file-transfer-pane-toolbar {

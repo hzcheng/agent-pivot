@@ -68,6 +68,17 @@ test('FILE-TRANSFER-EDITOR-001 FILE-TRANSFER-UI-011 keeps sorting controls reada
             return {
                 panelScrollWidth: panel.scrollWidth,
                 panelClientWidth: panel.clientWidth,
+                reviewControl: (() => {
+                    const button = document.querySelector('[data-file-transfer-review]');
+                    const icon = button && button.querySelector('svg');
+                    const buttonRect = button && button.getBoundingClientRect();
+                    const iconRect = icon && icon.getBoundingClientRect();
+                    return {
+                        height: buttonRect && buttonRect.height,
+                        iconWidth: iconRect && iconRect.width,
+                        iconHeight: iconRect && iconRect.height,
+                    };
+                })(),
                 toolbarWidths: toolbars.map(toolbar => ({
                     scrollWidth: toolbar.scrollWidth,
                     clientWidth: toolbar.clientWidth,
@@ -83,6 +94,10 @@ test('FILE-TRANSFER-EDITOR-001 FILE-TRANSFER-UI-011 keeps sorting controls reada
             assert.ok(toolbar.height >= 24,
                 `width ${width}: File Transfer toolbar controls are clipped`);
         }
+        assert.ok(metrics.reviewControl.height <= 40,
+            `width ${width}: Review copy button must stay compact`);
+        assert.ok(metrics.reviewControl.iconWidth <= 20 && metrics.reviewControl.iconHeight <= 20,
+            `width ${width}: Review copy icon must not consume the workspace`);
         assert.equal(await page.locator('[data-file-transfer-review-sheet]').isVisible(), false,
             `width ${width}: File Transfer review must remain hidden until Review copy is selected`);
     }

@@ -14,6 +14,16 @@ function preview(prompt: PromptV2): string {
     return value.length > PROMPT_PREVIEW_MAX_LENGTH ? `${value.slice(0, PROMPT_PREVIEW_MAX_LENGTH)}…` : value;
 }
 
+function promptTooltip(prompt: PromptV2, groups: readonly PromptGroupV1[]): string {
+    const group = groups.find(candidate => candidate.id === prompt.groupId);
+    const summary = preview(prompt);
+    return [
+        `Prompt: ${prompt.name}`,
+        `Group: ${group ? group.name : 'General'}`,
+        prompt.description ? `Description: ${prompt.description}` : `Preview: ${summary}`,
+    ].join('\n');
+}
+
 function promptForm(prompt?: PromptV2, groupId?: string): string {
     const edit = Boolean(prompt);
     const id = prompt ? escapeHtml(prompt.id) : '';
@@ -58,9 +68,9 @@ function promptMenu(prompt: PromptV2, groups: readonly PromptGroupV1[], selected
 function promptItem(prompt: PromptV2, groups: readonly PromptGroupV1[], selectedPromptId: string): string {
     const id = escapeHtml(prompt.id);
     const selected = prompt.id === selectedPromptId;
-    return `<li class="prompt-item" data-prompt-id="${id}" title="${escapeHtml(preview(prompt))}">
+    return `<li class="prompt-item" data-prompt-id="${id}" title="${escapeHtml(promptTooltip(prompt, groups))}">
         <div class="prompt-item-view"><button type="button" class="prompt-drag-handle steward-icon-button" draggable="true" data-drag-prompt-id="${id}" aria-label="${escapeHtml(`Drag ${prompt.name} to reorder`)}">${Icons.drag}</button>
-        <button type="button" class="prompt-item-main" data-action="prompt-edit" data-prompt-id="${id}"><strong class="prompt-name">${escapeHtml(prompt.name)}</strong>${selected ? `<span class="prompt-default-marker" aria-label="Default Prompt">${Icons.starFilled}</span>` : ''}</button>
+        <div class="prompt-item-main"><strong class="prompt-name">${escapeHtml(prompt.name)}</strong>${selected ? `<span class="prompt-default-marker" aria-label="Default Prompt">${Icons.starFilled}</span>` : ''}</div>
         <button type="button" class="prompt-use-button steward-icon-button" data-action="prompt-insert-terminal" data-prompt-id="${id}" title="Use in active terminal" aria-label="${escapeHtml(`Use ${prompt.name} in the active terminal`)}">${Icons.terminalLine}</button>${promptMenu(prompt, groups, selected)}</div>
         ${promptForm(prompt)}</li>`;
 }

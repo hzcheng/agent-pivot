@@ -13711,6 +13711,32 @@ function tabName(tab) {
             : null;
     }
 
+    function closePromptMenus(exceptTarget) {
+        var surface = getSurface();
+        if (!surface || typeof surface.querySelectorAll !== 'function') {
+            return;
+        }
+        Array.from(surface.querySelectorAll('.prompt-row-menu[open]')).forEach(function (menu) {
+            if (exceptTarget && typeof menu.contains === 'function' && menu.contains(exceptTarget)) {
+                return;
+            }
+            if (typeof menu.removeAttribute === 'function') {
+                menu.removeAttribute('open');
+            }
+        });
+    }
+
+    function cancelGroupForm(form) {
+        if (!form) {
+            return false;
+        }
+        if (typeof form.reset === 'function') {
+            form.reset();
+        }
+        form.hidden = true;
+        return true;
+    }
+
     function getPromptForms() {
         var surface = getSurface();
         if (!surface) {
@@ -14434,6 +14460,7 @@ function tabName(tab) {
     }
 
     function onClick(event) {
+        closePromptMenus(event.target);
         var tab = closest(event.target, '[role="tab"]');
         if (tab) {
             activateSubtab(tabName(tab), true);
@@ -14445,6 +14472,10 @@ function tabName(tab) {
         }
         var action = actionTarget.getAttribute('data-action');
         var promptId = actionTarget.getAttribute('data-prompt-id');
+        var actionMenu = closest(actionTarget, '.prompt-row-menu');
+        if (actionMenu && typeof actionMenu.removeAttribute === 'function') {
+            actionMenu.removeAttribute('open');
+        }
         if (action === 'prompt-new') {
             showCreateForm(actionTarget.getAttribute('data-prompt-group-id'));
         } else if (action === 'prompt-group-new') {
@@ -14452,7 +14483,7 @@ function tabName(tab) {
             if (groupForm) { groupForm.hidden = false; var groupName = groupForm.querySelector('[name="name"]'); if (groupName) groupName.focus(); }
         } else if (action === 'prompt-group-cancel') {
             var cancelledGroupForm = closest(actionTarget, '[data-prompt-group-form]');
-            if (cancelledGroupForm) { cancelledGroupForm.reset(); cancelledGroupForm.hidden = true; }
+            cancelGroupForm(cancelledGroupForm);
         } else if (action === 'prompt-toggle-group') {
             var header = closest(actionTarget, '.prompt-group-header');
             var group = header && closest(header, '[data-prompt-group-id]');
@@ -14555,6 +14586,22 @@ function tabName(tab) {
     }
 
     function onKeyDown(event) {
+        if (event.key === 'Escape') {
+            var promptForm = closest(event.target, '[data-prompt-form]');
+            if (promptForm && !promptForm.hidden) {
+                event.preventDefault();
+                closeDraft(promptForm);
+                return;
+            }
+            var groupForm = closest(event.target, '[data-prompt-group-form]');
+            if (groupForm && !groupForm.hidden) {
+                event.preventDefault();
+                cancelGroupForm(groupForm);
+                return;
+            }
+            closePromptMenus();
+            return;
+        }
         var tab = closest(event.target, '[role="tab"]');
         if (!tab) {
             return;
@@ -14703,6 +14750,11 @@ function tabName(tab) {
             root.addEventListener('dragover', onDragOver);
             root.addEventListener('drop', onDrop);
             root.addEventListener('dragend', onDragEnd);
+            if (document && typeof document.addEventListener === 'function') {
+                document.addEventListener('click', function (event) {
+                    closePromptMenus(event.target);
+                });
+            }
         }
         return true;
     }

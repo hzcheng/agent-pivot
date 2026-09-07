@@ -57,3 +57,44 @@ test('Prompt tree supports collapse without changing stored group ownership', as
         assert.equal(await page.locator('[data-prompt-group-id="general"] [data-prompt-list]').isHidden(), false);
     } finally { await browser.close(); }
 });
+
+test('Prompt tree uses explicit menus for editing and supports Escape and outside-click dismissal', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const page = await open(browser, 320);
+        const createForm = page.locator('[data-prompt-form="create"]');
+        const groupForm = page.locator('[data-prompt-group-form]');
+
+        await page.locator('[data-action="prompt-new"]').first().click();
+        assert.equal(await createForm.isHidden(), false);
+        await page.keyboard.press('Escape');
+        assert.equal(await createForm.isHidden(), true, 'Escape cancels Prompt creation');
+
+        await page.locator('[data-action="prompt-group-new"]').click();
+        assert.equal(await groupForm.isHidden(), false);
+        await page.keyboard.press('Escape');
+        assert.equal(await groupForm.isHidden(), true, 'Escape cancels Group creation');
+
+        const item = page.locator('li.prompt-item[data-prompt-id="review"]');
+        assert.match(await item.getAttribute('title'), /Prompt:/);
+        assert.match(await item.getAttribute('title'), /Group: General/);
+        assert.match(await item.getAttribute('title'), /Description:/);
+        await item.locator('.prompt-item-main').click();
+        assert.equal(await item.locator('[data-prompt-form="edit"]').isHidden(), true,
+            'clicking a Prompt row does not enter editing');
+
+        await item.locator('.prompt-row-menu > summary').click();
+        assert.equal(await item.locator('.prompt-row-menu').getAttribute('open'), '');
+        await item.locator('[data-action="prompt-edit"]').click();
+        assert.equal(await item.locator('[data-prompt-form="edit"]').isHidden(), false,
+            'Edit in the action menu opens the inline editor');
+        await page.keyboard.press('Escape');
+        assert.equal(await item.locator('[data-prompt-form="edit"]').isHidden(), true,
+            'Escape cancels Prompt editing');
+
+        await item.locator('.prompt-row-menu > summary').click();
+        await page.locator('.prompt-header').click();
+        assert.equal(await item.locator('.prompt-row-menu').getAttribute('open'), null,
+            'clicking away closes the Prompt action menu');
+    } finally { await browser.close(); }
+});

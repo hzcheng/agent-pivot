@@ -24,6 +24,12 @@ function formatFileTransferBytes(bytes) {
     return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
 }
 
+function fileTransferTreeLabel(name) {
+    var normalized = String(name || '').replace(/\\/g, '/');
+    var parts = normalized.split('/').filter(function (part) { return part.length > 0; });
+    return parts.length ? parts[parts.length - 1] : normalized || 'Unnamed item';
+}
+
 function renderLocalFileTransferEntries(
     fileList,
     entries,
@@ -97,11 +103,24 @@ function renderLocalFileTransferEntries(
         checkbox.addEventListener('change', function () {
             onChange(entry.id, directoryId, checkbox.checked);
         });
-        var kind = entry.kind === 'directory' ? 'Folder' : entry.kind === 'file' ? 'File' : entry.kind;
         entryContent.appendChild(checkbox);
-        var entryName = document.createElement('span');
+        var entryName = entry.kind === 'directory'
+            ? document.createElement('button') : document.createElement('span');
         entryName.className = 'file-transfer-file-name';
-        entryName.textContent = kind + '  ' + entry.name;
+        var treeLabel = fileTransferTreeLabel(entry.name);
+        entryName.textContent = treeLabel;
+        if (treeLabel !== entry.name) entryName.title = entry.name;
+        if (entry.kind === 'directory') {
+            entryName.type = 'button';
+            entryName.className += ' file-transfer-directory-name';
+            entryName.setAttribute('data-file-transfer-directory-name', '');
+            entryName.setAttribute('aria-label', row.title + ': ' + treeLabel);
+            entryName.disabled = !!treeEntry.loading;
+            entryName.addEventListener('click', function (event) {
+                event.stopPropagation();
+                onToggleDirectory(entry.id, !!treeEntry.expanded);
+            });
+        }
         entryContent.appendChild(entryName);
         var meta = [];
         if (Number.isSafeInteger(entry.size)) meta.push(formatFileTransferBytes(entry.size));

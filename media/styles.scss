@@ -2273,6 +2273,26 @@ body .project {
     white-space: nowrap;
 }
 
+.file-transfer-directory-name {
+    padding: 0;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+        text-decoration: underline;
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 2px;
+    }
+}
+
 .file-transfer-file-meta {
     min-width: 0;
     margin-left: auto;

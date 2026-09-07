@@ -190,7 +190,7 @@ test('FILE-TRANSFER-UI-017 expands a folder inline without replacing its endpoin
         'the copy-source indicator must stay out of the layout until a file is selected');
 });
 
-test('FILE-TRANSFER-UI-018 expands from the folder name and keeps endpoint controls visible while browsing', async t => {
+test('FILE-TRANSFER-UI-018 expands from an explicit folder-name control, renders path-like names as tree labels, and keeps endpoint controls visible while browsing', async t => {
     const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><style>
@@ -223,12 +223,15 @@ test('FILE-TRANSFER-UI-018 expands from the folder name and keeps endpoint contr
             rootId: '0123456789abcdef0123456789abcdef',
             directoryId: 'fedcba9876543210fedcba9876543210', label: 'Build Machine',
             displayPath: '/workspace', entries: [
-                { id: '11111111111111111111111111111111', name: 'src', kind: 'directory' },
+                { id: '11111111111111111111111111111111', name: '/home/hzcheng/.config', kind: 'directory' },
             ],
         },
     });
 
-    await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] .file-transfer-file-name').click();
+    const folderName = page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] [data-file-transfer-directory-name]');
+    assert.equal(await folderName.textContent(), '.config',
+        'the tree must show a folder label, not a redundant type and absolute path');
+    await folderName.click();
     const expandRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
         message.type === 'file-transfer-open-directory'
             && message.endpoint && message.endpoint.directoryId === '11111111111111111111111111111111'

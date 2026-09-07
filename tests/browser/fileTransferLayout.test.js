@@ -260,6 +260,75 @@ test('FILE-TRANSFER-UI-018 hides path-like hidden entries until Show hidden is s
         'endpoint controls must remain visible while a long directory is scrolled');
 });
 
+test('FILE-TRANSFER-UI-019 keeps Start copy available when a copy preflight does not reply', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'],
+            fileTransferPreflightTimeoutMs: 1,
+            postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+
+    const leftEndpoint = page.locator('[data-file-transfer-endpoint="left"]');
+    await leftEndpoint.selectOption('managed:machine:build');
+    const leftRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.side === 'left'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1,
+        requestId: leftRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: 'fedcba9876543210fedcba9876543210', label: 'Build Machine',
+            displayPath: '/workspace', entries: [
+                { id: '11111111111111111111111111111111', name: 'report.txt', kind: 'file', size: 12 },
+            ],
+        },
+    });
+    const rightEndpoint = page.locator('[data-file-transfer-endpoint="right"]');
+    await rightEndpoint.selectOption('managed:machine:deploy');
+    const rightRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.side === 'right'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1,
+        requestId: rightRequest.requestId, side: 'right',
+        root: {
+            rootId: 'abcdef0123456789abcdef0123456789',
+            directoryId: '1234567890abcdef1234567890abcdef', label: 'Deploy Machine',
+            displayPath: '/incoming', entries: [],
+        },
+    });
+
+    await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] input').check();
+    await page.locator('[data-file-transfer-review]').click();
+    const preflightRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-preflight-copy'
+    ));
+    assert.ok(preflightRequest, 'opening review must request its advisory preflight');
+    await page.waitForTimeout(30);
+
+    const startCopy = page.locator('[data-file-transfer-start-copy]');
+    assert.equal(await startCopy.isEnabled(), true,
+        'a missing advisory preflight must not strand a selected file behind a disabled Start copy button');
+    await startCopy.click();
+    const copyRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-copy'
+    ));
+    assert.deepEqual(copyRequest.entryIds, ['11111111111111111111111111111111']);
+    assert.equal(copyRequest.source.machineId, 'machine:build');
+    assert.equal(copyRequest.destination.machineId, 'machine:deploy');
+});
+
 test('FILE-TRANSFER-UI-006 keeps the selected Managed Machine after its directory is listed', async t => {
     const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
     t.after(() => page.close());

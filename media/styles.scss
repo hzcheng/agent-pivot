@@ -1787,11 +1787,24 @@ body .project {
 .file-transfer {
     display: grid;
     align-content: start;
-    gap: 12px;
+    gap: 10px;
     min-height: 0;
     padding: 8px 6px 14px;
     color: var(--vscode-foreground);
     box-sizing: border-box;
+}
+
+.file-transfer-workspace-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: grid;
+    gap: 8px;
+    margin: -8px -6px 0;
+    padding: 8px 6px 10px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-editor-background);
+    box-shadow: 0 5px 12px var(--vscode-widget-shadow, rgba(0, 0, 0, .2));
 }
 
 .file-transfer-header,
@@ -2205,13 +2218,20 @@ body .project {
     cursor: grabbing;
 }
 
-.file-transfer-file-row label {
+.file-transfer-file-entry {
     display: flex;
     align-items: center;
     gap: 7px;
     min-width: 0;
     flex: 1 1 auto;
+}
+
+.file-transfer-file-row[aria-expanded] {
     cursor: pointer;
+}
+
+.file-transfer-file-row[aria-expanded]:hover {
+    background: var(--vscode-list-hoverBackground);
 }
 
 .file-transfer-tree-toggle,
@@ -2219,9 +2239,9 @@ body .project {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex: 0 0 18px;
-    width: 18px;
-    height: 18px;
+    flex: 0 0 22px;
+    width: 22px;
+    height: 22px;
 }
 
 .file-transfer-tree-toggle {

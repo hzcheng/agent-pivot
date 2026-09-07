@@ -82,27 +82,29 @@ export function getFileTransferContent(
 ): string {
     const options = machineOptions(snapshot);
     return `<section class="file-transfer" data-file-transfer>
-        <header class="file-transfer-header">
-            <div>
-                <h2>File Transfer</h2>
-                <p>Choose two endpoints, expand folders inline, and copy in either direction.</p>
+        <div class="file-transfer-workspace-header">
+            <header class="file-transfer-header">
+                <div>
+                    <h2>File Transfer</h2>
+                    <p>Choose endpoints, browse folders, and copy in either direction.</p>
+                </div>
+                <button type="button" class="file-transfer-tasks" data-file-transfer-tasks disabled title="Transfer tasks will appear here">Transfers <span>0</span></button>
+            </header>
+            <section class="file-transfer-saved-pairs" data-file-transfer-saved-pairs aria-label="Recent endpoint pairs" hidden>
+                <h3>Recent endpoint pairs</h3>
+                <ul data-file-transfer-saved-pair-list></ul>
+            </section>
+            <div class="file-transfer-pair" role="group" aria-label="Choose transfer endpoints">
+                ${endpointPicker('left', options)}
+                <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Swap the left and right endpoint layout" aria-label="Swap endpoint layout">↔</button>
+                ${endpointPicker('right', options)}
             </div>
-            <button type="button" class="file-transfer-tasks" data-file-transfer-tasks disabled title="Transfer tasks will appear here">Transfers <span>0</span></button>
-        </header>
+            <p class="file-transfer-pair-hint" data-file-transfer-pair-hint>Select two endpoints. They are equal until you select files to copy.</p>
+        </div>
         <p class="file-transfer-task-status" data-file-transfer-task-status aria-live="polite" hidden></p>
         <button type="button" class="file-transfer-reveal-target" data-file-transfer-reveal-target hidden>Reveal target</button>
         <button type="button" class="file-transfer-retry" data-file-transfer-retry hidden>Retry failed items</button>
         <ul class="file-transfer-task-list" data-file-transfer-task-list aria-label="Transfer tasks" hidden></ul>
-        <section class="file-transfer-saved-pairs" data-file-transfer-saved-pairs aria-label="Recent endpoint pairs" hidden>
-            <h3>Recent endpoint pairs</h3>
-            <ul data-file-transfer-saved-pair-list></ul>
-        </section>
-        <div class="file-transfer-pair" role="group" aria-label="Choose transfer endpoints">
-            ${endpointPicker('left', options)}
-            <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Swap the left and right endpoint layout" aria-label="Swap endpoint layout">↔</button>
-            ${endpointPicker('right', options)}
-        </div>
-        <p class="file-transfer-pair-hint" data-file-transfer-pair-hint>Select two endpoints. They are equal until you select files to copy.</p>
         <div class="file-transfer-panes">
             ${pane('left')}
             ${pane('right')}

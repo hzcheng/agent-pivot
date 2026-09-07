@@ -175,6 +175,68 @@ test('FILE-TRANSFER-UI-017 expands a folder inline without replacing its endpoin
         'the copy-source indicator must stay out of the layout until a file is selected');
 });
 
+test('FILE-TRANSFER-UI-018 expands from the folder name and keeps endpoint controls visible while browsing', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><style>
+        :root { --vscode-foreground: #ddd; --vscode-descriptionForeground: #aaa; --vscode-panel-border: #555; --vscode-editor-background: #1e1e1e; --vscode-sideBarSectionHeader-background: #252525; --vscode-input-border: #555; --vscode-input-foreground: #ddd; --vscode-input-background: #333; --vscode-button-foreground: #fff; --vscode-button-background: #0e639c; }
+        body { margin: 0; padding: 10px; background: #1e1e1e; }
+        ${styles}
+    </style><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'],
+            postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+
+    const endpoint = page.locator('[data-file-transfer-endpoint="left"]');
+    await endpoint.selectOption('managed:machine:build');
+    const initialRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.side === 'left'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1,
+        requestId: initialRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: 'fedcba9876543210fedcba9876543210', label: 'Build Machine',
+            displayPath: '/workspace', entries: [
+                { id: '11111111111111111111111111111111', name: 'src', kind: 'directory' },
+            ],
+        },
+    });
+
+    await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] .file-transfer-file-name').click();
+    const expandRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-open-directory'
+            && message.endpoint && message.endpoint.directoryId === '11111111111111111111111111111111'
+    ));
+    assert.ok(expandRequest, 'clicking a folder name must expand it; the tiny disclosure alone is not an adequate hit target');
+
+    await page.evaluate(() => {
+        document.querySelectorAll('[data-file-transfer-file-list]').forEach(list => {
+            list.hidden = false;
+            list.innerHTML = Array.from({ length: 160 }, (_unused, index) =>
+                '<li class="file-transfer-file-row">File ' + index + '</li>'
+            ).join('');
+        });
+        window.scrollTo(0, 260);
+    });
+    const endpointControls = await page.locator('.file-transfer-pair').evaluate(element => {
+        const rect = element.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom, viewportHeight: window.innerHeight };
+    });
+    assert.ok(endpointControls.top >= 0 && endpointControls.bottom <= endpointControls.viewportHeight,
+        'endpoint controls must remain visible while a long directory is scrolled');
+});
+
 test('FILE-TRANSFER-UI-006 keeps the selected Managed Machine after its directory is listed', async t => {
     const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
     t.after(() => page.close());

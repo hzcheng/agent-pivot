@@ -7348,6 +7348,24 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-UI-018",
+    "domain": "webview",
+    "title": "File Transfer lets a user expand a folder from its name and keeps endpoint controls visible while long directories are browsed",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewDashboardScripts.js",
+      "src/webview/webviewFileTransferContent.ts",
+      "media/styles.scss",
+      "media/styles.css",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-UI-006",
     "domain": "webview",
     "title": "A Managed Machine directory request keeps its selected endpoint, renders a correlated listing, or visibly expires when no reply arrives",

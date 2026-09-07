@@ -54,8 +54,8 @@ function renderLocalFileTransferEntries(
             row.setAttribute('aria-expanded', String(expanded));
             row.addEventListener('click', function (event) {
                 var target = event.target;
-                if (target && typeof target.closest === 'function'
-                    && target.closest('input, button, label')) return;
+                if (treeEntry.loading || (target && typeof target.closest === 'function'
+                    && target.closest('input'))) return;
                 onToggleDirectory(entry.id, expanded);
             });
         }
@@ -76,7 +76,10 @@ function renderLocalFileTransferEntries(
             disclosure.title = treeEntry.failed || row.title;
             disclosure.setAttribute('aria-label', (treeEntry.failed || row.title) + ': ' + entry.name);
             disclosure.setAttribute('aria-expanded', String(!!treeEntry.expanded));
-            disclosure.addEventListener('click', function () { onToggleDirectory(entry.id, !!treeEntry.expanded); });
+            disclosure.addEventListener('click', function (event) {
+                event.stopPropagation();
+                onToggleDirectory(entry.id, !!treeEntry.expanded);
+            });
             row.appendChild(disclosure);
         } else {
             var spacer = document.createElement('span');
@@ -84,20 +87,22 @@ function renderLocalFileTransferEntries(
             spacer.setAttribute('aria-hidden', 'true');
             row.appendChild(spacer);
         }
-        var label = document.createElement('label');
+        var entryContent = document.createElement('div');
+        entryContent.className = 'file-transfer-file-entry';
         var checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = selectedIds.has(entry.id);
         checkbox.disabled = entry.kind !== 'directory' && entry.kind !== 'file';
+        checkbox.setAttribute('aria-label', 'Select ' + entry.name);
         checkbox.addEventListener('change', function () {
             onChange(entry.id, directoryId, checkbox.checked);
         });
         var kind = entry.kind === 'directory' ? 'Folder' : entry.kind === 'file' ? 'File' : entry.kind;
-        label.appendChild(checkbox);
+        entryContent.appendChild(checkbox);
         var entryName = document.createElement('span');
         entryName.className = 'file-transfer-file-name';
         entryName.textContent = kind + '  ' + entry.name;
-        label.appendChild(entryName);
+        entryContent.appendChild(entryName);
         var meta = [];
         if (Number.isSafeInteger(entry.size)) meta.push(formatFileTransferBytes(entry.size));
         if (Number.isSafeInteger(entry.modifiedAt)) {
@@ -110,9 +115,9 @@ function renderLocalFileTransferEntries(
             var metadata = document.createElement('span');
             metadata.className = 'file-transfer-file-meta';
             metadata.textContent = meta.join(' · ');
-            label.appendChild(metadata);
+            entryContent.appendChild(metadata);
         }
-        row.appendChild(label);
+        row.appendChild(entryContent);
         fileList.appendChild(row);
     });
     fileList.scrollTop = previousScrollTop;

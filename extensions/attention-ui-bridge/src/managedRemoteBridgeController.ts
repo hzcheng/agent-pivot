@@ -3,7 +3,8 @@
 import { createHash, randomBytes } from 'crypto';
 import { ChildProcess, spawn } from 'child_process';
 import { constants } from 'fs';
-import { access, lstat, opendir, realpath, stat } from 'fs/promises';
+import { access, lstat, mkdtemp, opendir, realpath, rm, stat } from 'fs/promises';
+import { tmpdir } from 'os';
 import * as path from 'path';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
@@ -537,7 +538,6 @@ export function parseSftpPathKind(output: string): FileTransferDirectoryEntry['k
 
 function copyFileTransferEntry(
     sshExecutable: string,
-    relay: boolean,
     recursive: boolean,
     source: string,
     destination: string,
@@ -545,7 +545,6 @@ function copyFileTransferEntry(
 ): Promise<void> {
     const executable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'scp.exe' : 'scp');
     const args = [
-        ...(relay ? ['-3'] : []),
         ...(recursive ? ['-r'] : []),
         // Preserve mode and modification time where both endpoints permit it.
         // SCP reports an ordinary transfer error if either side refuses them.
@@ -576,6 +575,32 @@ function copyFileTransferEntry(
             reject(new Error(message ? `File copy failed: ${message.slice(0, 320)}` : 'File copy failed.'));
         });
     });
+}
+
+/**
+ * A machine-to-machine copy must always pass through the UI Bridge computer.
+ * OpenSSH's `scp -3` looks similar, but its remote-to-remote mode has varied
+ * across client/server versions and ProxyJump setups. Two ordinary SCP hops
+ * use the exact same per-machine connection path that directory browsing has
+ * already proved, without asking one managed machine to reach the other.
+ */
+async function relayFileTransferEntry(
+    sshExecutable: string,
+    recursive: boolean,
+    source: string,
+    destination: string,
+    stagedName: string,
+    active: ActiveFileTransferCopy,
+): Promise<void> {
+    const stagingDirectory = await mkdtemp(path.join(tmpdir(), 'agent-pivot-file-transfer-'));
+    const stagedPath = path.join(stagingDirectory, stagedName);
+    try {
+        await copyFileTransferEntry(sshExecutable, recursive, source, stagedPath, active);
+        if (active.cancelled) { throw new Error('File copy was cancelled.'); }
+        await copyFileTransferEntry(sshExecutable, recursive, stagedPath, destination, active);
+    } finally {
+        await rm(stagingDirectory, { recursive: true, force: true });
+    }
 }
 
 function stopFileTransferProcess(child: ChildProcess): void {
@@ -1028,16 +1053,21 @@ export class ManagedRemoteBridgeController {
                 }
                 const legacyScp = !await scpUsesSftpByDefault(coordinator.getExecutable());
                 active.phase = 'copying';
-                await copyFileTransferEntry(
-                    coordinator.getExecutable(),
-                    source.kind === 'managedMachine' && destination.kind === 'managedMachine',
-                    entry.kind === 'directory',
-                    source.kind === 'managedMachine'
-                        ? scpRemotePath(source.alias, entry.path, legacyScp) : entry.path,
-                    destination.kind === 'managedMachine'
-                        ? scpRemotePath(destination.alias, destinationPath, legacyScp) : destinationPath,
-                    active,
-                );
+                const copySource = source.kind === 'managedMachine'
+                    ? scpRemotePath(source.alias, entry.path, legacyScp) : entry.path;
+                const copyDestination = destination.kind === 'managedMachine'
+                    ? scpRemotePath(destination.alias, destinationPath, legacyScp) : destinationPath;
+                if (source.kind === 'managedMachine' && destination.kind === 'managedMachine') {
+                    await relayFileTransferEntry(
+                        coordinator.getExecutable(), entry.kind === 'directory', copySource,
+                        copyDestination, path.basename(entry.path), active,
+                    );
+                } else {
+                    await copyFileTransferEntry(
+                        coordinator.getExecutable(), entry.kind === 'directory', copySource,
+                        copyDestination, active,
+                    );
+                }
                 if (entry.kind === 'directory' && entryTree) {
                     await verifyCopiedFileTransferTree(
                         entryTree, destination, destinationPath, coordinator.getExecutable(),

@@ -7379,6 +7379,19 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-SSH-E2E-001",
+    "domain": "runtime",
+    "title": "File Transfer relays a Managed Machine copy through the UI Bridge computer with separate source download and destination upload hops",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-UI-019",
     "domain": "webview",
     "title": "File Transfer leaves Start copy available when its advisory preflight does not reply so the copy can receive its authoritative settlement",

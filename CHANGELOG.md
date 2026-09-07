@@ -30,6 +30,19 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   window ambiguous and no longer shows Save for a Project that is already
   stored.
 
+## [1.4.2] - 2026-09-07
+
+### Fixed
+
+- Relay Managed Machine file copies through the UI Bridge computer with two
+  ordinary SSH transfers, avoiding SCP remote-to-remote compatibility gaps.
+
+### Changed
+
+- Publish this update through the VS Code Marketplace while retaining the
+  existing Workspace Trust declaration and progressively rendered AI
+  Conversation experience.
+
 ## [1.4.1] - 2026-09-07
 
 ### Added

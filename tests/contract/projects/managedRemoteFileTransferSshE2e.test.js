@@ -86,7 +86,7 @@ function waitForPort(port, process) {
 function writeClientWrapper(root, binary, clientConfig) {
     const wrapper = path.join(root, 'bin', binary);
     fs.mkdirSync(path.dirname(wrapper), { recursive: true });
-    fs.writeFileSync(wrapper, `#!/bin/sh\nexec /usr/bin/${binary} -F "${clientConfig}" "$@"\n`, { mode: 0o700 });
+    fs.writeFileSync(wrapper, `#!/bin/sh\nif [ "${binary}" = scp ] && [ -n "$AGENT_PIVOT_SCP_LOG" ]; then\n  printf '%s\\n' "$*" >> "$AGENT_PIVOT_SCP_LOG"\nfi\nexec /usr/bin/${binary} -F "${clientConfig}" "$@"\n`, { mode: 0o700 });
     return wrapper;
 }
 
@@ -126,11 +126,18 @@ async function startTemporarySshd(root, keyPath) {
 /**
  * Uses two temporary directories accessed through generated Managed Machine
  * aliases. The two servers are exposed on independent loopback ports, so this
- * proves that an actual remote-to-remote SCP -3 relay is used rather than
- * assuming remote peers can communicate directly.
+ * proves that the UI Bridge downloads then uploads through two independent
+ * SSH hops rather than assuming remote peers can communicate directly.
  */
 test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real OpenSSH', SKIP, async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-ssh-'));
+    const scpLog = path.join(root, 'scp.log');
+    const previousScpLog = process.env.AGENT_PIVOT_SCP_LOG;
+    process.env.AGENT_PIVOT_SCP_LOG = scpLog;
+    t.after(() => {
+        if (previousScpLog === undefined) delete process.env.AGENT_PIVOT_SCP_LOG;
+        else process.env.AGENT_PIVOT_SCP_LOG = previousScpLog;
+    });
     const localRoot = path.join(root, 'local');
     const remoteOne = fs.mkdtempSync(path.join(os.homedir(), 'agent-pivot-file-transfer-ssh-one-'));
     const remoteTwo = fs.mkdtempSync(path.join(os.homedir(), 'agent-pivot-file-transfer-ssh-two-'));
@@ -380,4 +387,16 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.equal(copiedRelay.status, 'ok', copiedRelay.message);
     assert.deepEqual(copiedRelay.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
     assert.equal(fs.readFileSync(path.join(remoteTwo, remoteSpecialFile), 'utf8'), 'from first machine\n');
+    const scpCalls = fs.readFileSync(scpLog, 'utf8').trim().split('\n');
+    const relayCalls = scpCalls.slice(-2);
+    const sourceAlias = managedSshAlias(machines[0].id, machines[0].name, machines[0].connection.host);
+    const destinationAlias = managedSshAlias(machines[1].id, machines[1].name, machines[1].connection.host);
+    assert.equal(relayCalls.length, 2,
+        'a managed-to-managed copy must have one download and one upload through the UI Bridge host');
+    assert.equal(relayCalls.some(call => call.includes('-3')), false,
+        'the relay must not depend on SCP remote-to-remote mode');
+    assert.match(relayCalls[0], new RegExp(`${sourceAlias}:`),
+        'the first hop must download from the selected source machine');
+    assert.match(relayCalls[1], new RegExp(`${destinationAlias}:`),
+        'the second hop must upload to the selected destination machine');
 });

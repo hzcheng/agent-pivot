@@ -3045,8 +3045,10 @@ async function initializeDashboard(
                 if (!isFileTransferRemoteDirectoryRequest(message)) {
                     return;
                 }
+                outputChannel.appendLine(`[FileTransfer] managed directory requested: side=${message.side} machineId=${message.machineId}`);
                 if (managedRemoteSnapshot.lifecycle !== 'active'
                     || !managedRemoteSnapshot.revisionId) {
+                    outputChannel.appendLine('[FileTransfer] managed directory unavailable: catalog is not active');
                     await provider.postMessage(fileTransferDirectoryFailure(message,
                         'Managed Machines are unavailable. Refresh and try again.'));
                     return;
@@ -3063,8 +3065,10 @@ async function initializeDashboard(
                         side: message.side,
                         root,
                     });
+                    outputChannel.appendLine(`[FileTransfer] managed directory listed: side=${message.side} entries=${root.entries.length}`);
                 } catch (error) {
                     const rawMessage = error instanceof Error ? error.message : String(error);
+                    outputChannel.appendLine(`[FileTransfer] managed directory failed: side=${message.side} error=${rawMessage.replace(/[\r\n]+/gu, ' ').slice(0, 320)}`);
                     await provider.postMessage(fileTransferDirectoryFailure(message,
                         rawMessage.slice(0, 320)));
                 }

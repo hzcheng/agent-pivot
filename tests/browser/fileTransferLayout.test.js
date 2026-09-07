@@ -156,3 +156,29 @@ test('FILE-TRANSFER-UI-006 keeps the selected Managed Machine after its director
     assert.match(await page.locator('[data-file-transfer-pane="left"] [data-file-transfer-pane-status]').textContent(),
         /0 items in this Managed Machine directory/i);
 });
+
+test('FILE-TRANSFER-UI-006 keeps a selected Managed Machine actionable when its directory reply is lost', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'],
+            fileTransferDirectoryRequestTimeoutMs: 20,
+            postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+    const endpoint = page.locator('[data-file-transfer-endpoint="left"]');
+    await endpoint.selectOption('managed:machine:build');
+    await page.waitForTimeout(50);
+
+    assert.equal(await endpoint.inputValue(), 'managed:machine:build');
+    assert.match(await page.locator('[data-file-transfer-pane="left"] [data-file-transfer-pane-status]').textContent(),
+        /did not reply.*Refresh/i);
+});

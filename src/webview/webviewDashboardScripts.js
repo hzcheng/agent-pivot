@@ -387,6 +387,9 @@ function initDashboard(options) {
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
         ? Number(options.panelRequestTimeoutMs)
         : 5000;
+    var fileTransferDirectoryRequestTimeoutMs = Number(options.fileTransferDirectoryRequestTimeoutMs) > 0
+        ? Number(options.fileTransferDirectoryRequestTimeoutMs)
+        : 20000;
     var scheduleTimeout = options.setTimeout
         || (typeof setTimeout === 'function' ? setTimeout : null);
     var cancelTimeout = options.clearTimeout
@@ -789,6 +792,7 @@ function initDashboard(options) {
         var localRoots = { left: null, right: null };
         var paneFailures = { left: null, right: null };
         var pendingLocalRootRequests = { left: null, right: null };
+        var pendingLocalRootTimeouts = { left: null, right: null };
         var selectedEntries = { left: new Set(), right: new Set() };
         var directoryHistory = { left: [], right: [] };
         var fileTransferSort = { left: 'name', right: 'name' };
@@ -1174,10 +1178,31 @@ function initDashboard(options) {
             openReview();
         }
 
+        function clearPendingDirectoryRequest(side) {
+            if (pendingLocalRootTimeouts[side] !== null) {
+                cancelTimeout(pendingLocalRootTimeouts[side]);
+                pendingLocalRootTimeouts[side] = null;
+            }
+        }
+
+        function startDirectoryRequest(side, requestId) {
+            clearPendingDirectoryRequest(side);
+            pendingLocalRootRequests[side] = requestId;
+            if (!scheduleTimeout) return;
+            pendingLocalRootTimeouts[side] = scheduleTimeout(function () {
+                if (pendingLocalRootRequests[side] !== requestId) return;
+                pendingLocalRootRequests[side] = null;
+                pendingLocalRootTimeouts[side] = null;
+                localRoots[side] = null;
+                paneFailures[side] = 'The directory request did not reply. Check the local Agent Pivot UI Bridge.';
+                updatePair();
+            }, fileTransferDirectoryRequestTimeoutMs);
+        }
+
         function requestLocalRoot(side) {
             var requestId = 'file-transfer-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
-            pendingLocalRootRequests[side] = requestId;
+            startDirectoryRequest(side, requestId);
             options.postMessage({
                 type: 'file-transfer-select-local-root',
                 version: 1,
@@ -1189,7 +1214,7 @@ function initDashboard(options) {
         function requestRemoteDirectory(side, machineId) {
             var requestId = 'file-transfer-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
-            pendingLocalRootRequests[side] = requestId;
+            startDirectoryRequest(side, requestId);
             options.postMessage({
                 type: 'file-transfer-list-remote-directory',
                 version: 1,
@@ -1208,7 +1233,7 @@ function initDashboard(options) {
             }
             var requestId = 'file-transfer-open-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
-            pendingLocalRootRequests[side] = requestId;
+            startDirectoryRequest(side, requestId);
             selectedEntries[side].clear();
             if (selector.value === 'local') {
                 options.postMessage({
@@ -1240,7 +1265,7 @@ function initDashboard(options) {
             if (!selector || !root || !navigationPath) return;
             var requestId = 'file-transfer-path-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
-            pendingLocalRootRequests[side] = requestId;
+            startDirectoryRequest(side, requestId);
             selectedEntries[side].clear();
             directoryHistory[side] = [];
             var endpoint = selector.value === 'local'
@@ -1263,6 +1288,7 @@ function initDashboard(options) {
             if (side !== 'left' && side !== 'right' || !selector) return;
             localRoots[side] = null;
             paneFailures[side] = null;
+            clearPendingDirectoryRequest(side);
             pendingLocalRootRequests[side] = null;
             selectedEntries[side].clear();
             directoryHistory[side] = [];
@@ -1368,6 +1394,7 @@ function initDashboard(options) {
                 || pendingLocalRootRequests[message.side] !== message.requestId) {
                 return false;
             }
+            clearPendingDirectoryRequest(message.side);
             pendingLocalRootRequests[message.side] = null;
             if ((message.type === 'file-transfer-local-root-selected'
                 || message.type === 'file-transfer-remote-directory-listed') && message.root) {

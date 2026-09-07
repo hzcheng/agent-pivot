@@ -7350,7 +7350,7 @@
   {
     "id": "FILE-TRANSFER-UI-018",
     "domain": "webview",
-    "title": "File Transfer exposes an explicit folder-name control, renders path-like entry names as tree labels, and keeps endpoint controls visible while long directories are browsed",
+    "title": "File Transfer hides path-like hidden entries by default, exposes an explicit folder-name control, and keeps endpoint controls visible while long directories are browsed",
     "priority": "P0",
     "status": "automated",
     "owners": [

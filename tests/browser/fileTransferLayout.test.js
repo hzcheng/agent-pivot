@@ -190,7 +190,7 @@ test('FILE-TRANSFER-UI-017 expands a folder inline without replacing its endpoin
         'the copy-source indicator must stay out of the layout until a file is selected');
 });
 
-test('FILE-TRANSFER-UI-018 expands from an explicit folder-name control, renders path-like names as tree labels, and keeps endpoint controls visible while browsing', async t => {
+test('FILE-TRANSFER-UI-018 hides path-like hidden entries until Show hidden is selected, expands from an explicit folder-name control, and keeps endpoint controls visible while browsing', async t => {
     const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><style>
@@ -229,6 +229,11 @@ test('FILE-TRANSFER-UI-018 expands from an explicit folder-name control, renders
     });
 
     const folderName = page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] [data-file-transfer-directory-name]');
+    assert.equal(await folderName.count(), 0,
+        'an absolute SFTP entry whose final name starts with a dot must stay hidden by default');
+    await page.locator('[data-file-transfer-show-hidden="left"]').check();
+    assert.equal(await folderName.count(), 1,
+        'Show hidden must reveal the same absolute-path entry without reloading the endpoint');
     assert.equal(await folderName.textContent(), '.config',
         'the tree must show a folder label, not a redundant type and absolute path');
     await folderName.click();

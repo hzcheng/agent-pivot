@@ -12796,6 +12796,10 @@ function fileTransferTreeLabel(name) {
     return parts.length ? parts[parts.length - 1] : normalized || 'Unnamed item';
 }
 
+function isHiddenFileTransferEntry(name) {
+    return fileTransferTreeLabel(name).charAt(0) === '.';
+}
+
 function renderLocalFileTransferEntries(
     fileList,
     entries,
@@ -13931,7 +13935,7 @@ function initDashboard(options) {
             var directoryView = localRoots[side];
             var treeEntries = directoryView ? visibleFileTransferTreeEntries(side, directoryView)
                 .filter(function (treeEntry) {
-                    return showHiddenEntries[side] || treeEntry.entry.name.charAt(0) !== '.';
+                    return showHiddenEntries[side] || !isHiddenFileTransferEntry(treeEntry.entry.name);
                 }) : [];
             if (filter) {
                 filter.disabled = !directoryView;
@@ -14832,7 +14836,7 @@ function initDashboard(options) {
                     var selectedDirectory = loadedDirectories[side][selectedEntryDirectoryIds[side]];
                     if (selectedDirectory) {
                         selectedDirectory.entries.forEach(function (entry) {
-                            if (entry.name.charAt(0) === '.') selectedEntries[side].delete(entry.id);
+                            if (isHiddenFileTransferEntry(entry.name)) selectedEntries[side].delete(entry.id);
                         });
                     }
                     if (selectedEntries[side].size === 0) selectedEntryDirectoryIds[side] = null;

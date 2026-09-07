@@ -370,7 +370,7 @@ behavior; cancellation; and Machines that cannot reach one another.
 
 ### 10.4 UI implementation path
 
-- Add a first-level File Transfer tab/surface in the Dashboard shell and its
+- Add a first-level File Transfer tab/surface in the Agent Pivot shell and its
   generated/runtime Webview copies. It owns a small view state machine:
   `empty → pairing → browsing → reviewing → queued/running → settled`.
 - Use host-owned mutation messages following the existing Webview mutation

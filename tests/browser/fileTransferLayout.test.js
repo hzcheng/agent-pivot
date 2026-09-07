@@ -8,6 +8,9 @@ const { chromium } = require('playwright-chromium');
 
 const { getFileTransferContent } = require('../../out/webview/webviewFileTransferContent');
 const styles = fs.readFileSync(path.join(__dirname, '../../media/styles.css'), 'utf8');
+const dashboardScript = fs.readFileSync(
+    path.join(__dirname, '../../src/webview/webviewDashboardScripts.js'), 'utf8'
+);
 
 let browser;
 
@@ -53,7 +56,7 @@ async function openPage(t, width) {
     return page;
 }
 
-test('FILE-TRANSFER-UI-011 keeps sorting controls readable without horizontal overflow', async t => {
+test('FILE-TRANSFER-EDITOR-001 FILE-TRANSFER-UI-011 keeps sorting controls readable and keeps the inactive review sheet out of layout', async t => {
     for (const width of [480, 280]) {
         const page = await openPage(t, width);
         const metrics = await page.evaluate(() => {
@@ -77,5 +80,33 @@ test('FILE-TRANSFER-UI-011 keeps sorting controls readable without horizontal ov
             assert.ok(toolbar.height >= 24,
                 `width ${width}: File Transfer toolbar controls are clipped`);
         }
+        assert.equal(await page.locator('[data-file-transfer-review-sheet]').isVisible(), false,
+            `width ${width}: File Transfer review must remain hidden until Review copy is selected`);
     }
+});
+
+test('FILE-TRANSFER-EDITOR-001 opens a directory with one click while preserving its copy checkbox', async t => {
+    const page = await browser.newPage({ viewport: { width: 480, height: 320 } });
+    t.after(() => page.close());
+    await page.setContent('<!doctype html><ul data-file-transfer-file-list></ul>');
+    await page.addScriptTag({ content: dashboardScript });
+    await page.evaluate(() => {
+        window.__fileTransferOpenedDirectories = [];
+        renderLocalFileTransferEntries(
+            document.querySelector('[data-file-transfer-file-list]'),
+            [{ id: '0123456789abcdef0123456789abcdef', name: 'worktree', kind: 'directory' }],
+            new Set(),
+            () => {},
+            directoryId => window.__fileTransferOpenedDirectories.push(directoryId),
+            () => {},
+            () => {},
+        );
+    });
+    await page.locator('[data-file-transfer-entry-id]').click();
+    assert.deepEqual(await page.evaluate(() => window.__fileTransferOpenedDirectories),
+        ['0123456789abcdef0123456789abcdef']);
+
+    await page.locator('[data-file-transfer-entry-id] input').click();
+    assert.deepEqual(await page.evaluate(() => window.__fileTransferOpenedDirectories),
+        ['0123456789abcdef0123456789abcdef']);
 });

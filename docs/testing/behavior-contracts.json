@@ -7336,7 +7336,8 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/integration/dashboard/webviewState.test.js"
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/browser/fileTransferLayout.test.js"
     ],
     "evidence": [
       "src/dashboard.ts",

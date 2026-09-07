@@ -42,8 +42,12 @@ function renderLocalFileTransferEntries(
         }
         row.setAttribute('data-file-transfer-entry-id', entry.id);
         if (entry.kind === 'directory') {
-            row.title = 'Double-click to open this folder';
-            row.addEventListener('dblclick', function () { onOpenDirectory(entry.id); });
+            row.title = 'Open this folder';
+            row.addEventListener('click', function (event) {
+                var target = event.target;
+                if (target && typeof target.closest === 'function' && target.closest('input')) return;
+                onOpenDirectory(entry.id);
+            });
         }
         if (entry.kind === 'directory' || entry.kind === 'file') {
             row.draggable = true;

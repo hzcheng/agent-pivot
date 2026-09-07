@@ -1,5 +1,7 @@
 'use strict';
 
+// Covers WEBVIEW-AI-PROMPT-INTERACTION-001 and WEBVIEW-AI-PROMPT-MUTATION-001.
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');

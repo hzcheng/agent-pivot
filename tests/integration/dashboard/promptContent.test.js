@@ -1,5 +1,7 @@
 'use strict';
 
+// Covers WEBVIEW-AI-PROMPT-INTERACTION-001.
+
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { getAiPanelContent, getPromptSurfaceContent } = require('../../../out/prompts/webviewContent');
@@ -28,13 +30,17 @@ test('AI Prompt content exposes only Prompts and Skills tabs', () => {
     assert.doesNotMatch(html, /ai-tab-(?:mcp|hooks)/);
 });
 
-test('AI Prompt content renders a compact General-first tree and no local search field', () => {
+test('AI Prompt content renders a compact General-first tree with icon actions and no local search field', () => {
     const html = getPromptSurfaceContent(snapshot());
     assert.match(html, /data-prompt-group-id="general"/);
     assert.match(html, /Default group for prompts not assigned to a custom group/);
     assert.match(html, /data-prompt-group-id="feature"/);
     assert.match(html, /Review implementation/);
-    assert.match(html, />Use<\/button>/);
+    assert.match(html, /data-action="prompt-group-new"[^>]*title="New group"/);
+    assert.match(html, /data-action="prompt-new"[^>]*title="New Prompt"/);
+    assert.match(html, /data-action="prompt-insert-terminal"[^>]*title="Use in active terminal"/);
+    assert.doesNotMatch(html, />Use<\/button>/);
+    assert.doesNotMatch(html, /class="prompt-preview"/);
     assert.doesNotMatch(html, /type="search"/);
 });
 

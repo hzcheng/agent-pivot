@@ -10460,6 +10460,18 @@ function initSkillPanel(options) {
         return null;
     }
 
+    function findSkillMenuButton(dirPath) {
+        var buttons = document.querySelectorAll
+            ? document.querySelectorAll('[data-skill-menu]')
+            : [];
+        for (var i = 0; i < buttons.length; i++) {
+            if (buttons[i].getAttribute('data-skill-menu') === dirPath) {
+                return buttons[i];
+            }
+        }
+        return null;
+    }
+
     function markSkillScopeActionPending(button, pending) {
         if (!button || !pending) {
             return;
@@ -10588,12 +10600,6 @@ function initSkillPanel(options) {
             closeSkillFolderMenu();
         }
         var folderMenuState = captureSkillFolderMenuState();
-        var focused = document.activeElement && document.activeElement.getAttribute
-            ? {
-                dirPath: document.activeElement.getAttribute('data-skill-scope-action'),
-                operation: document.activeElement.getAttribute('data-skill-scope-operation'),
-            }
-            : null;
         var candidatePending = settlement ? skillScopeActionPending[settlement.requestId] : null;
         var settledPending = candidatePending && isMatchingSkillScopeSettlement(settlement, candidatePending)
             ? candidatePending
@@ -10611,25 +10617,14 @@ function initSkillPanel(options) {
         layoutSkillsSplit();
         restoreSkillsListScroll(nextSkillsWrapper, listScroll);
         announceSkillScopeSettlement(settlement, settledPending);
-        if (focused && focused.dirPath) {
-            var nextFocused = findSkillScopeActionButton(focused.dirPath, focused.operation);
-            if (!nextFocused && settledPending && settlement.ok && settlement.resultDirPath) {
-                nextFocused = findSkillScopeActionButton(settlement.resultDirPath, 'apply-to-project');
-            }
+        if (settledPending) {
+            var focusDir = settlement.ok && settlement.resultDirPath
+                ? settlement.resultDirPath
+                : settledPending.dirPath;
+            var nextFocused = findSkillMenuButton(focusDir);
             if (nextFocused && typeof nextFocused.focus === 'function') {
-                // The target may sit in a collapsed detail (e.g. the record moved
-                // scopes): open it so the focus continuation stays visible.
-                var focusHolder = nextFocused.closest('.skill-row-holder');
-                var focusDetail = focusHolder && focusHolder.querySelector('.skill-detail');
-                if (focusDetail && focusDetail.hidden) {
-                    focusDetail.hidden = false;
-                    var focusRow = focusHolder.querySelector('.skill-row[data-skill-dir]');
-                    if (focusRow) {
-                        focusRow.classList.add('skill-detail-open');
-                    }
-                }
                 nextFocused.focus();
-            } else if (settledPending && nextSkillsWrapper && typeof nextSkillsWrapper.focus === 'function') {
+            } else if (nextSkillsWrapper && typeof nextSkillsWrapper.focus === 'function') {
                 nextSkillsWrapper.setAttribute('tabindex', '-1');
                 nextSkillsWrapper.focus();
             }
@@ -10889,9 +10884,19 @@ function initSkillPanel(options) {
         var holder = button.closest('.skill-row-holder');
         var menu = document.createElement('div');
         menu.className = 'custom-context-menu skill-folder-menu skill-menu visible';
-        var openButton = holder && holder.querySelector('.skill-acts [data-skill-open]');
-        var openItem = appendMenuAction(menu, 'skill-menu-open', 'Open SKILL.md');
-        openItem.setAttribute('data-skill-open', openButton ? openButton.getAttribute('data-skill-open') || '' : '');
+        var skillRow = holder && holder.querySelector('.skill-row[data-skill-file-path]');
+        var editItem = appendMenuAction(menu, 'skill-menu-open', 'Edit');
+        editItem.setAttribute('data-skill-open', skillRow ? skillRow.getAttribute('data-skill-file-path') || '' : '');
+        var scopeAction = holder && holder.querySelector('[data-skill-scope-action]');
+        if (scopeAction) {
+            var scopeItem = appendMenuAction(menu, 'skill-menu-scope-action', scopeAction.textContent || 'Use in project');
+            scopeItem.setAttribute('data-skill-scope-action', scopeAction.getAttribute('data-skill-scope-action') || '');
+            scopeItem.setAttribute('data-skill-scope-operation', scopeAction.getAttribute('data-skill-scope-operation') || '');
+            if (scopeAction.getAttribute('aria-disabled') === 'true') {
+                scopeItem.setAttribute('aria-disabled', 'true');
+                scopeItem.classList.add('pending');
+            }
+        }
         if (holder && holder.querySelector('[data-skill-centralize]')) {
             var centralizeItem = appendMenuAction(menu, 'skill-menu-centralize', 'Centralize');
             centralizeItem.setAttribute('data-skill-centralize', dirPath);
@@ -11697,17 +11702,6 @@ function initSkillPanel(options) {
             closeSkillFolderMenu();
             options.postMessage({ type: 'open-skill-file', skillFilePath: openButton.getAttribute('data-skill-open') });
             return;
-        }
-        var skillCard = event.target && event.target.closest ? event.target.closest('.skill-row[data-skill-dir]') : null;
-        if (skillCard) {
-            if (event.target.closest && event.target.closest('.skill-detail')) {
-                return;
-            }
-            var detail = getSkillRowDetail(skillCard);
-            if (detail) {
-                detail.hidden = !detail.hidden;
-                skillCard.classList.toggle('skill-detail-open', !detail.hidden);
-            }
         }
     }
 

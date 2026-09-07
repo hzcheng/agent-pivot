@@ -27,7 +27,7 @@ export interface SkillPanelView {
 }
 import { sanitizeProjectName } from '../models';
 import { escapeAttribute } from '../webviewHtmlEscape';
-import { collapse as collapseIcon, edit as editIcon, folder as folderIcon, puzzle } from '../webviewIcons';
+import { collapse as collapseIcon, folder as folderIcon, moreActions, puzzle } from '../webviewIcons';
 import type { SkillCollectionSuggestion } from './knownCollections';
 
 const AGENTS: SkillAgentId[] = ['kimi', 'claude', 'codex'];
@@ -158,7 +158,6 @@ function getSkillDetail(record: SkillRecord, view: SkillPanelView, duplicate?: S
         <p class="skill-detail-title">Agents</p>
         ${rows}${driftRows}${copyRow}
         <div class="skill-detail-actions">
-            <button type="button" class="skill-text-btn primary" data-skill-open="${escapeAttribute(record.skillFilePath)}">Open SKILL.md</button>
             ${moveEditButton}
             ${scopeActionButton}
         </div>
@@ -182,17 +181,16 @@ function getSkillDiv(record: SkillRecord, view: SkillPanelView): string {
         : `<button type="button" class="skill-hover-centralize" title="Move into the shared store and link from agents" data-skill-centralize="${dirPath}">Centralize</button>`;
     return `
 <div class="skill-row-holder" draggable="true" data-skill-scope="${record.scope}">
-    <div class="skill-row${record.central ? '' : ' unmanaged'}" data-skill-dir="${dirPath}" data-skill-agents="${activeAgents}">
+    <div class="skill-row${record.central ? '' : ' unmanaged'}" data-skill-dir="${dirPath}" data-skill-file-path="${escapeAttribute(record.skillFilePath)}" data-skill-agents="${activeAgents}">
         <span class="skill-ibox" aria-hidden="true">${puzzle}</span>
         <span class="skill-meta">
             <span class="skill-name">${name}${warnGlyph}</span>
             <span class="skill-desc" title="${description}">${description}</span>
         </span>
         <span class="skill-rest">${cardAgentDots(record)}</span>
+        <button type="button" class="skill-icon-btn skill-row-more" title="More actions" aria-label="More actions for ${name}" data-skill-menu="${dirPath}">${moreActions}</button>
         <span class="skill-acts">
             ${centralizeAction}
-            <button type="button" class="skill-icon-btn" title="Open SKILL.md" data-skill-open="${escapeAttribute(record.skillFilePath)}">${editIcon}</button>
-            <button type="button" class="skill-icon-btn" title="More actions" data-skill-menu="${dirPath}">⋯</button>
         </span>
     </div>
     ${getSkillDetail(record, view, duplicate)}

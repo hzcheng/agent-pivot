@@ -36,7 +36,7 @@ function groupForm(): string {
 
 function groupMenu(group: PromptGroupV1): string {
     if (group.kind === 'general') {
-        return '<span class="prompt-general-info" title="Default group for prompts not assigned to a custom group.">General</span>';
+        return '';
     }
     const id = escapeHtml(group.id);
     return `<details class="prompt-row-menu"><summary aria-label="${escapeHtml(`${group.name} actions`)}">…</summary><div><button type="button" data-action="prompt-delete-group" data-prompt-group-id="${id}">Delete group</button></div></details>`;
@@ -60,14 +60,17 @@ function promptItem(prompt: PromptV2, groups: readonly PromptGroupV1[], selected
     const selected = prompt.id === selectedPromptId;
     return `<li class="prompt-item" data-prompt-id="${id}" title="${escapeHtml(preview(prompt))}">
         <div class="prompt-item-view"><button type="button" class="prompt-drag-handle steward-icon-button" draggable="true" data-drag-prompt-id="${id}" aria-label="${escapeHtml(`Drag ${prompt.name} to reorder`)}">${Icons.drag}</button>
-        <button type="button" class="prompt-item-main" data-action="prompt-edit" data-prompt-id="${id}"><strong class="prompt-name">${escapeHtml(prompt.name)}</strong>${selected ? `<span class="prompt-default-marker" aria-label="Default Prompt">${Icons.starFilled}</span>` : ''}<span class="prompt-preview">${escapeHtml(preview(prompt))}</span></button>
-        <button type="button" class="prompt-use-button" data-action="prompt-insert-terminal" data-prompt-id="${id}">Use</button>${promptMenu(prompt, groups, selected)}</div>
+        <button type="button" class="prompt-item-main" data-action="prompt-edit" data-prompt-id="${id}"><strong class="prompt-name">${escapeHtml(prompt.name)}</strong>${selected ? `<span class="prompt-default-marker" aria-label="Default Prompt">${Icons.starFilled}</span>` : ''}</button>
+        <button type="button" class="prompt-use-button steward-icon-button" data-action="prompt-insert-terminal" data-prompt-id="${id}" title="Use in active terminal" aria-label="${escapeHtml(`Use ${prompt.name} in the active terminal`)}">${Icons.terminalLine}</button>${promptMenu(prompt, groups, selected)}</div>
         ${promptForm(prompt)}</li>`;
 }
 
 function groupContent(group: PromptGroupV1, snapshot: PromptPanelSnapshot): string {
     const prompts = snapshot.prompts.filter(prompt => prompt.groupId === group.id);
-    return `<section class="prompt-group" data-prompt-group-id="${escapeHtml(group.id)}"><header class="prompt-group-header"><button type="button" class="prompt-group-toggle" data-action="prompt-toggle-group" aria-expanded="true" aria-label="Collapse ${escapeHtml(group.name)}">▾</button><strong>${escapeHtml(group.name)}</strong><span class="steward-meta">${prompts.length}</span><button type="button" class="prompt-group-add" data-action="prompt-new" data-prompt-group-id="${escapeHtml(group.id)}" aria-label="Create Prompt in ${escapeHtml(group.name)}">＋</button>${groupMenu(group)}</header><ol class="prompt-list" data-prompt-list data-prompt-group-id="${escapeHtml(group.id)}">${prompts.length ? prompts.map(prompt => promptItem(prompt, snapshot.groups, snapshot.selectedPromptId)).join('') : '<li class="prompt-empty steward-meta">No Prompts yet.</li>'}</ol></section>`;
+    const title = group.kind === 'general'
+        ? ' title="Default group for prompts not assigned to a custom group."'
+        : '';
+    return `<section class="prompt-group" data-prompt-group-id="${escapeHtml(group.id)}"><header class="prompt-group-header"><button type="button" class="prompt-group-toggle" data-action="prompt-toggle-group" aria-expanded="true" aria-label="Collapse ${escapeHtml(group.name)}">▾</button><strong${title}>${escapeHtml(group.name)}</strong><span class="steward-meta">${prompts.length}</span><button type="button" class="prompt-group-add" data-action="prompt-new" data-prompt-group-id="${escapeHtml(group.id)}" aria-label="Create Prompt in ${escapeHtml(group.name)}">＋</button>${groupMenu(group)}</header><ol class="prompt-list" data-prompt-list data-prompt-group-id="${escapeHtml(group.id)}">${prompts.length ? prompts.map(prompt => promptItem(prompt, snapshot.groups, snapshot.selectedPromptId)).join('') : '<li class="prompt-empty steward-meta">No Prompts yet.</li>'}</ol></section>`;
 }
 
 function renderAiPanel(promptSurface: string, skillsSurface?: string): string {
@@ -83,7 +86,7 @@ export function getPromptSurfaceContent(snapshot: PromptPanelSnapshot): string {
     const treeSnapshot = { ...snapshot, groups, prompts } as PromptPanelSnapshot;
     const readOnly = snapshot.readOnlyReason !== undefined;
     const content = readOnly ? `<div class="prompt-read-only steward-empty-state" role="alert"><p>${snapshot.readOnlyReason === 'unsupported-version' ? 'AI Prompts require a newer version of Agent Pivot.' : 'The saved Prompt data is invalid. Correct it before editing.'}</p></div>` : `${promptForm()}${groupForm()}<div class="prompt-tree">${groups.map(group => groupContent(group, treeSnapshot)).join('')}</div>`;
-    return `<div class="prompt-surface" data-prompt-surface data-prompt-revision="${snapshot.revision}"${readOnly ? ' data-prompt-read-only="true"' : ''}><header class="prompt-header"><div><strong>Prompt library</strong><span class="steward-meta">${snapshot.prompts.length} Prompts</span></div><div><button type="button" class="steward-button" data-action="prompt-group-new"${readOnly ? ' disabled' : ''}>New group</button><button type="button" class="steward-button steward-button-primary" data-action="prompt-new" data-prompt-group-id="general"${readOnly ? ' disabled' : ''}>New Prompt</button></div></header>${content}<div class="prompt-status" data-prompt-status role="status" aria-live="polite" aria-atomic="true"></div></div>`;
+    return `<div class="prompt-surface" data-prompt-surface data-prompt-revision="${snapshot.revision}"${readOnly ? ' data-prompt-read-only="true"' : ''}><header class="prompt-header"><div><strong>Prompt library</strong><span class="steward-meta">${snapshot.prompts.length} Prompts</span></div><div class="prompt-header-actions"><button type="button" class="steward-icon-button" data-action="prompt-group-new" title="New group" aria-label="New group"${readOnly ? ' disabled' : ''}>${Icons.folder}</button><button type="button" class="steward-icon-button prompt-create-button" data-action="prompt-new" data-prompt-group-id="general" title="New Prompt" aria-label="New Prompt"${readOnly ? ' disabled' : ''}>${Icons.add}</button></div></header>${content}<div class="prompt-status" data-prompt-status role="status" aria-live="polite" aria-atomic="true"></div></div>`;
 }
 
 export function getPromptRecoveryContent(snapshot: PromptPanelSnapshot): string {

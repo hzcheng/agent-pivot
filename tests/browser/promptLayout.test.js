@@ -1,5 +1,7 @@
 'use strict';
 
+// Covers WEBVIEW-AI-PROMPT-INTERACTION-001.
+
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -40,6 +42,9 @@ test('Prompt tree remains a compact single-column sidebar at 240px', async () =>
         assert.equal(await page.locator('input[type="search"]').count(), 0);
         assert.equal(await page.locator('[data-prompt-group-id="general"] li[data-prompt-id="review"]').count(), 1);
         assert.equal(await page.locator('[data-prompt-group-id="feature"] li[data-prompt-id="plan"]').count(), 1);
+        assert.equal(await page.locator('.prompt-item .prompt-preview').count(), 0);
+        const promptRow = await page.locator('[data-prompt-id="review"] .prompt-item-view').evaluate(node => node.getBoundingClientRect().height);
+        assert.ok(promptRow <= 36, `one-line Prompt row should remain compact, received ${promptRow}px`);
     } finally { await browser.close(); }
 });
 

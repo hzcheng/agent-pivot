@@ -185,7 +185,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             });
             return selected && selected[0] ? selected[0].fsPath : undefined;
         },
-    }, managedSshProjection);
+    }, managedSshProjection, message => outputChannel.appendLine(`[FileTransfer] ${message}`));
     const instanceId = crypto.randomBytes(16).toString('hex');
     const store = new LocalStore(bridgeRoot, instanceId, bridgeProcessId);
     const productionStore = new ProductionAttentionStore(path.join(bridgeRoot, 'production-attention', 'v1'), bridgeProcessId);

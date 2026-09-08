@@ -332,7 +332,7 @@ function parseFileTransferCopyResult(value: unknown): FileTransferCopyResult | n
     const failed = value.status === 'failed';
     const expectedKeys = [
         'status', 'completedItems', 'skippedItems', 'totalItems',
-    ].concat(failed ? ['message'] : []);
+    ].concat(failed ? ['message'] : []).concat(value.diagnostic === undefined ? [] : ['diagnostic']);
     if (!hasExactKeys(value, expectedKeys)
         || (value.status !== 'copied' && value.status !== 'cancelled' && !failed)
         || typeof value.completedItems !== 'number' || !Number.isSafeInteger(value.completedItems)
@@ -343,7 +343,8 @@ function parseFileTransferCopyResult(value: unknown): FileTransferCopyResult | n
         || value.totalItems < 1
         || value.completedItems + value.skippedItems > value.totalItems
         || (failed && (typeof value.message !== 'string' || value.message.length < 1
-            || value.message.length > 320 || /[\0\r\n]/u.test(value.message)))) {
+            || value.message.length > 320 || /[\0\r\n]/u.test(value.message)))
+        || (value.diagnostic !== undefined && !validFileTransferCopyFailureDiagnostic(value.diagnostic))) {
         return null;
     }
     return value as unknown as FileTransferCopyResult;
@@ -359,10 +360,15 @@ function parseFileTransferCopyStatus(value: unknown): FileTransferCopyStatus | {
     const totalItems = value.totalItems;
     const expectedKeys = [
         'status', 'phase', 'completedItems', 'skippedItems', 'totalItems',
-    ].concat(value.currentItemName === undefined ? [] : ['currentItemName']);
+    ].concat(value.currentItemName === undefined ? [] : ['currentItemName'])
+        .concat(value.hop === undefined ? [] : ['hop'])
+        .concat(value.transferredBytes === undefined ? [] : ['transferredBytes'])
+        .concat(value.totalBytes === undefined ? [] : ['totalBytes'])
+        .concat(value.bytesPerSecond === undefined ? [] : ['bytesPerSecond']);
     if (!hasExactKeys(value, expectedKeys)
         || value.status !== 'running'
-        || (value.phase !== 'preparing' && value.phase !== 'copying')
+        || (value.phase !== 'preparing' && value.phase !== 'downloading'
+            && value.phase !== 'uploading' && value.phase !== 'verifying')
         || typeof completedItems !== 'number' || !Number.isSafeInteger(completedItems) || completedItems < 0
         || typeof skippedItems !== 'number' || !Number.isSafeInteger(skippedItems) || skippedItems < 0
         || typeof totalItems !== 'number' || !Number.isSafeInteger(totalItems) || totalItems < 1
@@ -370,10 +376,29 @@ function parseFileTransferCopyStatus(value: unknown): FileTransferCopyStatus | {
         || (value.currentItemName !== undefined
             && (typeof value.currentItemName !== 'string'
                 || value.currentItemName.length < 1 || value.currentItemName.length > 255
-                || /[\0\r\n]/u.test(value.currentItemName)))) {
+                || /[\0\r\n]/u.test(value.currentItemName)))
+        || (value.hop !== undefined && value.hop !== 'source-to-relay'
+            && value.hop !== 'relay-to-target' && value.hop !== 'source-to-target')
+        || ((value.transferredBytes === undefined) !== (value.totalBytes === undefined))
+        || (value.transferredBytes !== undefined
+            && (!Number.isSafeInteger(value.transferredBytes) || value.transferredBytes < 0
+                || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0
+                || value.transferredBytes > value.totalBytes))
+        || (value.bytesPerSecond !== undefined
+            && (!Number.isSafeInteger(value.bytesPerSecond) || value.bytesPerSecond < 0))) {
         return null;
     }
     return value as unknown as FileTransferCopyStatus;
+}
+
+function validFileTransferCopyFailureDiagnostic(value: unknown): boolean {
+    if (!isRecord(value) || !hasExactKeys(value, ['phase', 'hop', 'code'])) { return false; }
+    return (value.phase === 'preparing' || value.phase === 'downloading'
+        || value.phase === 'uploading' || value.phase === 'verifying')
+        && (value.hop === 'source-to-relay' || value.hop === 'relay-to-target'
+            || value.hop === 'source-to-target')
+        && (value.code === 'space' || value.code === 'network' || value.code === 'permission'
+            || value.code === 'verification' || value.code === 'cancelled' || value.code === 'unknown');
 }
 
 function parseFileTransferLocalRootResponse(value: unknown): FileTransferLocalRootResponse | null {

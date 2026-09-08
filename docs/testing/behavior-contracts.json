@@ -7363,6 +7363,27 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-OBSERVABILITY-001",
+    "domain": "webview",
+    "title": "File Transfer exposes its live source-to-relay and relay-to-target stage, byte progress, and transfer speed without revealing local staging paths",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js",
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeProtocol.ts",
+      "src/projects/managedRemote/bridgeClient.ts",
+      "src/dashboard.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-UI-017",
     "domain": "webview",
     "title": "File Transfer expands folders inline as a lazy directory tree without resetting the endpoint or current root",

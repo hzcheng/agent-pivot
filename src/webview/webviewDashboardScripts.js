@@ -257,20 +257,29 @@ function validateFileTransferCopySettlement(message) {
         return Object.keys(message).sort().join('\n') === [
             'requestId', 'status', 'type', 'value', 'version',
         ].join('\n')
-            && Object.keys(result).sort().join('\n') === [
-                'completedItems', 'message', 'skippedItems', 'status', 'totalItems',
-            ].join('\n')
+            && Object.keys(result).sort().join('\n') === (result.diagnostic === undefined
+                ? ['completedItems', 'message', 'skippedItems', 'status', 'totalItems']
+                : ['completedItems', 'diagnostic', 'message', 'skippedItems', 'status', 'totalItems']).join('\n')
             && result.status === 'failed'
             && Number.isSafeInteger(result.completedItems) && result.completedItems >= 0
             && Number.isSafeInteger(result.skippedItems) && result.skippedItems >= 0
             && Number.isSafeInteger(result.totalItems) && result.totalItems > 0
             && result.completedItems + result.skippedItems <= result.totalItems
             && typeof result.message === 'string' && result.message.length > 0
-            && result.message.length <= 320 && !/[\0\r\n]/.test(result.message);
+            && result.message.length <= 320 && !/[\0\r\n]/.test(result.message)
+            && (result.diagnostic === undefined || validateFileTransferCopyDiagnostic(result.diagnostic));
     }
     return Object.keys(message).sort().join('\n') === [
         'message', 'requestId', 'status', 'type', 'version',
     ].join('\n') && typeof message.message === 'string' && message.message.length <= 320;
+}
+
+function validateFileTransferCopyDiagnostic(diagnostic) {
+    return !!diagnostic && typeof diagnostic === 'object'
+        && Object.keys(diagnostic).sort().join('\n') === ['code', 'hop', 'phase'].join('\n')
+        && ['preparing', 'downloading', 'uploading', 'verifying'].includes(diagnostic.phase)
+        && ['source-to-relay', 'relay-to-target', 'source-to-target'].includes(diagnostic.hop)
+        && ['space', 'network', 'permission', 'verification', 'cancelled', 'unknown'].includes(diagnostic.code);
 }
 
 function validateFileTransferCopyStarted(message) {
@@ -296,7 +305,8 @@ function validateFileTransferCopyProgress(message) {
     var progress = message.progress;
     return !!progress && typeof progress === 'object'
         && Object.keys(progress).every(function (key) {
-            return ['status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName'].includes(key);
+            return ['status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName',
+                'hop', 'transferredBytes', 'totalBytes', 'bytesPerSecond'].includes(key);
         })
         && progress.status === 'running'
         && ['preparing', 'downloading', 'uploading', 'verifying'].includes(progress.phase)
@@ -306,7 +316,14 @@ function validateFileTransferCopyProgress(message) {
         && progress.completedItems + progress.skippedItems <= progress.totalItems
         && (progress.currentItemName === undefined || (typeof progress.currentItemName === 'string'
             && progress.currentItemName.length > 0 && progress.currentItemName.length <= 255
-            && !/[\0\r\n]/.test(progress.currentItemName)));
+            && !/[\0\r\n]/.test(progress.currentItemName)))
+        && (progress.hop === undefined || ['source-to-relay', 'relay-to-target', 'source-to-target'].includes(progress.hop))
+        && ((progress.transferredBytes === undefined) === (progress.totalBytes === undefined))
+        && (progress.transferredBytes === undefined || (Number.isSafeInteger(progress.transferredBytes)
+            && progress.transferredBytes >= 0 && Number.isSafeInteger(progress.totalBytes)
+            && progress.totalBytes >= 0 && progress.transferredBytes <= progress.totalBytes))
+        && (progress.bytesPerSecond === undefined || (Number.isSafeInteger(progress.bytesPerSecond)
+            && progress.bytesPerSecond >= 0));
 }
 
 function validateFileTransferSavedPairs(message) {
@@ -957,6 +974,7 @@ function initDashboard(options) {
                 var task = transferTasks[taskId];
                 var row = document.createElement('li');
                 var label = document.createElement('span');
+                label.className = 'file-transfer-task-telemetry';
                 var route = task.plan && task.plan.sourceLabel && task.plan.destinationLabel
                     ? ' · ' + task.plan.sourceLabel + ' → ' + task.plan.destinationLabel : '';
                 var itemProgress = task.progress && Number.isSafeInteger(task.progress.completedItems)
@@ -964,8 +982,7 @@ function initDashboard(options) {
                     : String(task.itemCount);
                 label.textContent = task.status === 'running'
                     ? 'Copying ' + itemProgress + ' item(s)'
-                        + (task.progress && task.progress.currentItemName
-                            ? ' · ' + task.progress.currentItemName : '') + route
+                        + fileTransferProgressDetail(task.progress) + route
                     : task.status === 'cancelling'
                         ? 'Cancelling ' + task.itemCount + ' item(s)' + route
                         : 'Queued · ' + task.itemCount + ' item(s)' + route;
@@ -983,6 +1000,43 @@ function initDashboard(options) {
             if (!taskStatus) return;
             taskStatus.hidden = !message;
             taskStatus.textContent = message || '';
+        }
+
+        function formatFileTransferBytes(value) {
+            if (!Number.isSafeInteger(value) || value < 0) return null;
+            var units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+            var unit = 0;
+            var amount = value;
+            while (amount >= 1024 && unit < units.length - 1) {
+                amount /= 1024;
+                unit += 1;
+            }
+            var digits = amount >= 100 || Number.isInteger(amount) ? 0 : amount >= 10 ? 1 : 2;
+            return amount.toFixed(digits).replace(/\.0+$/, '') + ' ' + units[unit];
+        }
+
+        function fileTransferHopLabel(hop, phase) {
+            if (hop === 'source-to-relay') return 'Source → relay';
+            if (hop === 'relay-to-target') return 'Relay → target';
+            if (hop === 'source-to-target') return 'Source → target';
+            return phase === 'downloading' ? 'Source → relay'
+                : phase === 'uploading' ? 'Relay → target' : null;
+        }
+
+        function fileTransferProgressDetail(progress) {
+            if (!progress) return '';
+            var details = [];
+            var hop = fileTransferHopLabel(progress.hop, progress.phase);
+            if (hop) details.push(hop);
+            if (Number.isSafeInteger(progress.transferredBytes) && Number.isSafeInteger(progress.totalBytes)) {
+                details.push(formatFileTransferBytes(progress.transferredBytes)
+                    + ' / ' + formatFileTransferBytes(progress.totalBytes));
+            }
+            if (Number.isSafeInteger(progress.bytesPerSecond)) {
+                details.push(formatFileTransferBytes(progress.bytesPerSecond) + '/s');
+            }
+            if (progress.currentItemName) details.push(progress.currentItemName);
+            return details.length ? ' · ' + details.join(' · ') : '';
         }
 
         function renderHistory(entries) {
@@ -1734,8 +1788,12 @@ function initDashboard(options) {
                     ? message.value.skippedItems : 0;
                 var failureMessage = message.value && typeof message.value.message === 'string'
                     ? message.value.message : (message.message || 'File copy failed.');
+                var diagnostic = message.value && message.value.diagnostic;
+                var diagnosticLabel = diagnostic && validateFileTransferCopyDiagnostic(diagnostic)
+                    ? ' [' + fileTransferHopLabel(diagnostic.hop, diagnostic.phase) + ' · ' + diagnostic.code + ']'
+                    : '';
                 renderTaskStatus('Copy failed after ' + failedAfter + ' copied'
-                    + (failedSkipped ? ', ' + failedSkipped + ' skipped' : '') + ': ' + failureMessage);
+                    + (failedSkipped ? ', ' + failedSkipped + ' skipped' : '') + diagnosticLabel + ': ' + failureMessage);
                 lastFailedCopyPlan = task && task.plan ? task.plan : null;
                 if (retry) retry.hidden = !lastFailedCopyPlan;
             }
@@ -1763,14 +1821,12 @@ function initDashboard(options) {
             renderTaskCount();
             var phaseLabels = {
                 preparing: 'Preparing secure relay',
-                downloading: 'Downloading from source',
-                uploading: 'Uploading to target',
+                downloading: 'Downloading from source to relay',
+                uploading: 'Uploading from relay to target',
                 verifying: 'Verifying delivery',
             };
             var phase = phaseLabels[message.progress.phase] || 'Preparing transfer';
-            var current = message.progress.currentItemName
-                ? ' ' + phase + ' · ' + message.progress.currentItemName + '.'
-                : ' ' + phase + '.';
+            var current = ' ' + phase + fileTransferProgressDetail(message.progress) + '.';
             renderTaskStatus('Copying ' + (message.progress.completedItems + message.progress.skippedItems)
                 + ' of ' + message.progress.totalItems + ' item(s).' + current);
             return true;

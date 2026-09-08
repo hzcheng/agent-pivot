@@ -1914,6 +1914,13 @@ body .project {
     background: var(--vscode-list-inactiveSelectionBackground, transparent);
 }
 
+.file-transfer-task-telemetry {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .file-transfer-task-list button {
     font-size: 11px;
 }

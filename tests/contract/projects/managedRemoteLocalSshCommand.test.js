@@ -169,3 +169,32 @@ test('FILE-TRANSFER-PREFLIGHT-002 bridge client sends opaque handles and validat
     assert.doesNotMatch(JSON.stringify(calls[1][1]), /\/(?:home|tmp|work)\//u,
         'the bridge request must not carry a local filesystem path');
 });
+
+test('FILE-TRANSFER-OBSERVABILITY-001 bridge client accepts bounded two-hop progress telemetry', async () => {
+    const commands = {
+        async executeCommand(command, request) {
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return {
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678', capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                };
+            }
+            return {
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: {
+                    status: 'running', phase: 'uploading', hop: 'relay-to-target',
+                    completedItems: 0, skippedItems: 0, totalItems: 1, currentItemName: 'archive.tar',
+                    transferredBytes: 536870912, totalBytes: 1073741824, bytesPerSecond: 44040192,
+                },
+            };
+        },
+    };
+    const result = await new ManagedRemoteBridgeClient(commands).getFileTransferCopyStatus(
+        'copy-task-1234567890',
+    );
+    assert.deepEqual(result, {
+        status: 'running', phase: 'uploading', hop: 'relay-to-target',
+        completedItems: 0, skippedItems: 0, totalItems: 1, currentItemName: 'archive.tar',
+        transferredBytes: 536870912, totalBytes: 1073741824, bytesPerSecond: 44040192,
+    });
+});

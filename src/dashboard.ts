@@ -5121,6 +5121,10 @@ function fileTransferCopyProgress(
         skippedItems: number;
         totalItems: number;
         currentItemName?: string;
+        hop?: 'source-to-relay' | 'relay-to-target' | 'source-to-target';
+        transferredBytes?: number;
+        totalBytes?: number;
+        bytesPerSecond?: number;
     },
 ): Record<string, unknown> {
     return {
@@ -5197,12 +5201,17 @@ function isRecordFileTransferCopyResult(value: unknown): value is {
     skippedItems: number;
     totalItems: number;
     message?: string;
+    diagnostic?: {
+        phase: 'preparing' | 'downloading' | 'uploading' | 'verifying';
+        hop: 'source-to-relay' | 'relay-to-target' | 'source-to-target';
+        code: 'space' | 'network' | 'permission' | 'verification' | 'cancelled' | 'unknown';
+    };
 } {
     if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
     const result = value as Record<string, unknown>;
     const failed = result.status === 'failed';
     return Object.keys(result).every(key => [
-        'status', 'completedItems', 'skippedItems', 'totalItems', 'message',
+        'status', 'completedItems', 'skippedItems', 'totalItems', 'message', 'diagnostic',
     ].includes(key))
         && (result.status === 'copied' || result.status === 'cancelled' || failed)
         && Number.isSafeInteger(result.completedItems) && (result.completedItems as number) >= 0
@@ -5211,7 +5220,17 @@ function isRecordFileTransferCopyResult(value: unknown): value is {
         && (result.completedItems as number) + (result.skippedItems as number) <= (result.totalItems as number)
         && (!failed || (typeof result.message === 'string' && result.message.length > 0
             && result.message.length <= 320 && !/[\0\r\n]/u.test(result.message)))
-        && (failed || result.message === undefined);
+        && (failed || result.message === undefined)
+        && (result.diagnostic === undefined || (failed && isFileTransferCopyDiagnostic(result.diagnostic)));
+}
+
+function isFileTransferCopyDiagnostic(value: unknown): boolean {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const diagnostic = value as Record<string, unknown>;
+    return Object.keys(diagnostic).sort().join('\n') === ['code', 'hop', 'phase'].join('\n')
+        && ['preparing', 'downloading', 'uploading', 'verifying'].includes(diagnostic.phase as string)
+        && ['source-to-relay', 'relay-to-target', 'source-to-target'].includes(diagnostic.hop as string)
+        && ['space', 'network', 'permission', 'verification', 'cancelled', 'unknown'].includes(diagnostic.code as string);
 }
 
 function isRecordFileTransferCopyStatus(value: unknown): value is {
@@ -5221,11 +5240,16 @@ function isRecordFileTransferCopyStatus(value: unknown): value is {
     skippedItems: number;
     totalItems: number;
     currentItemName?: string;
+    hop?: 'source-to-relay' | 'relay-to-target' | 'source-to-target';
+    transferredBytes?: number;
+    totalBytes?: number;
+    bytesPerSecond?: number;
 } {
     if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
     const status = value as Record<string, unknown>;
     return Object.keys(status).every(key => [
         'status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName',
+        'hop', 'transferredBytes', 'totalBytes', 'bytesPerSecond',
     ].includes(key))
         && status.status === 'running'
         && ['preparing', 'downloading', 'uploading', 'verifying'].includes(status.phase as string)
@@ -5235,7 +5259,15 @@ function isRecordFileTransferCopyStatus(value: unknown): value is {
         && (status.completedItems as number) + (status.skippedItems as number) <= (status.totalItems as number)
         && (status.currentItemName === undefined || (typeof status.currentItemName === 'string'
             && status.currentItemName.length > 0 && status.currentItemName.length <= 255
-            && !/[\0\r\n]/u.test(status.currentItemName)));
+            && !/[\0\r\n]/u.test(status.currentItemName)))
+        && (status.hop === undefined || ['source-to-relay', 'relay-to-target', 'source-to-target'].includes(status.hop as string))
+        && ((status.transferredBytes === undefined) === (status.totalBytes === undefined))
+        && (status.transferredBytes === undefined || (Number.isSafeInteger(status.transferredBytes)
+            && (status.transferredBytes as number) >= 0 && Number.isSafeInteger(status.totalBytes)
+            && (status.totalBytes as number) >= 0
+            && (status.transferredBytes as number) <= (status.totalBytes as number)))
+        && (status.bytesPerSecond === undefined || (Number.isSafeInteger(status.bytesPerSecond)
+            && (status.bytesPerSecond as number) >= 0));
 }
 
 function isFileTransferHistoryRequest(value: Record<string, unknown>): boolean {

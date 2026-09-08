@@ -449,6 +449,35 @@ test('FILE-TRANSFER-COPY-002A exposes only a correlated redacted active-task sna
     assert.deepEqual(missing.value, { status: 'unknown' });
 });
 
+test('FILE-TRANSFER-OBSERVABILITY-001 exposes the current relay hop and bounded throughput telemetry', async () => {
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { throw new Error('progress must not read catalog authority'); },
+    }, {
+        async create() { throw new Error('progress must not create a coordinator'); },
+    }, 'session-12345678');
+    controller.activeFileTransferCopies.set('running-task-123456', {
+        cancelled: false,
+        phase: 'uploading',
+        hop: 'relay-to-target',
+        currentItemName: 'archive.tar',
+        completedItems: 0,
+        skippedItems: 0,
+        totalItems: 1,
+        transferredBytes: 536_870_912,
+        totalBytes: 1_073_741_824,
+        bytesPerSecond: 44_040_192,
+    });
+    const running = await controller.execute({
+        ...request('getFileTransferCopyStatus'),
+        fileTransfer: { kind: 'status', taskId: 'running-task-123456' },
+    });
+    assert.deepEqual(running.value, {
+        status: 'running', phase: 'uploading', hop: 'relay-to-target', currentItemName: 'archive.tar',
+        completedItems: 0, skippedItems: 0, totalItems: 1,
+        transferredBytes: 536_870_912, totalBytes: 1_073_741_824, bytesPerSecond: 44_040_192,
+    });
+});
+
 test('FILE-TRANSFER-COPY-003 retains SFTP file sizes for post-copy verification', () => {
     const entries = parseSftpLongListing(
         '-rw-r--r--    1 user     group          4096 Jan 01 2026 report.txt\n'

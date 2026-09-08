@@ -16,6 +16,8 @@ import {
     FileTransferCopyRequest,
     FileTransferCopyResult,
     FileTransferCopyStatus,
+    FileTransferCopyHop,
+    FileTransferCopyFailureDiagnostic,
     FileTransferEndpointReference,
     FileTransferLocalRootResponse,
     ManagedRemoteBridgeRequest,
@@ -91,6 +93,12 @@ interface ActiveFileTransferCopy {
     completedItems?: number;
     skippedItems?: number;
     totalItems?: number;
+    hop?: FileTransferCopyHop;
+    transferredBytes?: number;
+    totalBytes?: number;
+    bytesPerSecond?: number;
+    monitorTimer?: NodeJS.Timeout;
+    monitorGeneration?: number;
 }
 
 interface FileTransferTreeSummary {
@@ -113,7 +121,92 @@ const FILE_TRANSFER_TREE_MAX_ENTRIES = 10_000;
 
 function boundedFileTransferFailureMessage(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
-    return message.replace(/[\0\r\n]+/gu, ' ').trim().slice(0, 320) || 'File copy failed.';
+    return message.replace(/[\0\r\n]+/gu, ' ')
+        // The relay folder belongs to this computer. Its absolute path is not
+        // actionable for a user and must not escape through a copy failure.
+        .replace(/(?:[A-Za-z]:)?[\\/][^\s:]*agent-pivot-file-transfer-[^\s:]+/gu, '[local relay staging]')
+        .trim().slice(0, 320) || 'File copy failed.';
+}
+
+function fileTransferFailureDiagnostic(
+    error: unknown,
+    active: ActiveFileTransferCopy,
+): FileTransferCopyFailureDiagnostic {
+    const message = boundedFileTransferFailureMessage(error).toLowerCase();
+    const code = /no space left|disk full|not enough space|quota exceeded/u.test(message) ? 'space'
+        : /permission denied|access denied|not permitted/u.test(message) ? 'permission'
+            : /verification|did not pass size|size verification/u.test(message) ? 'verification'
+                : /cancelled/u.test(message) ? 'cancelled'
+                    : /connection|timed out|network|host key|could not resolve|connection reset|broken pipe/u.test(message)
+                        ? 'network' : 'unknown';
+    return {
+        phase: active.phase || 'preparing',
+        hop: active.hop || 'source-to-target',
+        code,
+    };
+}
+
+function stopFileTransferProgressMonitor(active: ActiveFileTransferCopy): void {
+    if (active.monitorTimer) {
+        clearInterval(active.monitorTimer);
+        active.monitorTimer = undefined;
+    }
+    active.monitorGeneration = (active.monitorGeneration || 0) + 1;
+}
+
+function startFileTransferProgressMonitor(
+    active: ActiveFileTransferCopy,
+    totalBytes: number | undefined,
+    readTransferredBytes: () => Promise<number>,
+): void {
+    stopFileTransferProgressMonitor(active);
+    if (typeof totalBytes !== 'number' || !Number.isSafeInteger(totalBytes) || totalBytes < 0) {
+        active.transferredBytes = undefined;
+        active.totalBytes = undefined;
+        active.bytesPerSecond = undefined;
+        return;
+    }
+    const knownTotalBytes = totalBytes;
+    active.transferredBytes = 0;
+    active.totalBytes = totalBytes;
+    active.bytesPerSecond = undefined;
+    const generation = active.monitorGeneration!;
+    let previousBytes = 0;
+    let previousAt = Date.now();
+    let sampling = false;
+    const sample = (): void => {
+        if (sampling) return;
+        sampling = true;
+        void readTransferredBytes().then(bytes => {
+            if (active.monitorGeneration !== generation || !Number.isSafeInteger(bytes) || bytes < 0) return;
+            const nextBytes = Math.min(bytes, knownTotalBytes);
+            const now = Date.now();
+            if (now > previousAt) {
+                active.bytesPerSecond = Math.round(Math.max(0, nextBytes - previousBytes) * 1000 / (now - previousAt));
+            }
+            active.transferredBytes = nextBytes;
+            previousBytes = nextBytes;
+            previousAt = now;
+        }, () => undefined).finally(() => { sampling = false; });
+    };
+    sample();
+    active.monitorTimer = setInterval(sample, 750);
+}
+
+function completeFileTransferProgressMonitor(active: ActiveFileTransferCopy): void {
+    if (Number.isSafeInteger(active.totalBytes) && active.totalBytes! >= 0) {
+        active.transferredBytes = active.totalBytes;
+    }
+    stopFileTransferProgressMonitor(active);
+}
+
+async function localFileTransferProgressBytes(targetPath: string): Promise<number> {
+    try {
+        return await localFileSize(targetPath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') { return 0; }
+        throw error;
+    }
 }
 
 export function formatManagedSshCommand(
@@ -542,6 +635,8 @@ function copyFileTransferEntry(
     source: string,
     destination: string,
     active: ActiveFileTransferCopy,
+    totalBytes?: number,
+    readTransferredBytes?: () => Promise<number>,
 ): Promise<void> {
     const executable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'scp.exe' : 'scp');
     const args = [
@@ -553,7 +648,10 @@ function copyFileTransferEntry(
         source,
         destination,
     ];
-    return new Promise((resolve, reject) => {
+    if (readTransferredBytes) {
+        startFileTransferProgressMonitor(active, totalBytes, readTransferredBytes);
+    }
+    return new Promise<void>((resolve, reject) => {
         const child = spawn(executable, args, {
             stdio: ['ignore', 'pipe', 'pipe'],
             // SCP owns an SSH child on POSIX. A separate process group lets a
@@ -570,11 +668,11 @@ function copyFileTransferEntry(
                 reject(new Error('File copy was cancelled.'));
                 return;
             }
-            if (code === 0) { resolve(); return; }
+            if (code === 0) { completeFileTransferProgressMonitor(active); resolve(); return; }
             const message = Buffer.concat(stderr).toString('utf8').trim();
             reject(new Error(message ? `File copy failed: ${message.slice(0, 320)}` : 'File copy failed.'));
         });
-    });
+    }).finally(() => stopFileTransferProgressMonitor(active));
 }
 
 /**
@@ -591,16 +689,26 @@ async function relayFileTransferEntry(
     destination: string,
     stagedName: string,
     active: ActiveFileTransferCopy,
+    totalBytes: number | undefined,
+    readDestinationBytes: () => Promise<number>,
 ): Promise<void> {
     const stagingDirectory = await mkdtemp(path.join(tmpdir(), 'agent-pivot-file-transfer-'));
     const stagedPath = path.join(stagingDirectory, stagedName);
     try {
         active.phase = 'downloading';
-        await copyFileTransferEntry(sshExecutable, recursive, source, stagedPath, active);
+        active.hop = 'source-to-relay';
+        await copyFileTransferEntry(
+            sshExecutable, recursive, source, stagedPath, active, totalBytes,
+            () => localFileTransferProgressBytes(stagedPath),
+        );
         if (active.cancelled) { throw new Error('File copy was cancelled.'); }
         active.phase = 'uploading';
-        await copyFileTransferEntry(sshExecutable, recursive, stagedPath, destination, active);
+        active.hop = 'relay-to-target';
+        await copyFileTransferEntry(
+            sshExecutable, recursive, stagedPath, destination, active, totalBytes, readDestinationBytes,
+        );
     } finally {
+        stopFileTransferProgressMonitor(active);
         await rm(stagingDirectory, { recursive: true, force: true });
     }
 }
@@ -628,12 +736,14 @@ export class ManagedRemoteBridgeController {
         private readonly sessionToken: string,
         private readonly localActions?: ManagedRemoteBridgeLocalActions,
         private readonly projection?: ManagedRemoteBridgeProjection,
+        private readonly reportDiagnostic?: (message: string) => void,
     ) {
     }
 
     dispose(): void {
         for (const active of this.activeFileTransferCopies.values()) {
             active.cancelled = true;
+            stopFileTransferProgressMonitor(active);
             if (active.process) { stopFileTransferProcess(active.process); }
         }
     }
@@ -1059,15 +1169,24 @@ export class ManagedRemoteBridgeController {
                 const copyDestination = destination.kind === 'managedMachine'
                     ? scpRemotePath(destination.alias, destinationPath, legacyScp) : destinationPath;
                 if (source.kind === 'managedMachine' && destination.kind === 'managedMachine') {
+                    const totalBytes = entry.kind === 'file' && Number.isSafeInteger(entry.size)
+                        ? entry.size : undefined;
                     await relayFileTransferEntry(
                         coordinator.getExecutable(), entry.kind === 'directory', copySource,
-                        copyDestination, path.basename(entry.path), active,
+                        copyDestination, path.basename(entry.path), active, totalBytes,
+                        () => remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath),
                     );
                 } else {
                     active.phase = source.kind === 'managedMachine' ? 'downloading' : 'uploading';
+                    active.hop = 'source-to-target';
+                    const totalBytes = entry.kind === 'file' && Number.isSafeInteger(entry.size)
+                        ? entry.size : undefined;
                     await copyFileTransferEntry(
                         coordinator.getExecutable(), entry.kind === 'directory', copySource,
-                        copyDestination, active,
+                        copyDestination, active, totalBytes,
+                        destination.kind === 'local'
+                            ? () => localFileTransferProgressBytes(destinationPath)
+                            : () => remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath),
                     );
                 }
                 active.phase = 'verifying';
@@ -1094,11 +1213,19 @@ export class ManagedRemoteBridgeController {
                     status: 'cancelled', completedItems, skippedItems, totalItems: request.entryIds.length,
                 };
             }
+            const diagnostic = fileTransferFailureDiagnostic(error, active);
+            const message = boundedFileTransferFailureMessage(error);
+            this.reportDiagnostic?.(
+                `File Transfer failed: phase=${diagnostic.phase} hop=${diagnostic.hop} code=${diagnostic.code}`
+                    + ` item=${active.currentItemName || 'unknown'} message=${message}`,
+            );
             return {
                 status: 'failed', completedItems, skippedItems, totalItems: request.entryIds.length,
-                message: boundedFileTransferFailureMessage(error),
+                message,
+                diagnostic,
             };
         } finally {
+            stopFileTransferProgressMonitor(active);
             this.activeFileTransferCopies.delete(request.taskId);
         }
         return { status: 'copied', completedItems, skippedItems, totalItems: request.entryIds.length };
@@ -1172,6 +1299,7 @@ export class ManagedRemoteBridgeController {
         if (!active) { return { cancelled: false }; }
         active.cancelled = true;
         if (active.process) { stopFileTransferProcess(active.process); }
+        stopFileTransferProgressMonitor(active);
         return { cancelled: true };
     }
 
@@ -1185,6 +1313,12 @@ export class ManagedRemoteBridgeController {
             skippedItems: active.skippedItems || 0,
             totalItems: active.totalItems || 0,
             ...(active.currentItemName ? { currentItemName: active.currentItemName } : {}),
+            ...(active.hop ? { hop: active.hop } : {}),
+            ...(Number.isSafeInteger(active.transferredBytes) && active.transferredBytes! >= 0
+                && Number.isSafeInteger(active.totalBytes) && active.totalBytes! >= 0
+                ? { transferredBytes: active.transferredBytes, totalBytes: active.totalBytes } : {}),
+            ...(Number.isSafeInteger(active.bytesPerSecond) && active.bytesPerSecond! >= 0
+                ? { bytesPerSecond: active.bytesPerSecond } : {}),
         };
     }
 

@@ -96,6 +96,16 @@ export interface FileTransferCopyResult {
     totalItems: number;
     /** Bounded, redacted reason for a terminal failed copy. */
     message?: string;
+    /** Machine-readable, path-free context for a failed transfer. */
+    diagnostic?: FileTransferCopyFailureDiagnostic;
+}
+
+export type FileTransferCopyHop = 'source-to-relay' | 'relay-to-target' | 'source-to-target';
+
+export interface FileTransferCopyFailureDiagnostic {
+    phase: 'preparing' | 'downloading' | 'uploading' | 'verifying';
+    hop: FileTransferCopyHop;
+    code: 'space' | 'network' | 'permission' | 'verification' | 'cancelled' | 'unknown';
 }
 
 export interface FileTransferCancelRequest {
@@ -117,6 +127,13 @@ export interface FileTransferCopyStatus {
     totalItems: number;
     /** The bounded display name of the entry currently being prepared or copied. */
     currentItemName?: string;
+    /** The active leg of a two-hop relay, or the direct endpoint-to-endpoint leg. */
+    hop?: FileTransferCopyHop;
+    /** Byte counters are supplied together only when the current item has a known size. */
+    transferredBytes?: number;
+    totalBytes?: number;
+    /** Instantaneous speed for the current hop, measured in bytes per second. */
+    bytesPerSecond?: number;
 }
 
 export interface FileTransferLocalRootResponse {

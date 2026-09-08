@@ -235,6 +235,10 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.equal(sourceRoot.status, 'ok', sourceRoot.message);
     assert.equal(destinationRoot.status, 'ok', destinationRoot.message);
     assert.equal(sourceByAbsolutePath.status, 'ok', sourceByAbsolutePath.message);
+    assert.equal(sourceRoot.value.displayPath, os.homedir(),
+        'FILE-TRANSFER-REMOTE-BROWSE-003 must open a Managed Machine at its authenticated login home');
+    assert.equal(destinationRoot.value.displayPath, os.homedir(),
+        'FILE-TRANSFER-REMOTE-BROWSE-003 must open the target at its authenticated login home');
     assert.equal(sourceByAbsolutePath.value.displayPath, remoteOne);
     assert.ok(sourceByAbsolutePath.value.entries.some(entry => entry.name === remoteSpecialFile));
     const sourceDirectory = sourceRoot.value.entries.find(entry => entry.name === path.basename(remoteOne));

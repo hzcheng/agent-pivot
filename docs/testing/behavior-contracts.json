@@ -7476,6 +7476,19 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-REMOTE-BROWSE-003",
+    "domain": "runtime",
+    "title": "A newly selected Managed Machine opens File Transfer at its authenticated login home directory rather than a relative dot path",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-COPY-005",
     "domain": "runtime",
     "title": "File Transfer refuses a UI Bridge without the required two-hop relay before it can start a copy",

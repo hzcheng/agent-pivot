@@ -347,6 +347,34 @@ function listRemoteDirectory(
     });
 }
 
+/** Resolve the authenticated SFTP session's actual login directory, never a guessed user path. */
+function remoteLoginDirectory(
+    sshExecutable: string,
+    alias: string,
+): Promise<string> {
+    const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
+    return new Promise((resolve, reject) => {
+        const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const stdout: Buffer[] = [];
+        process.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
+        process.on('error', error => reject(new Error(`Could not start SFTP: ${error.message}`)));
+        process.on('close', code => {
+            if (code !== 0) {
+                reject(new Error('Could not determine the remote login directory.'));
+                return;
+            }
+            const match = /^Remote working directory:\s*(\/[^\0\r\n]{0,1023})\s*$/mu
+                .exec(Buffer.concat(stdout).toString('utf8'));
+            if (!match || !path.posix.isAbsolute(match[1])) {
+                reject(new Error('Could not determine the remote login directory.'));
+                return;
+            }
+            resolve(match[1]);
+        });
+        process.stdin.end('pwd\n');
+    });
+}
+
 function remotePathKind(
     sshExecutable: string,
     alias: string,
@@ -1053,7 +1081,12 @@ export class ManagedRemoteBridgeController {
             }
         } else {
             resolvedDirectoryId = this.fileTransferHandle();
-            directory = { machineId, path: '.', kind: 'directory', directoryId: resolvedDirectoryId };
+            directory = {
+                machineId,
+                path: await remoteLoginDirectory(coordinator.getExecutable(), target.alias),
+                kind: 'directory',
+                directoryId: resolvedDirectoryId,
+            };
             this.fileTransferRemoteDirectories.set(resolvedDirectoryId, directory);
         }
         const rows = await listRemoteDirectory(coordinator.getExecutable(), target.alias, directory.path);

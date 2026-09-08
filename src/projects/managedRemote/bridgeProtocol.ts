@@ -16,6 +16,11 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'fileTransferRemoteBrowseV1',
     'fileTransferPreflightV1',
     'fileTransferCopyV1',
+    // A copy-capable Bridge must stage Managed Machine copies through the UI
+    // computer. Older bridges advertised fileTransferCopyV1 but attempted
+    // SCP's remote-to-remote mode, which is not reliable for the intended
+    // topology. Keep that implementation from being selected silently.
+    'fileTransferTwoHopRelayV1',
     'fileTransferCancelV1',
     'fileTransferProgressV1',
 ] as const;

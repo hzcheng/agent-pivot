@@ -30,6 +30,20 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   window ambiguous and no longer shows Save for a Project that is already
   stored.
 
+## [1.4.4] - 2026-09-08
+
+### Fixed
+
+- Require the File Transfer UI Bridge that relays Managed Machine copies
+  through the UI computer before a copy can start, rather than silently using
+  an older remote-to-remote transfer implementation.
+
+### Changed
+
+- Publish this update through the VS Code Marketplace while retaining the
+  existing Workspace Trust declaration and progressively rendered AI
+  Conversation experience.
+
 ## [1.4.3] - 2026-09-07
 
 ### Fixed

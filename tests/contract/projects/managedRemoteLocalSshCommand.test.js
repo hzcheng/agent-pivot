@@ -96,6 +96,41 @@ test('MANAGED-REMOTE-ACTIONS-001 rejects a Bridge without the projection-v2 capa
     );
 });
 
+test('FILE-TRANSFER-COPY-005 rejects a Bridge that lacks the two-hop relay capability before it can start a copy', async () => {
+    const calls = [];
+    const commands = {
+        async executeCommand(command, request) {
+            calls.push(command);
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return {
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678',
+                    capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES.filter(
+                        value => value !== 'fileTransferTwoHopRelayV1',
+                    ),
+                };
+            }
+            return {
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 },
+            };
+        },
+    };
+    await assert.rejects(
+        new ManagedRemoteBridgeClient(commands).copyFileTransferEntries(
+            `revision:${'a'.repeat(64)}`,
+            {
+                kind: 'copy', taskId: 'copy-task-1234567890', conflictPolicy: 'fail',
+                source: { kind: 'managedMachine', machineId: 'machine:source', directoryId: 'a'.repeat(32) },
+                destination: { kind: 'managedMachine', machineId: 'machine:destination', directoryId: 'b'.repeat(32) },
+                entryIds: ['c'.repeat(32)],
+            },
+        ),
+        /Update the Agent Pivot UI Bridge/,
+    );
+    assert.deepEqual(calls, [MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND]);
+});
+
 test('FILE-TRANSFER-PREFLIGHT-002 bridge client sends opaque handles and validates the bounded summary', async () => {
     const calls = [];
     const commands = {

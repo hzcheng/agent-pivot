@@ -894,9 +894,11 @@ function initDashboard(options) {
         var showHiddenEntries = { left: false, right: false };
         var fileTransferFilter = { left: '', right: '' };
         var pendingCopyRequestId = null;
+        var pendingCopyPreflightRequestId = null;
         var activeCopyTaskId = null;
         var pendingCopyItemCount = 0;
         var pendingCopyPlan = null;
+        var pendingCopyPreflightPlan = null;
         var lastFailedCopyPlan = null;
         var lastCompletedCopyPlan = null;
         var savedPairs = [];
@@ -1344,7 +1346,8 @@ function initDashboard(options) {
                     + sourceLabel + ' ' + sourcePath + ' → ' + targetLabel + ' ' + targetPath
                 : 'Select source files · ' + sourceLabel + ' ' + sourcePath + ' → ' + targetLabel + ' ' + targetPath;
             if (startCopy) {
-                startCopy.disabled = !!pendingCopyRequestId || !count || !endpointReady('left') || !endpointReady('right');
+                startCopy.disabled = !!pendingCopyRequestId || !!pendingCopyPreflightRequestId
+                    || !count || !endpointReady('left') || !endpointReady('right');
                 startCopy.textContent = count ? 'Transfer ' + count + ' item' + (count === 1 ? '' : 's') : 'Transfer';
             }
             updateReadiness();
@@ -1683,7 +1686,7 @@ function initDashboard(options) {
         }
 
         function startDirectCopy() {
-            if (pendingCopyRequestId || (startCopy && startCopy.disabled)) return;
+            if (pendingCopyRequestId || pendingCopyPreflightRequestId || (startCopy && startCopy.disabled)) return;
             var source = endpointReference('left', selectedEntryDirectoryIds.left);
             var destination = endpointReference('right');
             if (!source || !destination || selectedEntries.left.size === 0) return;
@@ -1706,7 +1709,30 @@ function initDashboard(options) {
         }
 
         function submitCopyPlan(plan) {
-            if (!plan || pendingCopyRequestId) return;
+            if (!plan || pendingCopyRequestId || pendingCopyPreflightRequestId) return;
+            var requestId = 'file-transfer-preflight-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingCopyPreflightRequestId = requestId;
+            pendingCopyPreflightPlan = {
+                source: plan.source, destination: plan.destination,
+                entryIds: plan.entryIds.slice(), conflictPolicy: plan.conflictPolicy,
+                sourceLabel: fileTransferEndpointLabel(plan.source),
+                destinationLabel: fileTransferEndpointLabel(plan.destination),
+                ...(plan.targetName ? { targetName: plan.targetName } : {}),
+            };
+            if (startCopy) startCopy.disabled = true;
+            if (retry) retry.hidden = true;
+            renderTaskStatus('Checking selected items…');
+            options.postMessage({
+                type: 'file-transfer-preflight-copy', version: 1, requestId: requestId,
+                source: pendingCopyPreflightPlan.source,
+                destination: pendingCopyPreflightPlan.destination,
+                entryIds: pendingCopyPreflightPlan.entryIds,
+                ...(pendingCopyPreflightPlan.targetName ? { targetName: pendingCopyPreflightPlan.targetName } : {}),
+            });
+        }
+
+        function queueCopyPlan(plan) {
             var requestId = 'file-transfer-copy-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
             pendingCopyRequestId = requestId;
@@ -1730,6 +1756,24 @@ function initDashboard(options) {
                 conflictPolicy: pendingCopyPlan.conflictPolicy,
                 ...(pendingCopyPlan.targetName ? { targetName: pendingCopyPlan.targetName } : {}),
             });
+        }
+
+        function applyCopyPreflight(message) {
+            if (message.requestId !== pendingCopyPreflightRequestId) return false;
+            var plan = pendingCopyPreflightPlan;
+            pendingCopyPreflightRequestId = null;
+            pendingCopyPreflightPlan = null;
+            if (message.type === 'file-transfer-copy-preflight-failed') {
+                renderTaskStatus(message.message || 'Could not check the selected items.');
+                updatePair();
+                return true;
+            }
+            if (!plan) {
+                updatePair();
+                return true;
+            }
+            queueCopyPlan(plan);
+            return true;
         }
 
         function applyCopySettlement(message) {
@@ -1847,7 +1891,7 @@ function initDashboard(options) {
         }
 
         function retryFailedCopy() {
-            if (!lastFailedCopyPlan || pendingCopyRequestId) return;
+            if (!lastFailedCopyPlan || pendingCopyRequestId || pendingCopyPreflightRequestId) return;
             renderTaskStatus('Revalidating failed items before retry…');
             var plan = lastFailedCopyPlan;
             lastFailedCopyPlan = null;
@@ -1957,6 +2001,7 @@ function initDashboard(options) {
 
         return {
             applyLocalRootMessage: applyLocalRootMessage,
+            applyCopyPreflight: applyCopyPreflight,
             applyCopySettlement: applyCopySettlement,
             applyCopyStarted: applyCopyStarted,
             applyCopyProgress: applyCopyProgress,
@@ -2039,6 +2084,10 @@ function initDashboard(options) {
         if (event && event.data && validateFileTransferLocalRootMessage(event.data)
             && fileTransferPanel) {
             fileTransferPanel.applyLocalRootMessage(event.data);
+        }
+        if (event && event.data && validateFileTransferCopyPreflight(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopyPreflight(event.data);
         }
         if (event && event.data && validateFileTransferCopySettlement(event.data)
             && fileTransferPanel) {
@@ -2140,6 +2189,8 @@ function initDashboard(options) {
         applyPromptPanelUpdatedMessage: aiPanel.applyPromptPanelUpdatedMessage,
         applyFileTransferLocalRootMessage: fileTransferPanel
             ? fileTransferPanel.applyLocalRootMessage : function () { return false; },
+        applyFileTransferCopyPreflight: fileTransferPanel
+            ? fileTransferPanel.applyCopyPreflight : function () { return false; },
         applyFileTransferCopySettlement: fileTransferPanel
             ? fileTransferPanel.applyCopySettlement : function () { return false; },
         applyFileTransferCopyStarted: fileTransferPanel

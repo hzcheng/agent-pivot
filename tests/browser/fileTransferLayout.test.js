@@ -498,7 +498,7 @@ test('FILE-TRANSFER-UI-021 keeps endpoint controls and the transfer action fixed
         'the transfer action must remain fixed while browsing a tree');
 });
 
-test('FILE-TRANSFER-UI-019 keeps the direct transfer action available once source and target directories are ready', async t => {
+test('FILE-TRANSFER-UI-019 FILE-TRANSFER-UI-023 keeps the direct transfer action available and preflights it before queueing', async t => {
     const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><body>
@@ -551,6 +551,17 @@ test('FILE-TRANSFER-UI-019 keeps the direct transfer action available once sourc
     assert.equal(await startCopy.isEnabled(), true,
         'a ready source, target, and selection must always expose the direct transfer action');
     await startCopy.click();
+    const preflightRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-preflight-copy'
+    ));
+    assert.deepEqual(preflightRequest.entryIds, ['11111111111111111111111111111111']);
+    assert.equal(preflightRequest.source.machineId, 'machine:build');
+    assert.equal(preflightRequest.destination.machineId, 'machine:deploy');
+    assert.equal(await page.locator('[data-file-transfer-task-status]').textContent(), 'Checking selected items…');
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-copy-preflighted', version: 1, requestId: preflightRequest.requestId,
+        result: { totalItems: 1, knownBytes: 12, unknownSizeItems: 0, existingFileNames: [], existingDirectoryNames: [] },
+    });
     const copyRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
         message.type === 'file-transfer-copy'
     ));
@@ -627,6 +638,13 @@ test('FILE-TRANSFER-UI-020 FILE-TRANSFER-OBSERVABILITY-001 FILE-TRANSFER-STREAMI
     assert.match(await page.locator('[data-file-transfer-summary]').textContent(),
         /Build Machine.*\/workspace.*Deploy Machine.*\/incoming\/destination/i);
     await transfer.click();
+    const preflightRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-preflight-copy'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-copy-preflighted', version: 1, requestId: preflightRequest.requestId,
+        result: { totalItems: 1, knownBytes: 12, unknownSizeItems: 0, existingFileNames: [], existingDirectoryNames: [] },
+    });
     const copyRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
         message.type === 'file-transfer-copy'
     ));

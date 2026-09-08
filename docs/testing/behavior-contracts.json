@@ -7350,7 +7350,7 @@
   {
     "id": "FILE-TRANSFER-UI-021",
     "domain": "webview",
-    "title": "File Transfer keeps the endpoint controls and transfer action fixed while source and target directory trees scroll independently",
+    "title": "File Transfer keeps the endpoint controls and transfer action fixed while source and target directory lists scroll independently",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7415,7 +7415,7 @@
   {
     "id": "FILE-TRANSFER-UI-017",
     "domain": "webview",
-    "title": "File Transfer expands folders inline as a lazy directory tree without resetting the endpoint or current root",
+    "title": "File Transfer opens one directory at a time, updates Path, and returns through an explicit .. directory row",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7433,7 +7433,7 @@
   {
     "id": "FILE-TRANSFER-UI-018",
     "domain": "webview",
-    "title": "File Transfer hides path-like hidden entries by default, exposes an explicit folder-name control, and keeps endpoint controls visible while long directories are browsed",
+    "title": "File Transfer hides path-like hidden entries by default, opens folders from an explicit name control, and keeps endpoint controls visible while long directories are browsed",
     "priority": "P0",
     "status": "automated",
     "owners": [

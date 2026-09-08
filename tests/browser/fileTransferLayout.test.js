@@ -101,7 +101,7 @@ test('FILE-TRANSFER-EDITOR-001 FILE-TRANSFER-UI-011 keeps sorting controls reada
     }
 });
 
-test('FILE-TRANSFER-EDITOR-001 expands a directory with one click while preserving its copy checkbox', async t => {
+test('FILE-TRANSFER-EDITOR-001 opens a directory with one click while preserving its copy checkbox', async t => {
     const page = await browser.newPage({ viewport: { width: 480, height: 320 } });
     t.after(() => page.close());
     await page.setContent('<!doctype html><ul data-file-transfer-file-list></ul>');
@@ -118,7 +118,7 @@ test('FILE-TRANSFER-EDITOR-001 expands a directory with one click while preservi
             () => {},
         );
     });
-    await page.locator('[data-file-transfer-entry-id] .file-transfer-tree-toggle').click();
+    await page.locator('[data-file-transfer-entry-id] [data-file-transfer-directory-name]').click();
     assert.deepEqual(await page.evaluate(() => window.__fileTransferOpenedDirectories),
         ['0123456789abcdef0123456789abcdef']);
 
@@ -127,7 +127,7 @@ test('FILE-TRANSFER-EDITOR-001 expands a directory with one click while preservi
         ['0123456789abcdef0123456789abcdef']);
 });
 
-test('FILE-TRANSFER-UI-017 expands a folder inline without replacing its endpoint tree', async t => {
+test('FILE-TRANSFER-UI-017 enters one directory at a time, updates Path, and exposes a .. row to return', async t => {
     const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><body>
@@ -160,15 +160,15 @@ test('FILE-TRANSFER-UI-017 expands a folder inline without replacing its endpoin
             ],
         },
     });
-    await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] .file-transfer-tree-toggle').click();
-    const expandRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+    await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] [data-file-transfer-directory-name]').click();
+    const openRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
         message.type === 'file-transfer-open-directory'
             && message.endpoint && message.endpoint.directoryId === '11111111111111111111111111111111'
     ));
-    assert.ok(expandRequest, 'expanding a tree folder must request only that folder');
+    assert.ok(openRequest, 'opening a folder must request that folder as the new current directory');
     await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
         type: 'file-transfer-remote-directory-listed', version: 1,
-        requestId: expandRequest.requestId, side: 'left',
+        requestId: openRequest.requestId, side: 'left',
         root: {
             rootId: '0123456789abcdef0123456789abcdef',
             directoryId: '11111111111111111111111111111111', label: 'Build Machine',
@@ -179,13 +179,135 @@ test('FILE-TRANSFER-UI-017 expands a folder inline without replacing its endpoin
     });
 
     assert.equal(await endpoint.inputValue(), 'managed:machine:build');
+    assert.equal(await page.locator('[data-file-transfer-path-input="left"]').inputValue(), '/workspace/src');
+    assert.equal(await page.locator('[data-file-transfer-entry-id="22222222222222222222222222222222"]').count(), 0,
+        'the previous directory contents must not remain visible after entering a folder');
+    assert.equal(await page.locator('[data-file-transfer-entry-id="33333333333333333333333333333333"]').count(), 1,
+        'the list must show only entries from the current directory');
+    const parent = page.locator('.file-transfer-directory-name[data-file-transfer-parent-directory="left"]');
+    assert.equal(await parent.textContent(), '..');
+    await parent.click();
+    const parentRequest = await page.evaluate(() => window.__fileTransferMessages.filter(message =>
+        message.type === 'file-transfer-open-directory' && message.side === 'left'
+    ).at(-1));
+    assert.equal(parentRequest.path, '/workspace', 'the .. row must resolve the filesystem parent path');
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1,
+        requestId: parentRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: 'fedcba9876543210fedcba9876543210', label: 'Build Machine',
+            displayPath: '/workspace', entries: [
+                { id: '11111111111111111111111111111111', name: 'src', kind: 'directory' },
+                { id: '22222222222222222222222222222222', name: 'README.md', kind: 'file', size: 12 },
+            ],
+        },
+    });
     assert.equal(await page.locator('[data-file-transfer-path-input="left"]').inputValue(), '/workspace');
-    assert.equal(await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"]')
-        .getAttribute('aria-expanded'), 'true');
-    assert.equal(await page.locator('[data-file-transfer-entry-id="33333333333333333333333333333333"]')
-        .getAttribute('aria-level'), '2');
+    assert.equal(await parent.count(), 1, 'the restored directory keeps its filesystem parent row');
     assert.equal(await page.locator('[data-file-transfer-pane-copy-state]').first().isVisible(), false,
         'the copy-source indicator must stay out of the layout until a file is selected');
+});
+
+test('FILE-TRANSFER-UI-017 exposes .. for the filesystem parent of an initial directory', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'], postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+    const endpoint = page.locator('[data-file-transfer-endpoint="left"]');
+    await endpoint.selectOption('managed:machine:build');
+    const initialRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.side === 'left'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1,
+        requestId: initialRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: 'fedcba9876543210fedcba9876543210', label: 'Build Machine',
+            displayPath: '/workspace', entries: [],
+        },
+    });
+    const parent = page.locator('.file-transfer-directory-name[data-file-transfer-parent-directory="left"]');
+    assert.equal(await parent.count(), 1,
+        'an initial non-root directory must offer its filesystem parent, not only an in-session history entry');
+    await parent.click();
+    const parentRequest = await page.evaluate(() => window.__fileTransferMessages.filter(message =>
+        message.type === 'file-transfer-open-directory' && message.side === 'left'
+    ).at(-1));
+    assert.equal(parentRequest.path, '/', 'the initial .. row must navigate to the actual parent path');
+});
+
+test('FILE-TRANSFER-UI-017 keeps the current directory visible when opening a child fails', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'], postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+    const endpoint = page.locator('[data-file-transfer-endpoint="left"]');
+    await endpoint.selectOption('managed:machine:build');
+    const initialRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.side === 'left'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1,
+        requestId: initialRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: 'fedcba9876543210fedcba9876543210', label: 'Build Machine',
+            displayPath: '/workspace', entries: [
+                { id: '11111111111111111111111111111111', name: 'private', kind: 'directory' },
+            ],
+        },
+    });
+    await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] [data-file-transfer-directory-name]').click();
+    const failedRequest = await page.evaluate(() => window.__fileTransferMessages.filter(message =>
+        message.type === 'file-transfer-open-directory' && message.side === 'left'
+    ).at(-1));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-failed', version: 1,
+        requestId: failedRequest.requestId, side: 'left', message: 'Permission denied.',
+    });
+    assert.equal(await page.locator('[data-file-transfer-path-input="left"]').inputValue(), '/workspace');
+    assert.equal(await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"]').count(), 1,
+        'a failed navigation must leave the last usable directory available for another choice');
+});
+
+test('FILE-TRANSFER-UI-017 resets the list scroll position when the current directory changes', async t => {
+    const page = await browser.newPage({ viewport: { width: 480, height: 320 } });
+    t.after(() => page.close());
+    await page.setContent('<!doctype html><style>ul { display:block; height:80px; overflow:auto; } li { height:20px; }</style><ul data-file-transfer-file-list></ul>');
+    await page.addScriptTag({ content: dashboardScript });
+    await page.evaluate(() => {
+        const list = document.querySelector('[data-file-transfer-file-list]');
+        const entries = Array.from({ length: 60 }, (_unused, index) => ({
+            id: String(index).padStart(16, '0'), name: 'file-' + index, kind: 'file',
+        }));
+        renderLocalFileTransferEntries(list, entries, new Set(), () => {}, () => {}, null, null, false, 'directory:one');
+        list.scrollTop = 400;
+        renderLocalFileTransferEntries(list, entries, new Set(), () => {}, () => {}, null, null, false, 'directory:two');
+    });
+    assert.equal(await page.locator('[data-file-transfer-file-list]').evaluate(list => list.scrollTop), 0,
+        'a newly opened directory must start at its first row, including .. when it is present');
 });
 
 test('FILE-TRANSFER-UI-022 offers each endpoint visited paths in a native dropdown while preserving direct path navigation', async t => {
@@ -233,7 +355,7 @@ test('FILE-TRANSFER-UI-022 offers each endpoint visited paths in a native dropdo
     )), 'choosing a path suggestion must use the same validated navigation request as typed paths');
 });
 
-test('FILE-TRANSFER-UI-018 hides path-like hidden entries until Show hidden is selected, expands from an explicit folder-name control, and keeps endpoint controls visible while browsing', async t => {
+test('FILE-TRANSFER-UI-018 hides path-like hidden entries until Show hidden is selected, opens from an explicit folder-name control, and keeps endpoint controls visible while browsing', async t => {
     const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><style>
@@ -278,13 +400,13 @@ test('FILE-TRANSFER-UI-018 hides path-like hidden entries until Show hidden is s
     assert.equal(await folderName.count(), 1,
         'Show hidden must reveal the same absolute-path entry without reloading the endpoint');
     assert.equal(await folderName.textContent(), '.config',
-        'the tree must show a folder label, not a redundant type and absolute path');
+        'the directory list must show a folder label, not a redundant type and absolute path');
     await folderName.click();
     const expandRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
         message.type === 'file-transfer-open-directory'
             && message.endpoint && message.endpoint.directoryId === '11111111111111111111111111111111'
     ));
-    assert.ok(expandRequest, 'clicking a folder name must expand it; the tiny disclosure alone is not an adequate hit target');
+    assert.ok(expandRequest, 'clicking a folder name must open it; a tiny disclosure is not an adequate hit target');
 
     await page.evaluate(() => {
         document.querySelectorAll('[data-file-transfer-file-list]').forEach(list => {
@@ -308,10 +430,10 @@ test('FILE-TRANSFER-UI-018 hides path-like hidden entries until Show hidden is s
     assert.ok(endpointControls.top >= 0 && endpointControls.bottom <= endpointControls.viewportHeight,
         'endpoint controls must remain visible while a long directory is scrolled');
     assert.ok(endpointControls.sourceTreeScrollTop > 0,
-        'browsing a long directory must scroll the tree rather than the File Transfer page');
+        'browsing a long directory must scroll the directory list rather than the File Transfer page');
 });
 
-test('FILE-TRANSFER-UI-021 keeps endpoint controls and the transfer action fixed while each directory tree scrolls independently', async t => {
+test('FILE-TRANSFER-UI-021 keeps endpoint controls and the transfer action fixed while each directory list scrolls independently', async t => {
     const page = await browser.newPage({ viewport: { width: 1200, height: 720 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><style>
@@ -348,11 +470,11 @@ test('FILE-TRANSFER-UI-021 keeps endpoint controls and the transfer action fixed
     assert.equal(metrics.documentScrolls, false,
         'the File Transfer page must not scroll as a whole');
     assert.deepEqual(metrics.listOverflowY, ['auto', 'auto'],
-        'both directory trees must own their vertical scrollbars');
+        'both directory lists must own their vertical scrollbars');
     assert.deepEqual(metrics.listCanScroll, [true, true],
-        'both panes must give their directory trees bounded, scrollable space');
+        'both panes must give their directory lists bounded, scrollable space');
     assert.ok(metrics.leftScrollTop > 0,
-        'the source directory tree must scroll');
+        'the source directory list must scroll');
     assert.equal(metrics.rightScrollTop, 0,
         'scrolling the source tree must not move the target tree');
     assert.equal(metrics.endpointPairStayedPut, true,

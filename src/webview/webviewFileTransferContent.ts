@@ -85,32 +85,20 @@ export function getFileTransferContent(
     return `<section class="file-transfer" data-file-transfer>
         <div class="file-transfer-workspace-header">
             <header class="file-transfer-header">
-                <div>
-                    <h2>File Transfer</h2>
-                    <p>Choose a source and target folder. Files are relayed securely through this computer.</p>
-                </div>
-                <button type="button" class="file-transfer-tasks" data-file-transfer-tasks disabled title="Transfer tasks will appear here">Transfers <span>0</span></button>
+                <h2>File Transfer</h2>
             </header>
-            <section class="file-transfer-saved-pairs" data-file-transfer-saved-pairs aria-label="Recent endpoint pairs" hidden>
-                <h3>Recent endpoint pairs</h3>
-                <ul data-file-transfer-saved-pair-list></ul>
-            </section>
             <div class="file-transfer-pair" role="group" aria-label="Choose transfer endpoints">
                 ${endpointPicker('left', options)}
                 <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Switch source and target" aria-label="Switch source and target">⇄</button>
                 ${endpointPicker('right', options)}
             </div>
-            <p class="file-transfer-pair-hint" data-file-transfer-pair-hint>Select a source and a target. Source files always travel left to right.</p>
-            <section class="file-transfer-readiness" data-file-transfer-readiness aria-live="polite">
-                <span data-file-transfer-bridge-status>UI Bridge waiting</span>
-                <span data-file-transfer-source-status>Source not selected</span>
-                <span data-file-transfer-target-status>Target not selected</span>
-            </section>
+            <div class="file-transfer-feedback" aria-live="polite">
+                <p class="file-transfer-task-status" data-file-transfer-task-status hidden></p>
+                <button type="button" class="file-transfer-reveal-target" data-file-transfer-reveal-target hidden>Reveal target</button>
+                <button type="button" class="file-transfer-retry" data-file-transfer-retry hidden>Retry failed items</button>
+                <ul class="file-transfer-task-list" data-file-transfer-task-list aria-label="Transfer tasks" hidden></ul>
+            </div>
         </div>
-        <p class="file-transfer-task-status" data-file-transfer-task-status aria-live="polite" hidden></p>
-        <button type="button" class="file-transfer-reveal-target" data-file-transfer-reveal-target hidden>Reveal target</button>
-        <button type="button" class="file-transfer-retry" data-file-transfer-retry hidden>Retry failed items</button>
-        <ul class="file-transfer-task-list" data-file-transfer-task-list aria-label="Transfer tasks" hidden></ul>
         <div class="file-transfer-panes">
             ${pane('left')}
             ${pane('right')}
@@ -119,7 +107,7 @@ export function getFileTransferContent(
             <span data-file-transfer-summary>Select source files after both endpoints are ready.</span>
             <button type="button" data-file-transfer-start-copy disabled>Transfer</button>
         </footer>
-        <section class="file-transfer-history" aria-label="Recent transfers">
+        <section class="file-transfer-history" aria-label="Recent transfers" hidden>
             <div class="file-transfer-history-heading">
                 <h3>Recent transfers</h3>
                 <button type="button" data-file-transfer-clear-history disabled>Clear history</button>

@@ -195,11 +195,11 @@ test('FILE-TRANSFER-UI-018 hides path-like hidden entries until Show hidden is s
         :root { --vscode-foreground: #ddd; --vscode-descriptionForeground: #aaa; --vscode-panel-border: #555; --vscode-editor-background: #1e1e1e; --vscode-sideBarSectionHeader-background: #252525; --vscode-input-border: #555; --vscode-input-foreground: #ddd; --vscode-input-background: #333; --vscode-button-foreground: #fff; --vscode-button-background: #0e639c; }
         body { margin: 0; padding: 10px; background: #1e1e1e; }
         ${styles}
-    </style><body>
-        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+    </style><body class="file-transfer-editor"><main class="dashboard-content file-transfer-editor-content">
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel file-transfer-editor-panel">
             ${getFileTransferContent(snapshot())}
         </section>
-    </body>`);
+    </main></body>`);
     await page.addScriptTag({ content: dashboardBundle });
     await page.evaluate(() => {
         window.__fileTransferMessages = [];
@@ -248,14 +248,72 @@ test('FILE-TRANSFER-UI-018 hides path-like hidden entries until Show hidden is s
                 '<li class="file-transfer-file-row">File ' + index + '</li>'
             ).join('');
         });
-        window.scrollTo(0, 260);
+        document.querySelector('[data-file-transfer-file-list]').scrollTop = 260;
     });
     const endpointControls = await page.locator('.file-transfer-pair').evaluate(element => {
         const rect = element.getBoundingClientRect();
-        return { top: rect.top, bottom: rect.bottom, viewportHeight: window.innerHeight };
+        const sourceTree = document.querySelector('[data-file-transfer-file-list]');
+        return {
+            top: rect.top,
+            bottom: rect.bottom,
+            viewportHeight: window.innerHeight,
+            sourceTreeScrollTop: sourceTree.scrollTop,
+        };
     });
     assert.ok(endpointControls.top >= 0 && endpointControls.bottom <= endpointControls.viewportHeight,
         'endpoint controls must remain visible while a long directory is scrolled');
+    assert.ok(endpointControls.sourceTreeScrollTop > 0,
+        'browsing a long directory must scroll the tree rather than the File Transfer page');
+});
+
+test('FILE-TRANSFER-UI-021 keeps endpoint controls and the transfer action fixed while each directory tree scrolls independently', async t => {
+    const page = await browser.newPage({ viewport: { width: 1200, height: 720 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><style>
+        :root { --vscode-foreground: #ddd; --vscode-descriptionForeground: #aaa; --vscode-panel-border: #555; --vscode-editor-background: #1e1e1e; --vscode-sideBarSectionHeader-background: #252525; --vscode-input-border: #555; --vscode-input-foreground: #ddd; --vscode-input-background: #333; --vscode-button-foreground: #fff; --vscode-button-background: #0e639c; }
+        ${styles}
+    </style><body class="file-transfer-editor"><main class="dashboard-content file-transfer-editor-content"><section class="file-transfer-editor-panel">${getFileTransferContent(snapshot())}</section></main></body>`);
+    await page.evaluate(() => {
+        document.querySelectorAll('[data-file-transfer-file-list]').forEach((list, side) => {
+            list.hidden = false;
+            list.innerHTML = Array.from({ length: 180 }, (_unused, index) =>
+                '<li class="file-transfer-file-row">' + (side ? 'Target' : 'Source') + ' file ' + index + '</li>'
+            ).join('');
+        });
+    });
+
+    const metrics = await page.evaluate(() => {
+        const lists = Array.from(document.querySelectorAll('[data-file-transfer-file-list]'));
+        const endpointPair = document.querySelector('.file-transfer-pair');
+        const actionBar = document.querySelector('[data-file-transfer-action-bar]');
+        const initialPairTop = endpointPair.getBoundingClientRect().top;
+        const initialActionBottom = actionBar.getBoundingClientRect().bottom;
+        lists[0].scrollTop = 320;
+        return {
+            documentScrolls: document.scrollingElement.scrollHeight > document.scrollingElement.clientHeight,
+            listOverflowY: lists.map(list => getComputedStyle(list).overflowY),
+            listCanScroll: lists.map(list => list.scrollHeight > list.clientHeight),
+            leftScrollTop: lists[0].scrollTop,
+            rightScrollTop: lists[1].scrollTop,
+            endpointPairStayedPut: endpointPair.getBoundingClientRect().top === initialPairTop,
+            actionBarStayedPut: actionBar.getBoundingClientRect().bottom === initialActionBottom,
+        };
+    });
+
+    assert.equal(metrics.documentScrolls, false,
+        'the File Transfer page must not scroll as a whole');
+    assert.deepEqual(metrics.listOverflowY, ['auto', 'auto'],
+        'both directory trees must own their vertical scrollbars');
+    assert.deepEqual(metrics.listCanScroll, [true, true],
+        'both panes must give their directory trees bounded, scrollable space');
+    assert.ok(metrics.leftScrollTop > 0,
+        'the source directory tree must scroll');
+    assert.equal(metrics.rightScrollTop, 0,
+        'scrolling the source tree must not move the target tree');
+    assert.equal(metrics.endpointPairStayedPut, true,
+        'endpoint controls must remain fixed while browsing a tree');
+    assert.equal(metrics.actionBarStayedPut, true,
+        'the transfer action must remain fixed while browsing a tree');
 });
 
 test('FILE-TRANSFER-UI-019 keeps the direct transfer action available once source and target directories are ready', async t => {
@@ -319,7 +377,7 @@ test('FILE-TRANSFER-UI-019 keeps the direct transfer action available once sourc
     assert.equal(copyRequest.destination.machineId, 'machine:deploy');
 });
 
-test('FILE-TRANSFER-UI-020 makes the source, target, readiness, and direct transfer action explicit', async t => {
+test('FILE-TRANSFER-UI-020 makes the source, target, and direct transfer action explicit without repeating readiness details', async t => {
     const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><body>
@@ -363,8 +421,6 @@ test('FILE-TRANSFER-UI-020 makes the source, target, readiness, and direct trans
         },
     });
 
-    assert.match(await page.locator('[data-file-transfer-readiness]').textContent(),
-        /UI Bridge responding[\s\S]*Source directory ready[\s\S]*Target directory ready/i);
     assert.match(await page.locator('[data-file-transfer-pane="left"] [data-file-transfer-pane-role]').textContent(), /Source/i);
     assert.match(await page.locator('[data-file-transfer-pane="right"] [data-file-transfer-pane-role]').textContent(), /Target folder/i);
     assert.equal(await page.locator('[data-file-transfer-pane="right"] [data-file-transfer-file-list] input[type="checkbox"]').count(), 0,

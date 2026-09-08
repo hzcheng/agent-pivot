@@ -794,20 +794,29 @@ body .project {
 }
 
 .file-transfer-editor {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
-    min-height: 100vh;
+    height: 100vh;
+    min-height: 0;
     margin: 0;
+    overflow: hidden;
     background: var(--vscode-editor-background);
 }
 
 .file-transfer-editor-content {
+    display: flex;
+    flex: 1 1 auto;
     box-sizing: border-box;
     min-height: 0;
-    padding: 14px 18px 22px;
+    overflow: hidden;
+    padding: 8px 12px;
 }
 
 .file-transfer-editor-panel {
-    display: block;
+    display: flex;
+    flex: 1 1 auto;
+    width: 100%;
     max-width: 1600px;
     min-height: 0;
     margin: 0 auto;
@@ -1785,26 +1794,23 @@ body .project {
 }
 
 .file-transfer {
-    display: grid;
-    align-content: start;
-    gap: 10px;
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 8px;
     min-height: 0;
-    padding: 8px 6px 14px;
+    padding: 0;
     color: var(--vscode-foreground);
     box-sizing: border-box;
 }
 
 .file-transfer-workspace-header {
-    position: sticky;
-    top: 0;
-    z-index: 20;
+    flex: 0 0 auto;
     display: grid;
-    gap: 8px;
-    margin: -8px -6px 0;
-    padding: 8px 6px 10px;
+    gap: 4px;
+    padding: 0 0 7px;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-editor-background);
-    box-shadow: 0 5px 12px var(--vscode-widget-shadow, rgba(0, 0, 0, .2));
 }
 
 .file-transfer-header,
@@ -1816,13 +1822,12 @@ body .project {
 }
 
 .file-transfer-header {
-    justify-content: space-between;
-    gap: 12px;
+    min-height: 20px;
 }
 
 .file-transfer-header h2 {
     margin: 0;
-    font-size: 16px;
+    font-size: 14px;
 }
 
 .file-transfer-header p,
@@ -1868,22 +1873,31 @@ body .project {
 }
 
 .file-transfer-task-status {
-    margin: -4px 0 4px;
+    margin: 0;
     color: var(--vscode-descriptionForeground);
     font-size: 12px;
 }
 
+.file-transfer-feedback {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 0;
+}
+
 .file-transfer-retry,
 .file-transfer-reveal-target {
-    justify-self: start;
-    margin: -2px 0 5px;
+    margin: 0;
+    padding: 2px 6px;
     font-size: 11px;
 }
 
 .file-transfer-task-list {
+    flex: 1 0 100%;
     display: grid;
     gap: 3px;
-    margin: -2px 0 5px;
+    margin: 0;
     padding: 0;
     list-style: none;
     color: var(--vscode-descriptionForeground);
@@ -1907,10 +1921,9 @@ body .project {
 .file-transfer-pair {
     justify-content: center;
     gap: 8px;
-    padding: 8px 10px;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 7px;
-    background: var(--vscode-editor-inactiveSelectionBackground, transparent);
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
 }
 
 .file-transfer-saved-pairs {
@@ -1961,7 +1974,7 @@ body .project {
     display: grid;
     flex: 1 1 0;
     min-width: 0;
-    gap: 4px;
+    gap: 2px;
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
     font-weight: 700;
@@ -1971,8 +1984,8 @@ body .project {
 
 .file-transfer-endpoint-picker select {
     width: 100%;
-    min-height: 30px;
-    padding: 4px 7px;
+    min-height: 28px;
+    padding: 3px 6px;
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
     border-radius: 4px;
     color: var(--vscode-input-foreground);
@@ -2025,15 +2038,17 @@ body .project {
 
 .file-transfer-panes {
     display: grid;
+    flex: 1 1 auto;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    min-height: 220px;
+    gap: 8px;
+    min-height: 0;
 }
 
 .file-transfer-pane {
     display: flex;
-    min-width: 0;
     min-height: 0;
+    flex: 1 1 0;
+    min-width: 0;
     flex-direction: column;
     overflow: hidden;
     border: 1px solid var(--vscode-panel-border);
@@ -2044,7 +2059,7 @@ body .project {
 .file-transfer-pane-header {
     justify-content: space-between;
     gap: 8px;
-    padding: 9px 10px;
+    padding: 7px 9px;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-sideBarSectionHeader-background, transparent);
 }
@@ -2163,8 +2178,8 @@ body .project {
     align-items: center;
     flex-wrap: wrap;
     justify-content: flex-start;
-    gap: 8px;
-    padding: 6px 10px;
+    gap: 6px;
+    padding: 5px 9px;
     border-bottom: 1px solid var(--vscode-panel-border);
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
@@ -2208,6 +2223,7 @@ body .project {
 
 .file-transfer-pane-status {
     display: grid;
+    flex: 1 1 auto;
     min-height: 128px;
     place-items: center;
     padding: 18px;
@@ -2216,6 +2232,7 @@ body .project {
 
 .file-transfer-pane-status.is-directory-ready {
     display: block;
+    flex: 0 0 auto;
     min-height: 0;
     padding: 6px 10px;
     border-bottom: 1px solid var(--vscode-panel-border);
@@ -2223,7 +2240,11 @@ body .project {
 }
 
 .file-transfer-file-list {
+    flex: 1 1 auto;
+    min-height: 0;
     margin: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
     padding: 0;
     list-style: none;
 }
@@ -2446,19 +2467,19 @@ body .project {
 }
 
 .file-transfer-action-bar {
-    position: sticky;
-    bottom: 0;
+    flex: 0 0 auto;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px;
+    padding: 7px 9px;
     border: 1px solid var(--vscode-panel-border);
     border-radius: 7px;
     background: var(--vscode-editor-background);
-    box-shadow: 0 -6px 16px rgba(0, 0, 0, .08);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, .08);
 }
 
 .file-transfer-action-bar span {
     min-width: 0;
+    overflow: hidden;
     color: var(--vscode-descriptionForeground);
     font-size: 12px;
 }
@@ -2491,8 +2512,18 @@ body .project {
         grid-template-columns: 1fr;
     }
 
+    .file-transfer-panes {
+        grid-template-rows: repeat(2, minmax(0, 1fr));
+    }
+
     .file-transfer-pair {
         display: grid;
+    }
+
+    .file-transfer-swap {
+        justify-self: center;
+        width: 28px;
+        height: 28px;
     }
 
     .file-transfer-pair-arrow {
@@ -2509,8 +2540,8 @@ body .project {
     }
 
     .file-transfer-pane-toolbar {
-        align-items: flex-start;
-        flex-direction: column;
+        align-items: center;
+        flex-direction: row;
     }
 }
 

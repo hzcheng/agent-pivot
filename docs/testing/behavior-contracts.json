@@ -7332,7 +7332,7 @@
   {
     "id": "FILE-TRANSFER-UI-020",
     "domain": "webview",
-    "title": "File Transfer presents fixed source and target roles, explicit readiness, and a direct transfer action without a review dialog",
+    "title": "File Transfer presents fixed source and target roles and a direct transfer action without a review dialog or repeated readiness details",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7345,6 +7345,21 @@
       "media/styles.css",
       "media/webviewDashboardScripts.js",
       "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-021",
+    "domain": "webview",
+    "title": "File Transfer keeps the endpoint controls and transfer action fixed while source and target directory trees scroll independently",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewFileTransferContent.ts",
+      "media/styles.scss",
+      "media/styles.css"
     ]
   },
   {

@@ -306,7 +306,10 @@ test('FILE-TRANSFER-REMOTE-BROWSE-002 preserves an absolute directory name retur
 IFS= read -r command
 printf '%s\\n' "$command" >> "${commandLog}"
 case "$command" in
-  'ls -la "."')
+  'pwd')
+    printf '%s\n' 'Remote working directory: /home/hzcheng'
+    ;;
+  'ls -la "/home/hzcheng"')
     printf '%s\\n' 'drwxr-xr-x    2 user     group          4096 Jan 01 2026 /home/hzcheng/.config'
     ;;
   'ls -la "/home/hzcheng/.config"')
@@ -345,7 +348,7 @@ esac
     assert.equal(nestedListing.status, 'ok', nestedListing.message);
     assert.deepEqual(nestedListing.value.entries.map(entry => entry.name), ['settings.json']);
     assert.equal(fs.readFileSync(commandLog, 'utf8'),
-        'ls -la "."\nls -la "/home/hzcheng/.config"\n');
+        'pwd\nls -la "/home/hzcheng"\nls -la "/home/hzcheng/.config"\n');
 });
 
 test('FILE-TRANSFER-COPY-001 rejects local-to-local copy even with approved handles', async t => {
@@ -492,6 +495,24 @@ test('FILE-TRANSFER-COPY-003 retains SFTP file sizes for post-copy verification'
     ]);
 });
 
+test('FILE-TRANSFER-COPY-009 reads the name, rather than the display target, of an SFTP symbolic link', () => {
+    const entries = parseSftpLongListing(
+        'lrwxrwxrwx    1 user     group            12 Jan 01 2026 python -> python3.12\n',
+    );
+    assert.deepEqual(entries, [{
+        name: 'python', kind: 'symlink', modifiedAt: new Date(2026, 0, 1).getTime(),
+    }]);
+});
+
+test('FILE-TRANSFER-COPY-009 refuses an ambiguously rendered SFTP symbolic-link name', () => {
+    const entries = parseSftpLongListing(
+        'lrwxrwxrwx    1 user     group            12 Jan 01 2026 release -> current -> target\n',
+    );
+    assert.deepEqual(entries, [{
+        name: 'release -> current -> target', kind: 'unsupported',
+    }]);
+});
+
 test('FILE-TRANSFER-COPY-003D reads exact SFTP stat types, including empty directories', () => {
     assert.equal(parseSftpPathKind('File: /tmp/empty\nFiletype: directory\n'), 'directory');
     assert.equal(parseSftpPathKind('File: /tmp/report\nFiletype: regular file\n'), 'file');
@@ -511,6 +532,17 @@ test('FILE-TRANSFER-COPY-003C rejects a corrupted regular file inside a copied d
         }, { kind: 'local', path: destination }, destination, '/unused/ssh'),
         /size verification: nested\.txt/i,
     );
+});
+
+test('FILE-TRANSFER-COPY-009 accepts a legacy regular-file manifest without symbolic links', async t => {
+    const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-verify-'));
+    t.after(() => fs.rmSync(destination, { recursive: true, force: true }));
+    fs.writeFileSync(path.join(destination, 'nested.txt'), 'exact-size-12', 'utf8');
+    await verifyCopiedFileTransferTree({
+        knownBytes: 13,
+        unknownSizeItems: 0,
+        files: [{ relativePath: 'nested.txt', size: 13 }],
+    }, { kind: 'local', path: destination }, destination, '/unused/ssh');
 });
 
 test('FILE-TRANSFER-COPY-003A retains hidden SFTP entries but omits dot navigation rows', () => {

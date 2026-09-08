@@ -3,7 +3,7 @@
 import { createHash, randomBytes } from 'crypto';
 import { ChildProcess, spawn } from 'child_process';
 import { constants } from 'fs';
-import { access, lstat, opendir, realpath, stat } from 'fs/promises';
+import { access, lstat, mkdir, opendir, realpath, stat } from 'fs/promises';
 import * as path from 'path';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
@@ -91,6 +91,7 @@ interface FileTransferRemoteDirectory extends FileTransferEntry {
 interface ActiveFileTransferCopy {
     cancelled: boolean;
     process?: ChildProcess;
+    processes?: ChildProcess[];
     phase?: FileTransferCopyStatus['phase'];
     currentItemName?: string;
     completedItems?: number;
@@ -123,6 +124,12 @@ interface FileTransferTreeSummary {
      * returned through the Webview protocol.
      */
     files: FileTransferTreeFile[];
+    /**
+     * Symbolic links are copied as links, never followed. Keeping a
+     * manifest lets verification detect a transport that silently flattened
+     * or omitted one.
+     */
+    links: string[];
 }
 
 interface FileTransferTreeFile {
@@ -435,10 +442,10 @@ function remotePathKind(
                 reject,
             );
         });
-        // `stat` checks the requested path itself, unlike `ls`, which lists
-        // children and would make an existing empty directory look absent.
-        // The leading dash keeps a missing path from failing the whole batch.
-        process.stdin.end(`-stat ${quoteSftpPath(targetPath)}\n`);
+        // `lstat` checks the requested path itself without following a
+        // symbolic link. The leading dash keeps a missing path from failing
+        // the whole batch.
+        process.stdin.end(`-lstat ${quoteSftpPath(targetPath)}\n`);
     });
 }
 
@@ -463,11 +470,11 @@ function addKnownFileTransferBytes(
 }
 
 function unsupportedFileTransferTreeEntry(entryPath: string): Error {
-    return new Error(`File Transfer cannot copy a folder containing a symlink or unsupported item: ${path.basename(entryPath)}.`);
+    return new Error(`File Transfer cannot copy a folder containing an unsupported item: ${path.basename(entryPath)}.`);
 }
 
 async function inspectLocalFileTransferTree(rootPath: string): Promise<FileTransferTreeSummary> {
-    const summary: FileTransferTreeSummary = { knownBytes: 0, unknownSizeItems: 0, files: [] };
+    const summary: FileTransferTreeSummary = { knownBytes: 0, unknownSizeItems: 0, files: [], links: [] };
     const pending = [{ path: rootPath, relativePath: '' }];
     let inspectedEntries = 0;
     while (pending.length) {
@@ -478,7 +485,11 @@ async function inspectLocalFileTransferTree(rootPath: string): Promise<FileTrans
         if (inspectedEntries > FILE_TRANSFER_TREE_MAX_ENTRIES) {
             throw new Error('File Transfer folder is too large to inspect safely. Choose a smaller folder.');
         }
-        if (details.isSymbolicLink() || (!details.isFile() && !details.isDirectory())) {
+        if (details.isSymbolicLink()) {
+            summary.links.push(entry.relativePath);
+            continue;
+        }
+        if (!details.isFile() && !details.isDirectory()) {
             throw unsupportedFileTransferTreeEntry(entryPath);
         }
         if (details.isFile()) {
@@ -502,7 +513,7 @@ async function inspectRemoteFileTransferTree(
     alias: string,
     rootPath: string,
 ): Promise<FileTransferTreeSummary> {
-    const summary: FileTransferTreeSummary = { knownBytes: 0, unknownSizeItems: 0, files: [] };
+    const summary: FileTransferTreeSummary = { knownBytes: 0, unknownSizeItems: 0, files: [], links: [] };
     const pending = [{ path: rootPath, relativePath: '' }];
     let inspectedEntries = 0;
     while (pending.length) {
@@ -518,20 +529,24 @@ async function inspectRemoteFileTransferTree(
                 throw new Error('File Transfer folder is too large to inspect safely. Choose a smaller folder.');
             }
             const entryPath = remoteChildPath(directoryPath, row.name);
-            if (row.kind === 'symlink' || row.kind === 'unsupported') {
+            const relativePath = directory.relativePath
+                ? `${directory.relativePath}/${row.name}` : row.name;
+            if (row.kind === 'symlink') {
+                summary.links.push(relativePath);
+                continue;
+            }
+            if (row.kind === 'unsupported') {
                 throw unsupportedFileTransferTreeEntry(entryPath);
             }
             if (row.kind === 'directory') {
                 pending.push({
                     path: entryPath,
-                    relativePath: directory.relativePath
-                        ? `${directory.relativePath}/${row.name}` : row.name,
+                    relativePath,
                 });
             } else {
                 addKnownFileTransferBytes(summary, row.size);
                 summary.files.push({
-                    relativePath: directory.relativePath
-                        ? `${directory.relativePath}/${row.name}` : row.name,
+                    relativePath,
                     ...(row.size === undefined ? {} : { size: row.size }),
                 });
             }
@@ -636,6 +651,18 @@ export async function verifyCopiedFileTransferTree(
             throw new Error(`File copy did not pass size verification: ${path.basename(file.relativePath)}.`);
         }
     }
+    for (const relativePath of tree.links || []) {
+        const targetPath = destination.kind === 'local'
+            ? path.join(destinationPath, ...relativePath.split('/'))
+            : fileTransferChildPath(destinationPath, relativePath);
+        const kind = destination.kind === 'local'
+            ? await localPathKind(targetPath)
+            : await remotePathIsSymbolicLink(sshExecutable, destination.alias, targetPath)
+                ? 'symlink' : null;
+        if (kind !== 'symlink') {
+            throw new Error(`File copy did not preserve symbolic link: ${path.basename(relativePath)}.`);
+        }
+    }
 }
 
 function parseSftpModifiedAt(monthLabel: string, dayLabel: string, timeOrYear: string): number | undefined {
@@ -675,7 +702,17 @@ export function parseSftpLongListing(output: string): RemoteDirectoryRow[] {
         if (!line || /^sftp>\s*/u.test(line) || /^Connected to /u.test(line)) { continue; }
         const match = /^([bcdlps-])[rwxStTs-]{9}\s+\S+\s+\S+\s+\S+\s+(\d+)\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d\d:\d\d|\d{4})\s+(.+)$/u.exec(line);
         if (!match) { continue; }
-        const name = match[6];
+        // OpenSSH prints a symbolic link as `name -> target` in an `ls -l`
+        // listing. The target is display-only; only the link name is a path.
+        // A second delimiter makes the filename/target boundary ambiguous, so
+        // expose it as unsupported rather than reading a different path.
+        const displayedName = match[6];
+        const symlinkParts = match[1] === 'l' ? displayedName.split(' -> ') : undefined;
+        if (symlinkParts && symlinkParts.length > 2) {
+            rows.push({ name: displayedName, kind: 'unsupported' });
+            continue;
+        }
+        const name = symlinkParts && symlinkParts.length === 2 ? symlinkParts[0] : displayedName;
         if (name === '.' || name === '..' || name.length > 255 || /[\0\r\n]/u.test(name)) { continue; }
         const modifiedAt = parseSftpModifiedAt(match[3], match[4], match[5]);
         rows.push({
@@ -770,6 +807,159 @@ function copyFileTransferEntry(
     }).finally(() => stopFileTransferProgressMonitor(active));
 }
 
+function quoteRemoteShellArgument(value: string): string {
+    if (/\0/u.test(value)) { throw new Error('File Transfer path contains an unsupported character.'); }
+    return `'${value.replace(/'/gu, `'"'"'`)}'`;
+}
+
+function fileTransferSshOptions(): string[] {
+    return [
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=20',
+        '-o', 'ServerAliveInterval=15',
+        '-o', 'ServerAliveCountMax=3',
+    ];
+}
+
+function remotePathIsSymbolicLink(
+    sshExecutable: string,
+    alias: string,
+    targetPath: string,
+): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+        const child = spawn(sshExecutable, [...fileTransferSshOptions(), alias,
+            `[ -L ${quoteRemoteShellArgument(targetPath)} ]`], { stdio: ['ignore', 'ignore', 'pipe'] });
+        child.on('error', error => reject(new Error(`Could not inspect remote symbolic link: ${error.message}`)));
+        child.on('close', code => resolve(code === 0));
+    });
+}
+
+function remoteArchiveCommand(directoryPath: string, extracting: boolean): string {
+    return `tar -C ${quoteRemoteShellArgument(directoryPath)} -${extracting ? 'x' : 'c'}f -${extracting ? '' : ' .'}`;
+}
+
+function startFileTransferArchiveProcess(
+    sshExecutable: string,
+    endpoint: { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string },
+    extracting: boolean,
+): ChildProcess {
+    if (endpoint.kind === 'local') {
+        const executable = process.platform === 'win32' ? 'tar.exe' : 'tar';
+        return spawn(executable, ['-C', endpoint.path, `-${extracting ? 'x' : 'c'}f`, '-', ...(extracting ? [] : ['.'])], {
+            stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
+        });
+    }
+    return spawn(sshExecutable, [...fileTransferSshOptions(), endpoint.alias,
+        remoteArchiveCommand(endpoint.path, extracting)], {
+        stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
+    });
+}
+
+function copyFileTransferFolderArchive(
+    sshExecutable: string,
+    source: { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string },
+    destination: { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string },
+    active: ActiveFileTransferCopy,
+): Promise<void> {
+    const producer = startFileTransferArchiveProcess(sshExecutable, source, false);
+    const consumer = startFileTransferArchiveProcess(sshExecutable, destination, true);
+    const producerOutput = producer.stdout;
+    const consumerInput = consumer.stdin;
+    const producerError = producer.stderr;
+    const consumerError = consumer.stderr;
+    if (!producerOutput || !consumerInput || !producerError || !consumerError) {
+        stopFileTransferProcess(producer);
+        stopFileTransferProcess(consumer);
+        return Promise.reject(new Error('Could not start archive stream.'));
+    }
+    active.process = producer;
+    active.processes = [producer, consumer];
+    noteFileTransferActivity(active, 'scp-started');
+    const stderr: Buffer[] = [];
+    producerError.on('data', chunk => { stderr.push(Buffer.from(chunk)); noteFileTransferActivity(active, 'scp-running'); });
+    consumerError.on('data', chunk => { stderr.push(Buffer.from(chunk)); noteFileTransferActivity(active, 'scp-running'); });
+    return new Promise<void>((resolve, reject) => {
+        let producerExit: number | null | undefined;
+        let consumerExit: number | null | undefined;
+        let settled = false;
+        const finish = (error?: Error) => {
+            if (settled) { return; }
+            settled = true;
+            active.process = undefined;
+            active.processes = undefined;
+            noteFileTransferActivity(active, 'scp-exited');
+            if (error) { reject(error); } else { resolve(); }
+        };
+        const fail = (error: Error) => {
+            if (settled) { return; }
+            if (!active.cancelled) {
+                stopFileTransferProcess(producer);
+                stopFileTransferProcess(consumer);
+            }
+            finish(error);
+        };
+        const completeIfDone = () => {
+            if (producerExit === undefined || consumerExit === undefined) { return; }
+            if (active.cancelled) { finish(new Error('File copy was cancelled.')); return; }
+            if (producerExit === 0 && consumerExit === 0) { finish(); return; }
+            const message = Buffer.concat(stderr).toString('utf8').trim();
+            finish(new Error(message ? `File copy failed: ${message.slice(0, 320)}` : 'File copy failed.'));
+        };
+        producer.on('error', error => fail(new Error(`Could not start archive stream: ${error.message}`)));
+        consumer.on('error', error => fail(new Error(`Could not start archive stream: ${error.message}`)));
+        producerOutput.on('error', error => fail(new Error(`File copy stream failed: ${error.message}`)));
+        consumerInput.on('error', error => fail(new Error(`File copy stream failed: ${error.message}`)));
+        producer.on('close', code => { producerExit = code; completeIfDone(); });
+        consumer.on('close', code => { consumerExit = code; completeIfDone(); });
+        producerOutput.pipe(consumerInput);
+    });
+}
+
+function createRemoteFileTransferDirectory(
+    sshExecutable: string,
+    alias: string,
+    directoryPath: string,
+    active: ActiveFileTransferCopy,
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const child = spawn(sshExecutable, [...fileTransferSshOptions(), alias,
+            `mkdir -- ${quoteRemoteShellArgument(directoryPath)}`], { stdio: ['ignore', 'ignore', 'pipe'] });
+        active.process = child;
+        active.processes = [child];
+        const stderr: Buffer[] = [];
+        child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        const clearActiveProcess = () => {
+            if (active.process === child) {
+                active.process = undefined;
+                active.processes = undefined;
+            }
+        };
+        child.on('error', error => {
+            clearActiveProcess();
+            reject(new Error(`Could not create copy destination: ${error.message}`));
+        });
+        child.on('close', code => {
+            clearActiveProcess();
+            if (code === 0) { resolve(); return; }
+            const message = Buffer.concat(stderr).toString('utf8').trim();
+            reject(new Error(message ? `Could not create copy destination: ${message.slice(0, 320)}`
+                : 'Could not create copy destination.'));
+        });
+    });
+}
+
+async function createFileTransferDirectory(
+    sshExecutable: string,
+    destination: { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string },
+    active: ActiveFileTransferCopy,
+): Promise<void> {
+    if (destination.kind === 'local') {
+        await mkdir(destination.path);
+        return;
+    }
+    await createRemoteFileTransferDirectory(sshExecutable, destination.alias, destination.path, active);
+}
+
 /**
  * A machine-to-machine copy must always pass through the UI Bridge computer.
  * OpenSSH's `scp -3` provides a bounded stream between two independently
@@ -824,7 +1014,9 @@ export class ManagedRemoteBridgeController {
         for (const active of this.activeFileTransferCopies.values()) {
             active.cancelled = true;
             stopFileTransferProgressMonitor(active);
-            if (active.process) { stopFileTransferProcess(active.process); }
+            for (const process of active.processes || (active.process ? [active.process] : [])) {
+                stopFileTransferProcess(process);
+            }
         }
     }
 
@@ -1258,7 +1450,25 @@ export class ManagedRemoteBridgeController {
                     ? scpRemotePath(source.alias, entry.path, legacyScp) : entry.path;
                 const copyDestination = destination.kind === 'managedMachine'
                     ? scpRemotePath(destination.alias, destinationPath, legacyScp) : destinationPath;
-                if (source.kind === 'managedMachine' && destination.kind === 'managedMachine') {
+                const archiveSource = source.kind === 'local'
+                    ? { kind: 'local' as const, path: entry.path }
+                    : { kind: 'managedMachine' as const, alias: source.alias, path: entry.path };
+                const archiveDestination = destination.kind === 'local'
+                    ? { kind: 'local' as const, path: destinationPath }
+                    : { kind: 'managedMachine' as const, alias: destination.alias, path: destinationPath };
+                if (entry.kind === 'directory' && entryTree && entryTree.links.length > 0) {
+                    // SCP's modern SFTP mode dereferences links inside a
+                    // recursive tree. A pair of tar streams preserves them
+                    // byte-for-byte while data still only flows through this
+                    // UI Bridge process, never a relay file on disk.
+                    active.phase = source.kind === 'managedMachine' ? 'downloading' : 'uploading';
+                    active.hop = 'source-to-target';
+                    await createFileTransferDirectory(coordinator.getExecutable(), archiveDestination, active);
+                    if (active.cancelled) { throw new Error('File copy was cancelled.'); }
+                    await copyFileTransferFolderArchive(
+                        coordinator.getExecutable(), archiveSource, archiveDestination, active,
+                    );
+                } else if (source.kind === 'managedMachine' && destination.kind === 'managedMachine') {
                     const totalBytes = entry.kind === 'file' && Number.isSafeInteger(entry.size)
                         ? entry.size : undefined;
                     await relayFileTransferEntry(
@@ -1370,7 +1580,7 @@ export class ManagedRemoteBridgeController {
                 }
                 unknownSizeItems += entryTree.unknownSizeItems;
             } else {
-                const summary: FileTransferTreeSummary = { knownBytes, unknownSizeItems, files: [] };
+                const summary: FileTransferTreeSummary = { knownBytes, unknownSizeItems, files: [], links: [] };
                 addKnownFileTransferBytes(summary, entry.size);
                 knownBytes = summary.knownBytes;
                 unknownSizeItems = summary.unknownSizeItems;
@@ -1463,7 +1673,9 @@ export class ManagedRemoteBridgeController {
         const active = this.activeFileTransferCopies.get(taskId);
         if (!active) { return { cancelled: false }; }
         active.cancelled = true;
-        if (active.process) { stopFileTransferProcess(active.process); }
+        for (const process of active.processes || (active.process ? [active.process] : [])) {
+            stopFileTransferProcess(process);
+        }
         stopFileTransferProgressMonitor(active);
         return { cancelled: true };
     }

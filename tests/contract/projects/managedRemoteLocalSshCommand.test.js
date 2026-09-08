@@ -131,6 +131,33 @@ test('FILE-TRANSFER-COPY-005 rejects a Bridge that lacks the two-hop relay capab
     assert.deepEqual(calls, [MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND]);
 });
 
+test('FILE-TRANSFER-COPY-006 keeps an active relay copy alive beyond the ordinary Bridge action timeout', async () => {
+    const commands = {
+        executeCommand(command, request) {
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return Promise.resolve({
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678', capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                });
+            }
+            return new Promise(resolve => setTimeout(() => resolve({
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 },
+            }), 25));
+        },
+    };
+    const result = await new ManagedRemoteBridgeClient(commands, 5).copyFileTransferEntries(
+        `revision:${'a'.repeat(64)}`,
+        {
+            kind: 'copy', taskId: 'copy-task-1234567890', conflictPolicy: 'fail',
+            source: { kind: 'managedMachine', machineId: 'machine:source', directoryId: 'a'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:destination', directoryId: 'b'.repeat(32) },
+            entryIds: ['c'.repeat(32)],
+        },
+    );
+    assert.equal(result.status, 'copied');
+});
+
 test('FILE-TRANSFER-PREFLIGHT-002 bridge client sends opaque handles and validates the bounded summary', async () => {
     const calls = [];
     const commands = {

@@ -17,6 +17,10 @@ import {
     ManagedRemoteBridgeResponse,
 } from './bridgeProtocol';
 
+// A relay copy can legitimately take hours. The ordinary Bridge deadline only
+// protects short control-plane requests such as browse, preflight, and cancel.
+const FILE_TRANSFER_COPY_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
+
 export interface ManagedRemoteBridgeCommandExecutor {
     executeCommand<T>(command: string, ...args: unknown[]): Thenable<T | undefined>;
 }
@@ -137,6 +141,7 @@ export class ManagedRemoteBridgeClient {
     ): Promise<FileTransferCopyResult> {
         return this.executeAttempt(
             'copyFileTransferEntries', expectedRevisionId, undefined, undefined, request, true,
+            FILE_TRANSFER_COPY_TIMEOUT_MS,
         ).then(value => {
             const parsed = parseFileTransferCopyResult(value);
             if (!parsed) {
@@ -195,6 +200,7 @@ export class ManagedRemoteBridgeClient {
             | { kind: 'status'; taskId: string }
         ) | undefined,
         retryExpiredSession: boolean,
+        deadlineMs = this.timeoutMs,
     ): Promise<unknown> {
         const requestId = correlation('managed-remote');
         const response = await this.withDeadline(this.commands.executeCommand<unknown>(
@@ -209,7 +215,7 @@ export class ManagedRemoteBridgeClient {
                 ...(legacySshTarget ? { legacySshTarget } : {}),
                 ...(fileTransfer ? { fileTransfer } : {}),
             },
-        ));
+        ), deadlineMs);
         if (!isRecord(response)
             || response.protocolVersion !== MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION
             || response.requestId !== requestId
@@ -231,7 +237,7 @@ export class ManagedRemoteBridgeClient {
                 && /session expired/iu.test(response.message)) {
                 this.session = undefined;
                 return this.executeAttempt(
-                    operation, expectedRevisionId, targetId, legacySshTarget, fileTransfer, false,
+                    operation, expectedRevisionId, targetId, legacySshTarget, fileTransfer, false, deadlineMs,
                 );
             }
             throw new ManagedRemoteBridgeClientError(
@@ -284,11 +290,14 @@ export class ManagedRemoteBridgeClient {
         return response.sessionToken;
     }
 
-    private withDeadline<T>(operation: Thenable<T | undefined>): Promise<T | undefined> {
+    private withDeadline<T>(
+        operation: Thenable<T | undefined>,
+        timeoutMs = this.timeoutMs,
+    ): Promise<T | undefined> {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error(
                 'Agent Pivot UI Bridge timed out. Try the action again.',
-            )), this.timeoutMs);
+            )), timeoutMs);
             Promise.resolve(operation).then(
                 value => { clearTimeout(timer); resolve(value); },
                 error => { clearTimeout(timer); reject(error); },

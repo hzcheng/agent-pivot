@@ -7533,6 +7533,19 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-PREFLIGHT-003",
+    "domain": "runtime",
+    "title": "File Transfer allows a recursive folder review to outlive the short Bridge control-command timeout",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeClient.ts"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-COPY-007",
     "domain": "runtime",
     "title": "File Transfer exposes bounded SCP lifecycle telemetry and prevents interactive SSH prompts from leaving a copy indefinitely unresolved",

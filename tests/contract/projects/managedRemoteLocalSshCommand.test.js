@@ -158,6 +158,35 @@ test('FILE-TRANSFER-COPY-006 keeps an active relay copy alive beyond the ordinar
     assert.equal(result.status, 'copied');
 });
 
+test('FILE-TRANSFER-PREFLIGHT-003 keeps a recursive folder review alive beyond the ordinary Bridge action timeout', async () => {
+    const commands = {
+        executeCommand(command, request) {
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return Promise.resolve({
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678', capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                });
+            }
+            return new Promise(resolve => setTimeout(() => resolve({
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: {
+                    totalItems: 1, knownBytes: 42, unknownSizeItems: 0,
+                    existingFileNames: [], existingDirectoryNames: [],
+                },
+            }), 25));
+        },
+    };
+    const result = await new ManagedRemoteBridgeClient(commands, 5).preflightFileTransfer(
+        `revision:${'a'.repeat(64)}`,
+        {
+            kind: 'preflight', entryIds: ['a'.repeat(32)],
+            source: { kind: 'managedMachine', machineId: 'machine:source', directoryId: 'b'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:destination', directoryId: 'c'.repeat(32) },
+        },
+    );
+    assert.equal(result.knownBytes, 42);
+});
+
 test('FILE-TRANSFER-PREFLIGHT-002 bridge client sends opaque handles and validates the bounded summary', async () => {
     const calls = [];
     const commands = {

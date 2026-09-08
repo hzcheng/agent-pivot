@@ -3270,6 +3270,9 @@ async function initializeDashboard(
                     return;
                 }
                 try {
+                    outputChannel.appendLine(
+                        `[FileTransfer] preflight started: items=${Array.isArray(message.entryIds) ? message.entryIds.length : 0}`,
+                    );
                     const result = await managedRemoteBridgeClient.preflightFileTransfer(
                         managedRemoteSnapshot.revisionId,
                         {
@@ -3280,9 +3283,16 @@ async function initializeDashboard(
                             ...(typeof message.targetName === 'string' ? { targetName: message.targetName } : {}),
                         },
                     );
+                    outputChannel.appendLine(
+                        `[FileTransfer] preflight settled: items=${result.totalItems}`
+                            + ` bytes=${result.knownBytes} unknown=${result.unknownSizeItems}`,
+                    );
                     await provider.postMessage(fileTransferPreflightSettlement(message, result));
                 } catch (error) {
                     const rawMessage = error instanceof Error ? error.message : String(error);
+                    outputChannel.appendLine(
+                        `[FileTransfer] preflight failed: ${boundedFileTransferDiagnosticMessage(rawMessage)}`,
+                    );
                     await provider.postMessage(fileTransferPreflightFailure(message, rawMessage.slice(0, 320)));
                 }
             },

@@ -17,10 +17,11 @@ import {
     ManagedRemoteBridgeResponse,
 } from './bridgeProtocol';
 
-// A relay copy can legitimately take hours, and reviewing a large folder can
-// require a remote walk of every nested directory. The ordinary Bridge deadline
-// only protects short control-plane requests such as browse and cancel.
-const FILE_TRANSFER_PREFLIGHT_TIMEOUT_MS = 10 * 60 * 1_000;
+// A relay copy can legitimately take hours. Reviewing a folder needs longer
+// than browse, but it must still settle promptly instead of leaving the UI in
+// an unbounded "Checking selected items…" state when a nested SFTP request
+// stalls.
+const FILE_TRANSFER_PREFLIGHT_TIMEOUT_MS = 60 * 1_000;
 const FILE_TRANSFER_COPY_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
 export interface ManagedRemoteBridgeCommandExecutor {
@@ -63,6 +64,7 @@ export class ManagedRemoteBridgeClient {
     constructor(
         private readonly commands: ManagedRemoteBridgeCommandExecutor,
         private readonly timeoutMs = 15_000,
+        private readonly fileTransferPreflightTimeoutMs = FILE_TRANSFER_PREFLIGHT_TIMEOUT_MS,
     ) {
     }
 
@@ -159,7 +161,7 @@ export class ManagedRemoteBridgeClient {
     ): Promise<FileTransferPreflightResult> {
         return this.executeAttempt(
             'preflightFileTransfer', expectedRevisionId, undefined, undefined, request, true,
-            FILE_TRANSFER_PREFLIGHT_TIMEOUT_MS,
+            this.fileTransferPreflightTimeoutMs,
         ).then(value => {
             const parsed = parseFileTransferPreflightResult(value);
             if (!parsed) {

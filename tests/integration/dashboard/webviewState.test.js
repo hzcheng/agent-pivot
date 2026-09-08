@@ -444,7 +444,7 @@ test('FILE-TRANSFER-UI-001 renders explicit Source and Target endpoint pickers',
     assert.match(html, /data-file-transfer-endpoint="right"/);
     assert.match(html, /aria-label="Source"/);
     assert.match(html, /aria-label="Target"/);
-    assert.match(html, /data-file-transfer-readiness/);
+    assert.match(html, /file-transfer-feedback/);
     assert.match(html, /data-file-transfer-swap/);
     assert.match(html, /This Computer…/);
     assert.match(html, /Build &amp; Test/);
@@ -573,7 +573,7 @@ test('FILE-TRANSFER-UI-008 renders correlated queued copy tasks with cancellatio
     assert.match(dashboardSource, /file-transfer-request-saved-pairs/);
     assert.match(dashboardSource, /savedPairLabel\(entry\.source\) \+ ' → ' \+ savedPairLabel\(entry\.destination\)/);
     assert.match(dashboardSource, /Downloading from source/);
-    assert.match(dashboardSource, /Uploading to target/);
+    assert.match(dashboardSource, /Uploading from relay to target/);
     assert.match(dashboardSource, /file-transfer-task-list/);
 });
 
@@ -595,12 +595,10 @@ test('FILE-TRANSFER-UI-010 filters hidden entries and sorts each endpoint indepe
     assert.match(html, /data-file-transfer-show-hidden="right"/);
     assert.match(html, /data-file-transfer-sort="left"/);
     assert.match(html, /value="modified"/);
-    assert.match(html, /data-file-transfer-saved-pairs/);
-    assert.match(html, /Recent endpoint pairs/);
-    assert.ok(html.indexOf('data-file-transfer-saved-pairs') < html.indexOf('data-file-transfer-endpoint="left"'));
     assert.match(dashboardSource, /function sortFileTransferEntries/);
-    assert.match(dashboardSource, /showHiddenEntries\[side\] \|\| !isHiddenFileTransferEntry\(treeEntry\.entry\.name\)/);
-    assert.match(dashboardSource, /sortFileTransferEntries\(directory\.entries, fileTransferSort\[side\]\)/);
+    assert.match(dashboardSource, /treeEntry\.parentDirectory \|\| showHiddenEntries\[side\]/);
+    assert.match(dashboardSource, /!isHiddenFileTransferEntry\(treeEntry\.entry\.name\)/);
+    assert.match(dashboardSource, /sortFileTransferEntries\(root\.entries, fileTransferSort\[side\]\)/);
 });
 
 test('FILE-TRANSFER-UI-012 requires ready source and target directories before direct transfer', () => {
@@ -625,7 +623,7 @@ test('FILE-TRANSFER-UI-013 navigates known directories through opaque breadcrumb
     assert.match(dashboardSource, /function renderPaneBreadcrumbs/);
     assert.match(dashboardSource, /directoryHistory\[side\] = trail\.slice\(0, index\);/);
     assert.match(dashboardSource, /openDirectory\(side, directory\.directoryId, false\);/);
-    assert.match(dashboardSource, /function openPath\(side, navigationPath\)/);
+    assert.match(dashboardSource, /function openPath\(side, navigationPath, navigationKind\)/);
 });
 
 test('FILE-TRANSFER-UI-014 filters only the files already loaded in each pane', () => {

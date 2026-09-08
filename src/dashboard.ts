@@ -2866,6 +2866,25 @@ async function initializeDashboard(
         });
     };
     const queuedFileTransferTasks: Record<string, unknown>[] = [];
+    const boundedFileTransferDiagnosticMessage = (value: unknown): string => String(value)
+        .replace(/[\0\r\n]+/gu, ' ')
+        .replace(/(?:[A-Za-z]:)?[\\/][^\s:]*agent-pivot-file-transfer-[^\s:]+/gu, '[local relay staging]')
+        .trim().slice(0, 320) || 'File copy failed.';
+    const logFileTransferCopySettlement = (
+        status: FileTransferHistoryEntry['status'],
+        value: unknown,
+    ): void => {
+        const result = isRecordFileTransferCopyResult(value) ? value : undefined;
+        const diagnostic = result?.diagnostic;
+        outputChannel.appendLine(
+            `[FileTransfer] copy settled: status=${status}`
+                + ` completed=${result?.completedItems ?? 0} skipped=${result?.skippedItems ?? 0}`
+                + ` total=${result?.totalItems ?? 0}`
+                + (diagnostic ? ` phase=${diagnostic.phase} hop=${diagnostic.hop} code=${diagnostic.code}` : '')
+                + (status === 'failed'
+                    ? ` error=${boundedFileTransferDiagnosticMessage(result?.message || value)}` : ''),
+        );
+    };
     const runNextFileTransferTask = (): void => {
         const provider = fileTransferMessageProvider;
         if (activeFileTransferTaskId || queuedFileTransferTasks.length === 0) {
@@ -2885,6 +2904,7 @@ async function initializeDashboard(
             });
             return;
         }
+        outputChannel.appendLine(`[FileTransfer] copy started: items=${Array.isArray(task.entryIds) ? task.entryIds.length : 0}`);
         void Promise.resolve(provider.postMessage({
             type: 'file-transfer-copy-started', version: 1, requestId: task.requestId,
         })).then(() => {
@@ -2925,11 +2945,16 @@ async function initializeDashboard(
         }).then(
             async result => {
                 const status = isRecordFileTransferCopyResult(result) ? result.status : 'failed';
+                logFileTransferCopySettlement(status, result);
                 await appendFileTransferHistorySafely(task, status, result);
                 return provider.postMessage(fileTransferCopySettlement(task, status, result));
             },
             error => {
-                const rawMessage = error instanceof Error ? error.message : String(error);
+                const rawMessage = boundedFileTransferDiagnosticMessage(
+                    error instanceof Error ? error.message : error,
+                );
+                outputChannel.appendLine(`[FileTransfer] copy command failed: ${rawMessage}`);
+                logFileTransferCopySettlement('failed', rawMessage);
                 return appendFileTransferHistorySafely(task, 'failed', rawMessage).then(() => provider.postMessage(
                     fileTransferCopySettlement(task, 'failed', rawMessage.slice(0, 320)),
                 ));

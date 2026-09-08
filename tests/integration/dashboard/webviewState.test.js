@@ -662,6 +662,13 @@ test('FILE-TRANSFER-UI-016 keeps P0 destination naming and replacement out of th
     assert.doesNotMatch(dashboardSource, /reviewedCopyPlan/);
 });
 
+test('FILE-TRANSFER-OBSERVABILITY-002 writes every terminal copy result to the host diagnostics channel', () => {
+    assert.match(dashboardHostSource, /\[FileTransfer\] copy settled: status=\$\{status\}/,
+        'a failed local UI Bridge result must remain inspectable from the remote Agent Pivot output channel');
+    assert.match(dashboardHostSource, /\[FileTransfer\] copy command failed:/,
+        'a Bridge command rejection must retain its bounded error in the same output channel');
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

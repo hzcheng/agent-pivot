@@ -96,8 +96,18 @@ interface ActiveFileTransferCopy {
     transferredBytes?: number;
     totalBytes?: number;
     bytesPerSecond?: number;
+    activity?: FileTransferCopyStatus['activity'];
+    lastActivityAt?: number;
     monitorTimer?: NodeJS.Timeout;
     monitorGeneration?: number;
+}
+
+function noteFileTransferActivity(
+    active: ActiveFileTransferCopy,
+    activity: NonNullable<FileTransferCopyStatus['activity']>,
+): void {
+    active.activity = activity;
+    active.lastActivityAt = Date.now();
 }
 
 interface FileTransferTreeSummary {
@@ -673,6 +683,14 @@ function copyFileTransferEntry(
         // process. It neither asks the Managed Machines to reach each other
         // nor stages a complete file on this computer's disk.
         ...(relayThroughLocal ? ['-3'] : []),
+        // Copies must never wait for an invisible password, host-key, or
+        // keyboard-interactive prompt. Bound a dead connection as well; a
+        // healthy large transfer remains active because SSH traffic resets
+        // the server-alive counter.
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=20',
+        '-o', 'ServerAliveInterval=15',
+        '-o', 'ServerAliveCountMax=3',
         // Preserve mode and modification time where both endpoints permit it.
         // SCP reports an ordinary transfer error if either side refuses them.
         '-p',
@@ -691,11 +709,16 @@ function copyFileTransferEntry(
             detached: process.platform !== 'win32',
         });
         active.process = child;
+        noteFileTransferActivity(active, 'scp-started');
         const stderr: Buffer[] = [];
-        child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        child.stderr.on('data', chunk => {
+            stderr.push(Buffer.from(chunk));
+            noteFileTransferActivity(active, 'scp-running');
+        });
         child.on('error', error => reject(new Error(`Could not start SCP: ${error.message}`)));
         child.on('close', code => {
             active.process = undefined;
+            noteFileTransferActivity(active, 'scp-exited');
             if (active.cancelled) {
                 reject(new Error('File copy was cancelled.'));
                 return;
@@ -1144,6 +1167,7 @@ export class ManagedRemoteBridgeController {
             skippedItems: 0,
             totalItems: request.entryIds.length,
         };
+        noteFileTransferActivity(active, 'preparing');
         this.activeFileTransferCopies.set(request.taskId, active);
         let completedItems = 0;
         let skippedItems = 0;
@@ -1155,6 +1179,7 @@ export class ManagedRemoteBridgeController {
                 if (active.cancelled) { throw new Error('File copy was cancelled.'); }
                 active.currentItemName = path.basename(entry.path).slice(0, 255);
                 active.phase = 'preparing';
+                noteFileTransferActivity(active, 'preparing');
                 let entryTree: FileTransferTreeSummary | undefined;
                 if (entry.kind === 'directory') {
                     entryTree = source.kind === 'local'
@@ -1211,6 +1236,7 @@ export class ManagedRemoteBridgeController {
                     );
                 }
                 active.phase = 'verifying';
+                noteFileTransferActivity(active, 'verifying');
                 if (entry.kind === 'directory' && entryTree) {
                     await verifyCopiedFileTransferTree(
                         entryTree, destination, destinationPath, coordinator.getExecutable(),
@@ -1340,6 +1366,9 @@ export class ManagedRemoteBridgeController {
                 ? { transferredBytes: active.transferredBytes, totalBytes: active.totalBytes } : {}),
             ...(Number.isSafeInteger(active.bytesPerSecond) && active.bytesPerSecond! >= 0
                 ? { bytesPerSecond: active.bytesPerSecond } : {}),
+            ...(active.activity ? { activity: active.activity } : {}),
+            ...(Number.isSafeInteger(active.lastActivityAt) && active.lastActivityAt! >= 0
+                ? { lastActivityAt: active.lastActivityAt } : {}),
         };
     }
 

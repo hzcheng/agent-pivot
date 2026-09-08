@@ -432,6 +432,12 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     for (const relayCall of relayCalls) {
         assert.match(relayCall, /(?:^|\s)-3(?:\s|$)/u,
             'the relay must force OpenSSH to stream remote-to-remote data through the UI Bridge');
+        assert.match(relayCall, /(?:^|\s)-o\s+BatchMode=yes(?:\s|$)/u,
+            'FILE-TRANSFER-COPY-007 must fail rather than wait for an interactive SSH prompt');
+        assert.match(relayCall, /(?:^|\s)-o\s+ConnectTimeout=20(?:\s|$)/u,
+            'FILE-TRANSFER-COPY-007 must bound an unreachable SSH connection');
+        assert.match(relayCall, /(?:^|\s)-o\s+ServerAliveInterval=15(?:\s|$)/u,
+            'FILE-TRANSFER-COPY-007 must detect a dead stream before the 24-hour copy deadline');
         assert.match(relayCall, new RegExp(`${sourceAlias}:`));
         assert.match(relayCall, new RegExp(`${destinationAlias}:`));
     }

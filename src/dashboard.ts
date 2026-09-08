@@ -2910,6 +2910,8 @@ async function initializeDashboard(
         })).then(() => {
             let pollTimer: NodeJS.Timeout | undefined;
             let polling = true;
+            let lastProgressKey: string | undefined;
+            let consecutiveStatusFailures = 0;
             const scheduleProgressPoll = (): void => {
                 if (!polling || activeFileTransferTaskId !== task.requestId) { return; }
                 pollTimer = setTimeout(() => {
@@ -2917,12 +2919,42 @@ async function initializeDashboard(
                     void managedRemoteBridgeClient.getFileTransferCopyStatus(task.requestId as string).then(
                         status => {
                             if (isRecordFileTransferCopyStatus(status)) {
+                                consecutiveStatusFailures = 0;
+                                const progressKey = [status.phase, status.hop || '', status.currentItemName || '',
+                                    status.activity || '', status.lastActivityAt || ''].join('|');
+                                if (progressKey !== lastProgressKey) {
+                                    lastProgressKey = progressKey;
+                                    outputChannel.appendLine(
+                                        `[FileTransfer] copy progress: phase=${status.phase} hop=${status.hop || 'unknown'}`
+                                            + ` item=${status.currentItemName || 'unknown'}`
+                                            + ` activity=${status.activity || 'unknown'}`
+                                            + (status.lastActivityAt ? ` at=${status.lastActivityAt}` : ''),
+                                    );
+                                }
                                 return provider.postMessage(fileTransferCopyProgress(task, status));
+                            }
+                            outputChannel.appendLine('[FileTransfer] copy status is unknown while the copy command is still pending.');
+                            return undefined;
+                        },
+                        error => {
+                            consecutiveStatusFailures += 1;
+                            outputChannel.appendLine(
+                                `[FileTransfer] copy status query failed: attempt=${consecutiveStatusFailures}`
+                                    + ` error=${boundedFileTransferDiagnosticMessage(error instanceof Error ? error.message : error)}`,
+                            );
+                            // The copy request remains the terminal authority, but ask the Bridge to stop a
+                            // stranded child after repeated failed heartbeats. Its eventual cancellation result
+                            // is still recorded through the normal settlement path.
+                            if (consecutiveStatusFailures >= 3) {
+                                outputChannel.appendLine('[FileTransfer] cancelling copy after three missed UI Bridge heartbeats.');
+                                void managedRemoteBridgeClient.cancelFileTransferCopy(task.requestId as string).catch(cancelError => {
+                                    outputChannel.appendLine(
+                                        `[FileTransfer] copy cancellation request failed: ${boundedFileTransferDiagnosticMessage(cancelError instanceof Error ? cancelError.message : cancelError)}`,
+                                    );
+                                });
                             }
                             return undefined;
                         },
-                        // Progress is advisory. The original copy request remains the sole terminal authority.
-                        () => undefined,
                     ).then(scheduleProgressPoll, scheduleProgressPoll);
                 }, 500);
             };
@@ -5150,6 +5182,8 @@ function fileTransferCopyProgress(
         transferredBytes?: number;
         totalBytes?: number;
         bytesPerSecond?: number;
+        activity?: 'preparing' | 'scp-started' | 'scp-running' | 'scp-exited' | 'verifying';
+        lastActivityAt?: number;
     },
 ): Record<string, unknown> {
     return {
@@ -5269,12 +5303,15 @@ function isRecordFileTransferCopyStatus(value: unknown): value is {
     transferredBytes?: number;
     totalBytes?: number;
     bytesPerSecond?: number;
+    activity?: 'preparing' | 'scp-started' | 'scp-running' | 'scp-exited' | 'verifying';
+    lastActivityAt?: number;
 } {
     if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
     const status = value as Record<string, unknown>;
     return Object.keys(status).every(key => [
         'status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName',
         'hop', 'transferredBytes', 'totalBytes', 'bytesPerSecond',
+        'activity', 'lastActivityAt',
     ].includes(key))
         && status.status === 'running'
         && ['preparing', 'downloading', 'uploading', 'verifying'].includes(status.phase as string)
@@ -5292,7 +5329,10 @@ function isRecordFileTransferCopyStatus(value: unknown): value is {
             && (status.totalBytes as number) >= 0
             && (status.transferredBytes as number) <= (status.totalBytes as number)))
         && (status.bytesPerSecond === undefined || (Number.isSafeInteger(status.bytesPerSecond)
-            && (status.bytesPerSecond as number) >= 0));
+            && (status.bytesPerSecond as number) >= 0))
+        && (status.activity === undefined || ['preparing', 'scp-started', 'scp-running', 'scp-exited', 'verifying'].includes(status.activity as string))
+        && (status.lastActivityAt === undefined || (Number.isSafeInteger(status.lastActivityAt)
+            && (status.lastActivityAt as number) >= 0));
 }
 
 function isFileTransferHistoryRequest(value: Record<string, unknown>): boolean {

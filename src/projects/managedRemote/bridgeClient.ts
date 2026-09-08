@@ -373,7 +373,9 @@ function parseFileTransferCopyStatus(value: unknown): FileTransferCopyStatus | {
         .concat(value.hop === undefined ? [] : ['hop'])
         .concat(value.transferredBytes === undefined ? [] : ['transferredBytes'])
         .concat(value.totalBytes === undefined ? [] : ['totalBytes'])
-        .concat(value.bytesPerSecond === undefined ? [] : ['bytesPerSecond']);
+        .concat(value.bytesPerSecond === undefined ? [] : ['bytesPerSecond'])
+        .concat(value.activity === undefined ? [] : ['activity'])
+        .concat(value.lastActivityAt === undefined ? [] : ['lastActivityAt']);
     if (!hasExactKeys(value, expectedKeys)
         || value.status !== 'running'
         || (value.phase !== 'preparing' && value.phase !== 'downloading'
@@ -394,7 +396,11 @@ function parseFileTransferCopyStatus(value: unknown): FileTransferCopyStatus | {
                 || !Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0
                 || value.transferredBytes > value.totalBytes))
         || (value.bytesPerSecond !== undefined
-            && (!Number.isSafeInteger(value.bytesPerSecond) || value.bytesPerSecond < 0))) {
+            && (!Number.isSafeInteger(value.bytesPerSecond) || value.bytesPerSecond < 0))
+        || (value.activity !== undefined && value.activity !== 'preparing' && value.activity !== 'scp-started'
+            && value.activity !== 'scp-running' && value.activity !== 'scp-exited' && value.activity !== 'verifying')
+        || (value.lastActivityAt !== undefined
+            && (!Number.isSafeInteger(value.lastActivityAt) || value.lastActivityAt < 0))) {
         return null;
     }
     return value as unknown as FileTransferCopyStatus;

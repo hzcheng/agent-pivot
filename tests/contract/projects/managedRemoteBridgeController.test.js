@@ -449,7 +449,7 @@ test('FILE-TRANSFER-COPY-002A exposes only a correlated redacted active-task sna
     assert.deepEqual(missing.value, { status: 'unknown' });
 });
 
-test('FILE-TRANSFER-OBSERVABILITY-001 exposes the current relay hop and bounded throughput telemetry', async () => {
+test('FILE-TRANSFER-OBSERVABILITY-001 FILE-TRANSFER-COPY-007 exposes the current relay hop and bounded SCP lifecycle telemetry', async () => {
     const controller = new ManagedRemoteBridgeController({
         readManagedCatalogEnvelope() { throw new Error('progress must not read catalog authority'); },
     }, {
@@ -466,6 +466,8 @@ test('FILE-TRANSFER-OBSERVABILITY-001 exposes the current relay hop and bounded 
         transferredBytes: 536_870_912,
         totalBytes: 1_073_741_824,
         bytesPerSecond: 44_040_192,
+        activity: 'scp-running',
+        lastActivityAt: 1_789_000_000_000,
     });
     const running = await controller.execute({
         ...request('getFileTransferCopyStatus'),
@@ -475,6 +477,7 @@ test('FILE-TRANSFER-OBSERVABILITY-001 exposes the current relay hop and bounded 
         status: 'running', phase: 'uploading', hop: 'relay-to-target', currentItemName: 'archive.tar',
         completedItems: 0, skippedItems: 0, totalItems: 1,
         transferredBytes: 536_870_912, totalBytes: 1_073_741_824, bytesPerSecond: 44_040_192,
+        activity: 'scp-running', lastActivityAt: 1_789_000_000_000,
     });
 });
 

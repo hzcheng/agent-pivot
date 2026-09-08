@@ -669,6 +669,13 @@ test('FILE-TRANSFER-OBSERVABILITY-002 writes every terminal copy result to the h
         'a Bridge command rejection must retain its bounded error in the same output channel');
 });
 
+test('FILE-TRANSFER-COPY-007 writes UI Bridge lifecycle changes and status-query failures to the host diagnostics channel', () => {
+    assert.match(dashboardHostSource, /\[FileTransfer\] copy progress: phase=\$\{status\.phase\}/,
+        'a folder-copy stall must retain the last Bridge-reported lifecycle phase in the remote output channel');
+    assert.match(dashboardHostSource, /\[FileTransfer\] copy status query failed:/,
+        'a disconnected or unresponsive UI Bridge must be distinguishable from an SCP failure');
+});
+
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
         id: 'tools', groupName: 'TOOLS', projects: [

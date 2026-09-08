@@ -134,6 +134,10 @@ export interface FileTransferCopyStatus {
     totalBytes?: number;
     /** Instantaneous speed for the current hop, measured in bytes per second. */
     bytesPerSecond?: number;
+    /** The last bounded lifecycle event reported by the UI Bridge. */
+    activity?: 'preparing' | 'scp-started' | 'scp-running' | 'scp-exited' | 'verifying';
+    /** Epoch milliseconds of the last lifecycle event, used as a Bridge heartbeat. */
+    lastActivityAt?: number;
 }
 
 export interface FileTransferLocalRootResponse {

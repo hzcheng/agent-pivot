@@ -13083,7 +13083,7 @@ function validateFileTransferCopyProgress(message) {
     return !!progress && typeof progress === 'object'
         && Object.keys(progress).every(function (key) {
             return ['status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName',
-                'hop', 'transferredBytes', 'totalBytes', 'bytesPerSecond'].includes(key);
+                'hop', 'transferredBytes', 'totalBytes', 'bytesPerSecond', 'activity', 'lastActivityAt'].includes(key);
         })
         && progress.status === 'running'
         && ['preparing', 'downloading', 'uploading', 'verifying'].includes(progress.phase)
@@ -13100,7 +13100,10 @@ function validateFileTransferCopyProgress(message) {
             && progress.transferredBytes >= 0 && Number.isSafeInteger(progress.totalBytes)
             && progress.totalBytes >= 0 && progress.transferredBytes <= progress.totalBytes))
         && (progress.bytesPerSecond === undefined || (Number.isSafeInteger(progress.bytesPerSecond)
-            && progress.bytesPerSecond >= 0));
+            && progress.bytesPerSecond >= 0))
+        && (progress.activity === undefined || ['preparing', 'scp-started', 'scp-running', 'scp-exited', 'verifying'].includes(progress.activity))
+        && (progress.lastActivityAt === undefined || (Number.isSafeInteger(progress.lastActivityAt)
+            && progress.lastActivityAt >= 0));
 }
 
 function validateFileTransferSavedPairs(message) {
@@ -13811,6 +13814,7 @@ function initDashboard(options) {
             if (Number.isSafeInteger(progress.bytesPerSecond)) {
                 details.push(formatFileTransferBytes(progress.bytesPerSecond) + '/s');
             }
+            if (progress.activity) details.push(progress.activity.replace(/-/g, ' '));
             if (progress.currentItemName) details.push(progress.currentItemName);
             return details.length ? ' · ' + details.join(' · ') : '';
         }

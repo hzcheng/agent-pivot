@@ -1825,7 +1825,9 @@ function initDashboard(options) {
                 uploading: 'Uploading from relay to target',
                 verifying: 'Verifying delivery',
             };
-            var phase = phaseLabels[message.progress.phase] || 'Preparing transfer';
+            var phase = message.progress.hop === 'source-to-target'
+                ? 'Streaming through relay'
+                : phaseLabels[message.progress.phase] || 'Preparing transfer';
             var current = ' ' + phase + fileTransferProgressDetail(message.progress) + '.';
             renderTaskStatus('Copying ' + (message.progress.completedItems + message.progress.skippedItems)
                 + ' of ' + message.progress.totalItems + ' item(s).' + current);

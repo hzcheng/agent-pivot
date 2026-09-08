@@ -126,8 +126,8 @@ async function startTemporarySshd(root, keyPath) {
 /**
  * Uses two temporary directories accessed through generated Managed Machine
  * aliases. The two servers are exposed on independent loopback ports, so this
- * proves that the UI Bridge downloads then uploads through two independent
- * SSH hops rather than assuming remote peers can communicate directly.
+ * proves that the UI Bridge relays through two independent SSH hops rather
+ * than assuming remote peers can communicate directly.
  */
 test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real OpenSSH', SKIP, async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-ssh-'));
@@ -158,6 +158,10 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     fs.symlinkSync(path.join(localRoot, 'local.txt'), path.join(localRoot, 'unsafe local folder', 'link'));
     const remoteSpecialFile = "-machine #?% '雪.txt";
     fs.writeFileSync(path.join(remoteOne, remoteSpecialFile), 'from first machine\n', 'utf8');
+    const remoteFolder = 'streamed remote folder';
+    fs.mkdirSync(path.join(remoteOne, remoteFolder));
+    fs.mkdirSync(path.join(remoteOne, remoteFolder, 'nested'));
+    fs.writeFileSync(path.join(remoteOne, remoteFolder, 'nested', 'relay.txt'), 'streamed folder\n', 'utf8');
     fs.mkdirSync(path.join(remoteOne, 'unsafe remote folder'));
     fs.symlinkSync(path.join(remoteOne, remoteSpecialFile), path.join(remoteOne, 'unsafe remote folder', 'link'));
     const keyPath = path.join(root, 'client');
@@ -257,6 +261,7 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     const emptyDirectoryConflict = local.value.entries.find(entry => entry.name === 'empty-directory-conflict');
     const unsafeLocalFolder = local.value.entries.find(entry => entry.name === 'unsafe local folder');
     const remoteFile = source.value.entries.find(entry => entry.name === remoteSpecialFile);
+    const remoteFolderEntry = source.value.entries.find(entry => entry.name === remoteFolder);
     assert.ok(localFile);
     assert.ok(localSpecial);
     assert.ok(localConflict);
@@ -265,6 +270,7 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.ok(unsafeLocalFolder);
     assert.ok(unsafeRemoteDirectory);
     assert.ok(remoteFile);
+    assert.ok(remoteFolderEntry);
     assert.equal(Number.isSafeInteger(remoteFile.modifiedAt), true);
 
     const unsafeLocalPreflight = await controller.execute({
@@ -344,6 +350,7 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.deepEqual(partialFailure.value, {
         status: 'failed', completedItems: 1, skippedItems: 0, totalItems: 2,
         message: `Copy target already exists: ${localConflictFile}. Choose another folder or select a conflict policy.`,
+        diagnostic: { phase: 'preparing', hop: 'source-to-target', code: 'unknown' },
     });
     assert.equal(fs.readFileSync(path.join(remoteTwo, 'local.txt'), 'utf8'), 'from local\n');
 
@@ -360,6 +367,7 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.deepEqual(emptyDirectoryCollision.value, {
         status: 'failed', completedItems: 0, skippedItems: 0, totalItems: 1,
         message: 'Copy target already exists: empty-directory-conflict. Choose another folder or select a conflict policy.',
+        diagnostic: { phase: 'preparing', hop: 'source-to-target', code: 'unknown' },
     });
 
     const copiedFolder = await controller.execute({
@@ -375,28 +383,52 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.deepEqual(copiedFolder.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
     assert.equal(fs.readFileSync(path.join(remoteTwo, 'local folder', 'nested.txt'), 'utf8'), 'from local folder\n');
 
-    const copiedRelay = await controller.execute({
-        ...request('copyFileTransferEntries', slot.revisionId, 'remote-relay'),
-        fileTransfer: {
-            kind: 'copy', taskId: 'file-transfer-e2e-remote-relay', conflictPolicy: 'fail',
-            source: { kind: 'managedMachine', machineId: machines[0].id, directoryId: source.value.directoryId },
-            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
-            entryIds: [remoteFile.id],
-        },
-    });
+    const blockedRelayDirectory = path.join(root, 'blocked-relay-directory');
+    fs.mkdirSync(blockedRelayDirectory, { mode: 0o500 });
+    const previousTmpDir = process.env.TMPDIR;
+    process.env.TMPDIR = blockedRelayDirectory;
+    const scpCallCountBeforeRelay = fs.readFileSync(scpLog, 'utf8').trim().split('\n').filter(Boolean).length;
+    let copiedRelay;
+    let copiedRelayFolder;
+    try {
+        copiedRelay = await controller.execute({
+            ...request('copyFileTransferEntries', slot.revisionId, 'remote-relay'),
+            fileTransfer: {
+                kind: 'copy', taskId: 'file-transfer-e2e-remote-relay', conflictPolicy: 'fail',
+                source: { kind: 'managedMachine', machineId: machines[0].id, directoryId: source.value.directoryId },
+                destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+                entryIds: [remoteFile.id],
+            },
+        });
+        copiedRelayFolder = await controller.execute({
+            ...request('copyFileTransferEntries', slot.revisionId, 'remote-relay-folder'),
+            fileTransfer: {
+                kind: 'copy', taskId: 'file-transfer-e2e-remote-relay-folder', conflictPolicy: 'fail',
+                source: { kind: 'managedMachine', machineId: machines[0].id, directoryId: source.value.directoryId },
+                destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+                entryIds: [remoteFolderEntry.id],
+            },
+        });
+    } finally {
+        if (previousTmpDir === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = previousTmpDir;
+    }
     assert.equal(copiedRelay.status, 'ok', copiedRelay.message);
     assert.deepEqual(copiedRelay.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
     assert.equal(fs.readFileSync(path.join(remoteTwo, remoteSpecialFile), 'utf8'), 'from first machine\n');
+    assert.equal(copiedRelayFolder.status, 'ok', copiedRelayFolder.message);
+    assert.deepEqual(copiedRelayFolder.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
+    assert.equal(fs.readFileSync(path.join(remoteTwo, remoteFolder, 'nested', 'relay.txt'), 'utf8'), 'streamed folder\n');
     const scpCalls = fs.readFileSync(scpLog, 'utf8').trim().split('\n');
-    const relayCalls = scpCalls.slice(-2);
+    const relayCalls = scpCalls.filter(Boolean).slice(scpCallCountBeforeRelay);
     const sourceAlias = managedSshAlias(machines[0].id, machines[0].name, machines[0].connection.host);
     const destinationAlias = managedSshAlias(machines[1].id, machines[1].name, machines[1].connection.host);
     assert.equal(relayCalls.length, 2,
-        'a managed-to-managed copy must have one download and one upload through the UI Bridge host');
-    assert.equal(relayCalls.some(call => call.includes('-3')), false,
-        'the relay must not depend on SCP remote-to-remote mode');
-    assert.match(relayCalls[0], new RegExp(`${sourceAlias}:`),
-        'the first hop must download from the selected source machine');
-    assert.match(relayCalls[1], new RegExp(`${destinationAlias}:`),
-        'the second hop must upload to the selected destination machine');
+        'FILE-TRANSFER-STREAMING-001 must use one local stream relay per selected file or folder');
+    for (const relayCall of relayCalls) {
+        assert.match(relayCall, /(?:^|\s)-3(?:\s|$)/u,
+            'the relay must force OpenSSH to stream remote-to-remote data through the UI Bridge');
+        assert.match(relayCall, new RegExp(`${sourceAlias}:`));
+        assert.match(relayCall, new RegExp(`${destinationAlias}:`));
+    }
 });

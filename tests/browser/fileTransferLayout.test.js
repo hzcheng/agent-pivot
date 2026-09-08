@@ -377,7 +377,7 @@ test('FILE-TRANSFER-UI-019 keeps the direct transfer action available once sourc
     assert.equal(copyRequest.destination.machineId, 'machine:deploy');
 });
 
-test('FILE-TRANSFER-UI-020 FILE-TRANSFER-OBSERVABILITY-001 makes the source, target, and direct transfer action explicit while showing live two-hop relay telemetry', async t => {
+test('FILE-TRANSFER-UI-020 FILE-TRANSFER-OBSERVABILITY-001 FILE-TRANSFER-STREAMING-001 makes the source, target, and direct transfer action explicit while showing live two-hop relay telemetry', async t => {
     const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
     t.after(() => page.close());
     await page.setContent(`<!doctype html><body>
@@ -475,6 +475,17 @@ test('FILE-TRANSFER-UI-020 FILE-TRANSFER-OBSERVABILITY-001 makes the source, tar
     assert.match(await page.locator('[data-file-transfer-task-status]').textContent(),
         /Uploading from relay to target.*Relay → target.*512 MiB \/ 1 GiB.*42 MiB\/s.*report\.txt/i,
         'the active transfer must expose the current relay hop, byte progress, and instantaneous speed');
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-copy-progress', version: 1, requestId: copyRequest.requestId,
+        progress: {
+            status: 'running', phase: 'uploading', hop: 'source-to-target',
+            completedItems: 0, skippedItems: 0, totalItems: 1, currentItemName: 'report.txt',
+            transferredBytes: 536870912, totalBytes: 1073741824, bytesPerSecond: 44040192,
+        },
+    });
+    assert.match(await page.locator('[data-file-transfer-task-status]').textContent(),
+        /Streaming through relay.*Source → target.*512 MiB \/ 1 GiB.*42 MiB\/s.*report\.txt/i,
+        'a live relay must say that its source and target hops are streaming concurrently');
     await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
         type: 'file-transfer-copy-settled', version: 1, requestId: copyRequest.requestId, status: 'copied',
         value: { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 },

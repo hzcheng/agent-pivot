@@ -7448,7 +7448,7 @@
   {
     "id": "FILE-TRANSFER-SSH-E2E-001",
     "domain": "runtime",
-    "title": "File Transfer relays a Managed Machine copy through the UI Bridge computer with separate source download and destination upload hops",
+    "title": "File Transfer relays a Managed Machine copy through the UI Bridge computer without requiring the two Managed Machines to connect to each other",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7456,6 +7456,23 @@
     ],
     "evidence": [
       "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-STREAMING-001",
+    "domain": "runtime",
+    "title": "Managed Machine transfers stream through the UI Bridge without staging the complete file on its local disk",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js",
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
     ]
   },
   {

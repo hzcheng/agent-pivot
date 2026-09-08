@@ -3,8 +3,7 @@
 import { createHash, randomBytes } from 'crypto';
 import { ChildProcess, spawn } from 'child_process';
 import { constants } from 'fs';
-import { access, lstat, mkdtemp, opendir, realpath, rm, stat } from 'fs/promises';
-import { tmpdir } from 'os';
+import { access, lstat, opendir, realpath, stat } from 'fs/promises';
 import * as path from 'path';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
@@ -637,10 +636,15 @@ function copyFileTransferEntry(
     active: ActiveFileTransferCopy,
     totalBytes?: number,
     readTransferredBytes?: () => Promise<number>,
+    relayThroughLocal = false,
 ): Promise<void> {
     const executable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'scp.exe' : 'scp');
     const args = [
         ...(recursive ? ['-r'] : []),
+        // OpenSSH's -3 mode relays both remote streams through this UI Bridge
+        // process. It neither asks the Managed Machines to reach each other
+        // nor stages a complete file on this computer's disk.
+        ...(relayThroughLocal ? ['-3'] : []),
         // Preserve mode and modification time where both endpoints permit it.
         // SCP reports an ordinary transfer error if either side refuses them.
         '-p',
@@ -677,40 +681,24 @@ function copyFileTransferEntry(
 
 /**
  * A machine-to-machine copy must always pass through the UI Bridge computer.
- * OpenSSH's `scp -3` looks similar, but its remote-to-remote mode has varied
- * across client/server versions and ProxyJump setups. Two ordinary SCP hops
- * use the exact same per-machine connection path that directory browsing has
- * already proved, without asking one managed machine to reach the other.
+ * OpenSSH's `scp -3` provides a bounded stream between two independently
+ * authenticated remote connections; it does not require source-to-target
+ * reachability and does not create a full local staging file.
  */
 async function relayFileTransferEntry(
     sshExecutable: string,
     recursive: boolean,
     source: string,
     destination: string,
-    stagedName: string,
     active: ActiveFileTransferCopy,
     totalBytes: number | undefined,
     readDestinationBytes: () => Promise<number>,
 ): Promise<void> {
-    const stagingDirectory = await mkdtemp(path.join(tmpdir(), 'agent-pivot-file-transfer-'));
-    const stagedPath = path.join(stagingDirectory, stagedName);
-    try {
-        active.phase = 'downloading';
-        active.hop = 'source-to-relay';
-        await copyFileTransferEntry(
-            sshExecutable, recursive, source, stagedPath, active, totalBytes,
-            () => localFileTransferProgressBytes(stagedPath),
-        );
-        if (active.cancelled) { throw new Error('File copy was cancelled.'); }
-        active.phase = 'uploading';
-        active.hop = 'relay-to-target';
-        await copyFileTransferEntry(
-            sshExecutable, recursive, stagedPath, destination, active, totalBytes, readDestinationBytes,
-        );
-    } finally {
-        stopFileTransferProgressMonitor(active);
-        await rm(stagingDirectory, { recursive: true, force: true });
-    }
+    active.phase = 'uploading';
+    active.hop = 'source-to-target';
+    await copyFileTransferEntry(
+        sshExecutable, recursive, source, destination, active, totalBytes, readDestinationBytes, true,
+    );
 }
 
 function stopFileTransferProcess(child: ChildProcess): void {
@@ -1173,7 +1161,7 @@ export class ManagedRemoteBridgeController {
                         ? entry.size : undefined;
                     await relayFileTransferEntry(
                         coordinator.getExecutable(), entry.kind === 'directory', copySource,
-                        copyDestination, path.basename(entry.path), active, totalBytes,
+                        copyDestination, active, totalBytes,
                         () => remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath),
                     );
                 } else {

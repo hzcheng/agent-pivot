@@ -7560,6 +7560,19 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-PREFLIGHT-005",
+    "domain": "runtime",
+    "title": "Managed Machine folder preflight does not recursively walk every nested remote directory before streaming begins",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-COPY-007",
     "domain": "runtime",
     "title": "File Transfer exposes bounded SCP lifecycle telemetry and prevents interactive SSH prompts from leaving a copy indefinitely unresolved",
@@ -7579,7 +7592,7 @@
   {
     "id": "FILE-TRANSFER-COPY-008",
     "domain": "runtime",
-    "title": "A reviewed folder transfer reuses its short-lived safety manifest instead of recursively scanning the same remote tree again before copy",
+    "title": "A locally reviewed folder transfer reuses its short-lived safety manifest instead of scanning the local tree again before copy",
     "priority": "P0",
     "status": "automated",
     "owners": [

@@ -1420,9 +1420,7 @@ export class ManagedRemoteBridgeController {
                 if (entry.kind === 'directory') {
                     entryTree = reviewedTrees?.get(entry.id) || (source.kind === 'local'
                         ? await inspectLocalFileTransferTree(entry.path)
-                        : await inspectRemoteFileTransferTree(
-                            coordinator.getExecutable(), source.alias, entry.path,
-                        ));
+                        : undefined);
                 }
                 const destinationPath = destination.kind === 'local'
                     ? path.join(destination.path, targetName || path.basename(entry.path))
@@ -1456,11 +1454,12 @@ export class ManagedRemoteBridgeController {
                 const archiveDestination = destination.kind === 'local'
                     ? { kind: 'local' as const, path: destinationPath }
                     : { kind: 'managedMachine' as const, alias: destination.alias, path: destinationPath };
-                if (entry.kind === 'directory' && entryTree && entryTree.links.length > 0) {
-                    // SCP's modern SFTP mode dereferences links inside a
-                    // recursive tree. A pair of tar streams preserves them
-                    // byte-for-byte while data still only flows through this
-                    // UI Bridge process, never a relay file on disk.
+                if (entry.kind === 'directory') {
+                    // A single tar producer/consumer pair preserves symbolic
+                    // links and avoids recursively launching SFTP once for
+                    // every nested remote folder before the stream can start.
+                    // Data still only flows through this UI Bridge process;
+                    // no relay archive is written to disk.
                     active.phase = source.kind === 'managedMachine' ? 'downloading' : 'uploading';
                     active.hop = 'source-to-target';
                     await createFileTransferDirectory(coordinator.getExecutable(), archiveDestination, active);
@@ -1472,7 +1471,7 @@ export class ManagedRemoteBridgeController {
                     const totalBytes = entry.kind === 'file' && Number.isSafeInteger(entry.size)
                         ? entry.size : undefined;
                     await relayFileTransferEntry(
-                        coordinator.getExecutable(), entry.kind === 'directory', copySource,
+                        coordinator.getExecutable(), false, copySource,
                         copyDestination, active, totalBytes,
                         () => remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath),
                     );
@@ -1482,7 +1481,7 @@ export class ManagedRemoteBridgeController {
                     const totalBytes = entry.kind === 'file' && Number.isSafeInteger(entry.size)
                         ? entry.size : undefined;
                     await copyFileTransferEntry(
-                        coordinator.getExecutable(), entry.kind === 'directory', copySource,
+                        coordinator.getExecutable(), false, copySource,
                         copyDestination, active, totalBytes,
                         destination.kind === 'local'
                             ? () => localFileTransferProgressBytes(destinationPath)
@@ -1495,6 +1494,15 @@ export class ManagedRemoteBridgeController {
                     await verifyCopiedFileTransferTree(
                         entryTree, destination, destinationPath, coordinator.getExecutable(),
                     );
+                } else if (entry.kind === 'directory') {
+                    const copiedKind = destination.kind === 'local'
+                        ? await localPathKind(destinationPath)
+                        : await remotePathKind(
+                            coordinator.getExecutable(), destination.alias, destinationPath,
+                        );
+                    if (copiedKind !== 'directory') {
+                        throw new Error(`File copy did not create the target folder: ${path.basename(entry.path)}.`);
+                    }
                 } else if (entry.kind === 'file') {
                     const copiedSize = destination.kind === 'local'
                         ? await localFileSize(destinationPath)
@@ -1554,11 +1562,14 @@ export class ManagedRemoteBridgeController {
         for (const entry of source.entries) {
             let entryTree: FileTransferTreeSummary | undefined;
             if (entry.kind === 'directory') {
-                entryTree = source.kind === 'local'
-                    ? await inspectLocalFileTransferTree(entry.path)
-                    : await inspectRemoteFileTransferTree(
-                        coordinator.getExecutable(), source.alias, entry.path,
-                    );
+                if (source.kind === 'local') {
+                    entryTree = await inspectLocalFileTransferTree(entry.path);
+                } else {
+                    // Folder copy is a single streamed archive operation. Do
+                    // not recursively open every remote child directory in
+                    // the control plane before that operation begins.
+                    unknownSizeItems += 1;
+                }
             } else if (source.kind === 'local') {
                 try {
                     await access(entry.path, constants.R_OK);

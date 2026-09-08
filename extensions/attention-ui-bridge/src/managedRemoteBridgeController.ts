@@ -79,6 +79,10 @@ interface FileTransferEntry {
     directoryId: string;
 }
 
+interface ResolvedFileTransferEntry extends FileTransferEntry {
+    id: string;
+}
+
 interface FileTransferRemoteDirectory extends FileTransferEntry {
     machineId: string;
     path: string;
@@ -127,6 +131,18 @@ interface FileTransferTreeFile {
 }
 
 const FILE_TRANSFER_TREE_MAX_ENTRIES = 10_000;
+// The browser asks the Bridge to preflight immediately before it starts a
+// copy. Reuse that safety scan only for that immediate action: a second
+// recursive remote SFTP walk can take far longer than the copy itself for a
+// dependency directory. The source fingerprint must still match at copy time.
+const FILE_TRANSFER_TREE_REVIEW_TTL_MS = 15_000;
+const FILE_TRANSFER_TREE_REVIEW_MAX_ENTRIES = 32;
+
+interface ReviewedFileTransferTrees {
+    expiresAt: number;
+    trees: Map<string, FileTransferTreeSummary>;
+    fingerprints: Map<string, string>;
+}
 
 function boundedFileTransferFailureMessage(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
@@ -524,6 +540,30 @@ async function inspectRemoteFileTransferTree(
     return summary;
 }
 
+async function localFileTransferEntryFingerprint(entry: ResolvedFileTransferEntry): Promise<string> {
+    const details = await lstat(entry.path);
+    const kind = details.isDirectory() ? 'directory' : details.isFile() ? 'file'
+        : details.isSymbolicLink() ? 'symlink' : 'unsupported';
+    if (!details.isDirectory()) { return `${kind}:${details.size}:${details.mtimeMs}`; }
+    const children: string[] = [];
+    const directory = await opendir(entry.path);
+    for await (const child of directory) {
+        children.push(`${child.name}:${child.isDirectory() ? 'directory' : child.isFile() ? 'file'
+            : child.isSymbolicLink() ? 'symlink' : 'unsupported'}`);
+    }
+    return `directory:${details.mtimeMs}:${createHash('sha256').update(children.sort().join('\n'), 'utf8').digest('hex')}`;
+}
+
+async function remoteFileTransferEntryFingerprint(
+    sshExecutable: string,
+    alias: string,
+    entry: ResolvedFileTransferEntry,
+): Promise<string> {
+    const rows = await listRemoteDirectory(sshExecutable, alias, entry.path);
+    const children = rows.map(row => `${row.name}:${row.kind}:${row.size === undefined ? '' : row.size}:${row.modifiedAt === undefined ? '' : row.modifiedAt}`);
+    return `directory:${createHash('sha256').update(children.sort().join('\n'), 'utf8').digest('hex')}`;
+}
+
 async function localPathKind(targetPath: string): Promise<FileTransferDirectoryEntry['kind'] | null> {
     try {
         const details = await lstat(targetPath);
@@ -769,6 +809,7 @@ export class ManagedRemoteBridgeController {
     private readonly fileTransferRemoteDirectories = new Map<string, FileTransferRemoteDirectory>();
     private readonly fileTransferRemoteEntries = new Map<string, FileTransferRemoteDirectory>();
     private readonly activeFileTransferCopies = new Map<string, ActiveFileTransferCopy>();
+    private readonly reviewedFileTransferTrees = new Map<string, ReviewedFileTransferTrees>();
     constructor(
         private readonly catalog: ManagedRemoteBridgeCatalogReader,
         private readonly coordinators: ManagedRemoteBridgeCoordinatorFactory,
@@ -1175,6 +1216,9 @@ export class ManagedRemoteBridgeController {
             const source = await this.resolveFileTransferSource(slot, request.source, request.entryIds);
             const destination = await this.resolveFileTransferDestination(slot, request.destination);
             const targetName = this.resolveFileTransferTargetName(source.entries, request.targetName);
+            const reviewedTrees = await this.takeReviewedFileTransferTrees(
+                request.source, request.entryIds, source, coordinator.getExecutable(),
+            );
             for (const entry of source.entries) {
                 if (active.cancelled) { throw new Error('File copy was cancelled.'); }
                 active.currentItemName = path.basename(entry.path).slice(0, 255);
@@ -1182,11 +1226,11 @@ export class ManagedRemoteBridgeController {
                 noteFileTransferActivity(active, 'preparing');
                 let entryTree: FileTransferTreeSummary | undefined;
                 if (entry.kind === 'directory') {
-                    entryTree = source.kind === 'local'
+                    entryTree = reviewedTrees?.get(entry.id) || (source.kind === 'local'
                         ? await inspectLocalFileTransferTree(entry.path)
                         : await inspectRemoteFileTransferTree(
                             coordinator.getExecutable(), source.alias, entry.path,
-                        );
+                        ));
                 }
                 const destinationPath = destination.kind === 'local'
                     ? path.join(destination.path, targetName || path.basename(entry.path))
@@ -1283,11 +1327,18 @@ export class ManagedRemoteBridgeController {
         coordinator: ManagedSshConsentCoordinator,
         request: FileTransferPreflightRequest,
     ): Promise<FileTransferPreflightResult> {
+        const reviewKey = this.fileTransferTreeReviewKey(request.source, request.entryIds);
+        this.evictReviewedFileTransferTrees();
+        // A new review supersedes an old one even when this attempt finds an
+        // unsafe source and throws before producing a replacement manifest.
+        this.reviewedFileTransferTrees.delete(reviewKey);
         const source = await this.resolveFileTransferSource(slot, request.source, request.entryIds);
         const destination = await this.resolveFileTransferDestination(slot, request.destination);
         const targetName = this.resolveFileTransferTargetName(source.entries, request.targetName);
         const existingFileNames: string[] = [];
         const existingDirectoryNames: string[] = [];
+        const reviewedTrees = new Map<string, FileTransferTreeSummary>();
+        const reviewedFingerprints = new Map<string, string>();
         let knownBytes = 0;
         let unknownSizeItems = 0;
         for (const entry of source.entries) {
@@ -1308,6 +1359,10 @@ export class ManagedRemoteBridgeController {
                 throw new Error(`The selected source is no longer readable: ${path.basename(entry.path)}.`);
             }
             if (entryTree) {
+                reviewedTrees.set(entry.id, entryTree);
+                reviewedFingerprints.set(entry.id, await this.fileTransferEntryFingerprint(
+                    source, entry, coordinator.getExecutable(),
+                ));
                 if (knownBytes <= Number.MAX_SAFE_INTEGER - entryTree.knownBytes) {
                     knownBytes += entryTree.knownBytes;
                 } else {
@@ -1332,6 +1387,17 @@ export class ManagedRemoteBridgeController {
                 existingDirectoryNames.push(path.basename(entry.path));
             }
         }
+        if (reviewedTrees.size > 0) {
+            this.reviewedFileTransferTrees.set(
+                reviewKey,
+                {
+                    expiresAt: Date.now() + FILE_TRANSFER_TREE_REVIEW_TTL_MS,
+                    trees: reviewedTrees,
+                    fingerprints: reviewedFingerprints,
+                },
+            );
+            this.evictReviewedFileTransferTrees();
+        }
         return {
             totalItems: source.entries.length,
             knownBytes,
@@ -1339,6 +1405,58 @@ export class ManagedRemoteBridgeController {
             existingFileNames,
             existingDirectoryNames,
         };
+    }
+
+    private fileTransferTreeReviewKey(endpoint: FileTransferEndpointReference, entryIds: string[]): string {
+        const source = endpoint.kind === 'local'
+            ? `local:${endpoint.rootId}:${endpoint.directoryId}`
+            : `managed:${endpoint.machineId}:${endpoint.directoryId}`;
+        return `${source}:${entryIds.join(':')}`;
+    }
+
+    private async takeReviewedFileTransferTrees(
+        endpoint: FileTransferEndpointReference,
+        entryIds: string[],
+        source: { kind: 'local'; entries: ResolvedFileTransferEntry[] } | {
+            kind: 'managedMachine'; alias: string; entries: ResolvedFileTransferEntry[];
+        },
+        sshExecutable: string,
+    ): Promise<Map<string, FileTransferTreeSummary> | undefined> {
+        this.evictReviewedFileTransferTrees();
+        const key = this.fileTransferTreeReviewKey(endpoint, entryIds);
+        const review = this.reviewedFileTransferTrees.get(key);
+        this.reviewedFileTransferTrees.delete(key);
+        if (!review || review.expiresAt < Date.now()) { return undefined; }
+        for (const entry of source.entries) {
+            if (!review.trees.has(entry.id)) { continue; }
+            const fingerprint = await this.fileTransferEntryFingerprint(source, entry, sshExecutable);
+            if (fingerprint !== review.fingerprints.get(entry.id)) { return undefined; }
+        }
+        return review.trees;
+    }
+
+    private async fileTransferEntryFingerprint(
+        source: { kind: 'local'; entries: ResolvedFileTransferEntry[] } | {
+            kind: 'managedMachine'; alias: string; entries: ResolvedFileTransferEntry[];
+        },
+        entry: ResolvedFileTransferEntry,
+        sshExecutable: string,
+    ): Promise<string> {
+        return source.kind === 'local'
+            ? localFileTransferEntryFingerprint(entry)
+            : remoteFileTransferEntryFingerprint(sshExecutable, source.alias, entry);
+    }
+
+    private evictReviewedFileTransferTrees(): void {
+        const now = Date.now();
+        for (const [key, review] of this.reviewedFileTransferTrees) {
+            if (review.expiresAt < now) { this.reviewedFileTransferTrees.delete(key); }
+        }
+        while (this.reviewedFileTransferTrees.size > FILE_TRANSFER_TREE_REVIEW_MAX_ENTRIES) {
+            const oldest = this.reviewedFileTransferTrees.keys().next().value as string | undefined;
+            if (!oldest) { break; }
+            this.reviewedFileTransferTrees.delete(oldest);
+        }
     }
 
     private cancelFileTransferCopy(taskId: string): { cancelled: boolean } {
@@ -1385,32 +1503,32 @@ export class ManagedRemoteBridgeController {
         slot: ManagedRevisionSlot,
         endpoint: FileTransferEndpointReference,
         entryIds: string[],
-    ): Promise<{ kind: 'local'; entries: FileTransferEntry[] } | {
-        kind: 'managedMachine'; alias: string; entries: FileTransferEntry[];
+    ): Promise<{ kind: 'local'; entries: ResolvedFileTransferEntry[] } | {
+        kind: 'managedMachine'; alias: string; entries: ResolvedFileTransferEntry[];
     }> {
         if (endpoint.kind === 'local') {
             const root = this.fileTransferRoots.get(endpoint.rootId);
             if (!root || !root.directories.has(endpoint.directoryId)) {
                 throw new Error('The selected local source is no longer available. Browse it again.');
             }
-            const entries = entryIds.map(id => root.entries.get(id));
-            if (entries.some(entry => !entry || entry.directoryId !== endpoint.directoryId
+            const entries = entryIds.map(id => ({ id, entry: root.entries.get(id) }));
+            if (entries.some(({ entry }) => !entry || entry.directoryId !== endpoint.directoryId
                 || entry.kind === 'symlink' || entry.kind === 'unsupported')) {
                 throw new Error('Select only regular files or folders from the current local directory.');
             }
-            return { kind: 'local', entries: entries as FileTransferEntry[] };
+            return { kind: 'local', entries: entries.map(({ id, entry }) => ({ id, ...entry! })) };
         }
         const target = resolveManagedMachineTarget(
             materializeManagedRemoteCatalog(slot.document), endpoint.machineId,
         );
         await this.ensureProjectionReady(slot);
-        const entries = entryIds.map(id => this.fileTransferRemoteEntries.get(id));
-        if (entries.some(entry => !entry || entry.machineId !== endpoint.machineId
+        const entries = entryIds.map(id => ({ id, entry: this.fileTransferRemoteEntries.get(id) }));
+        if (entries.some(({ entry }) => !entry || entry.machineId !== endpoint.machineId
             || entry.directoryId !== endpoint.directoryId
             || entry.kind === 'symlink' || entry.kind === 'unsupported')) {
             throw new Error('Select only regular files or folders from the current Managed Machine directory.');
         }
-        return { kind: 'managedMachine', alias: target.alias, entries: entries as FileTransferEntry[] };
+        return { kind: 'managedMachine', alias: target.alias, entries: entries.map(({ id, entry }) => ({ id, ...entry! })) };
     }
 
     private async resolveFileTransferDestination(

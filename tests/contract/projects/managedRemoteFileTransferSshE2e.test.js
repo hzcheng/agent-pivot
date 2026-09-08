@@ -162,6 +162,9 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     fs.mkdirSync(path.join(remoteOne, remoteFolder));
     fs.mkdirSync(path.join(remoteOne, remoteFolder, 'nested'));
     fs.writeFileSync(path.join(remoteOne, remoteFolder, 'nested', 'relay.txt'), 'streamed folder\n', 'utf8');
+    const reviewedMutationFolder = 'reviewed mutation folder';
+    fs.mkdirSync(path.join(remoteOne, reviewedMutationFolder));
+    fs.writeFileSync(path.join(remoteOne, reviewedMutationFolder, 'original.txt'), 'reviewed source\n', 'utf8');
     fs.mkdirSync(path.join(remoteOne, 'unsafe remote folder'));
     fs.symlinkSync(path.join(remoteOne, remoteSpecialFile), path.join(remoteOne, 'unsafe remote folder', 'link'));
     const keyPath = path.join(root, 'client');
@@ -266,6 +269,7 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     const unsafeLocalFolder = local.value.entries.find(entry => entry.name === 'unsafe local folder');
     const remoteFile = source.value.entries.find(entry => entry.name === remoteSpecialFile);
     const remoteFolderEntry = source.value.entries.find(entry => entry.name === remoteFolder);
+    const reviewedMutationEntry = source.value.entries.find(entry => entry.name === reviewedMutationFolder);
     assert.ok(localFile);
     assert.ok(localSpecial);
     assert.ok(localConflict);
@@ -275,6 +279,7 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.ok(unsafeRemoteDirectory);
     assert.ok(remoteFile);
     assert.ok(remoteFolderEntry);
+    assert.ok(reviewedMutationEntry);
     assert.equal(Number.isSafeInteger(remoteFile.modifiedAt), true);
 
     const unsafeLocalPreflight = await controller.execute({
@@ -300,6 +305,31 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     });
     assert.equal(unsafeRemotePreflight.status, 'failed');
     assert.match(unsafeRemotePreflight.message, /folder containing a symlink/i);
+
+    const reviewedMutationPreflight = await controller.execute({
+        ...request('preflightFileTransfer', slot.revisionId, 'reviewed-mutation-preflight'),
+        fileTransfer: {
+            kind: 'preflight',
+            source: { kind: 'managedMachine', machineId: machines[0].id, directoryId: source.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [reviewedMutationEntry.id],
+        },
+    });
+    assert.equal(reviewedMutationPreflight.status, 'ok', reviewedMutationPreflight.message);
+    fs.symlinkSync(path.join(remoteOne, remoteSpecialFile), path.join(remoteOne, reviewedMutationFolder, 'new-link'));
+    const reviewedMutationCopy = await controller.execute({
+        ...request('copyFileTransferEntries', slot.revisionId, 'reviewed-mutation-copy'),
+        fileTransfer: {
+            kind: 'copy', taskId: 'file-transfer-e2e-reviewed-mutation', conflictPolicy: 'fail',
+            source: { kind: 'managedMachine', machineId: machines[0].id, directoryId: source.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [reviewedMutationEntry.id],
+        },
+    });
+    assert.equal(reviewedMutationCopy.status, 'ok', reviewedMutationCopy.message);
+    assert.equal(reviewedMutationCopy.value.status, 'failed');
+    assert.match(reviewedMutationCopy.value.message, /folder containing a symlink/i,
+        'FILE-TRANSFER-COPY-008 must invalidate a changed reviewed source before reusing its tree manifest');
 
     const copiedLocal = await controller.execute({
         ...request('copyFileTransferEntries', slot.revisionId, 'local-copy'),
@@ -395,6 +425,18 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     let copiedRelay;
     let copiedRelayFolder;
     try {
+        const reviewedRelayFolder = await controller.execute({
+            ...request('preflightFileTransfer', slot.revisionId, 'reviewed-remote-relay-folder'),
+            fileTransfer: {
+                kind: 'preflight',
+                source: { kind: 'managedMachine', machineId: machines[0].id, directoryId: source.value.directoryId },
+                destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+                entryIds: [remoteFolderEntry.id],
+            },
+        });
+        assert.equal(reviewedRelayFolder.status, 'ok', reviewedRelayFolder.message);
+        assert.equal(controller.reviewedFileTransferTrees.size, 1,
+            'FILE-TRANSFER-COPY-008 must retain a bounded reviewed tree for the immediately following copy');
         copiedRelay = await controller.execute({
             ...request('copyFileTransferEntries', slot.revisionId, 'remote-relay'),
             fileTransfer: {
@@ -413,6 +455,8 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
                 entryIds: [remoteFolderEntry.id],
             },
         });
+        assert.equal(controller.reviewedFileTransferTrees.size, 0,
+            'FILE-TRANSFER-COPY-008 must consume the reviewed tree rather than retaining stale remote paths');
     } finally {
         if (previousTmpDir === undefined) delete process.env.TMPDIR;
         else process.env.TMPDIR = previousTmpDir;

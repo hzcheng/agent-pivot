@@ -439,6 +439,8 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
             },
         });
         assert.equal(reviewedRelayFolder.status, 'ok', reviewedRelayFolder.message);
+        assert.equal(reviewedRelayFolder.value.unknownSizeItems, 1,
+            'FILE-TRANSFER-PREFLIGHT-005 must return one valid unknown-size folder review item');
         assert.equal(controller.reviewedFileTransferTrees.size, 0,
             'FILE-TRANSFER-PREFLIGHT-005 must not recursively walk a Managed Machine folder before copying it');
         copiedRelay = await controller.execute({

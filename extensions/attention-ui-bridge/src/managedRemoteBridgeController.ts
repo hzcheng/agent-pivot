@@ -1568,7 +1568,6 @@ export class ManagedRemoteBridgeController {
                     // Folder copy is a single streamed archive operation. Do
                     // not recursively open every remote child directory in
                     // the control plane before that operation begins.
-                    unknownSizeItems += 1;
                 }
             } else if (source.kind === 'local') {
                 try {
@@ -1590,6 +1589,8 @@ export class ManagedRemoteBridgeController {
                     unknownSizeItems += 1;
                 }
                 unknownSizeItems += entryTree.unknownSizeItems;
+            } else if (entry.kind === 'directory') {
+                unknownSizeItems += 1;
             } else {
                 const summary: FileTransferTreeSummary = { knownBytes, unknownSizeItems, files: [], links: [] };
                 addKnownFileTransferBytes(summary, entry.size);

@@ -7363,6 +7363,22 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-UI-022",
+    "domain": "webview",
+    "title": "File Transfer offers each endpoint's visited directories in a path dropdown while preserving direct path navigation",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewFileTransferContent.ts",
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-OBSERVABILITY-001",
     "domain": "webview",
     "title": "File Transfer exposes its live source-to-relay and relay-to-target stage, byte progress, and transfer speed without revealing local staging paths",

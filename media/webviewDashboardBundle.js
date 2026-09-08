@@ -13639,6 +13639,7 @@ function initDashboard(options) {
         var selectedEntries = { left: new Set(), right: new Set() };
         var selectedEntryDirectoryIds = { left: null, right: null };
         var directoryHistory = { left: [], right: [] };
+        var pathSuggestions = { left: [], right: [] };
         var loadedDirectories = { left: Object.create(null), right: Object.create(null) };
         var expandedDirectoryIds = { left: new Set(), right: new Set() };
         var directoryLoadFailures = { left: Object.create(null), right: Object.create(null) };
@@ -13955,6 +13956,28 @@ function initDashboard(options) {
             });
         }
 
+        function rememberPathSuggestion(side, displayPath) {
+            if ((side !== 'left' && side !== 'right') || typeof displayPath !== 'string'
+                || !displayPath || displayPath.length > 1024 || /[\0\r\n]/.test(displayPath)) {
+                return;
+            }
+            pathSuggestions[side] = [displayPath].concat(pathSuggestions[side].filter(function (value) {
+                return value !== displayPath;
+            })).slice(0, 12);
+        }
+
+        function renderPathSuggestions(side, pane, directoryView) {
+            var options = pane.querySelector('[data-file-transfer-path-options]');
+            if (!options) return;
+            options.textContent = '';
+            if (!directoryView) return;
+            pathSuggestions[side].forEach(function (displayPath) {
+                var option = document.createElement('option');
+                option.value = displayPath;
+                options.appendChild(option);
+            });
+        }
+
         function updatePane(side, selector) {
             var pane = panes[side];
             if (!pane || !selector) {
@@ -14017,6 +14040,7 @@ function initDashboard(options) {
                 pathInput.disabled = !directoryView;
                 pathInput.value = directoryView ? directoryView.displayPath : '';
             }
+            renderPathSuggestions(side, pane, directoryView);
             renderPaneBreadcrumbs(
                 side,
                 path,
@@ -14275,6 +14299,7 @@ function initDashboard(options) {
             selectedEntries[side].clear();
             selectedEntryDirectoryIds[side] = null;
             directoryHistory[side] = [];
+            pathSuggestions[side] = [];
             lastRememberedPairKey = null;
             if (selector.value === 'local') {
                 requestLocalRoot(side);
@@ -14359,6 +14384,9 @@ function initDashboard(options) {
             var leftHistory = directoryHistory.left;
             directoryHistory.left = directoryHistory.right;
             directoryHistory.right = leftHistory;
+            var leftPathSuggestions = pathSuggestions.left;
+            pathSuggestions.left = pathSuggestions.right;
+            pathSuggestions.right = leftPathSuggestions;
             var leftDirectories = loadedDirectories.left;
             loadedDirectories.left = loadedDirectories.right;
             loadedDirectories.right = leftDirectories;
@@ -14393,6 +14421,7 @@ function initDashboard(options) {
             pendingLocalRootRequests[message.side] = null;
             if ((message.type === 'file-transfer-local-root-selected'
                 || message.type === 'file-transfer-remote-directory-listed') && message.root) {
+                rememberPathSuggestion(message.side, message.root.displayPath);
                 if (operation && operation.mode === 'expand' && operation.directoryId) {
                     loadedDirectories[message.side][operation.directoryId] = message.root;
                     expandedDirectoryIds[message.side].add(operation.directoryId);

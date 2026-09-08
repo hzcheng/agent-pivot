@@ -188,6 +188,51 @@ test('FILE-TRANSFER-UI-017 expands a folder inline without replacing its endpoin
         'the copy-source indicator must stay out of the layout until a file is selected');
 });
 
+test('FILE-TRANSFER-UI-022 offers each endpoint visited paths in a native dropdown while preserving direct path navigation', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'],
+            postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+    const endpoint = page.locator('[data-file-transfer-endpoint="left"]');
+    await endpoint.selectOption('managed:machine:build');
+    const initialRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.side === 'left'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1,
+        requestId: initialRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: 'fedcba9876543210fedcba9876543210', label: 'Build Machine',
+            displayPath: '/home/hzcheng', entries: [],
+        },
+    });
+    const input = page.locator('[data-file-transfer-path-input="left"]');
+    assert.equal(await input.getAttribute('list'), 'file-transfer-path-options-left');
+    const option = page.locator('#file-transfer-path-options-left option[value="/home/hzcheng"]');
+    assert.equal(await option.count(), 1, 'the authenticated home must be selectable from the path dropdown');
+    await page.evaluate(() => {
+        const input = document.querySelector('[data-file-transfer-path-input="left"]');
+        const option = document.querySelector('#file-transfer-path-options-left option');
+        input.value = option.value;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    assert.ok(await page.evaluate(() => window.__fileTransferMessages.some(message =>
+        message.type === 'file-transfer-open-directory' && message.side === 'left' && message.path === '/home/hzcheng'
+    )), 'choosing a path suggestion must use the same validated navigation request as typed paths');
+});
+
 test('FILE-TRANSFER-UI-018 hides path-like hidden entries until Show hidden is selected, expands from an explicit folder-name control, and keeps endpoint controls visible while browsing', async t => {
     const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
     t.after(() => page.close());

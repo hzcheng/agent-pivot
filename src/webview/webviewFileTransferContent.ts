@@ -42,7 +42,8 @@ function pane(side: 'left' | 'right'): string {
                 <nav class="file-transfer-pane-path" data-file-transfer-pane-path aria-label="Current directory">—</nav>
                 <label class="file-transfer-path-input">
                     <span>Path</span>
-                    <input type="text" data-file-transfer-path-input="${side}" aria-label="Open path in ${label}" disabled>
+                    <input type="text" list="file-transfer-path-options-${side}" data-file-transfer-path-input="${side}" aria-label="Open or choose a path in ${label}" title="Type a path or choose a visited directory" disabled>
+                    <datalist id="file-transfer-path-options-${side}" data-file-transfer-path-options="${side}"></datalist>
                 </label>
             </div>
             <div class="file-transfer-pane-actions">

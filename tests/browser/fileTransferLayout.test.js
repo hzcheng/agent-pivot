@@ -205,6 +205,21 @@ test('FILE-TRANSFER-UI-017 enters one directory at a time, updates Path, and exp
     });
     assert.equal(await page.locator('[data-file-transfer-path-input="left"]').inputValue(), '/workspace');
     assert.equal(await parent.count(), 1, 'the restored directory keeps its filesystem parent row');
+    const alignedNames = await page.evaluate(() => {
+        const parentName = document.querySelector('.file-transfer-parent-directory.file-transfer-directory-name');
+        const folderName = document.querySelector('[data-file-transfer-entry-id="11111111111111111111111111111111"] .file-transfer-directory-name');
+        const fileName = document.querySelector('[data-file-transfer-entry-id="22222222222222222222222222222222"] .file-transfer-file-name');
+        return {
+            parent: parentName.getBoundingClientRect().left,
+            folder: folderName.getBoundingClientRect().left,
+            file: fileName.getBoundingClientRect().left,
+        };
+    });
+    assert.deepEqual(alignedNames, {
+        parent: alignedNames.folder,
+        folder: alignedNames.folder,
+        file: alignedNames.folder,
+    }, 'the .. label must align with ordinary file and folder names, not with their selection controls');
     assert.equal(await page.locator('[data-file-transfer-pane-copy-state]').first().isVisible(), false,
         'the copy-source indicator must stay out of the layout until a file is selected');
 });

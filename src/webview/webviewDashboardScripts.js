@@ -94,14 +94,21 @@ function renderLocalFileTransferEntries(
             });
             if (typeof onDragEnd === 'function') row.addEventListener('dragend', onDragEnd);
         }
-        if (!isParentDirectory) {
-            var spacer = document.createElement('span');
-            spacer.className = 'file-transfer-tree-spacer';
-            spacer.setAttribute('aria-hidden', 'true');
-            row.appendChild(spacer);
-        }
+        var spacer = document.createElement('span');
+        spacer.className = 'file-transfer-tree-spacer';
+        spacer.setAttribute('aria-hidden', 'true');
+        row.appendChild(spacer);
         var entryContent = document.createElement('div');
         entryContent.className = 'file-transfer-file-entry';
+        if (isParentDirectory && allowSelection) {
+            var selectionSpacer = document.createElement('input');
+            selectionSpacer.type = 'checkbox';
+            selectionSpacer.className = 'file-transfer-selection-spacer';
+            selectionSpacer.disabled = true;
+            selectionSpacer.tabIndex = -1;
+            selectionSpacer.setAttribute('aria-hidden', 'true');
+            entryContent.appendChild(selectionSpacer);
+        }
         if (!isParentDirectory && allowSelection) {
             var checkbox = document.createElement('input');
             checkbox.type = 'checkbox';

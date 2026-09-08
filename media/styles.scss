@@ -2338,6 +2338,11 @@ body .project {
     flex: 0 0 auto;
 }
 
+.file-transfer-selection-spacer {
+    visibility: hidden;
+    pointer-events: none;
+}
+
 .file-transfer-review {
     position: fixed;
     right: 16px;

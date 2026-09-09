@@ -474,8 +474,8 @@ function normalizeAnchorText(value: string): string {
         .replace(/^\s{0,3}>\s?/gm, '')
         .replace(/^\s*(?:[-+*]|\d+[.)])\s+/gm, '')
         .replace(/(\*\*|__|~~|`)/g, '')
-        .replace(/(^|[^\\w*])\*([^*]+)\*(?=[^\\w*]|$)/g, '$1$2')
-        .replace(/(^|[^\\w_])_([^_]+)_(?=[^\\w_]|$)/g, '$1$2')
+        .replace(/(^|[^\w*])\*([^*]+)\*(?=[^\w*]|$)/g, '$1$2')
+        .replace(/(^|[^\w_])_([^_]+)_(?=[^\w_]|$)/g, '$1$2')
         .replace(/\s+/g, ' ').trim();
 }
 

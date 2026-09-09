@@ -1643,6 +1643,8 @@
                     && message.suggestions.every(validMarkdownWorkspaceSuggestion)))
             && (message.discussionPersistenceError === undefined
                 || typeof message.discussionPersistenceError === 'boolean')
+            && (message.suggestionPersistenceError === undefined
+                || typeof message.suggestionPersistenceError === 'boolean')
             && (message.undoSuggestionId === undefined
                 || (typeof message.undoSuggestionId === 'string'
                     && message.undoSuggestionId.length > 0 && message.undoSuggestionId.length <= 256));
@@ -1729,7 +1731,9 @@
             && message.replies.length <= 40
             && message.replies.every(validMarkdownWorkspaceReply)
             && (message.discussionPersistenceError === undefined
-                || typeof message.discussionPersistenceError === 'boolean');
+                || typeof message.discussionPersistenceError === 'boolean')
+            && (message.suggestionPersistenceError === undefined
+                || typeof message.suggestionPersistenceError === 'boolean');
     }
 
     function workspaceCommentTarget() {
@@ -2691,6 +2695,10 @@
             markdownWorkspaceCommentFeedback.textContent =
                 'AI replies are visible, but their document discussion history could not be saved.';
         }
+        if (message.suggestionPersistenceError && !markdownWorkspacePendingRequestId) {
+            markdownWorkspaceCommentFeedback.textContent =
+                'The document changed, but its suggestion review state could not be saved.';
+        }
         if (markdownWorkspaceActiveAvailable) {
             markdownWorkspaceActiveTitle.textContent = message.title;
             markdownWorkspaceActive.hidden = false;
@@ -2755,6 +2763,10 @@
         if (message.discussionPersistenceError && !markdownWorkspacePendingRequestId) {
             markdownWorkspaceCommentFeedback.textContent =
                 'AI replies are visible, but their document discussion history could not be saved.';
+        }
+        if (message.suggestionPersistenceError && !markdownWorkspacePendingRequestId) {
+            markdownWorkspaceCommentFeedback.textContent =
+                'The suggestion decision could not be saved. Reopen the document before deciding again.';
         }
         if (markdownWorkspacePendingSuggestionStatusRequestId
             && message.settlesRequestId === markdownWorkspacePendingSuggestionStatusRequestId) {

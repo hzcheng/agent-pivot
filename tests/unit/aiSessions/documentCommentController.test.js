@@ -263,6 +263,23 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 relocates single-emphasis reader
     assert.equal(controller.snapshot.comments[0].documentVersion, 'sha256:document-single-emphasis');
 });
 
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 keeps intraword underscores intact while relocating', async () => {
+    const { controller } = createHarness({
+        documentCommentStore: { load: async () => ({ revision: 1, comments: [{
+            id: 'comment-identifier', documentVersion: DOCUMENT.documentVersion,
+            anchor: { selectedText: 'foo_bar_baz', prefix: '', suffix: '', headingPath: [] },
+            text: 'Keep this identifier anchored.', status: 'sent', createdAt: 1,
+        }] }), save: async () => undefined },
+    });
+    await controller.activate({
+        target: { projectId: 'project-a', workspaceRootId: 'workspace-root-a', relativePath: 'docs/plan.md' },
+        documentVersion: 'sha256:document-identifier',
+        markdown: 'Unrelated introduction.\n\n`foo_bar_baz` remains a stable identifier.\n',
+        viewerTarget: VIEWER_TARGET, subscriptionGeneration: 7,
+    });
+    assert.equal(controller.snapshot.comments[0].status, 'sent');
+});
+
 test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 retains bounded AI replies with the durable file comment', async () => {
     const { controller, saved } = createHarness();
     await activate(controller);

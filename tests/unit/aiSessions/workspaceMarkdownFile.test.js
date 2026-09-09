@@ -46,3 +46,33 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 writes only the validated descriptor a
         await rm(temporary, { recursive: true, force: true });
     }
 });
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 applies a version-checked inverse without overwriting later edits', async () => {
+    const temporary = await mkdtemp(path.join(os.tmpdir(), 'agent-pivot-markdown-undo-'));
+    try {
+        const root = path.join(temporary, 'workspace');
+        const candidate = path.join(root, 'plan.md');
+        await require('node:fs/promises').mkdir(root);
+        const original = 'Keep the rollback plan.';
+        const applied = 'Keep the tested rollback plan.';
+        await writeFile(candidate, original, 'utf8');
+        assert.equal(await applyValidatedWorkspaceMarkdownSuggestion(root, candidate, {
+            documentVersion: version(original), selectedText: original,
+            prefix: '', suffix: '', replacement: applied,
+        }), 'applied');
+        assert.equal(await applyValidatedWorkspaceMarkdownSuggestion(root, candidate, {
+            documentVersion: version(applied), selectedText: applied,
+            prefix: '', suffix: '', replacement: original,
+        }), 'applied', 'the Host-owned inverse is a normal guarded file mutation');
+        assert.equal(await readFile(candidate, 'utf8'), original);
+
+        await writeFile(candidate, 'A user changed this after the AI edit.', 'utf8');
+        assert.equal(await applyValidatedWorkspaceMarkdownSuggestion(root, candidate, {
+            documentVersion: version(applied), selectedText: applied,
+            prefix: '', suffix: '', replacement: original,
+        }), 'stale');
+        assert.equal(await readFile(candidate, 'utf8'), 'A user changed this after the AI edit.');
+    } finally {
+        await rm(temporary, { recursive: true, force: true });
+    }
+});

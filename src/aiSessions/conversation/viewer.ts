@@ -484,6 +484,7 @@ export class ConversationViewer implements ConversationViewerApi {
     // with the workspace publication so the reader can explain it in place;
     // the page-level notice sits behind the modal and is not actionable here.
     private markdownWorkspaceDiscussionPersistenceError = false;
+    private markdownWorkspaceSuggestionPersistenceError = false;
     /** A short-lived, version-checked inverse for the most recent approved
      * AI edit. It deliberately lives in the Host (not in Webview state) and
      * becomes unusable as soon as the document/session identity changes. */
@@ -2344,6 +2345,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 replies: this.markdownWorkspaceReplies(),
                 suggestions: this.markdownWorkspaceSuggestions(),
                 discussionPersistenceError: this.markdownWorkspaceDiscussionPersistenceError,
+                suggestionPersistenceError: this.markdownWorkspaceSuggestionPersistenceError,
                 undoSuggestionId: this.markdownWorkspaceUndoSuggestionId(target, document.workspaceRootId,
                     workspaceFile.relativePath),
                 workspaceRequestId,
@@ -2633,6 +2635,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 replies: this.markdownWorkspaceReplies(),
                 suggestions: this.markdownWorkspaceSuggestions(),
                 discussionPersistenceError: this.markdownWorkspaceDiscussionPersistenceError,
+                suggestionPersistenceError: this.markdownWorkspaceSuggestionPersistenceError,
                 subscriptionGeneration: generation,
                 projectId: target.projectId,
                 provider: target.provider,
@@ -2717,8 +2720,9 @@ export class ConversationViewer implements ConversationViewerApi {
                         suggestedChange.sourceProvider,
                         suggestedChange.sourceSessionId
                     );
+                    this.markdownWorkspaceSuggestionPersistenceError = false;
                 } catch (_error) {
-                    this.showNotice('Suggested change was applied, but its review state could not be saved.');
+                    this.markdownWorkspaceSuggestionPersistenceError = true;
                 }
             }
         }
@@ -2769,8 +2773,9 @@ export class ConversationViewer implements ConversationViewerApi {
                     suggestedChange!.sourceProvider, suggestedChange!.sourceSessionId
                 );
                 saved = true;
+                this.markdownWorkspaceSuggestionPersistenceError = false;
             } catch (_error) {
-                this.showNotice('Suggestion decision could not be saved.');
+                this.markdownWorkspaceSuggestionPersistenceError = true;
             }
         }
         const panel = this.panel;

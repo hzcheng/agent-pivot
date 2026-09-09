@@ -2,7 +2,11 @@
 
 import { createHash } from 'crypto';
 import { constants as fsConstants } from 'fs';
-import { lstat as lstatPath, open as openFilePath, realpath as realpathPath } from 'fs/promises';
+import type { Stats } from 'fs';
+import {
+    lstat as lstatPath, open as openFilePath, realpath as realpathPath,
+    rename as renamePath, unlink as unlinkPath,
+} from 'fs/promises';
 import type { FileHandle } from 'fs/promises';
 import * as path from 'path';
 import { TextDecoder } from 'util';
@@ -29,6 +33,7 @@ export async function applyValidatedWorkspaceMarkdownSuggestion(
     suggestion: WorkspaceMarkdownSuggestion
 ): Promise<'applied' | 'stale' | 'failed'> {
     let handle: FileHandle | undefined;
+    let directory: FileHandle | undefined;
     try {
         // Bind the candidate before opening it. On platforms without procfs,
         // comparing this identity with fstat(handle) prevents an ancestor
@@ -75,19 +80,24 @@ export async function applyValidatedWorkspaceMarkdownSuggestion(
             || beforeWrite.ctimeMs !== stat.ctimeMs) {
             return 'stale';
         }
-        try {
-            await replaceDescriptorContents(handle, replacement);
-        } catch (_error) {
-            // Preserve the previous bytes when a partial descriptor write
-            // fails. If recovery fails as well, the operation is explicitly a
-            // failure and never reported as applied.
-            try { await replaceDescriptorContents(handle, sourceBytes); } catch (_restoreError) { /* no-op */ }
-            return 'failed';
-        }
+        // The directory descriptor gives Linux an atomic rename target that
+        // cannot be redirected by an ancestor swap. Other platforms fail
+        // closed rather than use an in-place truncate/write that can leave a
+        // partial Markdown file after a process crash.
+        if (process.platform !== 'linux') { return 'failed'; }
+        directory = await openFilePath(path.dirname(canonicalCandidate),
+            fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+        const directoryPath = await openedDescriptorPath(directory, path.dirname(canonicalCandidate));
+        if (!isContained(canonicalRoot, directoryPath)) { return 'stale'; }
+        const replacementResult = await replaceAtomicallyThroughDirectory(
+            directory, path.basename(canonicalCandidate), stat, replacement
+        );
+        if (replacementResult !== 'applied') { return replacementResult; }
         return 'applied';
     } catch (_error) {
         return 'stale';
     } finally {
+        await directory?.close().catch(() => undefined);
         await handle?.close().catch(() => undefined);
     }
 }
@@ -120,13 +130,45 @@ async function readBounded(handle: FileHandle, length: number): Promise<Buffer> 
     return contents.subarray(0, offset);
 }
 
-async function replaceDescriptorContents(handle: FileHandle, contents: Buffer): Promise<void> {
-    await handle.truncate(0);
-    let offset = 0;
-    while (offset < contents.length) {
-        const result = await handle.write(contents, offset, contents.length - offset, offset);
-        if (!result.bytesWritten) { throw new Error('Could not write Markdown document.'); }
-        offset += result.bytesWritten;
+async function replaceAtomicallyThroughDirectory(
+    directory: FileHandle,
+    basename: string,
+    expected: Stats,
+    contents: Buffer
+): Promise<'applied' | 'stale' | 'failed'> {
+    const base = `/proc/self/fd/${directory.fd}`;
+    const target = `${base}/${basename}`;
+    const temporary = `${base}/.agent-pivot-markdown-${process.pid}-${Date.now()}-${Math.random()
+        .toString(16).slice(2)}`;
+    let temporaryHandle: FileHandle | undefined;
+    try {
+        const current = await lstatPath(target);
+        if (!current.isFile() || current.dev !== expected.dev || current.ino !== expected.ino
+            || current.size !== expected.size || current.mtimeMs !== expected.mtimeMs
+            || current.ctimeMs !== expected.ctimeMs) {
+            return 'stale';
+        }
+        temporaryHandle = await openFilePath(temporary,
+            fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
+            0o600);
+        let offset = 0;
+        while (offset < contents.length) {
+            const result = await temporaryHandle.write(
+                contents, offset, contents.length - offset, offset
+            );
+            if (!result.bytesWritten) { return 'failed'; }
+            offset += result.bytesWritten;
+        }
+        await temporaryHandle.sync();
+        await temporaryHandle.close();
+        temporaryHandle = undefined;
+        await renamePath(temporary, target);
+        await directory.sync();
+        return 'applied';
+    } catch (_error) {
+        return 'failed';
+    } finally {
+        await temporaryHandle?.close().catch(() => undefined);
+        await unlinkPath(temporary).catch(() => undefined);
     }
-    await handle.sync();
 }

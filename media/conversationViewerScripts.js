@@ -115,6 +115,43 @@
     var working = document.querySelector('[data-conversation-working]');
     var position = document.querySelector('[data-conversation-position]');
     var status = document.querySelector('[data-conversation-status]');
+    var markdownWorkspace = document.querySelector(
+        '[data-markdown-workspace]'
+    );
+    var markdownWorkspaceBack = document.querySelector(
+        '[data-markdown-workspace-back]'
+    );
+    var markdownWorkspaceTitle = document.querySelector(
+        '[data-markdown-workspace-title]'
+    );
+    var markdownWorkspacePath = document.querySelector(
+        '[data-markdown-workspace-path]'
+    );
+    var markdownWorkspaceOpenEditor = document.querySelector(
+        '[data-markdown-workspace-open-editor]'
+    );
+    var markdownWorkspaceScroll = document.querySelector(
+        '[data-markdown-workspace-scroll]'
+    );
+    var markdownWorkspaceContent = document.querySelector(
+        '[data-markdown-workspace-content]'
+    );
+    var markdownWorkspaceActive = document.querySelector(
+        '[data-markdown-workspace-active]'
+    );
+    var markdownWorkspaceActiveTitle = document.querySelector(
+        '[data-markdown-workspace-active-title]'
+    );
+    var activeMarkdownWorkspaceHref = '';
+    var activeMarkdownWorkspaceTarget = '';
+    var activeMarkdownWorkspaceRequestId = 0;
+    var markdownWorkspaceReturnFocus;
+    var markdownWorkspaceAvailable = !!(markdownWorkspace
+        && markdownWorkspaceBack && markdownWorkspaceTitle
+        && markdownWorkspacePath && markdownWorkspaceOpenEditor
+        && markdownWorkspaceScroll && markdownWorkspaceContent);
+    var markdownWorkspaceActiveAvailable = !!(markdownWorkspaceActive
+        && markdownWorkspaceActiveTitle);
     var conversationDisplayName = document.querySelector(
         '[data-conversation-display-name]'
     );
@@ -1490,6 +1527,170 @@
         return true;
     }
 
+    function validMarkdownWorkspaceMessage(message) {
+        return !!message && !Array.isArray(message)
+            && message.type === 'conversation-viewer-markdown-workspace'
+            && message.version === 1
+            && typeof message.href === 'string'
+            && message.href.length > 0 && message.href.length <= 4096
+            && typeof message.relativePath === 'string'
+            && message.relativePath.length > 0
+            && message.relativePath.length <= 4096
+            && typeof message.title === 'string'
+            && message.title.length > 0 && message.title.length <= 512
+            && typeof message.html === 'string'
+            && message.html.length <= 8 * 1024 * 1024
+            && Number.isSafeInteger(message.workspaceRequestId)
+            && message.workspaceRequestId > 0
+            && Number.isSafeInteger(message.subscriptionGeneration)
+            && message.subscriptionGeneration >= 1
+            && validCommentTarget({
+                projectId: message.projectId,
+                provider: message.provider,
+                sessionId: message.sessionId,
+            });
+    }
+
+    function markdownWorkspaceKey(target, href) {
+        return target && href
+            ? target + '\u0001' + href
+            : '';
+    }
+
+    function markdownWorkspaceScrollTop(key) {
+        if (!vscodeApi || typeof vscodeApi.getState !== 'function') return 0;
+        try {
+            var saved = vscodeApi.getState();
+            var workspace = saved && saved.conversationMarkdownWorkspace;
+            var entry = workspace && workspace[key];
+            return entry && Number.isFinite(entry.scrollTop)
+                && entry.scrollTop >= 0 ? entry.scrollTop : 0;
+        } catch (_error) {
+            return 0;
+        }
+    }
+
+    function saveMarkdownWorkspaceScroll() {
+        if (!markdownWorkspaceAvailable || !activeMarkdownWorkspaceHref || !vscodeApi
+            || typeof vscodeApi.setState !== 'function') {
+            return;
+        }
+        try {
+            var saved = typeof vscodeApi.getState === 'function'
+                ? vscodeApi.getState()
+                : null;
+            var next = saved && typeof saved === 'object'
+                && !Array.isArray(saved) ? Object.assign({}, saved) : {};
+            var workspace = next.conversationMarkdownWorkspace
+                && typeof next.conversationMarkdownWorkspace === 'object'
+                && !Array.isArray(next.conversationMarkdownWorkspace)
+                ? Object.assign({}, next.conversationMarkdownWorkspace)
+                : {};
+            workspace[markdownWorkspaceKey(
+                activeMarkdownWorkspaceTarget,
+                activeMarkdownWorkspaceHref
+            )] = {
+                scrollTop: Math.max(0, markdownWorkspaceScroll.scrollTop || 0),
+            };
+            next.conversationMarkdownWorkspace = workspace;
+            vscodeApi.setState(next);
+        } catch (_error) {
+            // Reading-position persistence is best-effort local Webview state.
+        }
+    }
+
+    function closeMarkdownWorkspace() {
+        if (!markdownWorkspaceAvailable || markdownWorkspace.hidden) return;
+        saveMarkdownWorkspaceScroll();
+        markdownWorkspace.hidden = true;
+        document.body.classList.remove('conversation-markdown-workspace-open');
+        setMarkdownWorkspaceBackgroundDisabled(false);
+        if (markdownWorkspaceReturnFocus
+            && markdownWorkspaceReturnFocus.isConnected) {
+            markdownWorkspaceReturnFocus.focus();
+        } else {
+            scroll.focus();
+        }
+        markdownWorkspaceReturnFocus = undefined;
+    }
+
+    function setMarkdownWorkspaceBackgroundDisabled(disabled) {
+        Array.prototype.forEach.call(document.body.children, function (child) {
+            if (child === markdownWorkspace) return;
+            if (disabled) {
+                child.setAttribute('aria-hidden', 'true');
+                if ('inert' in child) child.inert = true;
+            } else {
+                child.removeAttribute('aria-hidden');
+                if ('inert' in child) child.inert = false;
+            }
+        });
+    }
+
+    function resetMarkdownWorkspaceForSessionChange() {
+        if (!markdownWorkspaceAvailable) return;
+        if (!markdownWorkspace.hidden) closeMarkdownWorkspace();
+        activeMarkdownWorkspaceHref = '';
+        activeMarkdownWorkspaceTarget = '';
+        activeMarkdownWorkspaceRequestId = 0;
+        if (markdownWorkspaceActiveAvailable) {
+            markdownWorkspaceActive.hidden = true;
+            markdownWorkspaceActiveTitle.textContent = '';
+        }
+    }
+
+    function applyMarkdownWorkspace(message) {
+        if (!message || message.type !== 'conversation-viewer-markdown-workspace') {
+            return false;
+        }
+        if (!markdownWorkspaceAvailable) {
+            return true;
+        }
+        if (!validMarkdownWorkspaceMessage(message)) {
+            return true;
+        }
+        var messageTarget = [
+            message.projectId,
+            message.provider,
+            message.sessionId,
+        ].join('\u0001');
+        var currentTarget = commentTarget && frameSessionKey(commentTarget);
+        if (message.subscriptionGeneration !== state.subscriptionGeneration
+            || messageTarget !== currentTarget
+            || message.workspaceRequestId < activeMarkdownWorkspaceRequestId) {
+            return true;
+        }
+        activeMarkdownWorkspaceRequestId = message.workspaceRequestId;
+        activeMarkdownWorkspaceHref = message.href;
+        activeMarkdownWorkspaceTarget = messageTarget;
+        markdownWorkspaceTitle.textContent = message.title;
+        markdownWorkspacePath.textContent = message.relativePath;
+        markdownWorkspaceContent.innerHTML = sanitizeConversationHtml(message.html);
+        if (markdownWorkspaceActiveAvailable) {
+            markdownWorkspaceActiveTitle.textContent = message.title;
+            markdownWorkspaceActive.hidden = false;
+        }
+        markdownWorkspaceReturnFocus = document.activeElement;
+        markdownWorkspace.hidden = false;
+        document.body.classList.add('conversation-markdown-workspace-open');
+        setMarkdownWorkspaceBackgroundDisabled(true);
+        var restorePosition = function () {
+            markdownWorkspaceScroll.scrollTop = markdownWorkspaceScrollTop(
+                markdownWorkspaceKey(
+                    activeMarkdownWorkspaceTarget,
+                    activeMarkdownWorkspaceHref
+                )
+            );
+            markdownWorkspaceBack.focus();
+        };
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(restorePosition);
+        } else {
+            restorePosition();
+        }
+        return true;
+    }
+
     function applyLoadingNotice(message) {
         if (!message || typeof message !== 'object'
             || message.type !== 'conversation-viewer-loading') {
@@ -1722,6 +1923,7 @@
                 ))) {
             return false;
         }
+        resetMarkdownWorkspaceForSessionChange();
         var nextCommentTarget = {
             projectId: message.target.projectId,
             provider: message.target.provider,
@@ -3627,6 +3829,22 @@
             messageId: messageId,
         });
     });
+    if (markdownWorkspaceAvailable) {
+        markdownWorkspaceContent.addEventListener('click', function (event) {
+            var link = event.target && event.target.closest
+                ? event.target.closest('a[href]') : null;
+            if (!link || !markdownWorkspaceContent.contains(link)) return;
+            var href = link.getAttribute('href');
+            if (isHttps(href)) return;
+            event.preventDefault();
+            if (!isAbsoluteFileHref(href) && !isWorkspaceFileHref(href)) return;
+            post({
+                type: 'conversation-viewer-open-link',
+                version: 1,
+                href: href,
+            });
+        });
+    }
     messages.addEventListener('click', function (event) {
         var link = event.target && event.target.closest
             ? event.target.closest('a[href]')
@@ -3649,9 +3867,36 @@
         commentsController.attach();
     }
     document.addEventListener('keydown', function (event) {
+        if (markdownWorkspaceAvailable && !markdownWorkspace.hidden
+            && event.key === 'Tab') {
+            var focusable = markdownWorkspace.querySelectorAll(
+                'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            );
+            var nodes = Array.prototype.filter.call(focusable, function (node) {
+                return !node.hidden && node.getAttribute('aria-hidden') !== 'true';
+            });
+            if (nodes.length) {
+                var firstNode = nodes[0];
+                var lastNode = nodes[nodes.length - 1];
+                if (event.shiftKey && document.activeElement === firstNode) {
+                    event.preventDefault();
+                    lastNode.focus();
+                    return;
+                }
+                if (!event.shiftKey && document.activeElement === lastNode) {
+                    event.preventDefault();
+                    firstNode.focus();
+                    return;
+                }
+            }
+        }
         if (findController && findController.handleKeydown(event)) return;
         if (commentsController.handleEnterShortcut(event)) return;
         if (event.key !== 'Escape') return;
+        if (markdownWorkspaceAvailable && !markdownWorkspace.hidden) {
+            closeMarkdownWorkspace();
+            return;
+        }
         if (commentsController.handleEscape(event)) return;
         sidebarController.handleEscape(event);
     });
@@ -3801,7 +4046,39 @@
         post(message);
     }
 
+    if (markdownWorkspaceAvailable) {
+        markdownWorkspaceBack.addEventListener('click', closeMarkdownWorkspace);
+        markdownWorkspaceOpenEditor.addEventListener('click', function () {
+            if (!activeMarkdownWorkspaceHref
+                || !validCommentTarget(commentTarget)) return;
+            post({
+                type: 'conversation-viewer-open-markdown-editor',
+                version: 1,
+                href: activeMarkdownWorkspaceHref,
+                subscriptionGeneration: state.subscriptionGeneration,
+                projectId: commentTarget.projectId,
+                provider: commentTarget.provider,
+                sessionId: commentTarget.sessionId,
+            });
+        });
+        window.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'hidden') saveMarkdownWorkspaceScroll();
+        });
+        window.addEventListener('unload', saveMarkdownWorkspaceScroll);
+    }
+    if (markdownWorkspaceActiveAvailable) {
+        markdownWorkspaceActive.addEventListener('click', function () {
+            if (!activeMarkdownWorkspaceHref) return;
+            post({
+                type: 'conversation-viewer-open-link',
+                version: 1,
+                href: activeMarkdownWorkspaceHref,
+            });
+        });
+    }
+
     window.addEventListener('message', function (event) {
+        if (applyMarkdownWorkspace(event.data)) return;
         if (applyCopyResult(event.data)) return;
         if (outlineController.applyBookmarksResult(event.data)) return;
         if (commentsController.applyCommentsResult(event.data)) return;

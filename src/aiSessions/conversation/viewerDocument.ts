@@ -186,10 +186,35 @@ export function renderConversationViewerDocument(
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus
     )}</div>
+    <button type="button" class="conversation-active-document"
+        data-markdown-workspace-active hidden>
+        <span aria-hidden="true">▤</span>
+        <span data-markdown-workspace-active-title></span>
+        <span class="conversation-active-document-return">Return to document</span>
+    </button>
     <div class="conversation-subagent-banner" data-subagent-banner hidden>
         Viewing subagent <strong data-subagent-banner-label></strong>
         <button type="button" data-action="close-subagent">Back to conversation</button>
     </div>
+    <section class="conversation-document-workspace" data-markdown-workspace
+        role="dialog" aria-modal="true" aria-labelledby="markdown-workspace-title"
+        hidden>
+        <header class="conversation-document-workspace-header">
+            <button type="button" class="conversation-document-workspace-back"
+                data-markdown-workspace-back>← Conversation</button>
+            <div class="conversation-document-workspace-identity">
+                <strong id="markdown-workspace-title" data-markdown-workspace-title></strong>
+                <span data-markdown-workspace-path></span>
+            </div>
+            <button type="button" class="conversation-document-workspace-editor"
+                data-markdown-workspace-open-editor>Open in editor</button>
+        </header>
+        <div class="conversation-document-workspace-scroll"
+            data-markdown-workspace-scroll tabindex="0">
+            <section class="conversation-markdown conversation-document-workspace-content"
+                data-markdown-workspace-content></section>
+        </div>
+    </section>
     <div class="conversation-follow-notice" data-conversation-notice
         role="status" hidden>
         <span data-conversation-notice-text></span>

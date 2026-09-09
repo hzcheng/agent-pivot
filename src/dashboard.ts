@@ -3,7 +3,14 @@ import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync } from 'fs';
-import { access as accessPath, realpath as realpathPath } from 'fs/promises';
+import {
+    access as accessPath,
+    lstat as lstatPath,
+    open as openFilePath,
+    realpath as realpathPath,
+} from 'fs/promises';
+import type { FileHandle } from 'fs/promises';
+import { TextDecoder } from 'util';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
@@ -2109,6 +2116,99 @@ async function initializeDashboard(
                     { selection: new vscode.Range(position, position) }
                 );
                 return;
+            }
+        },
+        readWorkspaceMarkdown: async (targetFile, viewerTarget) => {
+            if (!targetFile.relativePath.toLocaleLowerCase().endsWith('.md')) {
+                return undefined;
+            }
+            const actionTarget = getCurrentWorkspaceActionTarget(
+                viewerTarget.projectId
+            );
+            const activeSession = (actionTarget?.sessions.activeSessions || [])
+                .find(session => session.provider === viewerTarget.provider
+                    && session.sessionId === viewerTarget.sessionId);
+            const historySession = (
+                actionTarget?.sessions.sessionsByProvider[viewerTarget.provider] || []
+            ).find(session => session.id === viewerTarget.sessionId);
+            // Markdown rendered in the conversation must come from the same
+            // authoritative worktree as a relative source link, never from a
+            // same-named file in the primary checkout.
+            const authoritativeRoot = activeSession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.cwd
+                ?? historySession?.workDir;
+            if (typeof authoritativeRoot !== 'string' || !authoritativeRoot) {
+                return undefined;
+            }
+            let canonicalRoot: string;
+            try {
+                canonicalRoot = await realpathPath(authoritativeRoot);
+            } catch (_error) {
+                return undefined;
+            }
+            const candidate = path.resolve(canonicalRoot, targetFile.relativePath);
+            let canonicalCandidate: string;
+            try {
+                canonicalCandidate = await realpathPath(candidate);
+            } catch (_error) {
+                return undefined;
+            }
+            if (!isWorkspaceHostPathContained(canonicalRoot, canonicalCandidate)) {
+                return undefined;
+            }
+            let initialStat;
+            try {
+                initialStat = await lstatPath(canonicalCandidate);
+            } catch (_error) {
+                return undefined;
+            }
+            // Bind the validation to the object we actually read. A final
+            // component can be swapped after realpath(); compare the opened
+            // descriptor with the checked regular-file inode.
+            if (!initialStat.isFile() || initialStat.size > 2 * 1024 * 1024) {
+                return undefined;
+            }
+            let handle: FileHandle | undefined;
+            let contents: Buffer;
+            try {
+                handle = await openFilePath(canonicalCandidate, 'r');
+                const openedStat = await handle.stat();
+                if (!openedStat.isFile()
+                    || openedStat.size > 2 * 1024 * 1024
+                    || openedStat.dev !== initialStat.dev
+                    || openedStat.ino !== initialStat.ino) {
+                    return undefined;
+                }
+                // A writer can grow a file after stat. Read no more than the
+                // verified descriptor size rather than using readFile().
+                contents = Buffer.alloc(openedStat.size);
+                let offset = 0;
+                while (offset < contents.length) {
+                    const read = await handle.read(
+                        contents, offset, contents.length - offset, offset
+                    );
+                    if (!read.bytesRead) break;
+                    offset += read.bytesRead;
+                }
+                contents = contents.subarray(0, offset);
+            } catch (_error) {
+                return undefined;
+            } finally {
+                await handle?.close().catch(() => undefined);
+            }
+            // Keep one document disclosure bounded and reject a binary file
+            // carrying a Markdown suffix before it reaches the Webview.
+            if (contents.includes(0)) {
+                return undefined;
+            }
+            try {
+                return {
+                    markdown: new TextDecoder('utf-8', { fatal: true })
+                        .decode(contents),
+                };
+            } catch (_error) {
+                return undefined;
             }
         },
         changes: {

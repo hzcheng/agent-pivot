@@ -1686,6 +1686,26 @@
     ]
   },
   {
+    "id": "CONVERSATION-MARKDOWN-WORKSPACE-001",
+    "domain": "webview",
+    "title": "A workspace Markdown link opens an in-conversation reading surface with independent restored scrolling, an explicit return, and a native-editor escape hatch",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/aiSessions/conversation/composition.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/aiSessions/conversation/viewerDocument.ts",
+      "src/aiSessions/conversation/viewerProtocol.ts",
+      "src/webview/conversationViewerScripts.js",
+      "media/conversationViewer.scss",
+      "media/conversationViewer.css"
+    ]
+  },
+  {
     "id": "CONVERSATION-RICH-MARKDOWN-008",
     "domain": "webview",
     "title": "Conversation Markdown preserves ordinary dollar-delimited prose, task-list hierarchy, bounded math output, and named chart visuals",

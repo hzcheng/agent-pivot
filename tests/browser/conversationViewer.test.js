@@ -660,9 +660,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         subscriptionGeneration: 1,
         requestId: 3,
         htmlSignature: 'sig-unrelated',
-        projectId: 'project-1',
+        projectId: 'project-a',
         provider: 'codex',
-        sessionId: 'session-telemetry',
+        sessionId: 'session-host-document',
     }]);
 });
 
@@ -5109,6 +5109,45 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Markdown workspace opening is a later optional enhancement. The
+        // frozen fixture must remain an actual pre-workspace Viewer script,
+        // not merely a newer script applied to older document markup.
+        .replace(
+            /    var markdownWorkspace = document\.querySelector\([\s\S]*?\n    var conversationDisplayName/,
+            '    var conversationDisplayName'
+        )
+        .replace(
+            /\n    function validMarkdownWorkspaceMessage\(message\) \{[\s\S]*?\n    function applyLoadingNotice/,
+            '\n    function applyLoadingNotice'
+        )
+        .replace(
+            "        if (markdownWorkspaceAvailable && !markdownWorkspace.hidden) {\n"
+                + '            closeMarkdownWorkspace();\n'
+                + '            return;\n'
+                + '        }\n',
+            ''
+        )
+        .replace('        resetMarkdownWorkspaceForSessionChange();\n', '')
+        .replace(
+            /\n    if \(markdownWorkspaceAvailable\) \{\n        markdownWorkspaceContent\.addEventListener\('click',[\s\S]*?\n    \}\n    messages\.addEventListener/,
+            '\n    messages.addEventListener'
+        )
+        .replace(
+            /        if \(markdownWorkspaceAvailable && !markdownWorkspace\.hidden\n            && event\.key === 'Tab'\) \{[\s\S]*?        if \(findController &&/,
+            '        if (findController &&'
+        )
+        .replace(
+            /\n    if \(markdownWorkspaceAvailable\) \{\n        markdownWorkspaceBack\.addEventListener\('click',[\s\S]*?\n    \}\n\n    window\.addEventListener\('message'/,
+            "\n    window.addEventListener('message'"
+        )
+        .replace(
+            /\n    if \(markdownWorkspaceActiveAvailable\) \{[\s\S]*?\n    \}\n\n    window\.addEventListener\('message'/,
+            "\n    window.addEventListener('message'"
+        )
+        .replace(
+            "        if (applyMarkdownWorkspace(event.data)) return;\n",
+            ''
+        )
         // The question-first control and telemetry-only sidebar entry points
         // postdate this frozen Viewer script generation. Restore its exact
         // pre-control source while the current document keeps a hidden
@@ -11750,6 +11789,114 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps rendered absolute file links click
         version: 1,
         href: workspaceHref,
     });
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading surface without losing the conversation', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+    });
+    const workspace = page.locator('[data-markdown-workspace]');
+    const conversation = page.locator('[data-conversation-scroll]');
+    const documentHtml = '<h1>Architecture plan</h1>'
+        + '<p>Rollback strategy</p>'
+        + '<p><a href="docs/next-plan.md#L3">Open next plan</a></p>'
+        + '<p>' + 'Detailed review context. '.repeat(800) + '</p>';
+
+    assert.equal(await workspace.isHidden(), true);
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace',
+        version: 1,
+        href: 'docs/architecture-plan.md',
+        relativePath: 'docs/architecture-plan.md',
+        title: 'architecture-plan.md',
+        html: documentHtml,
+        workspaceRequestId: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+    });
+    assert.equal(await workspace.isVisible(), true);
+    assert.equal(await workspace.getAttribute('role'), 'dialog');
+    assert.equal(await page.locator('.conversation-workspace').getAttribute('aria-hidden'), 'true',
+        'the reading surface is modal to assistive technology');
+    assert.equal(await page.locator('[data-markdown-workspace-title]').innerText(),
+        'architecture-plan.md');
+    assert.equal(await page.locator('[data-markdown-workspace-path]').innerText(),
+        'docs/architecture-plan.md');
+    assert.equal(await workspace.locator('h1').innerText(), 'Architecture plan');
+    assert.notEqual(await conversation.count(), 0,
+        'opening the reading surface keeps the conversation DOM intact behind it');
+    await workspace.getByRole('link', { name: 'Open next plan' }).click();
+    assert.deepEqual((await postedIntents(page)).at(-1), {
+        type: 'conversation-viewer-open-link',
+        version: 1,
+        href: 'docs/next-plan.md#L3',
+    }, 'nested Markdown links remain Host-validated navigation intents');
+
+    const documentScroll = page.locator('[data-markdown-workspace-scroll]');
+    await documentScroll.evaluate(element => { element.scrollTop = 180; });
+    await page.locator('[data-markdown-workspace-back]').click();
+    assert.equal(await workspace.isHidden(), true);
+    assert.equal(await page.locator('.conversation-workspace').getAttribute('aria-hidden'), null);
+    assert.equal(await page.locator('[data-markdown-workspace-active]').isVisible(),
+        true, 'the active-document capsule survives a return to conversation');
+    const savedScroll = await page.evaluate(() =>
+        window.__webviewState.conversationMarkdownWorkspace[
+            'project-a\u0001codex\u0001session-host-document\u0001docs/architecture-plan.md'
+        ].scrollTop
+    );
+    assert.ok(savedScroll > 0, 'returning preserves the document reading position');
+
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace',
+        version: 1,
+        href: 'docs/architecture-plan.md',
+        relativePath: 'docs/architecture-plan.md',
+        title: 'architecture-plan.md',
+        html: documentHtml,
+        workspaceRequestId: 2,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+    });
+    await page.waitForFunction(() => document.querySelector(
+        '[data-markdown-workspace-scroll]'
+    ).scrollTop > 0);
+    assert.equal(await documentScroll.evaluate(element => element.scrollTop), savedScroll,
+        'reopening the same file restores its independent scroll position');
+
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace',
+        version: 1,
+        href: 'docs/stale.md',
+        relativePath: 'docs/stale.md',
+        title: 'stale.md',
+        html: '<h1>Stale document</h1>',
+        workspaceRequestId: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+    });
+    assert.equal(await page.locator('[data-markdown-workspace-title]').innerText(),
+        'architecture-plan.md', 'a late earlier open cannot cover newer intent');
+
+    await page.locator('[data-markdown-workspace-open-editor]').click();
+    assert.deepEqual((await postedIntents(page)).at(-1), {
+        type: 'conversation-viewer-open-markdown-editor',
+        version: 1,
+        href: 'docs/architecture-plan.md',
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+    });
+    await page.keyboard.press('Escape');
+    assert.equal(await workspace.isHidden(), true,
+        'Escape returns from the document workspace to the conversation');
 });
 
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structured data, math, and charts at narrow widths', async t => {

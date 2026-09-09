@@ -53,6 +53,7 @@ import type {
     ConversationViewerCopyMessage,
     ConversationViewerHistoryChunkAppliedMessage,
     ConversationViewerLoadEarlierMessage,
+    ConversationViewerOpenMarkdownEditorMessage,
 } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
@@ -149,6 +150,14 @@ export interface ConversationViewerOptions {
         target: ConversationLocalFileTarget | ConversationWorkspaceFileTarget,
         viewerTarget: ConversationViewerTarget
     ) => PromiseLike<void> | Promise<void> | void;
+    /** Read a workspace Markdown file only after the Host has resolved it
+     * within the conversation's authoritative worktree. */
+    readWorkspaceMarkdown?: (
+        target: ConversationWorkspaceFileTarget,
+        viewerTarget: ConversationViewerTarget
+    ) => PromiseLike<{ markdown: string } | undefined>
+        | Promise<{ markdown: string } | undefined>
+        | { markdown: string } | undefined;
     mediaUri: (fileName: string) => vscode.Uri;
     showThinking?: () => boolean;
     submitPrompt: (
@@ -430,6 +439,9 @@ export class ConversationViewer implements ConversationViewerApi {
     private transitioningGeneration?: number;
     private nextRequestId = CONVERSATION_LIMITS.minRequestId;
     private currentRequestId = 0;
+    // Link reads are asynchronous. This monotonic intent makes a late read
+    // from an earlier click unable to cover the document the user chose last.
+    private nextMarkdownWorkspaceRequestId = 0;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
     // The tail split of latestPublication's render: lets a refresh that
@@ -1628,6 +1640,10 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.openLink(parsed.href);
             return;
         }
+        if (parsed.type === 'conversation-viewer-open-markdown-editor') {
+            await this.openMarkdownEditor(parsed);
+            return;
+        }
         if (parsed.type === 'conversation-viewer-run-command'
             || parsed.type === 'conversation-viewer-changes-refresh'
             || parsed.type === 'conversation-viewer-changes-select'
@@ -2097,6 +2113,10 @@ export class ConversationViewer implements ConversationViewerApi {
     private async openLink(href: string): Promise<void> {
         const workspaceFile = parseConversationWorkspaceFileLink(href);
         if (workspaceFile) {
+            if (isConversationWorkspaceMarkdownFile(workspaceFile)) {
+                await this.openMarkdownWorkspace(workspaceFile);
+                return;
+            }
             if (this.target) {
                 await this.options.openLocalFile?.(workspaceFile, this.target);
             }
@@ -2119,6 +2139,85 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         await this.options.openExternal(vscode.Uri.parse(href));
+    }
+
+    private async openMarkdownWorkspace(
+        workspaceFile: ConversationWorkspaceFileTarget
+    ): Promise<void> {
+        const target = this.target;
+        const panel = this.panel;
+        const workspaceRequestId = ++this.nextMarkdownWorkspaceRequestId;
+        if (!target || !panel) {
+            return;
+        }
+        let document: { markdown: string } | undefined;
+        try {
+            document = await this.options.readWorkspaceMarkdown?.(
+                workspaceFile,
+                target
+            );
+        } catch (_error) {
+            document = undefined;
+        }
+        // A workspace read is asynchronous. Never let a late completion from
+        // the previously selected session open a document over its successor.
+        if (this.target !== target || this.panel !== panel
+            || workspaceRequestId !== this.nextMarkdownWorkspaceRequestId) {
+            return;
+        }
+        // The dashboard owns the filesystem boundary. Keep this additional
+        // bound at the viewer protocol boundary so a faulty adapter cannot
+        // turn one link click into an unbounded Webview publication.
+        if (!document || typeof document.markdown !== 'string'
+            || document.markdown.length > 2 * 1024 * 1024) {
+            this.showNotice('Markdown document could not be opened.');
+            return;
+        }
+        const title = workspaceFile.relativePath.split('/').pop()
+            || workspaceFile.relativePath;
+        const html = renderConversationMarkdown(document.markdown);
+        if (Buffer.byteLength(html, 'utf8') > 8 * 1024 * 1024) {
+            this.showNotice('Markdown document is too large to display.');
+            return;
+        }
+        try {
+            await panel.webview.postMessage({
+                type: 'conversation-viewer-markdown-workspace',
+                version: 1,
+                href: workspaceFile.relativePath
+                    + (workspaceFile.line > 1 || workspaceFile.column > 1
+                        ? `#L${workspaceFile.line}`
+                            + (workspaceFile.column > 1
+                                ? `:${workspaceFile.column}` : '')
+                        : ''),
+                relativePath: workspaceFile.relativePath,
+                title,
+                html,
+                workspaceRequestId,
+                subscriptionGeneration: this.subscriptionGeneration,
+                projectId: target.projectId,
+                provider: target.provider,
+                sessionId: target.sessionId,
+            });
+        } catch (_error) {
+            this.showNotice('Markdown document could not be opened.');
+        }
+    }
+
+    private async openMarkdownEditor(
+        message: ConversationViewerOpenMarkdownEditorMessage
+    ): Promise<void> {
+        const workspaceFile = parseConversationWorkspaceFileLink(message.href);
+        const target = this.target;
+        if (!workspaceFile || !target
+            || message.subscriptionGeneration !== this.subscriptionGeneration
+            || message.projectId !== target.projectId
+            || message.provider !== target.provider
+            || message.sessionId !== target.sessionId
+            || !isConversationWorkspaceMarkdownFile(workspaceFile)) {
+            return;
+        }
+        await this.options.openLocalFile?.(workspaceFile, target);
     }
 
     private async navigate(direction: 'before' | 'after'): Promise<boolean> {
@@ -4410,6 +4509,12 @@ function hasSameConversationSessionTarget(
     return left.projectId === right.projectId
         && left.provider === right.provider
         && left.sessionId === right.sessionId;
+}
+
+function isConversationWorkspaceMarkdownFile(
+    target: ConversationWorkspaceFileTarget
+): boolean {
+    return target.relativePath.toLocaleLowerCase().endsWith('.md');
 }
 
 function hasSameConversationViewerTarget(

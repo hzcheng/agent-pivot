@@ -30,6 +30,14 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         version: 1,
         href: 'https://example.test',
     }, {
+        type: 'conversation-viewer-open-markdown-editor',
+        version: 1,
+        href: 'docs/architecture-plan.md',
+        subscriptionGeneration: 1,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-1',
+    }, {
         type: 'conversation-viewer-send-selection',
         version: 1,
         text: 'quoted selection',

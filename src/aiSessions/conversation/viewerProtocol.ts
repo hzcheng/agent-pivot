@@ -39,6 +39,18 @@ export interface ConversationViewerOpenLinkMessage {
     href: string;
 }
 
+/** Open the current Markdown document in VS Code's native editor. The Host
+ * validates the workspace-relative target again before opening it. */
+export interface ConversationViewerOpenMarkdownEditorMessage {
+    type: 'conversation-viewer-open-markdown-editor';
+    version: 1;
+    href: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+}
+
 export interface ConversationViewerCommentMutationMessage {
     type: 'conversation-viewer-comment-mutation';
     version: 1;
@@ -399,6 +411,7 @@ export type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
+    | ConversationViewerOpenMarkdownEditorMessage
     | ConversationViewerSendSelectionMessage
     | ConversationViewerRunCommandMessage
     | ConversationViewerSwitchSessionMessage
@@ -475,6 +488,25 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerOpenLinkMessage;
+    }
+    if (value.type === 'conversation-viewer-open-markdown-editor') {
+        if (keys.length !== 7
+            || !hasOwn(value, 'type')
+            || !hasOwn(value, 'version')
+            || !hasOwn(value, 'href')
+            || !hasOwn(value, 'subscriptionGeneration')
+            || !hasOwn(value, 'projectId')
+            || !hasOwn(value, 'provider')
+            || !hasOwn(value, 'sessionId')
+            || typeof value.href !== 'string'
+            || !Number.isSafeInteger(value.subscriptionGeneration)
+            || value.subscriptionGeneration < 1
+            || !isBoundedId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isBoundedId(value.sessionId)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerOpenMarkdownEditorMessage;
     }
     if (value.type === 'conversation-viewer-send-selection') {
         if (keys.length !== 3

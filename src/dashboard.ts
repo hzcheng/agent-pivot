@@ -4362,7 +4362,12 @@ async function initializeDashboard(
         clearInterval: handle => clearInterval(handle as NodeJS.Timeout),
     }));
     tmuxFocusedRuntimeMonitor.start();
-    publishRestoredTmuxAttachTerminal = refreshAiSessionViewsIncrementally;
+    // A restored attach terminal is a one-shot authority transition, not the
+    // noisy active/close runtime stream. Publish it immediately so the newly
+    // opened terminal cannot spend the dashboard debounce window detached.
+    publishRestoredTmuxAttachTerminal = () => {
+        void aiSessionDashboardController.refreshNow();
+    };
     aiSessionRuntimeSettlement.startSettlementScan();
 
     ownResource(() => aiSessionAttentionEvent.registerTerminalEventHandlers());

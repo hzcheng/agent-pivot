@@ -175,6 +175,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
         inspectLegacySshTarget: (executable, activeConfigPath, target) =>
             managedLegacySshInspector.inspect(executable, activeConfigPath, target),
+        defaultLocalDirectory: () => os.homedir(),
         selectLocalDirectory: async () => {
             const selected = await vscode.window.showOpenDialog({
                 canSelectFiles: false,

@@ -78,7 +78,7 @@ can nevertheless authenticate to both through its own SSH configuration.
 | Term | Meaning | Authority / persistence |
 | --- | --- | --- |
 | Managed Machine endpoint | An existing catalog Machine with a stable ID and non-secret SSH endpoint. | Managed remote catalog; synced. |
-| Local directory endpoint | This Computer, scoped to one user-selected local root and its descendants. | Local UI-host state; never synced. |
+| Local directory endpoint | This Computer, scoped to the local UI host user's home directory and its descendants. | Local UI-host state; never synced. |
 | Transfer route | A source endpoint, a target endpoint, and locally remembered directories. The user may switch the roles before selecting items. | Local UI-host state; not synced by default. |
 | Source selection | One or more files/folders selected only in the Source pane for the next copy. | Ephemeral UI state. |
 | Target directory | The current directory in the Target pane. | Ephemeral UI state. |
@@ -123,8 +123,9 @@ pre-filled transfer draft, but must never execute a task without a user action.
 2. The compact route picker presents `Source` and `Target`, plus a `Switch
    source and target` control. The roles are explicit at all times.
 3. Each control can select an eligible Managed Machine or `This Computer`.
-   Selecting This Computer opens a native folder picker; the selected folder is
-   the local endpoint root. Each option shows display name, endpoint-safe
+   Selecting This Computer immediately opens the local UI host user's home
+   directory, mirroring a Managed Machine's login-directory behavior; it does
+   not interrupt the route selection with a native picker. Each option shows display name, endpoint-safe
    identity, connection readiness, and any catalog-conflict reason. The same
    endpoint cannot be selected twice, so the local endpoint appears at most once.
 4. Opening each directory is the endpoint health check. The pane status states
@@ -136,17 +137,16 @@ pre-filled transfer draft, but must never execute a task without a user action.
 
 Recent and user-pinned routes appear above the endpoint list. Switching source
 and target swaps the roles and clears the pending source selection. A remembered
-local root is displayed only as a local label/path after the user has selected it on
-this computer; it is never synchronized to another computer.
+local root is displayed only as a local label/path after the UI Bridge opens the
+local user's home directory; it is never synchronized to another computer.
 
 ### 7.2 Browse and select
 
 The two-pane browser has clear Source and Target folder headers: endpoint name,
 current location, an editable bounded path field, and Refresh. A `..` row
 navigates to the parent directory. Both panes
-may be navigated independently. A local pane additionally offers `Choose local
-folder`; it can navigate only within the user-selected local root, and choosing
-a different root goes through the native picker again.
+may be navigated independently. A local pane starts at the local user's home
+directory and can navigate only within that approved root.
 
 - The Source pane supports checkboxes for multiple files and folders.
 - The Target pane is only a directory navigator. Its current directory is the
@@ -192,8 +192,8 @@ resume is a later feature, not an implied guarantee.
 - A Managed Machine must prove a current catalog revision, safe generated SSH
   projection, local OpenSSH availability, host-key validation, and successful
   read access to its starting directory before it is marked ready.
-- This Computer becomes ready only after the user selects a local root with the
-  native directory picker and the UI Bridge proves read access to that root.
+- This Computer becomes ready after the UI Bridge proves read access to the
+  local UI host user's home directory.
 - Starting a task proves target-directory write access. It does not query or
   reserve target free space as a precondition for transfer.
 - A stale revision, endpoint conflict, missing SSH dependency, host-key prompt,

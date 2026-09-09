@@ -62,6 +62,8 @@ export interface ManagedRemoteBridgeLocalActions {
         activeConfigPath: string,
         target: string,
     ): Promise<unknown>;
+    /** The local endpoint's initial directory, normally the signed-in user's home. */
+    defaultLocalDirectory?(): Promise<string | undefined> | string | undefined;
     selectLocalDirectory(): Promise<string | undefined>;
 }
 
@@ -1450,7 +1452,16 @@ export class ManagedRemoteBridgeController {
         if (!this.localActions) {
             throw new Error('Local folder selection is unavailable.');
         }
-        const selected = await this.localActions.selectLocalDirectory();
+        // Selecting This Computer should behave like selecting a Managed
+        // Machine: immediately browse its natural home directory. A native
+        // picker is reserved for an explicit future "change local root"
+        // action, not an unexpected prerequisite to seeing local files.
+        const selected = this.localActions.defaultLocalDirectory
+            ? await this.localActions.defaultLocalDirectory()
+            // Compatibility with a Bridge installed before home-directory
+            // support. Current UI Bridge builds always take the non-modal
+            // branch above.
+            : await this.localActions.selectLocalDirectory();
         if (!selected) { return null; }
         const rootPath = await realpath(selected);
         const rootDetails = await stat(rootPath);

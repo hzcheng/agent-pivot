@@ -176,16 +176,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         inspectLegacySshTarget: (executable, activeConfigPath, target) =>
             managedLegacySshInspector.inspect(executable, activeConfigPath, target),
         defaultLocalDirectory: () => os.homedir(),
-        selectLocalDirectory: async () => {
-            const selected = await vscode.window.showOpenDialog({
-                canSelectFiles: false,
-                canSelectFolders: true,
-                canSelectMany: false,
-                openLabel: 'Use folder for File Transfer',
-                title: 'Choose a local folder for File Transfer',
-            });
-            return selected && selected[0] ? selected[0].fsPath : undefined;
-        },
     }, managedSshProjection, message => outputChannel.appendLine(`[FileTransfer] ${message}`));
     const instanceId = crypto.randomBytes(16).toString('hex');
     const store = new LocalStore(bridgeRoot, instanceId, bridgeProcessId);

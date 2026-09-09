@@ -209,7 +209,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
         platform: 'linux',
         openTerminal() {},
         async writeClipboard() {},
-        async selectLocalDirectory() { return root; },
+        async defaultLocalDirectory() { return root; },
     });
     const selected = await controller.execute(request('selectFileTransferLocalRoot'));
     assert.equal(selected.status, 'ok');
@@ -251,7 +251,6 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 opens This Computer at the local home direc
     const homeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-home-'));
     t.after(() => fs.rmSync(homeDirectory, { recursive: true, force: true }));
     fs.writeFileSync(path.join(homeDirectory, 'welcome.txt'), 'home', 'utf8');
-    let pickerCalls = 0;
     const controller = new ManagedRemoteBridgeController({
         readManagedCatalogEnvelope() { throw new Error('local browsing must not read catalog'); },
     }, {
@@ -259,16 +258,11 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 opens This Computer at the local home direc
     }, 'session-12345678', {
         platform: 'linux', openTerminal() {}, async writeClipboard() {},
         async defaultLocalDirectory() { return homeDirectory; },
-        async selectLocalDirectory() {
-            pickerCalls += 1;
-            throw new Error('This Computer must not open the native picker on initial selection');
-        },
     });
     const selected = await controller.execute(request('selectFileTransferLocalRoot'));
     assert.equal(selected.status, 'ok', selected.message);
     assert.equal(selected.value.label, path.basename(homeDirectory));
     assert.deepEqual(selected.value.entries.map(entry => entry.name), ['welcome.txt']);
-    assert.equal(pickerCalls, 0, 'initial This Computer activation must mirror a remote home-directory browse');
 });
 
 test('FILE-TRANSFER-LOCAL-BROWSE-003 marks a bounded local directory listing as incomplete', async t => {
@@ -283,7 +277,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-003 marks a bounded local directory listing as 
         async create() { return {}; },
     }, 'session-12345678', {
         platform: 'linux', openTerminal() {}, async writeClipboard() {},
-        async selectLocalDirectory() { return root; },
+        async defaultLocalDirectory() { return root; },
     });
     const selected = await controller.execute(request('selectFileTransferLocalRoot'));
     assert.equal(selected.status, 'ok');
@@ -302,7 +296,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-002 binds selected file handles to the reviewed
         async create() { return {}; },
     }, 'session-12345678', {
         platform: 'linux', openTerminal() {}, async writeClipboard() {},
-        async selectLocalDirectory() { return root; },
+        async defaultLocalDirectory() { return root; },
     });
     const selected = await controller.execute(request('selectFileTransferLocalRoot'));
     const child = selected.value.entries.find(entry => entry.name === 'child');
@@ -336,7 +330,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-002 rejects a listed local file when it is repl
         async create() { return {}; },
     }, 'session-12345678', {
         platform: 'linux', openTerminal() {}, async writeClipboard() {},
-        async selectLocalDirectory() { return root; },
+        async defaultLocalDirectory() { return root; },
     });
     const selected = await controller.execute(request('selectFileTransferLocalRoot'));
     const entry = selected.value.entries.find(candidate => candidate.name === 'report.txt');
@@ -492,7 +486,7 @@ test('FILE-TRANSFER-COPY-001 rejects local-to-local copy even with approved hand
         async create() { return {}; },
     }, 'session-12345678', {
         platform: 'linux', openTerminal() {}, async writeClipboard() {},
-        async selectLocalDirectory() { return selections.shift(); },
+        async defaultLocalDirectory() { return selections.shift(); },
     });
     const source = await controller.execute(request('selectFileTransferLocalRoot'));
     const destination = await controller.execute(request('selectFileTransferLocalRoot'));

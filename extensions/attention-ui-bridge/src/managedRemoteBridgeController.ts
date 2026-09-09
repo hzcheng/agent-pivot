@@ -63,8 +63,7 @@ export interface ManagedRemoteBridgeLocalActions {
         target: string,
     ): Promise<unknown>;
     /** The local endpoint's initial directory, normally the signed-in user's home. */
-    defaultLocalDirectory?(): Promise<string | undefined> | string | undefined;
-    selectLocalDirectory(): Promise<string | undefined>;
+    defaultLocalDirectory(): Promise<string | undefined> | string | undefined;
 }
 
 interface FileTransferLocalRoot {
@@ -1456,12 +1455,7 @@ export class ManagedRemoteBridgeController {
         // Machine: immediately browse its natural home directory. A native
         // picker is reserved for an explicit future "change local root"
         // action, not an unexpected prerequisite to seeing local files.
-        const selected = this.localActions.defaultLocalDirectory
-            ? await this.localActions.defaultLocalDirectory()
-            // Compatibility with a Bridge installed before home-directory
-            // support. Current UI Bridge builds always take the non-modal
-            // branch above.
-            : await this.localActions.selectLocalDirectory();
+        const selected = await this.localActions.defaultLocalDirectory();
         if (!selected) { return null; }
         const rootPath = await realpath(selected);
         const rootDetails = await stat(rootPath);

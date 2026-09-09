@@ -13,6 +13,10 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
     'managedActionProjectionV2',
     'localSshEndpointV1',
     'fileTransferLocalBrowseV1',
+    // Selecting This Computer is non-modal: a Bridge that lacks this
+    // capability predates the in-pane home-directory browser and opens a
+    // native VS Code picker instead.
+    'fileTransferLocalHomeV1',
     'fileTransferRemoteBrowseV1',
     'fileTransferPreflightV1',
     'fileTransferCopyV1',

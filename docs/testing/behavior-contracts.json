@@ -7520,6 +7520,21 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-LOCAL-HOME-001",
+    "domain": "runtime",
+    "title": "File Transfer refuses a UI Bridge that would open a native picker for This Computer",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeProtocol.ts",
+      "src/projects/managedRemote/bridgeClient.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-COPY-005",
     "domain": "runtime",
     "title": "File Transfer refuses a UI Bridge without the required two-hop relay before it can start a copy",

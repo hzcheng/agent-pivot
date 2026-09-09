@@ -131,6 +131,35 @@ test('FILE-TRANSFER-COPY-005 rejects a Bridge that lacks the two-hop relay capab
     assert.deepEqual(calls, [MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND]);
 });
 
+test('FILE-TRANSFER-LOCAL-HOME-001 rejects a Bridge that cannot browse This Computer without a native picker', async () => {
+    const calls = [];
+    const commands = {
+        async executeCommand(command, request) {
+            calls.push(command);
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return {
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678',
+                    // This represents the previously released bridge: it can
+                    // browse local files, but still opens VS Code's picker.
+                    capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES.filter(
+                        value => value !== 'fileTransferLocalHomeV1',
+                    ),
+                };
+            }
+            return {
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: {},
+            };
+        },
+    };
+    await assert.rejects(
+        new ManagedRemoteBridgeClient(commands).selectFileTransferLocalRoot(),
+        /Update the Agent Pivot UI Bridge/,
+    );
+    assert.deepEqual(calls, [MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND]);
+});
+
 test('FILE-TRANSFER-COPY-006 keeps an active relay copy alive beyond the ordinary Bridge action timeout', async () => {
     const commands = {
         executeCommand(command, request) {

@@ -10,8 +10,8 @@ Agent Pivot adds **File Transfer**, opened from the Transfer button at the top
 of Projects. It opens as a dedicated editor tab where a user browses two
 transfer endpoints side by side and copies files or folders in either
 direction. An endpoint is either an
-existing Managed Machine or **This Computer**, rooted at a local directory the
-user explicitly chooses.
+existing Managed Machine or **This Computer**, rooted at the local UI host
+user's home directory.
 
 The two selected endpoints are peers: they are not permanently labelled source
 and destination. The side on which a user selects files becomes the source for
@@ -53,8 +53,8 @@ can nevertheless authenticate to both through its own SSH configuration.
    detail, and retry where safe.
 5. Work when the two remote Machines cannot connect to each other.
 6. Reuse Managed Machine identity, SSH projection, host-key verification, and
-   local user authentication; use native local filesystem access only after an
-   explicit directory choice; never synchronize or expose credentials/paths.
+   local user authentication; use native local filesystem access only beneath
+   the UI host user's home directory; never synchronize or expose credentials/paths.
 7. Support Linux, macOS, and Windows UI hosts in the first release with the
    same core browse, review, transfer, cancellation, and integrity behavior.
 
@@ -88,8 +88,7 @@ Only the existing managed catalog owns Managed Machine identity and endpoint
 data. Local roots, recent locations, transfer history, conflict choices, and
 task diagnostics may contain sensitive local operational context and must not be
 added to the synced catalog. Authentication remains wholly with OpenSSH / Remote
-- SSH; local access is limited to the root the user selected in the native
-directory picker.
+- SSH; local access is limited to the UI host user's home-directory root.
 
 ## 6. Information architecture
 
@@ -214,8 +213,8 @@ resume is a later feature, not an implied guarantee.
   paths for Managed Machines, and local paths only beneath the selected local
   root for This Computer. Host validation normalizes paths without following an
   untrusted lexical escape above the applicable root.
-- The Webview never supplies a local absolute path as authority. The native
-  picker returns a local-root handle to the UI Bridge; browser rows and
+- The Webview never supplies a local absolute path as authority. The UI Bridge
+  returns a home-root handle; browser rows and
   navigation use opaque entry/directory references below that handle. The host
   may project the current local path for user-visible breadcrumb and review UI.
 - Search initially filters the loaded directory; recursive remote search is a
@@ -270,7 +269,7 @@ resume is a later feature, not an implied guarantee.
 
 ### 8.5 Accessibility and responsive behavior
 
-- Every pair-picker option, native local-folder action, pane header, path
+- Every pair-picker option, local home-directory browser, pane header, path
   control, listing row, selection, transfer action, and task action is keyboard
   operable with an accessible name containing endpoint and path context.
 - Keyboard users can move focus between panes, navigate directories, select
@@ -285,12 +284,12 @@ resume is a later feature, not an implied guarantee.
 
 | Decision | Requirement and rationale |
 | --- | --- |
-| Explicit route roles | Source and Target are explicit for the current route. Each can be a Managed Machine or This Computer rooted at a user-selected local folder. Switching roles is one visible control and clears selection, avoiding direction inference. |
+| Explicit route roles | Source and Target are explicit for the current route. Each can be a Managed Machine or This Computer rooted at the local UI host user's home directory. Switching roles is one visible control and clears selection, avoiding direction inference. |
 | Dedicated editor surface | A persistent Transfer button at the top of Projects opens File Transfer in the main editor area. Two independent remote trees, fixed readiness, and task progress need more room and a durable mental model than a Project overflow dialog. |
 | Visible intent | A fixed summary bar is present whenever items are selected. Copy is unavailable until its exact result can be described. |
 | Copy-first safety | The initial action is always copy. Move and sync have different destructive semantics and are excluded. |
 | Direct but described execution | The action bar provides the exact route and item count. Readiness is checked before activation; collision and copy validation remain authoritative in the bridge. |
-| Local is first-class but scoped | This Computer can be paired with any Managed Machine in P0. Native folder selection establishes an explicit local root, so the transfer UI cannot browse the user's whole disk by default. |
+| Local is first-class but scoped | This Computer can be paired with any Managed Machine in P0. It opens the UI host user's home directory directly, so the transfer UI cannot browse the user's whole disk by default. |
 | Convenient recurrence | Recent/pinned symmetric pairs and locally remembered folders speed repeated workflows without synchronizing operational paths. |
 | Explicit uncertainty | Unknown size, partial directory access, or unsupported entries appear as warnings, never as deceptive success. Target free space is not queried before copy; a disk-full error is reported at transfer time. |
 | Agent assistance is bounded | Conversation can prefill a draft only from user-visible Managed Machine/project context or a locally selected root. It cannot select an unshown path, set Replace Existing, or start transfer. |
@@ -383,7 +382,7 @@ behavior; cancellation; and Machines that cannot reach one another.
   Exact wire names and payload schemas require a separate technical-design
   change with strict parsers before implementation.
 - Extend the UI Bridge with a local transfer engine, process lifecycle owner,
-  bounded diagnostic mapper, native folder-picker integration, and cleanup on
+  bounded diagnostic mapper, home-directory browsing, and cleanup on
   deactivation. Its filesystem authority is limited to the current validated
   Managed Machine sessions and user-approved local-root handles.
 
@@ -442,7 +441,8 @@ behavior; cancellation; and Machines that cannot reach one another.
 - [ ] The user can select exactly two different eligible endpoints as explicit
       Source and Target roles, and can switch those roles with one visible
       action before choosing files. An endpoint can be a Managed Machine or
-      This Computer rooted at a local directory chosen through the native picker.
+      This Computer rooted at the UI host user's home directory, without a
+      native picker.
 - [ ] A catalog-conflicted, unavailable, duplicate, or unmanaged Machine cannot
       begin a pair; This Computer cannot begin a pair until a readable local
       root is selected; the UI gives an accessible reason and recovery path.

@@ -230,7 +230,7 @@ exec /bin/mv "$@"
         },
     }, 'file-transfer-e2e-session', {
         platform: 'linux', openTerminal() {}, async writeClipboard() {},
-        async selectLocalDirectory() { return localRoot; },
+        async defaultLocalDirectory() { return localRoot; },
     }, {
         schedule() {}, async ensureReady() {},
     });

@@ -441,9 +441,8 @@ function remotePathKind(
             // an existing empty directory cannot be mistaken for a missing
             // target. This remains a non-recursive, local-UI-host operation.
             const parent = path.posix.dirname(targetPath) || '.';
-            const name = path.posix.basename(targetPath);
             return listRemoteDirectory(sshExecutable, alias, parent)
-                .then(rows => rows.find(row => row.name === name)?.kind || null);
+                .then(rows => rows.find(row => remoteChildPath(parent, row.name) === targetPath)?.kind || null);
         });
 }
 

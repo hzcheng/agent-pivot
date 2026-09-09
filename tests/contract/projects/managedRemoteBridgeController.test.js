@@ -421,7 +421,10 @@ case "$command" in
       printf '%s\\n' '-rw-r--r--    1 user     group     123456789 Jan 01 2026 ${selectedName}'
     fi
     ;;
-  'ls -la "/remote/target"'|'-lstat "/remote/target/'*)
+  'ls -la "/remote/target"')
+    printf '%s\\n' '-rw-r--r--    1 user     group     123456789 Jan 01 2026 /remote/target/${selectedName}'
+    ;;
+  '-lstat "/remote/target/'*)
     ;;
   'ls -l "/remote/source/'*)
     printf '%s\\n' '-rw-r--r--    1 user     group     123456789 Jan 01 2026 ${selectedName}'
@@ -468,6 +471,8 @@ esac
         },
     });
     assert.equal(preflight.status, 'ok', preflight.message);
+    assert.deepEqual(preflight.value.existingFileNames, [selectedName],
+        'a full-path SFTP row must still identify an existing target file');
 });
 
 test('FILE-TRANSFER-COPY-001 rejects local-to-local copy even with approved handles', async t => {

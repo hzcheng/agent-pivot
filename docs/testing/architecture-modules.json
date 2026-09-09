@@ -103,6 +103,9 @@
                 "src/aiSessions/conversation/displayMetadata.ts",
                 "src/aiSessions/conversation/panelRestoreCoordinator.ts",
                 "src/aiSessions/conversation/projectCommentStore.ts",
+                "src/aiSessions/conversation/documentCommentStore.ts",
+                "src/aiSessions/conversation/markdown.ts",
+                "src/aiSessions/conversation/markdownSuggestionState.ts",
                 "src/aiSessions/conversation/sessionRebindCoordinator.ts",
                 "src/aiSessions/conversation/sessionStatusController.ts",
                 "src/aiSessions/conversation/submission.ts"
@@ -140,6 +143,7 @@
                         "src/aiSessions/conversation/codexAppServerClient.ts",
                         "src/aiSessions/conversation/jsonlReader.ts",
                         "src/aiSessions/conversation/markdown.ts",
+                        "src/aiSessions/conversation/markdownSuggestionState.ts",
                         "src/aiSessions/conversation/snapshotFileStore.ts",
                         "src/aiSessions/conversation/worktreeResolver.ts",
                         "src/aiSessions/conversation/source.ts"

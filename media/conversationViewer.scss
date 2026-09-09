@@ -38,8 +38,9 @@ body {
     position: fixed;
     z-index: 20;
     inset: 0;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.6fr);
+    grid-template-rows: auto minmax(0, 1fr);
     min-width: 0;
     min-height: 0;
     background: var(--vscode-editor-background);
@@ -57,7 +58,7 @@ body {
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-editor-background);
-    flex: 0 0 100%;
+    grid-column: 1 / -1;
 }
 
 .conversation-document-workspace-back,
@@ -108,6 +109,8 @@ body {
 }
 
 .conversation-document-workspace-scroll {
+    grid-column: 1;
+    grid-row: 2;
     flex: 1 1 0;
     min-height: 0;
     overflow: auto;
@@ -115,6 +118,8 @@ body {
 }
 
 .conversation-document-discussion {
+    grid-column: 2;
+    grid-row: 2;
     flex: 0 0 min(22rem, 34vw);
     min-width: 15rem;
     overflow: auto;

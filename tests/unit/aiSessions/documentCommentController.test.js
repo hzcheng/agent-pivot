@@ -183,7 +183,7 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 relocates duplicate quotes only 
     assert.equal(controller.snapshot.comments[1].documentVersion, 'sha256:document-next');
 });
 
-test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 keeps the durable sent state when a prompt rollback cannot persist', async () => {
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 keeps an interrupted outbox state when a prompt rollback cannot persist', async () => {
     let saves = 0;
     const { controller, posted } = createHarness({
         documentCommentStore: {

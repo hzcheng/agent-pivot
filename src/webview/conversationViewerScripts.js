@@ -1697,6 +1697,8 @@
             && message.relativePath.length > 0 && message.relativePath.length <= 4096
             && typeof message.documentVersion === 'string'
             && message.documentVersion.length > 0 && message.documentVersion.length <= 512
+            && (message.commentSnapshot === undefined
+                || validMarkdownWorkspaceSnapshot(message.commentSnapshot))
             && (typeof message.settlesRequestId === 'undefined'
                 || (typeof message.settlesRequestId === 'string'
                     && message.settlesRequestId.length > 0

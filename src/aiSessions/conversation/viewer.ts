@@ -2342,6 +2342,7 @@ export class ConversationViewer implements ConversationViewerApi {
      * never needs to interpret arbitrary model Markdown as a mutation. */
     private markdownWorkspaceSuggestionRecords(): Array<{
         messageId: string;
+        wireId: string;
         selectedText: string;
         replacement: string;
         disposition?: MarkdownSuggestionDisposition;
@@ -2350,6 +2351,7 @@ export class ConversationViewer implements ConversationViewerApi {
     }> {
         const suggestions: Array<{
             messageId: string;
+            wireId: string;
             selectedText: string;
             replacement: string;
             sourceProvider: AiSessionProviderId;
@@ -2374,6 +2376,7 @@ export class ConversationViewer implements ConversationViewerApi {
             );
             suggestions.push({
                 messageId: message.id,
+                wireId: markdownSuggestionWireId(target.provider, target.sessionId, message.id),
                 ...suggestion,
                 sourceProvider: target.provider,
                 sourceSessionId: target.sessionId,
@@ -2396,6 +2399,9 @@ export class ConversationViewer implements ConversationViewerApi {
                 );
                 suggestions.push({
                     messageId: reply.messageId,
+                    wireId: markdownSuggestionWireId(
+                        reply.provider, reply.sessionId, reply.messageId
+                    ),
                     ...suggestion,
                     sourceProvider: reply.provider,
                     sourceSessionId: reply.sessionId,
@@ -2412,7 +2418,9 @@ export class ConversationViewer implements ConversationViewerApi {
         replacement: string;
         disposition?: MarkdownSuggestionDisposition;
     }> {
-        return this.markdownWorkspaceSuggestionRecords().map(({ sourceProvider, sourceSessionId, ...suggestion }) => suggestion);
+        return this.markdownWorkspaceSuggestionRecords().map(({
+            messageId, sourceProvider, sourceSessionId, wireId, ...suggestion
+        }) => ({ ...suggestion, messageId: wireId }));
     }
 
     /** Only assistant responses to a persisted document comment belong to the
@@ -2499,7 +2507,11 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!commentId) {
                 continue;
             }
-            const markdown = stripMarkdownSuggestionEnvelope(message.markdown);
+            // Persist the full assistant response, including a bounded
+            // suggestion envelope. Rendering strips that envelope, but the
+            // Host needs it after transcript paging to rebuild actionable
+            // suggestion cards from the durable discussion record.
+            const markdown = message.markdown;
             if (!markdown || Buffer.byteLength(markdown, 'utf8') > 48_000) {
                 continue;
             }
@@ -2530,7 +2542,9 @@ export class ConversationViewer implements ConversationViewerApi {
         const replies = new Map<string, { messageId: string; commentId: string; html: string }>();
         for (const comment of this.documentCommentController.snapshot.comments) {
             for (const reply of comment.discussion || []) {
-                const html = renderConversationMarkdown(reply.markdown);
+                const html = renderConversationMarkdown(
+                    stripMarkdownSuggestionEnvelope(reply.markdown)
+                );
                 if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
                     replies.set(reply.messageId, {
                         messageId: reply.messageId, commentId: comment.id, html,
@@ -2539,7 +2553,9 @@ export class ConversationViewer implements ConversationViewerApi {
             }
         }
         for (const reply of this.markdownWorkspaceReplyRecords()) {
-            const html = renderConversationMarkdown(reply.markdown);
+            const html = renderConversationMarkdown(
+                stripMarkdownSuggestionEnvelope(reply.markdown)
+            );
             if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
                 replies.set(reply.messageId, { ...reply, html });
             }
@@ -2568,6 +2584,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 workspaceRootId: active.workspaceRootId,
                 relativePath: active.workspaceFile.relativePath,
                 documentVersion: active.documentVersion,
+                commentSnapshot: this.documentCommentController.snapshot,
                 replies: this.markdownWorkspaceReplies(),
                 suggestions: this.markdownWorkspaceSuggestions(),
                 subscriptionGeneration: generation,
@@ -2589,7 +2606,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const active = this.activeMarkdownWorkspace;
         const target = this.target;
         const suggestedChange = this.markdownWorkspaceSuggestionRecords().find(suggestion =>
-            suggestion.messageId === message.payload.suggestionId
+            suggestion.wireId === message.payload.suggestionId
         );
         let result: 'applied' | 'stale' | 'failed' = 'stale';
         if (active && target && active.target === target
@@ -2626,7 +2643,7 @@ export class ConversationViewer implements ConversationViewerApi {
             if (disposition) {
                 try {
                     await this.rememberMarkdownSuggestionDisposition(
-                        message.payload.suggestionId, disposition,
+                        suggestedChange.messageId, disposition,
                         suggestedChange.sourceProvider,
                         suggestedChange.sourceSessionId
                     );
@@ -2662,7 +2679,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const active = this.activeMarkdownWorkspace;
         const target = this.target;
         const suggestedChange = this.markdownWorkspaceSuggestionRecords().find(suggestion =>
-            suggestion.messageId === message.payload.suggestionId
+            suggestion.wireId === message.payload.suggestionId
         );
         const matches = Boolean(active && target && active.target === target
             && active.generation === this.subscriptionGeneration
@@ -2677,7 +2694,7 @@ export class ConversationViewer implements ConversationViewerApi {
         if (matches) {
             try {
                 await this.rememberMarkdownSuggestionDisposition(
-                    message.payload.suggestionId, message.payload.disposition,
+                    suggestedChange!.messageId, message.payload.disposition,
                     suggestedChange!.sourceProvider, suggestedChange!.sourceSessionId
                 );
                 saved = true;
@@ -5781,6 +5798,16 @@ function optionalStructuredBytes(value: unknown): number {
     return value === undefined
         ? 0
         : Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+/** Message ids are provider-local. The Webview carries this opaque composite
+ * id so a same-named reply in another session can never authorize a change. */
+function markdownSuggestionWireId(
+    provider: AiSessionProviderId,
+    sessionId: string,
+    messageId: string
+): string {
+    return [provider, sessionId, messageId].join('\u0001');
 }
 
 function sumMessageBytes(

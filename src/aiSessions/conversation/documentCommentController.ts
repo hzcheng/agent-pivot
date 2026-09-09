@@ -182,7 +182,7 @@ export class MarkdownDocumentCommentController {
             });
             // Validation is deliberately performed by commit(), including all
             // bounds on model output and persisted discussion size.
-            comment.discussion = discussion.slice(-20);
+            comment.discussion = discussion.slice(-8);
             changed = true;
         }
         if (changed) {

@@ -5490,7 +5490,10 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
         message.type === 'conversation-viewer-markdown-workspace'
     );
     assert.deepEqual(workspace.suggestions.map(suggestion => suggestion.messageId),
-        ['assistant-suggestion-a', 'assistant-historic-suggestion-a']);
+        [
+            'codex\u0001session-a\u0001assistant-suggestion-a',
+            'codex\u0001session-a\u0001assistant-historic-suggestion-a',
+        ]);
     assert.equal(workspace.suggestions[0].disposition, 'outdated');
     assert.equal(workspace.suggestions[1].disposition, 'dismissed',
         'a previous document discussion keeps its AI change decision after transcript paging');

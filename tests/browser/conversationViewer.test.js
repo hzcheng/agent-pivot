@@ -5141,7 +5141,11 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps a stale suggestion visible and c
         workspaceRootId: 'root-a',
         documentVersion: 'sha256:architecture-a',
         commentSnapshot: { revision: 0, comments: [] },
-        replies: [],
+        replies: [{
+            messageId: 'assistant-reply-a',
+            commentId: 'document-comment-a',
+            html: '<p>Test the restore command in staging before release.</p>',
+        }],
         suggestions: [{
             messageId: 'assistant-suggestion-stale',
             selectedText: 'Rollback strategy',
@@ -12318,8 +12322,10 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 settles a pending comment from an auth
         replies: [], suggestions: [], commentSettlement: settlement,
     });
     assert.equal(await page.locator('article[data-comment-id="recovered-comment-a"]').isVisible(), true);
-    assert.equal(await page.getByRole('button', { name: 'Save draft' }).isDisabled(), false,
-        'the full recovery publication cannot leave the composer permanently pending');
+    assert.equal(await page.locator('[data-markdown-workspace-comment-composer]').isHidden(), true,
+        'the recovered authoritative success closes the draft composer');
+    assert.equal(await page.getByRole('button', { name: 'Locate in document' }).isDisabled(), false,
+        'the full recovery publication cannot leave the remaining discussion controls pending');
 });
 
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structured data, math, and charts at narrow widths', async t => {

@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const { createHash } = require('node:crypto');
-const { mkdtemp, readFile, rm, symlink, writeFile } = require('node:fs/promises');
+const { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
@@ -23,6 +23,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 writes only the validated descriptor a
         await require('node:fs/promises').mkdir(root);
         const source = 'Keep this paragraph.';
         await writeFile(candidate, source, 'utf8');
+        await chmod(candidate, 0o640);
         await writeFile(outside, 'Outside must remain unchanged.', 'utf8');
 
         assert.equal(await applyValidatedWorkspaceMarkdownSuggestion(root, candidate, {
@@ -30,6 +31,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 writes only the validated descriptor a
             prefix: '', suffix: '', replacement: 'Replace only this paragraph.',
         }), 'applied');
         assert.equal(await readFile(candidate, 'utf8'), 'Replace only this paragraph.');
+        assert.equal((await stat(candidate)).mode & 0o777, 0o640,
+            'an atomic replacement retains the document permission mode');
 
         if (process.platform === 'linux') {
             await require('node:fs/promises').unlink(candidate);

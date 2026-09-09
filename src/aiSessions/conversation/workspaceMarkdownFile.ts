@@ -80,17 +80,22 @@ export async function applyValidatedWorkspaceMarkdownSuggestion(
             || beforeWrite.ctimeMs !== stat.ctimeMs) {
             return 'stale';
         }
-        // The directory descriptor gives Linux an atomic rename target that
-        // cannot be redirected by an ancestor swap. Other platforms fail
-        // closed rather than use an in-place truncate/write that can leave a
-        // partial Markdown file after a process crash.
-        if (process.platform !== 'linux') { return 'failed'; }
-        directory = await openFilePath(path.dirname(canonicalCandidate),
-            fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
-        const directoryPath = await openedDescriptorPath(directory, path.dirname(canonicalCandidate));
+        // Where the OS exposes a directory descriptor path, use it to keep
+        // rename bound to the approved worktree even through an ancestor
+        // swap. Other supported hosts still get an atomic rename and the
+        // pre-open file identity checks above; they do not fall back to an
+        // in-place truncate/write.
+        const descriptorDirectory = process.platform === 'linux' || process.platform === 'darwin';
+        if (descriptorDirectory) {
+            directory = await openFilePath(path.dirname(canonicalCandidate),
+                fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW);
+        }
+        const directoryPath = directory
+            ? await openedDescriptorPath(directory, path.dirname(canonicalCandidate))
+            : path.dirname(canonicalCandidate);
         if (!isContained(canonicalRoot, directoryPath)) { return 'stale'; }
         const replacementResult = await replaceAtomicallyThroughDirectory(
-            directory, path.basename(canonicalCandidate), stat, replacement
+            directory, directoryPath, path.basename(canonicalCandidate), stat, replacement
         );
         if (replacementResult !== 'applied') { return replacementResult; }
         return 'applied';
@@ -109,6 +114,9 @@ async function openedDescriptorPath(handle: FileHandle, fallback: string): Promi
     // candidate is safe without re-resolving a mutable pathname.
     if (process.platform === 'linux') {
         return realpathPath(`/proc/self/fd/${handle.fd}`);
+    }
+    if (process.platform === 'darwin') {
+        return realpathPath(`/dev/fd/${handle.fd}`);
     }
     return fallback;
 }
@@ -131,26 +139,25 @@ async function readBounded(handle: FileHandle, length: number): Promise<Buffer> 
 }
 
 async function replaceAtomicallyThroughDirectory(
-    directory: FileHandle,
+    directory: FileHandle | undefined,
+    directoryPath: string,
     basename: string,
     expected: Stats,
     contents: Buffer
 ): Promise<'applied' | 'stale' | 'failed'> {
-    const base = `/proc/self/fd/${directory.fd}`;
+    const base = directory ? (process.platform === 'linux'
+        ? `/proc/self/fd/${directory.fd}` : `/dev/fd/${directory.fd}`) : directoryPath;
     const target = `${base}/${basename}`;
     const temporary = `${base}/.agent-pivot-markdown-${process.pid}-${Date.now()}-${Math.random()
         .toString(16).slice(2)}`;
     let temporaryHandle: FileHandle | undefined;
     try {
-        const current = await lstatPath(target);
-        if (!current.isFile() || current.dev !== expected.dev || current.ino !== expected.ino
-            || current.size !== expected.size || current.mtimeMs !== expected.mtimeMs
-            || current.ctimeMs !== expected.ctimeMs) {
+        if (!await hasExpectedIdentity(target, expected)) {
             return 'stale';
         }
         temporaryHandle = await openFilePath(temporary,
             fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
-            0o600);
+            expected.mode & 0o777);
         let offset = 0;
         while (offset < contents.length) {
             const result = await temporaryHandle.write(
@@ -162,8 +169,14 @@ async function replaceAtomicallyThroughDirectory(
         await temporaryHandle.sync();
         await temporaryHandle.close();
         temporaryHandle = undefined;
+        // Check again immediately before the only irreversible operation.
+        // A concurrent editor save during temporary-file fsync fails closed.
+        if (!await hasExpectedIdentity(target, expected)) { return 'stale'; }
         await renamePath(temporary, target);
-        await directory.sync();
+        // The atomic rename has committed even if syncing the directory later
+        // reports an I/O error. Do not falsely report failure and discard the
+        // inverse action after the document has already changed.
+        await directory?.sync().catch(() => undefined);
         return 'applied';
     } catch (_error) {
         return 'failed';
@@ -171,4 +184,11 @@ async function replaceAtomicallyThroughDirectory(
         await temporaryHandle?.close().catch(() => undefined);
         await unlinkPath(temporary).catch(() => undefined);
     }
+}
+
+async function hasExpectedIdentity(target: string, expected: Stats): Promise<boolean> {
+    const current = await lstatPath(target);
+    return current.isFile() && current.dev === expected.dev && current.ino === expected.ino
+        && current.size === expected.size && current.mtimeMs === expected.mtimeMs
+        && current.ctimeMs === expected.ctimeMs;
 }

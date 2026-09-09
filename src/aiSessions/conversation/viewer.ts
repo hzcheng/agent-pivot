@@ -2368,7 +2368,9 @@ export class ConversationViewer implements ConversationViewerApi {
             }
         }
         const panel = this.panel;
-        if (!panel) return;
+        if (!panel) {
+            return;
+        }
         try {
             await panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-suggestion-result', version: 1,

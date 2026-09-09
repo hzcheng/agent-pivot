@@ -2248,29 +2248,60 @@ async function initializeDashboard(
                 return 'stale';
             }
             let document: vscode.TextDocument;
+            let openedStat;
             try {
                 document = await vscode.workspace.openTextDocument(
                     vscode.Uri.file(canonicalCandidate)
                 );
+                const openedPath = await realpathPath(document.uri.fsPath);
+                openedStat = await lstatPath(openedPath);
+                // WorkspaceEdit operates through VS Code rather than our
+                // descriptor, so bind that document back to the validated
+                // real path before inspecting or mutating its buffer.
+                if (openedPath !== canonicalCandidate
+                    || !isWorkspaceHostPathContained(canonicalRoot, openedPath)
+                    || !openedStat.isFile()) {
+                    return 'stale';
+                }
             } catch (_error) {
                 return 'failed';
             }
             const source = document.getText();
             if (createHash('sha256').update(Buffer.from(source, 'utf8')).digest('hex')
-                !== suggestion.documentVersion) return 'stale';
+                !== suggestion.documentVersion) {
+                return 'stale';
+            }
             const range = findUniqueMarkdownSuggestionAnchor(source, suggestion);
-            if (!range) return 'stale';
+            if (!range) {
+                return 'stale';
+            }
             const edit = new vscode.WorkspaceEdit();
             edit.replace(document.uri, new vscode.Range(
                 document.positionAt(range.start), document.positionAt(range.end)
             ), suggestion.replacement);
             try {
-                if (!await vscode.workspace.applyEdit(edit)) return 'failed';
+                const currentPath = await realpathPath(document.uri.fsPath);
+                const currentStat = await lstatPath(currentPath);
+                if (currentPath !== canonicalCandidate
+                    || !isWorkspaceHostPathContained(canonicalRoot, currentPath)
+                    || !currentStat.isFile()
+                    || currentStat.dev !== openedStat.dev
+                    || currentStat.ino !== openedStat.ino) {
+                    return 'stale';
+                }
+                if (!await vscode.workspace.applyEdit(edit)) {
+                    return 'failed';
+                }
                 // The reading surface is rendered from the filesystem, not an
                 // unsaved editor buffer. Persist before reporting success or
                 // refreshing it, so the new document/version is authoritative
                 // and the operation participates in VS Code's native Undo.
-                return await document.save() ? 'applied' : 'failed';
+                if (!await document.save()) {
+                    return 'failed';
+                }
+                const savedPath = await realpathPath(document.uri.fsPath);
+                return isWorkspaceHostPathContained(canonicalRoot, savedPath)
+                    ? 'applied' : 'failed';
             } catch (_error) {
                 return 'failed';
             }

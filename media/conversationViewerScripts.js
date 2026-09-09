@@ -205,6 +205,7 @@
     var markdownWorkspacePendingSuggestionId = '';
     var markdownWorkspacePendingSuggestionSourceId = '';
     var markdownWorkspacePendingSuggestionStatusRequestId = '';
+    var markdownWorkspaceSuggestionWatchdog;
     var markdownWorkspaceReturnFocus;
     var markdownWorkspaceAvailable = !!(markdownWorkspace
         && markdownWorkspaceBack && markdownWorkspaceTitle
@@ -2231,6 +2232,7 @@
             + '-' + String(Date.now());
         markdownWorkspacePendingSuggestionId = requestId;
         setMarkdownWorkspaceCommentPending(true, 'Applying suggested change…');
+        scheduleMarkdownWorkspaceSuggestionWatchdog('apply', requestId);
         post({
             type: 'conversation-viewer-apply-markdown-suggestion', version: 1,
             requestId: requestId, subscriptionGeneration: state.subscriptionGeneration,
@@ -2252,6 +2254,7 @@
             return false;
         }
         markdownWorkspacePendingSuggestionId = '';
+        clearMarkdownWorkspaceSuggestionWatchdog();
         var sourceId = markdownWorkspacePendingSuggestionSourceId;
         var stale = !message.success && message.error === 'stale';
         setMarkdownWorkspaceCommentPending(false, message.success
@@ -2286,6 +2289,7 @@
             + '-' + String(Date.now());
         markdownWorkspacePendingSuggestionStatusRequestId = requestId;
         setMarkdownWorkspaceCommentPending(true, 'Dismissing suggested change…');
+        scheduleMarkdownWorkspaceSuggestionWatchdog('dismiss', requestId);
         post({
             type: 'conversation-viewer-markdown-suggestion-status', version: 1,
             requestId: requestId, subscriptionGeneration: state.subscriptionGeneration,
@@ -2301,12 +2305,40 @@
             || message.requestId !== markdownWorkspacePendingSuggestionStatusRequestId) return false;
         if (!message.success) {
             markdownWorkspacePendingSuggestionStatusRequestId = '';
+            clearMarkdownWorkspaceSuggestionWatchdog();
             setMarkdownWorkspaceCommentPending(false,
                 message.error === 'refresh-unavailable'
                     ? 'Suggestion was saved, but the reader could not refresh. Try again after reopening it.'
                     : 'Suggestion decision could not be saved.');
         }
         return true;
+    }
+
+    function scheduleMarkdownWorkspaceSuggestionWatchdog(kind, requestId) {
+        clearMarkdownWorkspaceSuggestionWatchdog();
+        if (typeof window.setTimeout !== 'function') return;
+        markdownWorkspaceSuggestionWatchdog = window.setTimeout(function () {
+            var pending = kind === 'apply'
+                ? markdownWorkspacePendingSuggestionId
+                : markdownWorkspacePendingSuggestionStatusRequestId;
+            if (pending !== requestId) return;
+            if (kind === 'apply') {
+                markdownWorkspacePendingSuggestionId = '';
+                markdownWorkspacePendingSuggestionSourceId = '';
+            } else {
+                markdownWorkspacePendingSuggestionStatusRequestId = '';
+            }
+            setMarkdownWorkspaceCommentPending(false,
+                'Could not confirm this change. Reopen the document to refresh its current state.');
+        }, 15_000);
+    }
+
+    function clearMarkdownWorkspaceSuggestionWatchdog() {
+        if (markdownWorkspaceSuggestionWatchdog !== undefined
+            && typeof window.clearTimeout === 'function') {
+            window.clearTimeout(markdownWorkspaceSuggestionWatchdog);
+        }
+        markdownWorkspaceSuggestionWatchdog = undefined;
     }
 
     function postMarkdownWorkspaceComment(operation, payload) {
@@ -2510,6 +2542,8 @@
         markdownWorkspacePendingSuggestionId = '';
         markdownWorkspacePendingSuggestionSourceId = '';
         markdownWorkspacePendingSuggestionStatusRequestId = '';
+        clearMarkdownWorkspaceSuggestionWatchdog();
+        clearMarkdownWorkspaceSuggestionWatchdog();
         setMarkdownWorkspaceMobileMode('document', false);
         if (markdownWorkspaceCommentsAvailable) {
             markdownWorkspaceCommentComposer.hidden = true;
@@ -2653,6 +2687,7 @@
         if (markdownWorkspacePendingSuggestionStatusRequestId
             && message.settlesRequestId === markdownWorkspacePendingSuggestionStatusRequestId) {
             markdownWorkspacePendingSuggestionStatusRequestId = '';
+            clearMarkdownWorkspaceSuggestionWatchdog();
             setMarkdownWorkspaceCommentPending(false, 'Suggested change dismissed.');
         }
         if (newReplyCount) {

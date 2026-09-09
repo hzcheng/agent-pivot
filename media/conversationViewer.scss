@@ -10,7 +10,7 @@ body {
 
 body {
     display: flex;
-    flex-flow: row wrap;
+    flex-direction: column;
     margin: 0;
     color: var(--vscode-editor-foreground);
     background: var(--vscode-editor-background);

@@ -660,9 +660,9 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
         subscriptionGeneration: 1,
         requestId: 3,
         htmlSignature: 'sig-unrelated',
-        projectId: 'project-a',
+        projectId: 'project-1',
         provider: 'codex',
-        sessionId: 'session-host-document',
+        sessionId: 'session-telemetry',
     }]);
 });
 

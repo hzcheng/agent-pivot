@@ -375,7 +375,11 @@ export function createAiSessionAttentionEventCapability(
             authoritativeEventIds = authoritative;
         }
         getAttentionController().acknowledge(authoritativeEventIds);
-        refreshAiSessionViewsIncrementally();
+        // A user acknowledgement is an authoritative visible mutation, not a
+        // noisy runtime probe. Publish it immediately before the Bridge can
+        // replay an older aggregate; terminal activity still uses the
+        // coalesced execution path below.
+        void refreshViewsNow('attention');
         return aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);
     };
     const acknowledgeAiSessionAttention = async (

@@ -405,7 +405,7 @@ test('ATTENTION-RUNTIME-EXIT-NEUTRAL-001 a process-exit close runs the lifecycle
         'a process exit must not run the user-close acknowledgement task');
 });
 
-test('ATTENTION-USER-TERMINAL-CLOSE-001 a user close acknowledges locally, schedules a refresh, then awaits the bridge', async () => {
+test('ATTENTION-USER-TERMINAL-CLOSE-001 a user close acknowledges locally, refreshes, then awaits the bridge', async () => {
     const runtime = makeRuntime({ backend: 'vscode' });
     const terminal = { name: 'closing', exitStatus: { code: undefined, reason: 3 } };
     runtime.terminal = terminal;
@@ -418,7 +418,7 @@ test('ATTENTION-USER-TERMINAL-CLOSE-001 a user close acknowledges locally, sched
     const acknowledgeTaskIndex = calls.findIndex(call =>
         call[0] === 'lifecycle-task' && call[1] === 'acknowledge-user-terminal-close');
     const localAcknowledgeIndex = indexOfCall(calls, 'local-acknowledge');
-    const refreshAfterAcknowledgeIndex = indexOfCall(calls, 'schedule-refresh', localAcknowledgeIndex);
+    const refreshAfterAcknowledgeIndex = indexOfCall(calls, 'refresh', localAcknowledgeIndex);
     const bridgeAcknowledgeIndex = indexOfCall(calls, 'bridge-acknowledge');
     assert.ok(acknowledgeTaskIndex >= 0 && acknowledgeTaskIndex > closeIndex,
         'the acknowledgement runs inside the guarded lifecycle task');
@@ -427,7 +427,7 @@ test('ATTENTION-USER-TERMINAL-CLOSE-001 a user close acknowledges locally, sched
     assert.ok(localAcknowledgeIndex > acknowledgeTaskIndex,
         'the acknowledgement follows the user close observation');
     assert.ok(refreshAfterAcknowledgeIndex > localAcknowledgeIndex,
-        'the local coalesced refresh is queued before the bridge await');
+        'the authoritative local refresh starts before the bridge await');
     assert.ok(bridgeAcknowledgeIndex > refreshAfterAcknowledgeIndex,
         'the cross-window bridge is awaited only after the local refresh');
 

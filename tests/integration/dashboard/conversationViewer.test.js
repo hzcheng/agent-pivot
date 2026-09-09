@@ -5493,6 +5493,14 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a rejected suggestion only fo
     };
     const { viewer, panel } = createViewer({
         markdownSuggestionStateStore: suggestionStateStore,
+        documentCommentStore: {
+            load: async () => ({ revision: 1, comments: [{
+                id: 'document-comment-a', documentVersion: 'sha256:document-a',
+                anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: [] },
+                text: 'Improve the rollback guidance.', status: 'sent', createdAt: 1,
+            }] }),
+            save: async () => undefined,
+        },
         readWorkspaceMarkdown: async () => ({
             markdown: '# Architecture\n\nRollback strategy',
             workspaceRootId: 'root-a', documentVersion: 'sha256:document-a',
@@ -5500,6 +5508,9 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a rejected suggestion only fo
         readPage: async request => ({
             ...page(request.sessionId, request.anchorInteractionId),
             messages: [{
+                id: 'user-document-comment-a', interactionId: request.anchorInteractionId,
+                role: 'user', markdown: 'markdown-document-comment-id:document-comment-a',
+            }, {
                 id: 'assistant-suggestion-a', interactionId: request.anchorInteractionId,
                 role: 'assistant', markdown: '```markdown-suggestion\n'
                     + '{"selectedText":"Rollback strategy","replacement":"Rollback with a staged restore."}\n```',
@@ -5534,8 +5545,12 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a rejected suggestion only fo
             updatedAt: saved[0].snapshot.suggestions[0].updatedAt,
         }],
     });
-    assert.equal(panel.postedMessages.at(-1).type,
+    assert.equal(panel.postedMessages.at(-2).type,
         'conversation-viewer-markdown-workspace-suggestions');
+    assert.equal(panel.postedMessages.at(-2).settlesRequestId, 'dismiss-suggestion-a',
+        'the authority replacement carries the exact pending dismissal');
+    assert.equal(panel.postedMessages.at(-1).type,
+        'conversation-viewer-markdown-suggestion-status-result');
     viewer.dispose();
 });
 

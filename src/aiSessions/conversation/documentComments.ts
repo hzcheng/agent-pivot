@@ -30,6 +30,10 @@ export const DOCUMENT_COMMENT_LIMITS = Object.freeze({
     // comments, rather than accepting values that persistence must reject.
     maxDiscussionReplies: 8,
     maxDiscussionReplyGraphemes: 2_000,
+    // The persisted envelope adds target/revision metadata and JSON escaping.
+    // Keep the model budget below the 2 MiB file-store boundary so a valid
+    // in-memory discussion never turns into an unreadable on-disk snapshot.
+    maxSnapshotPayloadBytes: 1_750_000,
     maxLine: 10_000_000,
 });
 
@@ -248,6 +252,10 @@ export function validateMarkdownDocumentComments(
         if (ids.has(comment.id)) { throw fail('invalid'); }
         ids.add(comment.id);
     });
+    if (Buffer.byteLength(JSON.stringify(comments), 'utf8')
+        > DOCUMENT_COMMENT_LIMITS.maxSnapshotPayloadBytes) {
+        throw fail('tooLarge');
+    }
 }
 
 export function validateMarkdownDocumentCommentTarget(

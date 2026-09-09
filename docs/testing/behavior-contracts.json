@@ -1688,7 +1688,7 @@
   {
     "id": "CONVERSATION-MARKDOWN-WORKSPACE-001",
     "domain": "webview",
-    "title": "A workspace Markdown link opens an in-conversation reading surface with independent restored scrolling, an explicit return, and a native-editor escape hatch",
+    "title": "A workspace Markdown link opens a dedicated reader tab without replacing the conversation, with independent restored scrolling, an explicit close, and a native-editor escape hatch",
     "priority": "P1",
     "status": "automated",
     "owners": [

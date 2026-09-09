@@ -2545,6 +2545,7 @@ async function renderHostViewerDocument(options = {}) {
         mediaUri: fileName =>
             fakeHostUri(`file:///extension/media/${fileName}`),
         showThinking: options.showThinking,
+        markdownWorkspaceOnly: options.markdownWorkspaceOnly,
         readSessionStatus: options.readSessionStatus,
         submitPrompt: options.submitPrompt || (async () => {}),
         bookmarkStore: options.bookmarkStore,
@@ -2779,6 +2780,7 @@ async function openHostViewerDocument(t, options = {}) {
         window.__acquireCount = 0;
         window.__postedMessages = [];
         window.__webviewState = initialWebviewState || {};
+        window.__webviewSetStateCount = 0;
         window.acquireVsCodeApi = () => {
             window.__acquireCount += 1;
             return {
@@ -2789,6 +2791,7 @@ async function openHostViewerDocument(t, options = {}) {
                     return window.__webviewState;
                 },
                 setState(next) {
+                    window.__webviewSetStateCount += 1;
                     window.__webviewState = next;
                 },
             };
@@ -12010,6 +12013,61 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps rendered absolute file links click
         version: 1,
         href: workspaceHref,
     });
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders the dedicated document tab without a duplicate conversation', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        markdownWorkspaceOnly: true,
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace',
+        version: 1,
+        href: 'docs/architecture-plan.md',
+        relativePath: 'docs/architecture-plan.md',
+        workspaceRootId: 'root-a',
+        documentVersion: 'sha256:architecture-a',
+        commentSnapshot: { revision: 0, comments: [] },
+        replies: [],
+        suggestions: [],
+        title: 'architecture-plan.md',
+        html: '<h1>Architecture plan</h1><p>Scrollable document.</p>',
+        workspaceRequestId: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+    });
+
+    assert.equal(await page.locator('body').getAttribute('data-markdown-workspace-only'),
+        'true');
+    assert.equal(await page.locator('.conversation-workspace').isVisible(), false,
+        'the dedicated tab never lays out a second conversation behind the reader');
+    const close = page.getByRole('button', { name: 'Close document' });
+    assert.equal(await close.isVisible(), true);
+
+    const stateWritesBeforeScroll = await page.evaluate(() => window.__webviewSetStateCount);
+    await page.locator('[data-markdown-workspace-scroll]').evaluate(element => {
+        for (let index = 0; index < 40; index += 1) {
+            element.scrollTop = index * 10;
+            element.dispatchEvent(new Event('scroll'));
+        }
+    });
+    assert.equal(await page.evaluate(() => window.__webviewSetStateCount),
+        stateWritesBeforeScroll,
+        'scrolling never serializes the full Webview state on every frame');
+
+    await close.click();
+    assert.deepEqual((await postedIntents(page)).at(-1), {
+        type: 'conversation-viewer-close-markdown-workspace',
+        version: 1,
+    });
+    assert.equal(await page.locator('[data-markdown-workspace]').isVisible(), true,
+        'the Webview waits for the Host to dispose the dedicated tab');
+    assert.equal(await page.evaluate(() => window.__webviewSetStateCount),
+        stateWritesBeforeScroll + 1,
+        'closing flushes the final document reading position exactly once');
 });
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading surface without losing the conversation', async t => {

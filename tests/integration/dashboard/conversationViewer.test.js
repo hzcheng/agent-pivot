@@ -2997,6 +2997,7 @@ function createViewer(options = {}) {
         readWorkspaceMarkdown: options.readWorkspaceMarkdown,
         applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
         openMarkdownWorkspaceInPanel: options.openMarkdownWorkspaceInPanel,
+        markdownWorkspaceOnly: options.markdownWorkspaceOnly,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         runCommandInTerminal: options.runCommandInTerminal,
         renameSession: options.renameSession,
@@ -5461,6 +5462,23 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps the primary conversation untouch
         message.type === 'conversation-viewer-markdown-workspace'), false,
     'the primary conversation must never be covered or replaced by the reader');
     viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 closes a dedicated document panel only through its Host authority', async () => {
+    const { viewer, panel, restoredTargets } = createViewer({
+        markdownWorkspaceOnly: true,
+    });
+    await viewer.open(target('session-a'));
+
+    await panel.receive({
+        type: 'conversation-viewer-close-markdown-workspace',
+        version: 1,
+    });
+
+    assert.equal(viewer.isOpen(), false,
+        'the dedicated panel is disposed instead of revealing a duplicate conversation');
+    assert.equal(restoredTargets.at(-1).sessionId, 'session-a',
+        'disposing the document panel restores its authoritative conversation target');
 });
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion decisions with the rendered document', async () => {

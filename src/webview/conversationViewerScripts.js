@@ -217,6 +217,9 @@
         && markdownWorkspaceBack && markdownWorkspaceTitle
         && markdownWorkspacePath && markdownWorkspaceOpenEditor
         && markdownWorkspaceScroll && markdownWorkspaceContent);
+    var markdownWorkspaceOnly = document.body.getAttribute(
+        'data-markdown-workspace-only'
+    ) === 'true';
     var markdownWorkspaceCommentsAvailable = !!(markdownWorkspaceAvailable
         && markdownWorkspaceDiscussion && markdownWorkspaceSelectionActions
         && markdownWorkspaceSelectionSummary && markdownWorkspaceCommentComposer
@@ -2550,6 +2553,13 @@
     function closeMarkdownWorkspace() {
         if (!markdownWorkspaceAvailable || markdownWorkspace.hidden) return;
         saveMarkdownWorkspaceScroll();
+        if (markdownWorkspaceOnly) {
+            post({
+                type: 'conversation-viewer-close-markdown-workspace',
+                version: 1,
+            });
+            return;
+        }
         markdownWorkspace.hidden = true;
         document.body.classList.remove('conversation-markdown-workspace-open');
         setMarkdownWorkspaceBackgroundDisabled(false);

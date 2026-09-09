@@ -51,6 +51,14 @@ export interface ConversationViewerOpenMarkdownEditorMessage {
     sessionId: string;
 }
 
+/** Requests disposal of the dedicated Markdown reader panel. The message is
+ * intentionally identity-free: the receiving Host resolves its own panel and
+ * accepts it only when that Viewer was created in workspace-only mode. */
+export interface ConversationViewerCloseMarkdownWorkspaceMessage {
+    type: 'conversation-viewer-close-markdown-workspace';
+    version: 1;
+}
+
 export interface ConversationViewerDocumentCommentMutationMessage {
     type: 'conversation-viewer-document-comment-mutation';
     version: 1;
@@ -490,6 +498,7 @@ export type ConversationViewerMessage =
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerOpenMarkdownEditorMessage
+    | ConversationViewerCloseMarkdownWorkspaceMessage
     | ConversationViewerDocumentCommentMutationMessage
     | ConversationViewerSendDocumentCommentMessage
     | ConversationViewerApplyMarkdownSuggestionMessage
@@ -589,6 +598,12 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerOpenMarkdownEditorMessage;
+    }
+    if (value.type === 'conversation-viewer-close-markdown-workspace') {
+        if (!hasExactKeys(value, ['type', 'version'])) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerCloseMarkdownWorkspaceMessage;
     }
     if (value.type === 'conversation-viewer-send-selection') {
         if (keys.length !== 3

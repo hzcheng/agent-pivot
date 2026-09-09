@@ -63,6 +63,7 @@ export interface ConversationViewerDocumentOptions {
     documentId: string;
     initialPage?: ConversationViewerPageMessage;
     initialStatus?: string;
+    markdownWorkspaceOnly?: boolean;
 }
 
 export function renderConversationViewerDocument(
@@ -153,6 +154,7 @@ export function renderConversationViewerDocument(
     <title>AI Conversation</title>
 </head>
 <body data-auto-scroll-threshold="${CONVERSATION_LIMITS.autoScrollThresholdPx}"
+    data-markdown-workspace-only="${options.markdownWorkspaceOnly === true}"
     data-document-id="${escapeAttribute(options.documentId)}"
     data-conversation-math-style-token="${CONVERSATION_MATH_STYLE_TOKEN}"
     data-mermaid-src="${escapeAttribute(mermaid.toString())}"
@@ -201,7 +203,9 @@ export function renderConversationViewerDocument(
         hidden>
         <header class="conversation-document-workspace-header">
             <button type="button" class="conversation-document-workspace-back"
-                data-markdown-workspace-back>← Conversation</button>
+                data-markdown-workspace-back>${options.markdownWorkspaceOnly === true
+                    ? 'Close document'
+                    : '← Conversation'}</button>
             <div class="conversation-document-workspace-identity">
                 <strong id="markdown-workspace-title" data-markdown-workspace-title></strong>
                 <span data-markdown-workspace-path></span>

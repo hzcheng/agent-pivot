@@ -31,9 +31,13 @@ body {
     background: var(--vscode-editor-background);
 }
 
-// A Markdown document is opened from the Conversation rather than in a new
-// tab. This is an in-place workspace overlay: the transcript remains intact
-// behind it, while document scrolling gets its own durable reading surface.
+// A dedicated Markdown tab reuses the proven reader DOM without laying out a
+// second conversation behind it. The in-conversation form remains supported
+// for restored/older surfaces.
+body[data-markdown-workspace-only="true"] > :not([data-markdown-workspace]) {
+    display: none !important;
+}
+
 .conversation-document-workspace {
     position: fixed;
     z-index: 20;

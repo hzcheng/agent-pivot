@@ -195,6 +195,9 @@ export interface ConversationViewerOptions {
     panelViewType?: string;
     panelTitle?: string;
     panelViewColumn?: vscode.ViewColumn;
+    /** Render this panel as a dedicated document reader and allow its close
+     * intent to dispose only this panel. */
+    markdownWorkspaceOnly?: boolean;
     mediaUri: (fileName: string) => vscode.Uri;
     showThinking?: () => boolean;
     submitPrompt: (
@@ -1749,6 +1752,12 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-open-markdown-editor') {
             await this.openMarkdownEditor(parsed);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-close-markdown-workspace') {
+            if (this.options.markdownWorkspaceOnly) {
+                this.panel.dispose();
+            }
             return;
         }
         if (parsed.type === 'conversation-viewer-run-command'
@@ -5119,6 +5128,7 @@ export class ConversationViewer implements ConversationViewerApi {
             documentId: this.currentDocumentId,
             initialPage,
             initialStatus,
+            markdownWorkspaceOnly: this.options.markdownWorkspaceOnly,
         });
     }
 

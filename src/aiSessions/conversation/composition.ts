@@ -479,6 +479,8 @@ function createAvailableConversationCapability(
                 panelViewType: 'agentPivot.markdownWorkspace',
                 panelTitle: 'Markdown workspace',
                 panelViewColumn: vscode.ViewColumn.Beside,
+                markdownWorkspaceOnly: true,
+                restoreFocus: () => { viewer.focus(); },
             }));
         }
         await markdownWorkspaceViewer.openMarkdownWorkspaceDocument(target, workspaceFile);

@@ -150,6 +150,24 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 preserves a uniquely relocated a
     assert.equal(controller.snapshot.comments[0].documentVersion, 'sha256:document-next');
 });
 
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 derives a source line hint for an unambiguous reader selection', async () => {
+    const { controller } = createHarness();
+    await controller.activate({
+        target: { projectId: 'project-a', workspaceRootId: 'workspace-root-a', relativePath: 'docs/plan.md' },
+        documentVersion: DOCUMENT.documentVersion,
+        markdown: '# Release\n\nKeep the *rollback strategy* visible with a guard.\n\nKeep the rollback strategy visible.',
+        viewerTarget: VIEWER_TARGET, subscriptionGeneration: 7,
+    });
+    await controller.enqueue(request('add-line-hint', 'add', {
+        anchor: {
+            selectedText: 'Keep the rollback strategy visible with a guard.', prefix: '', suffix: '', headingPath: ['Release'],
+        },
+        text: 'Keep this passage reviewable after harmless edits.',
+    }, 0));
+    assert.deepEqual(controller.snapshot.comments[0].anchor.rangeHint,
+        { startLine: 3, endLine: 3 });
+});
+
 test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 relocates duplicate quotes only with a unique heading or line hint', async () => {
     const { controller } = createHarness({
         documentCommentStore: { load: async () => ({ revision: 1, comments: [
@@ -225,6 +243,24 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 relocates reader text across saf
     });
     assert.equal(controller.snapshot.comments[0].status, 'sent');
     assert.equal(controller.snapshot.comments[0].documentVersion, 'sha256:document-formatted');
+});
+
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 relocates single-emphasis reader text after an unrelated edit', async () => {
+    const { controller } = createHarness({
+        documentCommentStore: { load: async () => ({ revision: 1, comments: [{
+            id: 'comment-single-emphasis', documentVersion: DOCUMENT.documentVersion,
+            anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: ['Release'] },
+            text: 'Keep this phrase anchored.', status: 'sent', createdAt: 1,
+        }] }), save: async () => undefined },
+    });
+    await controller.activate({
+        target: { projectId: 'project-a', workspaceRootId: 'workspace-root-a', relativePath: 'docs/plan.md' },
+        documentVersion: 'sha256:document-single-emphasis',
+        markdown: '# Release\n\n_unrelated update_\n\n*Rollback* _strategy_\n',
+        viewerTarget: VIEWER_TARGET, subscriptionGeneration: 7,
+    });
+    assert.equal(controller.snapshot.comments[0].status, 'sent');
+    assert.equal(controller.snapshot.comments[0].documentVersion, 'sha256:document-single-emphasis');
 });
 
 test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 retains bounded AI replies with the durable file comment', async () => {

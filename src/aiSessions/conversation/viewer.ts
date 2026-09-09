@@ -479,6 +479,11 @@ export class ConversationViewer implements ConversationViewerApi {
         target: ConversationViewerTarget;
         generation: number;
     };
+    // A reply can be visible in the current transcript even if its durable
+    // document-discussion snapshot could not be updated. Keep that condition
+    // with the workspace publication so the reader can explain it in place;
+    // the page-level notice sits behind the modal and is not actionable here.
+    private markdownWorkspaceDiscussionPersistenceError = false;
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
     // The tail split of latestPublication's render: lets a refresh that
@@ -2327,6 +2332,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 ...(commentSettlement ? { commentSettlement } : {}),
                 replies: this.markdownWorkspaceReplies(),
                 suggestions: this.markdownWorkspaceSuggestions(),
+                discussionPersistenceError: this.markdownWorkspaceDiscussionPersistenceError,
                 workspaceRequestId,
                 subscriptionGeneration: this.subscriptionGeneration,
                 projectId: target.projectId,
@@ -2529,12 +2535,13 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.documentCommentController.recordReplies(
                 this.markdownWorkspaceReplyRecords()
             );
+            this.markdownWorkspaceDiscussionPersistenceError = false;
         } catch (_error) {
             // The live reply remains visible for this publication; a storage
             // failure must not erase an already delivered AI response. Make
             // the durability gap visible rather than silently losing it on
             // the next session/page handoff.
-            this.showNotice('Document discussion history could not be saved.');
+            this.markdownWorkspaceDiscussionPersistenceError = true;
         }
     }
 
@@ -2598,6 +2605,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 commentSnapshot: this.documentCommentController.snapshot,
                 replies: this.markdownWorkspaceReplies(),
                 suggestions: this.markdownWorkspaceSuggestions(),
+                discussionPersistenceError: this.markdownWorkspaceDiscussionPersistenceError,
                 subscriptionGeneration: generation,
                 projectId: target.projectId,
                 provider: target.provider,

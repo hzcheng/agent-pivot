@@ -1635,7 +1635,9 @@
             && (message.suggestions === undefined
                 || (Array.isArray(message.suggestions)
                     && message.suggestions.length <= 20
-                    && message.suggestions.every(validMarkdownWorkspaceSuggestion)));
+                    && message.suggestions.every(validMarkdownWorkspaceSuggestion)))
+            && (message.discussionPersistenceError === undefined
+                || typeof message.discussionPersistenceError === 'boolean');
     }
 
     function validMarkdownWorkspaceSnapshot(snapshot) {
@@ -1717,7 +1719,9 @@
             && message.suggestions.every(validMarkdownWorkspaceSuggestion)
             && Array.isArray(message.replies)
             && message.replies.length <= 40
-            && message.replies.every(validMarkdownWorkspaceReply);
+            && message.replies.every(validMarkdownWorkspaceReply)
+            && (message.discussionPersistenceError === undefined
+                || typeof message.discussionPersistenceError === 'boolean');
     }
 
     function workspaceCommentTarget() {
@@ -2647,6 +2651,10 @@
         if (recoversPendingComment) {
             applyMarkdownWorkspaceCommentsResult(message.commentSettlement);
         }
+        if (message.discussionPersistenceError && !markdownWorkspacePendingRequestId) {
+            markdownWorkspaceCommentFeedback.textContent =
+                'AI replies are visible, but their document discussion history could not be saved.';
+        }
         if (markdownWorkspaceActiveAvailable) {
             markdownWorkspaceActiveTitle.textContent = message.title;
             markdownWorkspaceActive.hidden = false;
@@ -2708,6 +2716,10 @@
         }
         renderMarkdownWorkspaceSuggestions();
         renderMarkdownWorkspaceReplies();
+        if (message.discussionPersistenceError && !markdownWorkspacePendingRequestId) {
+            markdownWorkspaceCommentFeedback.textContent =
+                'AI replies are visible, but their document discussion history could not be saved.';
+        }
         if (markdownWorkspacePendingSuggestionStatusRequestId
             && message.settlesRequestId === markdownWorkspacePendingSuggestionStatusRequestId) {
             markdownWorkspacePendingSuggestionStatusRequestId = '';

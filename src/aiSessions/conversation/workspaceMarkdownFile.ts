@@ -2,7 +2,7 @@
 
 import { createHash } from 'crypto';
 import { constants as fsConstants } from 'fs';
-import { open as openFilePath, realpath as realpathPath } from 'fs/promises';
+import { lstat as lstatPath, open as openFilePath, realpath as realpathPath } from 'fs/promises';
 import type { FileHandle } from 'fs/promises';
 import * as path from 'path';
 import { TextDecoder } from 'util';
@@ -30,6 +30,12 @@ export async function applyValidatedWorkspaceMarkdownSuggestion(
 ): Promise<'applied' | 'stale' | 'failed'> {
     let handle: FileHandle | undefined;
     try {
+        // Bind the candidate before opening it. On platforms without procfs,
+        // comparing this identity with fstat(handle) prevents an ancestor
+        // swap-open-restore attack from turning the descriptor into a file
+        // outside the approved worktree.
+        const expectedStat = await lstatPath(canonicalCandidate);
+        if (!expectedStat.isFile()) { return 'stale'; }
         handle = await openFilePath(canonicalCandidate,
             fsConstants.O_RDWR | fsConstants.O_NOFOLLOW);
         const descriptorPath = await openedDescriptorPath(handle, canonicalCandidate);
@@ -37,7 +43,8 @@ export async function applyValidatedWorkspaceMarkdownSuggestion(
             return 'stale';
         }
         const stat = await handle.stat();
-        if (!stat.isFile() || stat.size > MAX_MARKDOWN_BYTES) {
+        if (!stat.isFile() || stat.size > MAX_MARKDOWN_BYTES
+            || stat.dev !== expectedStat.dev || stat.ino !== expectedStat.ino) {
             return 'stale';
         }
         const sourceBytes = await readBounded(handle, stat.size);
@@ -58,6 +65,16 @@ export async function applyValidatedWorkspaceMarkdownSuggestion(
         if (replacement.length > MAX_MARKDOWN_BYTES || replacement.includes(0)) {
             return 'failed';
         }
+        // This is optimistic concurrency, not a pathname check: verify the
+        // descriptor still names the exact bytes we rendered immediately
+        // before its contents are replaced. A detected competing write always
+        // fails closed instead of silently overwriting the user's change.
+        const beforeWrite = await handle.stat();
+        if (beforeWrite.size !== stat.size
+            || beforeWrite.mtimeMs !== stat.mtimeMs
+            || beforeWrite.ctimeMs !== stat.ctimeMs) {
+            return 'stale';
+        }
         try {
             await replaceDescriptorContents(handle, replacement);
         } catch (_error) {
@@ -77,13 +94,13 @@ export async function applyValidatedWorkspaceMarkdownSuggestion(
 
 async function openedDescriptorPath(handle: FileHandle, fallback: string): Promise<string> {
     // Linux exposes the exact opened object through procfs, including after an
-    // ancestor pathname swap. Other platforms still get the final no-follow
-    // descriptor plus a fresh canonical path check; they fail closed if that
-    // object no longer resolves inside the expected worktree.
+    // ancestor pathname swap. Elsewhere, the caller binds fstat(handle) to a
+    // pre-open lstat of this already-canonical path, so returning the approved
+    // candidate is safe without re-resolving a mutable pathname.
     if (process.platform === 'linux') {
         return realpathPath(`/proc/self/fd/${handle.fd}`);
     }
-    return realpathPath(fallback);
+    return fallback;
 }
 
 function isContained(root: string, candidate: string): boolean {

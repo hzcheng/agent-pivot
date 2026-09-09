@@ -224,14 +224,15 @@ export class MarkdownDocumentCommentController {
             if (!hasExactKeys(request.payload as object, ['anchor', 'text'])) {
                 throw new MarkdownDocumentCommentError('invalid');
             }
-            next.unshift(createMarkdownDocumentComment(
+            const created = createMarkdownDocumentComment(
                 randomBytes(16).toString('hex'),
                 {
                     documentVersion: request.document.documentVersion,
                     ...(request.payload as { anchor: unknown; text: unknown }),
                 },
                 this.now()
-            ));
+            );
+            next.unshift(withDerivedRangeHint(created, this.context?.markdown));
         } else {
             const payload = parseExistingPayload(request);
             const index = next.findIndex(comment => comment.id === payload.commentId);
@@ -409,6 +410,35 @@ export class MarkdownDocumentCommentController {
     private errorCode(error: unknown): CommentErrorCode {
         return error instanceof MarkdownDocumentCommentError ? error.code : 'failed';
     }
+}
+
+/**
+ * Rendered Markdown has no source-map positions. When a selection maps to one
+ * unambiguous source line, retain that line as a conservative third relocation
+ * signal. We never guess for multi-line/ambiguous selections: the quote and
+ * heading evidence remain the authority in those cases.
+ */
+function withDerivedRangeHint(
+    comment: MarkdownDocumentComment,
+    markdown: string | undefined
+): MarkdownDocumentComment {
+    if (!markdown || comment.anchor.rangeHint || !comment.anchor.selectedText) {
+        return comment;
+    }
+    const quote = comment.anchor.selectedText;
+    const lines = markdown.split(/\r?\n/);
+    const matches = lines.reduce<number[]>((result, line, index) => {
+        if (normalizeAnchorText(line).includes(quote)) { result.push(index + 1); }
+        return result.length > 1 ? result.slice(0, 2) : result;
+    }, []);
+    if (matches.length !== 1) { return comment; }
+    return {
+        ...comment,
+        anchor: {
+            ...comment.anchor,
+            rangeHint: { startLine: matches[0], endLine: matches[0] },
+        },
+    };
 }
 
 function relocateMarkdownDocumentComment(

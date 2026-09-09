@@ -12095,6 +12095,34 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.match(await page.locator('[data-markdown-workspace-suggestion-list]').innerText(),
         /tested restore command/,
         'an AI reply refreshes cards without reopening or moving the reading surface');
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace-suggestions',
+        version: 1,
+        workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+        documentVersion: 'sha256:architecture-a',
+        replies: [], suggestions: [], discussionPersistenceError: true,
+        subscriptionGeneration: 1, projectId: 'project-a', provider: 'codex',
+        sessionId: 'session-host-document',
+    });
+    assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').innerText(),
+        /discussion history could not be saved/,
+        'a persistence failure remains visible inside the modal reader, not behind it');
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace-suggestions',
+        version: 1,
+        workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+        documentVersion: 'sha256:architecture-a',
+        replies: [{
+            messageId: 'assistant-reply-a', commentId: 'document-comment-a',
+            html: '<p>Test the restore command in staging before release.</p>',
+        }],
+        suggestions: [{
+            messageId: 'assistant-suggestion-b', selectedText: 'Rollback strategy',
+            replacement: 'Rollback strategy with a tested restore command.',
+        }],
+        subscriptionGeneration: 1, projectId: 'project-a', provider: 'codex',
+        sessionId: 'session-host-document',
+    });
     await page.getByRole('button', { name: 'Dismiss' }).click();
     const dismissIntent = (await postedIntents(page)).at(-1);
     assert.equal(dismissIntent.type, 'conversation-viewer-markdown-suggestion-status');

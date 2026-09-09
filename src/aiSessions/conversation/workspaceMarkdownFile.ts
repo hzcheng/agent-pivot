@@ -32,6 +32,9 @@ export async function applyValidatedWorkspaceMarkdownSuggestion(
     canonicalCandidate: string,
     suggestion: WorkspaceMarkdownSuggestion
 ): Promise<'applied' | 'stale' | 'failed'> {
+    // The Host must enforce this policy as well as the Webview presentation:
+    // a forged postMessage must not reach the pathname-based Windows fallback.
+    if (process.platform === 'win32') { return 'failed'; }
     let handle: FileHandle | undefined;
     let directory: FileHandle | undefined;
     try {

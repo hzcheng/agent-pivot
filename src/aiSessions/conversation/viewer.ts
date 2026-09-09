@@ -2366,7 +2366,7 @@ export class ConversationViewer implements ConversationViewerApi {
         relativePath: string
     ): string | undefined {
         const undo = this.markdownWorkspaceUndo;
-        return undo && undo.target.projectId === target.projectId
+        return process.platform !== 'win32' && undo && undo.target.projectId === target.projectId
             && undo.target.provider === target.provider
             && undo.target.sessionId === target.sessionId
             && undo.workspaceRootId === workspaceRootId
@@ -2670,7 +2670,9 @@ export class ConversationViewer implements ConversationViewerApi {
             && message.document.relativePath === active.workspaceFile.relativePath
             && message.document.documentVersion === active.documentVersion) {
             try {
-                if ((!suggestedChange && !isUndo)
+                if (process.platform === 'win32') {
+                    result = 'failed';
+                } else if ((!suggestedChange && !isUndo)
                     || (isUndo && (undo!.target.projectId !== target.projectId
                         || undo!.target.provider !== target.provider
                         || undo!.target.sessionId !== target.sessionId

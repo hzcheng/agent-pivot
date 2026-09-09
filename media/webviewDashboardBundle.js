@@ -12835,6 +12835,7 @@ function renderLocalFileTransferEntries(
         var row = document.createElement('li');
         row.className = 'file-transfer-file-row';
         if (isParentDirectory) row.className += ' is-parent-directory';
+        if (!isParentDirectory && selectedIds.has(entry.id)) row.className += ' is-selected';
         if (entry.kind === 'symlink' || entry.kind === 'unsupported') {
             row.className += ' is-unsupported';
         }
@@ -12862,7 +12863,10 @@ function renderLocalFileTransferEntries(
         }
         var spacer = document.createElement('span');
         spacer.className = 'file-transfer-tree-spacer';
+        spacer.className += isParentDirectory ? ' is-parent-directory'
+            : entry.kind === 'directory' ? ' is-directory' : ' is-file';
         spacer.setAttribute('aria-hidden', 'true');
+        spacer.textContent = isParentDirectory ? '↥' : entry.kind === 'directory' ? '›' : '•';
         row.appendChild(spacer);
         var entryContent = document.createElement('div');
         entryContent.className = 'file-transfer-file-entry';
@@ -14054,16 +14058,14 @@ function initDashboard(options) {
                     ? (paneFailures[side] || paneNavigationErrors[side]) + ' Select Refresh to try again.'
                     : directoryView
                     ? Math.max(0, directoryEntries.length - (fileTransferParentPath(directoryView.displayPath) ? 1 : 0)) + ' items loaded'
-                        + (directoryView.hasMore ? ' (showing the first 1,000; enter a narrower path to browse more).' : '') + (value === 'local'
-                        ? ' in this approved local folder. Open a folder to browse it.'
-                        : ' in this Managed Machine directory. Open a folder to browse it.')
+                        + (directoryView.hasMore ? ' · first 1,000 shown' : '')
                     : value === 'local' && pendingLocalRootRequests[side]
-                        ? 'Opening the local folder chooser…'
+                        ? 'Opening local folder…'
                     : value.indexOf('managed:') === 0 && pendingLocalRootRequests[side]
-                        ? 'Opening the Managed Machine directory…'
+                        ? 'Opening directory…'
                     : value === 'local'
-                        ? 'Choose a local folder to begin browsing.'
-                    : 'Managed Machine selected. File browsing will be enabled by the local UI Bridge.';
+                        ? 'Choose a local folder.'
+                    : 'Opening machine directory…';
             }
             if (fileList) {
                 renderLocalFileTransferEntries(

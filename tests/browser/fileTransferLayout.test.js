@@ -111,7 +111,7 @@ test('FILE-TRANSFER-EDITOR-001 opens a directory with one click while preserving
         renderLocalFileTransferEntries(
             document.querySelector('[data-file-transfer-file-list]'),
             [{ id: '0123456789abcdef0123456789abcdef', name: 'worktree', kind: 'directory' }],
-            new Set(),
+            new Set(['0123456789abcdef0123456789abcdef']),
             () => {},
             directoryId => window.__fileTransferOpenedDirectories.push(directoryId),
             () => {},
@@ -121,6 +121,10 @@ test('FILE-TRANSFER-EDITOR-001 opens a directory with one click while preserving
     await page.locator('[data-file-transfer-entry-id] [data-file-transfer-directory-name]').click();
     assert.deepEqual(await page.evaluate(() => window.__fileTransferOpenedDirectories),
         ['0123456789abcdef0123456789abcdef']);
+    assert.equal(await page.locator('[data-file-transfer-entry-id]').evaluate(row => row.classList.contains('is-selected')), true,
+        'the selected source item needs a row-level selection treatment, not a checkbox-only state');
+    assert.equal(await page.locator('.file-transfer-tree-spacer').textContent(), '›',
+        'a folder row needs a compact navigation cue beside its selectable name');
 
     await page.locator('[data-file-transfer-entry-id] input').click();
     assert.deepEqual(await page.evaluate(() => window.__fileTransferOpenedDirectories),
@@ -738,7 +742,7 @@ test('FILE-TRANSFER-UI-006 keeps the selected Managed Machine after its director
     });
     assert.equal(await endpoint.inputValue(), 'managed:machine:build');
     assert.match(await page.locator('[data-file-transfer-pane="left"] [data-file-transfer-pane-status]').textContent(),
-        /0 items loaded in this Managed Machine directory/i);
+        /0 items loaded/i);
     assert.deepEqual(await page.evaluate(() => window.__fileTransferMessages.find(message =>
         message.type === 'file-transfer-directory-applied'
     )), {

@@ -41,7 +41,7 @@ function pane(side: 'left' | 'right'): string {
                 <strong data-file-transfer-pane-name>Choose an endpoint</strong>
                 <nav class="file-transfer-pane-path" data-file-transfer-pane-path aria-label="Current directory">—</nav>
                 <label class="file-transfer-path-input">
-                    <span>Path</span>
+                    <span>Location</span>
                     <input type="text" list="file-transfer-path-options-${side}" data-file-transfer-path-input="${side}" aria-label="Open or choose a path in ${label}" title="Type a path or choose a visited directory" disabled>
                     <datalist id="file-transfer-path-options-${side}" data-file-transfer-path-options="${side}"></datalist>
                 </label>
@@ -53,7 +53,7 @@ function pane(side: 'left' | 'right'): string {
         <div class="file-transfer-pane-toolbar" data-file-transfer-pane-toolbar="${side}">
             <label class="file-transfer-filter">
                 <span>Filter</span>
-                <input type="search" data-file-transfer-filter="${side}" aria-label="Filter loaded files in ${label}" placeholder="Loaded files" disabled>
+                <input type="search" data-file-transfer-filter="${side}" aria-label="Filter loaded files in ${label}" placeholder="Name" disabled>
             </label>
             <label class="file-transfer-show-hidden">
                 <input type="checkbox" data-file-transfer-show-hidden="${side}" disabled>
@@ -83,10 +83,8 @@ export function getFileTransferContent(
 ): string {
     const options = machineOptions(snapshot);
     return `<section class="file-transfer" data-file-transfer>
+        <h2 class="file-transfer-heading">File Transfer</h2>
         <div class="file-transfer-workspace-header">
-            <header class="file-transfer-header">
-                <h2>File Transfer</h2>
-            </header>
             <div class="file-transfer-pair" role="group" aria-label="Choose transfer endpoints">
                 ${endpointPicker('left', options)}
                 <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Switch source and target" aria-label="Switch source and target">⇄</button>

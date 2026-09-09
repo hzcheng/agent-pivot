@@ -12263,6 +12263,24 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     await page.keyboard.press('Escape');
     assert.equal(await workspace.isHidden(), true,
         'Escape returns from the document workspace to the conversation');
+
+    await page.setViewportSize({ width: 360, height: 560 });
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/architecture-plan.md', relativePath: 'docs/architecture-plan.md',
+        workspaceRootId: 'root-a', documentVersion: 'sha256:architecture-a',
+        commentSnapshot: { revision: 1, comments: [] }, replies: [], suggestions: [],
+        title: 'architecture-plan.md', html: documentHtml, workspaceRequestId: 3,
+        subscriptionGeneration: 1, projectId: 'project-a', provider: 'codex',
+        sessionId: 'session-host-document',
+    });
+    const narrowReader = await page.locator('[data-markdown-workspace-scroll]').boundingBox();
+    const narrowDiscussion = await page.locator('[data-markdown-workspace-discussion]').boundingBox();
+    assert.ok(narrowReader && narrowDiscussion);
+    assert.ok(narrowReader.width <= 360 && narrowDiscussion.width <= 360,
+        'the reader and review discussion fit without horizontal overflow at the minimum width');
+    assert.ok(narrowDiscussion.y >= narrowReader.y + narrowReader.height,
+        'the narrow layout stacks discussion after the reading surface');
 });
 
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structured data, math, and charts at narrow widths', async t => {

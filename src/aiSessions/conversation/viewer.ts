@@ -619,6 +619,16 @@ export class ConversationViewer implements ConversationViewerApi {
     };
     private markdownSuggestionStateRevision = 0;
     private markdownSuggestionStates: MarkdownSuggestionState[] = [];
+    /** Retains document-scoped replies while conversation paging evicts older
+     * transcript cards. It is intentionally reset when document identity or
+     * session identity changes; durable comments remain the cross-restart
+     * record, while this cache keeps an open review surface coherent. */
+    private markdownWorkspaceReplyCacheKey = '';
+    private readonly markdownWorkspaceReplyCache = new Map<string, {
+        messageId: string;
+        commentId: string;
+        html: string;
+    }>();
     private readonly bookmarkController: ConversationBookmarkController;
     private readonly outlineController = new ConversationOutlineController();
     private readonly telemetryController: ConversationTelemetryController;
@@ -2288,6 +2298,12 @@ export class ConversationViewer implements ConversationViewerApi {
         this.markdownSuggestionStateTarget = suggestionTarget;
         this.markdownSuggestionStateRevision = suggestionSnapshot.revision;
         this.markdownSuggestionStates = suggestionSnapshot.suggestions;
+        const replyCacheKey = [target.projectId, target.provider, target.sessionId,
+            document.workspaceRootId, workspaceFile.relativePath].join('\u0001');
+        if (this.markdownWorkspaceReplyCacheKey !== replyCacheKey) {
+            this.markdownWorkspaceReplyCacheKey = replyCacheKey;
+            this.markdownWorkspaceReplyCache.clear();
+        }
         this.activeMarkdownWorkspace = {
             workspaceFile: { ...workspaceFile },
             workspaceRootId: document.workspaceRootId,
@@ -2432,7 +2448,6 @@ export class ConversationViewer implements ConversationViewerApi {
         const commentByInteraction = this.markdownWorkspaceCommentInteractions();
         if (!commentByInteraction.size) { return []; }
         const messages = this.messages();
-        const replies: Array<{ messageId: string; commentId: string; html: string }> = [];
         for (const message of messages) {
             if (message.role !== 'assistant') {
                 continue;
@@ -2447,12 +2462,12 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!html || Buffer.byteLength(html, 'utf8') > 1_000_000) {
                 continue;
             }
-            replies.push({ messageId: message.id, commentId, html });
-            if (replies.length === 40) {
-                break;
-            }
+            this.markdownWorkspaceReplyCache.set(message.id, { messageId: message.id, commentId, html });
         }
-        return replies;
+        const knownComments = new Set(commentByInteraction.values());
+        return [...this.markdownWorkspaceReplyCache.values()]
+            .filter(reply => knownComments.has(reply.commentId))
+            .slice(-40);
     }
 
     /** Conversation refreshes may carry the assistant's reply to a document

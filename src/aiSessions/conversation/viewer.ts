@@ -484,6 +484,17 @@ export class ConversationViewer implements ConversationViewerApi {
     // with the workspace publication so the reader can explain it in place;
     // the page-level notice sits behind the modal and is not actionable here.
     private markdownWorkspaceDiscussionPersistenceError = false;
+    /** A short-lived, version-checked inverse for the most recent approved
+     * AI edit. It deliberately lives in the Host (not in Webview state) and
+     * becomes unusable as soon as the document/session identity changes. */
+    private markdownWorkspaceUndo?: {
+        id: string;
+        target: ConversationViewerTarget;
+        workspaceRootId: string;
+        relativePath: string;
+        selectedText: string;
+        replacement: string;
+    };
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
     // The tail split of latestPublication's render: lets a refresh that
@@ -2333,6 +2344,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 replies: this.markdownWorkspaceReplies(),
                 suggestions: this.markdownWorkspaceSuggestions(),
                 discussionPersistenceError: this.markdownWorkspaceDiscussionPersistenceError,
+                undoSuggestionId: this.markdownWorkspaceUndoSuggestionId(target, document.workspaceRootId,
+                    workspaceFile.relativePath),
                 workspaceRequestId,
                 subscriptionGeneration: this.subscriptionGeneration,
                 projectId: target.projectId,
@@ -2342,6 +2355,20 @@ export class ConversationViewer implements ConversationViewerApi {
         } catch (_error) {
             this.showNotice('Markdown document could not be opened.');
         }
+    }
+
+    private markdownWorkspaceUndoSuggestionId(
+        target: ConversationViewerTarget,
+        workspaceRootId: string,
+        relativePath: string
+    ): string | undefined {
+        const undo = this.markdownWorkspaceUndo;
+        return undo && undo.target.projectId === target.projectId
+            && undo.target.provider === target.provider
+            && undo.target.sessionId === target.sessionId
+            && undo.workspaceRootId === workspaceRootId
+            && undo.relativePath === relativePath
+            ? undo.id : undefined;
     }
 
     /** Only the explicit envelope is promoted into an actionable document
@@ -2627,6 +2654,8 @@ export class ConversationViewer implements ConversationViewerApi {
         const suggestedChange = this.markdownWorkspaceSuggestionRecords().find(suggestion =>
             suggestion.wireId === message.payload.suggestionId
         );
+        const undo = this.markdownWorkspaceUndo;
+        const isUndo = Boolean(undo && message.payload.suggestionId === undo.id);
         let result: 'applied' | 'stale' | 'failed' = 'stale';
         if (active && target && active.target === target
             && active.generation === this.subscriptionGeneration
@@ -2637,24 +2666,46 @@ export class ConversationViewer implements ConversationViewerApi {
             && message.document.relativePath === active.workspaceFile.relativePath
             && message.document.documentVersion === active.documentVersion) {
             try {
-                if (!suggestedChange) {
+                if ((!suggestedChange && !isUndo)
+                    || (isUndo && (undo!.target.projectId !== target.projectId
+                        || undo!.target.provider !== target.provider
+                        || undo!.target.sessionId !== target.sessionId
+                        || undo!.workspaceRootId !== active.workspaceRootId
+                        || undo!.relativePath !== active.workspaceFile.relativePath))) {
                     result = 'stale';
                 } else {
                     result = await Promise.resolve(this.options.applyWorkspaceMarkdownSuggestion?.(
                     active.workspaceFile, target, {
                         workspaceRootId: message.document.workspaceRootId,
                         documentVersion: message.document.documentVersion,
-                        selectedText: suggestedChange.selectedText,
+                        selectedText: isUndo ? undo!.replacement : suggestedChange!.selectedText,
                         // The source envelope contains no source offsets. For
                         // duplicate text the dashboard therefore fails closed
                         // rather than trusting Webview-supplied context.
-                        prefix: '', suffix: '', replacement: suggestedChange.replacement,
+                        prefix: '', suffix: '',
+                        replacement: isUndo ? undo!.selectedText : suggestedChange!.replacement,
                     }
                     ) || 'failed');
                 }
             } catch (_error) {
                 result = 'failed';
             }
+        }
+        if (result === 'applied' && suggestedChange && active && target) {
+            this.markdownWorkspaceUndo = {
+                id: createHash('sha256').update([
+                    target.projectId, target.provider, target.sessionId,
+                    active.workspaceRootId, active.workspaceFile.relativePath,
+                    suggestedChange.wireId, String(Date.now()),
+                ].join('\u0001')).digest('hex'),
+                target,
+                workspaceRootId: active.workspaceRootId,
+                relativePath: active.workspaceFile.relativePath,
+                selectedText: suggestedChange.selectedText,
+                replacement: suggestedChange.replacement,
+            };
+        } else if (isUndo && result === 'applied') {
+            this.markdownWorkspaceUndo = undefined;
         }
         if (message.payload.suggestionId && suggestedChange) {
             const disposition = result === 'applied' ? 'applied'

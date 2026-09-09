@@ -267,6 +267,7 @@ export function renderConversationViewerDocument(
                 data-markdown-workspace-reply-list aria-label="AI replies" aria-live="polite"></div>
             <div class="conversation-document-suggestion-list"
                 data-markdown-workspace-suggestion-list aria-label="AI suggestions"></div>
+            <button type="button" data-markdown-workspace-undo hidden>Undo last AI change</button>
             <p class="conversation-document-comment-feedback"
                 data-markdown-workspace-comment-feedback role="status"></p>
         </aside>

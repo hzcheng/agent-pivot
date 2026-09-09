@@ -12044,6 +12044,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
             selectedText: 'Rollback strategy',
             replacement: 'Rollback strategy with an explicit restore command.',
         }],
+        undoSuggestionId: 'undo-markdown-a',
         title: 'architecture-plan.md',
         html: documentHtml,
         workspaceRequestId: 1,
@@ -12071,6 +12072,23 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         true, 'a bounded structured AI response becomes an actionable document card');
     assert.match(await page.locator('[data-markdown-workspace-suggestion-list]').innerText(),
         /Rollback strategy with an explicit restore command\./);
+    await page.getByRole('button', { name: 'Undo last AI change' }).click();
+    const undoIntent = (await postedIntents(page)).at(-1);
+    assert.equal(undoIntent.type, 'conversation-viewer-apply-markdown-suggestion');
+    assert.equal(undoIntent.payload.suggestionId, 'undo-markdown-a',
+        'Undo is a Host-authorized, version-checked inverse rather than a Webview write.');
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-suggestion-result', version: 1,
+        requestId: undoIntent.requestId, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        document: {
+            workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:architecture-a',
+        },
+        success: false, error: 'stale',
+    });
+    assert.equal(await page.getByRole('button', { name: 'Undo last AI change' }).isDisabled(), false,
+        'a failed inverse leaves the safe action available for a refreshed document.');
     await sendPage(page, {
         type: 'conversation-viewer-markdown-workspace-suggestions',
         version: 1,

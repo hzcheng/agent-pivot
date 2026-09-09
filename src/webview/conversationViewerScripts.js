@@ -184,6 +184,9 @@
     var markdownWorkspaceSuggestionList = document.querySelector(
         '[data-markdown-workspace-suggestion-list]'
     );
+    var markdownWorkspaceUndo = document.querySelector(
+        '[data-markdown-workspace-undo]'
+    );
     var markdownWorkspaceActive = document.querySelector(
         '[data-markdown-workspace-active]'
     );
@@ -206,6 +209,7 @@
     var markdownWorkspacePendingSuggestionId = '';
     var markdownWorkspacePendingSuggestionSourceId = '';
     var markdownWorkspacePendingSuggestionStatusRequestId = '';
+    var markdownWorkspaceUndoSuggestionId = '';
     var markdownWorkspaceSuggestionWatchdog;
     var markdownWorkspaceReturnFocus;
     var markdownWorkspaceAvailable = !!(markdownWorkspace
@@ -220,7 +224,8 @@
         && markdownWorkspaceCommentCount && markdownWorkspaceNewReplies
         && markdownWorkspaceCommentFeedback
         && markdownWorkspaceSuggestionComposer && markdownWorkspaceSuggestionInput
-        && markdownWorkspaceSuggestionPreview && markdownWorkspaceSuggestionList);
+        && markdownWorkspaceSuggestionPreview && markdownWorkspaceSuggestionList
+        && markdownWorkspaceUndo);
     var markdownWorkspaceActiveAvailable = !!(markdownWorkspaceActive
         && markdownWorkspaceActiveTitle);
     var conversationDisplayName = document.querySelector(
@@ -1637,7 +1642,10 @@
                     && message.suggestions.length <= 20
                     && message.suggestions.every(validMarkdownWorkspaceSuggestion)))
             && (message.discussionPersistenceError === undefined
-                || typeof message.discussionPersistenceError === 'boolean');
+                || typeof message.discussionPersistenceError === 'boolean')
+            && (message.undoSuggestionId === undefined
+                || (typeof message.undoSuggestionId === 'string'
+                    && message.undoSuggestionId.length > 0 && message.undoSuggestionId.length <= 256));
     }
 
     function validMarkdownWorkspaceSnapshot(snapshot) {
@@ -2269,15 +2277,19 @@
                 ? 'Suggested change is outdated because the document changed.'
                 : 'Suggested change could not be applied. Please try again.');
         if (message.success) {
-            if (sourceId) {
+            if (sourceId && sourceId !== markdownWorkspaceUndoSuggestionId) {
                 rememberMarkdownWorkspaceSuggestionDisposition(
                     sourceId, 'applied'
                 );
                 renderMarkdownWorkspaceSuggestions();
             }
+            if (sourceId === markdownWorkspaceUndoSuggestionId) {
+                markdownWorkspaceUndoSuggestionId = '';
+                markdownWorkspaceUndo.hidden = true;
+            }
             markdownWorkspaceSuggestionComposer.hidden = true;
             markdownWorkspaceSuggestionInput.value = '';
-        } else if (stale && sourceId) {
+        } else if (stale && sourceId && sourceId !== markdownWorkspaceUndoSuggestionId) {
             rememberMarkdownWorkspaceSuggestionDisposition(sourceId, 'outdated');
             renderMarkdownWorkspaceSuggestions();
             markdownWorkspaceSuggestionComposer.hidden = true;
@@ -2285,6 +2297,28 @@
         }
         markdownWorkspacePendingSuggestionSourceId = '';
         return true;
+    }
+
+    function undoMarkdownWorkspaceSuggestion() {
+        var documentTarget = workspaceCommentTarget();
+        if (!documentTarget || !markdownWorkspaceUndoSuggestionId
+            || markdownWorkspacePendingSuggestionId || !validCommentTarget(commentTarget)) return;
+        var requestId = 'markdown-suggestion-undo-' + (++markdownWorkspaceCommentRequestSerial)
+            + '-' + String(Date.now());
+        markdownWorkspacePendingSuggestionId = requestId;
+        markdownWorkspacePendingSuggestionSourceId = markdownWorkspaceUndoSuggestionId;
+        setMarkdownWorkspaceCommentPending(true, 'Undoing last AI change…');
+        scheduleMarkdownWorkspaceSuggestionWatchdog('apply', requestId);
+        post({
+            type: 'conversation-viewer-apply-markdown-suggestion', version: 1,
+            requestId: requestId, subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId, provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId, document: documentTarget,
+            payload: {
+                suggestionId: markdownWorkspaceUndoSuggestionId,
+                selectedText: 'undo', prefix: '', suffix: '', replacement: 'undo',
+            },
+        });
     }
 
     function dismissMarkdownWorkspaceSuggestion(messageId) {
@@ -2626,6 +2660,8 @@
             ? message.commentSnapshot.comments.slice() : [];
         markdownWorkspaceReplies = message.replies ? message.replies.slice() : [];
         markdownWorkspaceSuggestions = message.suggestions ? message.suggestions.slice() : [];
+        markdownWorkspaceUndoSuggestionId = message.undoSuggestionId || '';
+        markdownWorkspaceUndo.hidden = !markdownWorkspaceUndoSuggestionId;
         var recoversPendingComment = validMarkdownWorkspaceCommentSettlement(message.commentSettlement)
             && message.commentSettlement.requestId === markdownWorkspacePendingRequestId;
         if (!recoversPendingComment) {
@@ -5005,6 +5041,7 @@
                 dismissMarkdownWorkspaceSuggestion(suggestionId);
             }
         });
+        markdownWorkspaceUndo.addEventListener('click', undoMarkdownWorkspaceSuggestion);
     }
     messages.addEventListener('click', function (event) {
         var link = event.target && event.target.closest

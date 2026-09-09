@@ -201,6 +201,7 @@
     var markdownWorkspaceSelection;
     var markdownWorkspaceCommentRequestSerial = 0;
     var markdownWorkspacePendingRequestId = '';
+    var markdownWorkspaceCommentWatchdog;
     var markdownWorkspaceSendAfterSave = false;
     var markdownWorkspacePendingSuggestionId = '';
     var markdownWorkspacePendingSuggestionSourceId = '';
@@ -1758,6 +1759,7 @@
             } else if (comment.status === 'sending') {
                 state.textContent = 'delivery needs reconciliation';
                 footer.appendChild(workspaceCommentButton('Mark delivered', 'sent', comment.id));
+                footer.appendChild(workspaceCommentButton('Return to draft', 'draft', comment.id));
             }
             if (comment.status !== 'resolved') {
                 footer.appendChild(workspaceCommentButton('Resolve', 'resolve', comment.id));
@@ -2349,6 +2351,7 @@
             + '-' + String(Date.now());
         markdownWorkspacePendingRequestId = requestId;
         setMarkdownWorkspaceCommentPending(true, 'Saving comment…');
+        scheduleMarkdownWorkspaceCommentWatchdog(requestId);
         post({
             type: operation === 'sendDocumentComment'
                 ? 'conversation-viewer-send-document-comment'
@@ -2404,6 +2407,7 @@
         markdownWorkspaceComments = message.comments.slice();
         renderMarkdownWorkspaceComments();
         markdownWorkspacePendingRequestId = '';
+        clearMarkdownWorkspaceCommentWatchdog();
         setMarkdownWorkspaceCommentPending(false, message.success
             ? '' : 'Comment could not be saved. Please try again.');
         var sendAfterSave = message.success && message.operation === 'add'
@@ -2424,6 +2428,26 @@
             }
         }
         return true;
+    }
+
+    function scheduleMarkdownWorkspaceCommentWatchdog(requestId) {
+        clearMarkdownWorkspaceCommentWatchdog();
+        if (typeof window.setTimeout !== 'function') return;
+        markdownWorkspaceCommentWatchdog = window.setTimeout(function () {
+            if (markdownWorkspacePendingRequestId !== requestId) return;
+            markdownWorkspacePendingRequestId = '';
+            markdownWorkspaceSendAfterSave = false;
+            setMarkdownWorkspaceCommentPending(false,
+                'Could not confirm the comment. Reopen the document to refresh its current state.');
+        }, 15_000);
+    }
+
+    function clearMarkdownWorkspaceCommentWatchdog() {
+        if (markdownWorkspaceCommentWatchdog !== undefined
+            && typeof window.clearTimeout === 'function') {
+            window.clearTimeout(markdownWorkspaceCommentWatchdog);
+        }
+        markdownWorkspaceCommentWatchdog = undefined;
     }
 
     function markdownWorkspaceKey(target, href, documentVersion) {

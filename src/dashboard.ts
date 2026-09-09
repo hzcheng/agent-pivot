@@ -2257,49 +2257,9 @@ async function initializeDashboard(
                 && document.isDirty)) {
                 return 'stale';
             }
-            // Register the same bounded change on VS Code's TextDocument
-            // before the descriptor-bound disk write. The document remains
-            // dirty (we deliberately never path-save it), which preserves a
-            // native Ctrl/Cmd+Z entry without reopening a symlink-raced path.
-            // The secure descriptor write below is still the only disk side
-            // effect; an editor buffer is never authoritative for this flow.
-            let document: vscode.TextDocument;
-            let start = -1;
-            try {
-                document = await vscode.workspace.openTextDocument(
-                    vscode.Uri.file(canonicalCandidate)
-                );
-                if (document.isDirty) { return 'stale'; }
-                start = document.getText().indexOf(suggestion.selectedText);
-                if (start < 0 || document.getText().indexOf(
-                    suggestion.selectedText, start + 1
-                ) >= 0) {
-                    return 'stale';
-                }
-                const edit = new vscode.WorkspaceEdit();
-                edit.replace(document.uri, new vscode.Range(
-                    document.positionAt(start),
-                    document.positionAt(start + suggestion.selectedText.length)
-                ), suggestion.replacement);
-                if (!await vscode.workspace.applyEdit(edit)) { return 'failed'; }
-            } catch (_error) {
-                return 'failed';
-            }
-            const result = await applyValidatedWorkspaceMarkdownSuggestion(
+            return applyValidatedWorkspaceMarkdownSuggestion(
                 canonicalRoot, canonicalCandidate, suggestion
             );
-            if (result !== 'applied') {
-                // Keep the editor buffer truthful if the safe disk mutation
-                // loses its version/anchor race. This is a local repair only;
-                // it never writes the pathname.
-                const repair = new vscode.WorkspaceEdit();
-                repair.replace(document.uri, new vscode.Range(
-                    document.positionAt(start),
-                    document.positionAt(start + suggestion.replacement.length)
-                ), suggestion.selectedText);
-                try { await vscode.workspace.applyEdit(repair); } catch (_error) { /* no-op */ }
-            }
-            return result;
         },
         changes: {
             // PRD §4.1 fallback identity: a valid telemetry worktree takes

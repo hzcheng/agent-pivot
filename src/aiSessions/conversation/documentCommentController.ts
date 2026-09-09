@@ -241,7 +241,11 @@ export class MarkdownDocumentCommentController {
                 next[index] = updateMarkdownDocumentComment(next[index], payload.text, this.now());
             } else {
                 next[index] = setMarkdownDocumentCommentStatus(
-                    next[index], payload.status, this.now()
+                    next[index], payload.status, this.now(),
+                    payload.status === 'sent' && this.context ? {
+                        provider: this.context.viewerTarget.provider,
+                        sessionId: this.context.viewerTarget.sessionId,
+                    } : undefined
                 );
             }
         }
@@ -439,6 +443,8 @@ function normalizeAnchorText(value: string): string {
         .replace(/^\s{0,3}>\s?/gm, '')
         .replace(/^\s*(?:[-+*]|\d+[.)])\s+/gm, '')
         .replace(/(\*\*|__|~~|`)/g, '')
+        .replace(/(^|[^\\w*])\*([^*]+)\*(?=[^\\w*]|$)/g, '$1$2')
+        .replace(/(^|[^\\w_])_([^_]+)_(?=[^\\w_]|$)/g, '$1$2')
         .replace(/\s+/g, ' ').trim();
 }
 

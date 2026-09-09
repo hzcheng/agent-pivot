@@ -2346,6 +2346,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 suggestions: this.markdownWorkspaceSuggestions(),
                 discussionPersistenceError: this.markdownWorkspaceDiscussionPersistenceError,
                 suggestionPersistenceError: this.markdownWorkspaceSuggestionPersistenceError,
+                suggestionWritesSupported: process.platform !== 'win32',
                 undoSuggestionId: this.markdownWorkspaceUndoSuggestionId(target, document.workspaceRootId,
                     workspaceFile.relativePath),
                 workspaceRequestId,

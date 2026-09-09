@@ -210,6 +210,7 @@
     var markdownWorkspacePendingSuggestionSourceId = '';
     var markdownWorkspacePendingSuggestionStatusRequestId = '';
     var markdownWorkspaceUndoSuggestionId = '';
+    var markdownWorkspaceSuggestionWritesSupported = true;
     var markdownWorkspaceSuggestionWatchdog;
     var markdownWorkspaceReturnFocus;
     var markdownWorkspaceAvailable = !!(markdownWorkspace
@@ -1645,6 +1646,8 @@
                 || typeof message.discussionPersistenceError === 'boolean')
             && (message.suggestionPersistenceError === undefined
                 || typeof message.suggestionPersistenceError === 'boolean')
+            && (message.suggestionWritesSupported === undefined
+                || typeof message.suggestionWritesSupported === 'boolean')
             && (message.undoSuggestionId === undefined
                 || (typeof message.undoSuggestionId === 'string'
                     && message.undoSuggestionId.length > 0 && message.undoSuggestionId.length <= 256));
@@ -1852,7 +1855,9 @@
             note.textContent = disposition === 'outdated'
                 ? 'The document changed before this suggestion could be applied. '
                     + 'Regenerate it from a reliable current selection.'
-                : 'Select the quoted source text, then apply this change.';
+                : markdownWorkspaceSuggestionWritesSupported
+                    ? 'Select the quoted source text, then apply this change.'
+                    : 'Applying AI edits is unavailable on this platform; open the file in the editor to make this change.';
             card.appendChild(note);
             var actions = document.createElement('footer');
             if (disposition === 'outdated') {
@@ -1872,6 +1877,7 @@
                 var apply = document.createElement('button');
                 apply.type = 'button';
                 apply.textContent = 'Use suggestion';
+                apply.disabled = !markdownWorkspaceSuggestionWritesSupported;
                 apply.setAttribute('data-markdown-workspace-suggestion-action', 'use');
                 apply.setAttribute('data-suggestion-id', suggestion.messageId);
                 actions.appendChild(apply);
@@ -2666,6 +2672,8 @@
         markdownWorkspaceSuggestions = message.suggestions ? message.suggestions.slice() : [];
         markdownWorkspaceUndoSuggestionId = message.undoSuggestionId || '';
         markdownWorkspaceUndo.hidden = !markdownWorkspaceUndoSuggestionId;
+        markdownWorkspaceSuggestionWritesSupported = message.suggestionWritesSupported !== false;
+        markdownWorkspaceUndo.disabled = !markdownWorkspaceSuggestionWritesSupported;
         var recoversPendingComment = validMarkdownWorkspaceCommentSettlement(message.commentSettlement)
             && message.commentSettlement.requestId === markdownWorkspacePendingRequestId;
         if (!recoversPendingComment) {

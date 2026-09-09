@@ -159,6 +159,24 @@ body {
     gap: 0.65rem;
 }
 
+.conversation-document-comment-marker {
+    display: inline-flex;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-left: 0.35rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: var(--vscode-textLink-foreground);
+    color: var(--vscode-editor-background);
+    font: inherit;
+    font-size: 0.75em;
+    cursor: pointer;
+
+    &:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+}
+
 .conversation-document-comment-card {
     padding: 0.7rem;
     border: 1px solid var(--vscode-panel-border);

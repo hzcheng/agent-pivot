@@ -11882,6 +11882,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         }],
     });
     assert.equal(await page.locator('[data-comment-id="document-comment-a"]').isVisible(), true);
+    assert.equal(await page.locator('[data-markdown-workspace-comment-marker="document-comment-a"]').isVisible(), true,
+        'a file comment remains locatable from a compact marker in the rendered document');
     await page.getByRole('button', { name: 'Send to AI' }).last().click();
     const sendIntent = (await postedIntents(page)).at(-1);
     assert.equal(sendIntent.type, 'conversation-viewer-send-document-comment');

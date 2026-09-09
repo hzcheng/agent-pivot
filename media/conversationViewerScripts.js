@@ -1649,6 +1649,54 @@
             card.appendChild(footer);
             markdownWorkspaceCommentList.appendChild(card);
         });
+        renderMarkdownWorkspaceCommentMarkers(valid);
+    }
+
+    function renderMarkdownWorkspaceCommentMarkers(comments) {
+        if (!markdownWorkspaceAvailable) return;
+        Array.prototype.forEach.call(markdownWorkspaceContent.querySelectorAll(
+            '[data-markdown-workspace-comment-marker]'
+        ), function (marker) { marker.remove(); });
+        comments.filter(function (comment) {
+            return comment.status !== 'outdated' && comment.anchor.selectedText;
+        }).forEach(function (comment, index) {
+            var elements = markdownWorkspaceContent.querySelectorAll(
+                'p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6'
+            );
+            var target;
+            Array.prototype.some.call(elements, function (element) {
+                if (String(element.textContent || '').indexOf(comment.anchor.selectedText) < 0) {
+                    return false;
+                }
+                target = element;
+                return true;
+            });
+            if (!target) return;
+            var marker = document.createElement('button');
+            marker.type = 'button';
+            marker.className = 'conversation-document-comment-marker';
+            marker.textContent = String(index + 1);
+            marker.setAttribute('data-markdown-workspace-comment-marker', comment.id);
+            marker.setAttribute('aria-label', 'Open comment ' + String(index + 1));
+            target.appendChild(marker);
+        });
+    }
+
+    function locateMarkdownWorkspaceComment(commentId) {
+        if (!markdownWorkspaceCommentsAvailable || !commentId) return;
+        var card = markdownWorkspaceCommentList.querySelector(
+            '[data-comment-id="' + cssAttributeValue(commentId) + '"]'
+        );
+        if (!card) return;
+        if (typeof card.scrollIntoView === 'function') {
+            card.scrollIntoView({ block: 'nearest' });
+        }
+        var focusTarget = card.querySelector('button') || card;
+        if (focusTarget && typeof focusTarget.focus === 'function') focusTarget.focus();
+    }
+
+    function cssAttributeValue(value) {
+        return String(value).replace(/["\\]/g, '\\$&');
     }
 
     function workspaceCommentButton(label, action, commentId) {
@@ -4088,6 +4136,15 @@
     });
     if (markdownWorkspaceAvailable) {
         markdownWorkspaceContent.addEventListener('click', function (event) {
+            var marker = event.target && event.target.closest
+                ? event.target.closest('[data-markdown-workspace-comment-marker]') : null;
+            if (marker && markdownWorkspaceContent.contains(marker)) {
+                event.preventDefault();
+                locateMarkdownWorkspaceComment(
+                    marker.getAttribute('data-markdown-workspace-comment-marker')
+                );
+                return;
+            }
             var link = event.target && event.target.closest
                 ? event.target.closest('a[href]') : null;
             if (!link || !markdownWorkspaceContent.contains(link)) return;

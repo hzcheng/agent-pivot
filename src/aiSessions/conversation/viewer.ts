@@ -15,10 +15,12 @@ import type {
 } from './bookmarkStore';
 import { ConversationCommentController } from './commentController';
 import { ProjectCommentController } from './projectCommentController';
+import { MarkdownDocumentCommentController } from './documentCommentController';
 import type {
     ProjectCommentSnapshot,
     ProjectCommentStore,
 } from './projectCommentStore';
+import type { MarkdownDocumentCommentStore } from './documentCommentStore';
 import { ConversationBookmarkController } from './bookmarkController';
 import { ConversationTelemetryController } from './conversationTelemetryController';
 import {
@@ -54,6 +56,8 @@ import type {
     ConversationViewerHistoryChunkAppliedMessage,
     ConversationViewerLoadEarlierMessage,
     ConversationViewerOpenMarkdownEditorMessage,
+    ConversationViewerDocumentCommentMutationMessage,
+    ConversationViewerSendDocumentCommentMessage,
 } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
@@ -172,6 +176,7 @@ export interface ConversationViewerOptions {
     ) => boolean | void | PromiseLike<boolean | void>;
     commentStore?: ConversationCommentStore;
     projectCommentStore?: ProjectCommentStore;
+    documentCommentStore?: MarkdownDocumentCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
     /**
      * Changes-panel wiring (changes-panel PRD); absent disables the
@@ -574,6 +579,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private keyboardFocused = false;
     private readonly commentController: ConversationCommentController;
     private readonly projectCommentController: ProjectCommentController;
+    private readonly documentCommentController: MarkdownDocumentCommentController;
     private readonly bookmarkController: ConversationBookmarkController;
     private readonly outlineController = new ConversationOutlineController();
     private readonly telemetryController: ConversationTelemetryController;
@@ -647,6 +653,15 @@ export class ConversationViewer implements ConversationViewerApi {
             getSubscriptionGeneration: () => this.subscriptionGeneration,
             getPanel: () => this.panel,
             rebuildLatestDocument: () => this.rebuildLatestDocument(),
+        });
+        this.documentCommentController = new MarkdownDocumentCommentController({
+            documentCommentStore: options.documentCommentStore,
+            submitPrompt: options.submitPrompt,
+            focusSession: async target => { await options.focusSession?.(target); },
+            getTarget: () => this.target,
+            getSubscriptionGeneration: () => this.subscriptionGeneration,
+            getPanel: () => this.panel,
+            now: options.now,
         });
         this.bookmarkController = new ConversationBookmarkController({
             bookmarkStore: options.bookmarkStore,
@@ -1439,6 +1454,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.publicationRecoveryGeneration = undefined;
         this.commentController.reset();
         this.projectCommentController.reset();
+        this.documentCommentController.reset();
         this.bookmarkController.reset();
         this.target = {
             ...target,
@@ -1558,6 +1574,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.cancelEarlierPageBackfill();
         this.commentController.reset();
         this.projectCommentController.reset();
+        this.documentCommentController.reset();
         this.bookmarkController.reset();
         this.publishKeyboardFocus(false);
         this.suspended = false;
@@ -1864,6 +1881,14 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.projectCommentController.enqueue(parsed);
             return;
         }
+        if (parsed.type === 'conversation-viewer-document-comment-mutation'
+            || parsed.type === 'conversation-viewer-send-document-comment') {
+            await this.documentCommentController.enqueue(
+                parsed as ConversationViewerDocumentCommentMutationMessage
+                    | ConversationViewerSendDocumentCommentMessage
+            );
+            return;
+        }
         if (parsed.type === 'conversation-viewer-bookmark-mutation') {
             await this.bookmarkController.enqueue(parsed);
             return;
@@ -2019,6 +2044,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.cancelEarlierPageBackfill();
         this.commentController.reset();
         this.projectCommentController.reset();
+        this.documentCommentController.reset();
         this.bookmarkController.reset();
         this.target = { ...target };
         this.suspended = false;
@@ -2180,6 +2206,20 @@ export class ConversationViewer implements ConversationViewerApi {
             this.showNotice('Markdown document is too large to display.');
             return;
         }
+        await this.documentCommentController.activate({
+            target: {
+                projectId: target.projectId,
+                workspaceRootId: document.workspaceRootId,
+                relativePath: workspaceFile.relativePath,
+            },
+            documentVersion: document.documentVersion,
+            viewerTarget: target,
+            subscriptionGeneration: this.subscriptionGeneration,
+        });
+        if (this.target !== target || this.panel !== panel
+            || workspaceRequestId !== this.nextMarkdownWorkspaceRequestId) {
+            return;
+        }
         try {
             await panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-workspace',
@@ -2195,6 +2235,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 html,
                 workspaceRootId: document.workspaceRootId,
                 documentVersion: document.documentVersion,
+                commentSnapshot: this.documentCommentController.snapshot,
                 workspaceRequestId,
                 subscriptionGeneration: this.subscriptionGeneration,
                 projectId: target.projectId,

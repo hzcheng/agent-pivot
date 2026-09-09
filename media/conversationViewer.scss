@@ -10,7 +10,7 @@ body {
 
 body {
     display: flex;
-    flex-direction: column;
+    flex-flow: row wrap;
     margin: 0;
     color: var(--vscode-editor-foreground);
     background: var(--vscode-editor-background);
@@ -57,6 +57,7 @@ body {
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-editor-background);
+    flex: 0 0 100%;
 }
 
 .conversation-document-workspace-back,
@@ -107,10 +108,80 @@ body {
 }
 
 .conversation-document-workspace-scroll {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
     overflow: auto;
     padding: 1.25rem clamp(1rem, 5vw, 4rem) 3rem;
+}
+
+.conversation-document-discussion {
+    flex: 0 0 min(22rem, 34vw);
+    min-width: 15rem;
+    overflow: auto;
+    padding: 1rem;
+    border-left: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background);
+}
+
+.conversation-document-discussion-heading,
+.conversation-document-selection-actions > div,
+.conversation-document-comment-composer > div {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.conversation-document-selection-actions,
+.conversation-document-comment-composer {
+    margin: 0.8rem 0;
+    padding: 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    background: var(--vscode-editor-background);
+}
+
+.conversation-document-selection-actions p {
+    margin: 0 0 0.6rem;
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+}
+
+.conversation-document-comment-composer textarea {
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0.35rem 0 0.6rem;
+    resize: vertical;
+}
+
+.conversation-document-comment-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.conversation-document-comment-card {
+    padding: 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-textLink-foreground);
+    border-radius: 3px;
+    background: var(--vscode-editor-background);
+
+    &[data-status="resolved"] { opacity: 0.68; }
+    &[data-status="outdated"] { border-left-color: var(--vscode-editorWarning-foreground); }
+
+    blockquote { margin: 0 0 0.5rem; color: var(--vscode-descriptionForeground); }
+    p { margin: 0.4rem 0; white-space: pre-wrap; }
+    footer { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; }
+}
+
+@media (max-width: 680px) {
+    .conversation-document-workspace { display: block; overflow: auto; }
+    .conversation-document-workspace-scroll { min-height: 55vh; }
+    .conversation-document-discussion {
+        min-width: 0;
+        border-top: 1px solid var(--vscode-panel-border);
+        border-left: 0;
+    }
 }
 
 .conversation-document-workspace-content {

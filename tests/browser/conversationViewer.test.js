@@ -5148,6 +5148,10 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             "        if (applyMarkdownWorkspace(event.data)) return;\n",
             ''
         )
+        .replace(
+            "        if (applyMarkdownWorkspaceCommentsResult(event.data)) return;\n",
+            ''
+        )
         // The question-first control and telemetry-only sidebar entry points
         // postdate this frozen Viewer script generation. Restore its exact
         // pre-control source while the current document keeps a hidden
@@ -11811,6 +11815,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         relativePath: 'docs/architecture-plan.md',
         workspaceRootId: 'root-a',
         documentVersion: 'sha256:architecture-a',
+        commentSnapshot: { revision: 0, comments: [] },
         title: 'architecture-plan.md',
         html: documentHtml,
         workspaceRequestId: 1,
@@ -11828,6 +11833,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.equal(await page.locator('[data-markdown-workspace-path]').innerText(),
         'docs/architecture-plan.md');
     assert.equal(await workspace.locator('h1').innerText(), 'Architecture plan');
+    assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), true,
+        'the document reader keeps file-specific discussion beside the rendered Markdown');
     assert.notEqual(await conversation.count(), 0,
         'opening the reading surface keeps the conversation DOM intact behind it');
     await workspace.getByRole('link', { name: 'Open next plan' }).click();
@@ -11836,6 +11843,49 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         version: 1,
         href: 'docs/next-plan.md#L3',
     }, 'nested Markdown links remain Host-validated navigation intents');
+
+    await page.evaluate(() => {
+        const paragraph = Array.from(document.querySelectorAll(
+            '[data-markdown-workspace-content] p'
+        )).find(node => node.textContent === 'Rollback strategy');
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        paragraph.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.getByRole('button', { name: 'Add comment' }).click();
+    await page.locator('[data-markdown-workspace-comment-input]').fill('Clarify the fallback.');
+    await page.getByRole('button', { name: 'Save draft' }).click();
+    const draftIntent = (await postedIntents(page)).at(-1);
+    assert.equal(draftIntent.type, 'conversation-viewer-document-comment-mutation');
+    assert.equal(draftIntent.operation, 'add');
+    assert.equal(draftIntent.document.relativePath, 'docs/architecture-plan.md');
+    assert.equal(draftIntent.payload.anchor.selectedText, 'Rollback strategy');
+    assert.equal(draftIntent.payload.text, 'Clarify the fallback.');
+    await sendPage(page, {
+        type: 'conversation-viewer-document-comments-result',
+        version: 1,
+        requestId: draftIntent.requestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        operation: 'add', success: true, revision: 1,
+        document: {
+            workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:architecture-a',
+        },
+        comments: [{
+            id: 'document-comment-a', documentVersion: 'sha256:architecture-a',
+            anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: [] },
+            text: 'Clarify the fallback.', status: 'draft', createdAt: 1,
+        }],
+    });
+    assert.equal(await page.locator('[data-comment-id="document-comment-a"]').isVisible(), true);
+    await page.getByRole('button', { name: 'Send to AI' }).last().click();
+    const sendIntent = (await postedIntents(page)).at(-1);
+    assert.equal(sendIntent.type, 'conversation-viewer-send-document-comment');
+    assert.equal(sendIntent.payload.commentId, 'document-comment-a');
 
     const documentScroll = page.locator('[data-markdown-workspace-scroll]');
     await documentScroll.evaluate(element => { element.scrollTop = 180; });

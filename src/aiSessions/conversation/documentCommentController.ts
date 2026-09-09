@@ -1,0 +1,338 @@
+'use strict';
+
+import { randomBytes } from 'crypto';
+import type * as vscode from 'vscode';
+import type { CommentErrorCode } from './commentPrimitives';
+import {
+    buildMarkdownDocumentCommentPrompt,
+    cloneMarkdownDocumentComments,
+    createMarkdownDocumentComment,
+    MarkdownDocumentComment,
+    MarkdownDocumentCommentError,
+    MarkdownDocumentCommentStatus,
+    MarkdownDocumentCommentTarget,
+    setMarkdownDocumentCommentStatus,
+    updateMarkdownDocumentComment,
+    validateMarkdownDocumentComments,
+} from './documentComments';
+import type { MarkdownDocumentCommentStore } from './documentCommentStore';
+import type {
+    ConversationViewerDocumentCommentMutationMessage,
+    ConversationViewerSendDocumentCommentMessage,
+} from './viewerProtocol';
+import type { ConversationViewerTarget } from './viewerTarget';
+import { hasExactKeys } from './viewerProtocol';
+import { isRecord } from './commentPrimitives';
+
+type DocumentCommentRequest = ConversationViewerDocumentCommentMutationMessage
+    | ConversationViewerSendDocumentCommentMessage;
+
+export interface MarkdownDocumentCommentContext {
+    target: MarkdownDocumentCommentTarget;
+    documentVersion: string;
+    viewerTarget: ConversationViewerTarget;
+    subscriptionGeneration: number;
+}
+
+export interface MarkdownDocumentCommentControllerOptions {
+    documentCommentStore?: MarkdownDocumentCommentStore;
+    submitPrompt: (
+        target: ConversationViewerTarget,
+        prompt: string
+    ) => PromiseLike<void> | Promise<void>;
+    focusSession?: (
+        target: Pick<ConversationViewerTarget, 'projectId' | 'provider' | 'sessionId'>
+    ) => PromiseLike<void> | Promise<void>;
+    getTarget: () => ConversationViewerTarget | undefined;
+    getSubscriptionGeneration: () => number;
+    getPanel: () => vscode.WebviewPanel | undefined;
+    now?: () => number;
+}
+
+/**
+ * File comments have an identity independent of a conversation, while each
+ * mutation still has to be tied to the particular conversation document that
+ * rendered the affordance. This controller keeps that boundary Host-owned.
+ */
+export class MarkdownDocumentCommentController {
+    private context?: MarkdownDocumentCommentContext;
+    private comments: MarkdownDocumentComment[] = [];
+    private revision = 0;
+    private activation = 0;
+    private operationQueue: Promise<void> = Promise.resolve();
+    private readonly settlements = new Map<string, object>();
+
+    constructor(private readonly options: MarkdownDocumentCommentControllerOptions) {}
+
+    get snapshot(): { revision: number; comments: MarkdownDocumentComment[] } {
+        return { revision: this.revision, comments: cloneMarkdownDocumentComments(this.comments) };
+    }
+
+    reset(): void {
+        this.activation += 1;
+        this.context = undefined;
+        this.comments = [];
+        this.revision = 0;
+        this.settlements.clear();
+    }
+
+    async activate(context: MarkdownDocumentCommentContext): Promise<void> {
+        const activation = ++this.activation;
+        this.context = context;
+        this.comments = [];
+        this.revision = 0;
+        this.settlements.clear();
+        const store = this.options.documentCommentStore;
+        if (!store) return;
+        let snapshot: { revision: number; comments: MarkdownDocumentComment[] };
+        try {
+            snapshot = await store.load(context.target);
+            validateMarkdownDocumentComments(snapshot.comments);
+            if (!Number.isSafeInteger(snapshot.revision) || snapshot.revision < 0) {
+                return;
+            }
+        } catch (_error) {
+            return;
+        }
+        if (!this.isContextCurrent(context, activation)) return;
+        let comments = cloneMarkdownDocumentComments(snapshot.comments);
+        const outdated = comments.map(comment => comment.documentVersion === context.documentVersion
+            ? comment
+            : setMarkdownDocumentCommentStatus(comment, 'outdated', this.now()));
+        const changed = JSON.stringify(outdated) !== JSON.stringify(comments);
+        if (changed) {
+            const next = { revision: snapshot.revision + 1, comments: outdated };
+            try {
+                await store.save(context.target, next);
+            } catch (_error) {
+                // Preserve the original, valid snapshot when status repair
+                // cannot be made durable. The user can still read it.
+                if (!this.isContextCurrent(context, activation)) return;
+                this.comments = comments;
+                this.revision = snapshot.revision;
+                return;
+            }
+            if (!this.isContextCurrent(context, activation)) return;
+            comments = outdated;
+            snapshot = next;
+        }
+        this.comments = comments;
+        this.revision = snapshot.revision;
+    }
+
+    enqueue(request: DocumentCommentRequest): Promise<void> {
+        const queued = this.operationQueue.then(
+            () => this.handle(request),
+            () => this.handle(request)
+        );
+        this.operationQueue = queued.catch(() => undefined);
+        return queued;
+    }
+
+    private async handle(request: DocumentCommentRequest): Promise<void> {
+        const key = this.settlementKey(request);
+        const remembered = this.settlements.get(key);
+        if (remembered) {
+            await this.publish(remembered);
+            return;
+        }
+        if (!this.matches(request) || request.expectedRevision !== this.revision) {
+            await this.settle(request, false, 'stale');
+            return;
+        }
+        try {
+            if (request.type === 'conversation-viewer-send-document-comment') {
+                await this.send(request);
+            } else {
+                await this.mutate(request);
+            }
+            await this.settle(request, true);
+        } catch (error) {
+            await this.settle(request, false, this.errorCode(error));
+        }
+    }
+
+    private async mutate(request: ConversationViewerDocumentCommentMutationMessage): Promise<void> {
+        const next = cloneMarkdownDocumentComments(this.comments);
+        if (request.operation === 'add') {
+            if (next.length >= 100) throw new MarkdownDocumentCommentError('limit');
+            if (!hasExactKeys(request.payload as object, ['anchor', 'text'])) {
+                throw new MarkdownDocumentCommentError('invalid');
+            }
+            next.unshift(createMarkdownDocumentComment(
+                randomBytes(16).toString('hex'),
+                {
+                    documentVersion: request.document.documentVersion,
+                    ...(request.payload as { anchor: unknown; text: unknown }),
+                },
+                this.now()
+            ));
+        } else {
+            const payload = parseExistingPayload(request);
+            const index = next.findIndex(comment => comment.id === payload.commentId);
+            if (index < 0) throw new MarkdownDocumentCommentError('stale');
+            if (request.operation === 'delete') {
+                next.splice(index, 1);
+            } else if (request.operation === 'update') {
+                next[index] = updateMarkdownDocumentComment(next[index], payload.text, this.now());
+            } else {
+                next[index] = setMarkdownDocumentCommentStatus(
+                    next[index], payload.status, this.now()
+                );
+            }
+        }
+        await this.commit(next, request.expectedRevision);
+    }
+
+    private async send(request: ConversationViewerSendDocumentCommentMessage): Promise<void> {
+        if (!hasExactKeys(request.payload, ['commentId'])) {
+            throw new MarkdownDocumentCommentError('invalid');
+        }
+        const index = this.comments.findIndex(comment => comment.id === request.payload.commentId);
+        const comment = this.comments[index];
+        const context = this.context;
+        if (!context || !comment || comment.status !== 'draft') {
+            throw new MarkdownDocumentCommentError('stale');
+        }
+        const next = cloneMarkdownDocumentComments(this.comments);
+        next[index] = setMarkdownDocumentCommentStatus(comment, 'sent', this.now(), {
+            provider: context.viewerTarget.provider,
+            sessionId: context.viewerTarget.sessionId,
+        });
+        const prior = this.snapshot;
+        await this.commit(next, request.expectedRevision);
+        try {
+            await Promise.resolve(this.options.submitPrompt(
+                { ...context.viewerTarget },
+                buildMarkdownDocumentCommentPrompt(context.target, next[index])
+            ));
+        } catch (error) {
+            await this.restorePrior(prior);
+            throw error;
+        }
+        try {
+            await Promise.resolve(this.options.focusSession?.(context.viewerTarget));
+        } catch (_error) {
+            // A submitted prompt is durable; focus is an optional convenience.
+        }
+    }
+
+    private async commit(comments: MarkdownDocumentComment[], expectedRevision: number): Promise<void> {
+        const context = this.context;
+        if (!context || this.revision !== expectedRevision) {
+            throw new MarkdownDocumentCommentError('stale');
+        }
+        validateMarkdownDocumentComments(comments);
+        const next = { revision: this.revision + 1, comments };
+        try {
+            await this.options.documentCommentStore?.save(context.target, next);
+        } catch (_error) {
+            throw new MarkdownDocumentCommentError('failed');
+        }
+        if (!this.isContextCurrent(context, this.activation) || this.revision !== expectedRevision) {
+            // Best effort repair: do not let an obsolete document persist an
+            // unacknowledged mutation after a target handoff.
+            await this.options.documentCommentStore?.save(context.target, this.snapshot).catch(() => undefined);
+            throw new MarkdownDocumentCommentError('stale');
+        }
+        this.comments = cloneMarkdownDocumentComments(comments);
+        this.revision = next.revision;
+    }
+
+    private async restorePrior(snapshot: { revision: number; comments: MarkdownDocumentComment[] }): Promise<void> {
+        const context = this.context;
+        if (!context) return;
+        try {
+            await this.options.documentCommentStore?.save(context.target, snapshot);
+        } catch (_error) {
+            // The user sees a failure settlement; refresh will reflect the
+            // last durable state if a rollback itself fails.
+        }
+        if (this.context === context) {
+            this.comments = cloneMarkdownDocumentComments(snapshot.comments);
+            this.revision = snapshot.revision;
+        }
+    }
+
+    private matches(request: DocumentCommentRequest): boolean {
+        const context = this.context;
+        const target = this.options.getTarget();
+        return Boolean(context && target && target === context.viewerTarget
+            && this.options.getSubscriptionGeneration() === context.subscriptionGeneration
+            && request.subscriptionGeneration === context.subscriptionGeneration
+            && request.projectId === target.projectId
+            && request.provider === target.provider
+            && request.sessionId === target.sessionId
+            && request.document.workspaceRootId === context.target.workspaceRootId
+            && request.document.relativePath === context.target.relativePath
+            && request.document.documentVersion === context.documentVersion);
+    }
+
+    private isContextCurrent(context: MarkdownDocumentCommentContext, activation: number): boolean {
+        return this.context === context && this.activation === activation
+            && this.options.getTarget() === context.viewerTarget
+            && this.options.getSubscriptionGeneration() === context.subscriptionGeneration;
+    }
+
+    private async settle(request: DocumentCommentRequest, success: boolean, error?: CommentErrorCode): Promise<void> {
+        const message = {
+            type: 'conversation-viewer-document-comments-result',
+            version: 1,
+            requestId: request.requestId,
+            subscriptionGeneration: request.subscriptionGeneration,
+            projectId: request.projectId,
+            provider: request.provider,
+            sessionId: request.sessionId,
+            operation: request.operation,
+            success,
+            revision: this.revision,
+            document: { ...request.document },
+            comments: cloneMarkdownDocumentComments(this.comments),
+            ...(error ? { error } : {}),
+        };
+        this.settlements.set(this.settlementKey(request), message);
+        while (this.settlements.size > 100) {
+            const oldest = this.settlements.keys().next().value;
+            if (typeof oldest !== 'string') break;
+            this.settlements.delete(oldest);
+        }
+        await this.publish(message);
+    }
+
+    private async publish(message: object): Promise<void> {
+        const panel = this.options.getPanel();
+        if (!panel) return;
+        try { await panel.webview.postMessage(message); } catch (_error) { /* no-op */ }
+    }
+
+    private settlementKey(request: DocumentCommentRequest): string {
+        return JSON.stringify([request.projectId, request.provider, request.sessionId,
+            request.document.workspaceRootId, request.document.relativePath, request.requestId]);
+    }
+
+    private now(): number { return this.options.now?.() ?? Date.now(); }
+
+    private errorCode(error: unknown): CommentErrorCode {
+        return error instanceof MarkdownDocumentCommentError ? error.code : 'failed';
+    }
+}
+
+function parseExistingPayload(request: ConversationViewerDocumentCommentMutationMessage): {
+    commentId: string;
+    text?: unknown;
+    status?: MarkdownDocumentCommentStatus;
+} {
+    const payload = request.payload;
+    if (!isRecord(payload) || typeof payload.commentId !== 'string') {
+        throw new MarkdownDocumentCommentError('invalid');
+    }
+    if (request.operation === 'delete') {
+        if (!hasExactKeys(payload, ['commentId'])) throw new MarkdownDocumentCommentError('invalid');
+    } else if (request.operation === 'update') {
+        if (!hasExactKeys(payload, ['commentId', 'text'])) throw new MarkdownDocumentCommentError('invalid');
+    } else if (!hasExactKeys(payload, ['commentId', 'status'])
+        || (payload.status !== 'draft' && payload.status !== 'resolved' && payload.status !== 'outdated')) {
+        throw new MarkdownDocumentCommentError('invalid');
+    }
+    return payload as { commentId: string; text?: unknown; status?: MarkdownDocumentCommentStatus };
+}

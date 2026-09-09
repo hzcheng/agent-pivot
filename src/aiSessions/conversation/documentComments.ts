@@ -166,9 +166,18 @@ export function buildMarkdownDocumentCommentPrompt(
         '请审阅下面这条 Markdown 文件批注。请围绕指定片段回答；若需要改写，先提出局部修改建议，不要直接假定文件已被写入。',
         '',
         `文件：${target.relativePath}`,
+        `文件版本：${comment.documentVersion}`,
         `章节：${heading}`,
         '引用原文：',
         fencedQuote(comment.anchor.selectedText),
+        ...(comment.anchor.prefix || comment.anchor.suffix ? [
+            '邻近上下文：',
+            fencedQuote([
+                comment.anchor.prefix,
+                comment.anchor.selectedText,
+                comment.anchor.suffix,
+            ].filter(Boolean).join('')),
+        ] : []),
         '用户评论：',
         comment.text,
     ].join('\n');

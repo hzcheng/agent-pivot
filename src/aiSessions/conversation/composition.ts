@@ -28,6 +28,7 @@ import {
 } from './codexAppServerClient';
 import type { ConversationCommentStore } from './commentStore';
 import type { ProjectCommentStore } from './projectCommentStore';
+import type { MarkdownDocumentCommentStore } from './documentCommentStore';
 import type { ConversationBookmarkStore } from './bookmarkStore';
 import {
     ConversationCoordinator,
@@ -201,6 +202,7 @@ export interface ConversationCapabilityOptions {
     ) => Promise<void>;
     commentStore?: ConversationCommentStore;
     projectCommentStore?: ProjectCommentStore;
+    documentCommentStore?: MarkdownDocumentCommentStore;
     bookmarkStore?: ConversationBookmarkStore;
     getShowThinking?: () => boolean;
     readSessionStatus?: ConversationViewerOptions['readSessionStatus'];
@@ -488,6 +490,7 @@ function createAvailableConversationCapability(
         focusSession: options.focusSession,
         commentStore: options.commentStore,
         projectCommentStore: options.projectCommentStore,
+        documentCommentStore: options.documentCommentStore,
         bookmarkStore: options.bookmarkStore,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         runCommandInTerminal: options.runCommandInTerminal,

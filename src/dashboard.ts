@@ -786,6 +786,7 @@ async function initializeDashboard(
         conversationCommentStore,
         projectCommentStore,
         conversationBookmarkStore,
+        documentCommentStore,
         conversationSessionRebindCoordinator,
         conversationViewerCommentStore,
         conversationViewerBookmarkStore,
@@ -2348,6 +2349,7 @@ async function initializeDashboard(
         }),
         commentStore: conversationViewerCommentStore,
         projectCommentStore,
+        documentCommentStore,
         bookmarkStore: conversationViewerBookmarkStore,
         resolveReboundTarget: target =>
             conversationSessionRebindCoordinator.resolve(target),

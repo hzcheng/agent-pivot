@@ -214,6 +214,38 @@ export function renderConversationViewerDocument(
             <section class="conversation-markdown conversation-document-workspace-content"
                 data-markdown-workspace-content></section>
         </div>
+        <aside class="conversation-document-discussion"
+            data-markdown-workspace-discussion aria-label="Document discussion">
+            <div class="conversation-document-discussion-heading">
+                <strong>Document discussion</strong>
+                <span data-markdown-workspace-comment-count>0</span>
+            </div>
+            <div class="conversation-document-selection-actions"
+                data-markdown-workspace-selection-actions hidden>
+                <p data-markdown-workspace-selection-summary></p>
+                <div>
+                    <button type="button" data-markdown-workspace-comment-action="comment">Add comment</button>
+                    <button type="button" data-markdown-workspace-comment-action="ask">Ask AI</button>
+                    <button type="button" data-markdown-workspace-comment-action="explain">Explain</button>
+                </div>
+            </div>
+            <form class="conversation-document-comment-composer"
+                data-markdown-workspace-comment-composer hidden>
+                <label for="markdown-workspace-comment-input">Comment</label>
+                <textarea id="markdown-workspace-comment-input"
+                    data-markdown-workspace-comment-input rows="4"
+                    maxlength="4000"></textarea>
+                <div>
+                    <button type="button" data-markdown-workspace-comment-cancel>Cancel</button>
+                    <button type="submit" data-markdown-workspace-comment-save>Save draft</button>
+                    <button type="button" data-markdown-workspace-comment-send>Send to AI</button>
+                </div>
+            </form>
+            <div class="conversation-document-comment-list"
+                data-markdown-workspace-comment-list aria-live="polite"></div>
+            <p class="conversation-document-comment-feedback"
+                data-markdown-workspace-comment-feedback role="status"></p>
+        </aside>
     </section>
     <div class="conversation-follow-notice" data-conversation-notice
         role="status" hidden>

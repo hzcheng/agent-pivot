@@ -8,6 +8,7 @@ import {
     buildMarkdownDocumentCommentPrompt,
     cloneMarkdownDocumentComments,
     createMarkdownDocumentComment,
+    DOCUMENT_COMMENT_LIMITS,
     MarkdownDocumentComment,
     MarkdownDocumentCommentError,
     MarkdownDocumentCommentStatus,
@@ -185,7 +186,7 @@ export class MarkdownDocumentCommentController {
             });
             // Validation is deliberately performed by commit(), including all
             // bounds on model output and persisted discussion size.
-            comment.discussion = discussion.slice(-8);
+            comment.discussion = discussion.slice(-DOCUMENT_COMMENT_LIMITS.maxDiscussionReplies);
             changed = true;
         }
         if (changed) {

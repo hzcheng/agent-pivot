@@ -28,8 +28,8 @@ export const DOCUMENT_COMMENT_LIMITS = Object.freeze({
     // The whole file-backed snapshot is capped at 2 MiB. Keep the per-comment
     // envelope deliberately below that cap even with a full document of
     // comments, rather than accepting values that persistence must reject.
-    maxDiscussionReplies: 8,
-    maxDiscussionReplyGraphemes: 2_000,
+    maxDiscussionReplies: 4,
+    maxDiscussionReplyGraphemes: 12_000,
     // The persisted envelope adds target/revision metadata and JSON escaping.
     // Keep the model budget below the 2 MiB file-store boundary so a valid
     // in-memory discussion never turns into an unreadable on-disk snapshot.

@@ -1755,8 +1755,16 @@
         if (!host || !markdownWorkspaceContent.contains(host)) return undefined;
         var selectedText = String(selection.toString() || '').replace(/\s+/g, ' ').trim();
         if (!selectedText || Array.from(selectedText).length > 4000) return undefined;
-        var source = String(markdownWorkspaceContent.textContent || '').replace(/\s+/g, ' ');
-        var index = source.indexOf(selectedText);
+        // Derive context from the actual Range, never the first global quote
+        // match. Repeated sentences must retain the paragraph the user chose.
+        var beforeRange = range.cloneRange();
+        beforeRange.selectNodeContents(markdownWorkspaceContent);
+        beforeRange.setEnd(range.startContainer, range.startOffset);
+        var afterRange = range.cloneRange();
+        afterRange.selectNodeContents(markdownWorkspaceContent);
+        afterRange.setStart(range.endContainer, range.endOffset);
+        var prefixSource = String(beforeRange.toString() || '').replace(/\s+/g, ' ');
+        var suffixSource = String(afterRange.toString() || '').replace(/\s+/g, ' ');
         var headingPath = [];
         Array.prototype.forEach.call(markdownWorkspaceContent.querySelectorAll(
             'h1, h2, h3, h4, h5, h6'
@@ -1773,8 +1781,8 @@
         });
         return {
             selectedText: selectedText,
-            prefix: index >= 0 ? source.slice(Math.max(0, index - 480), index) : '',
-            suffix: index >= 0 ? source.slice(index + selectedText.length, index + selectedText.length + 480) : '',
+            prefix: prefixSource.slice(-480),
+            suffix: suffixSource.slice(0, 480),
             headingPath: headingPath.filter(Boolean),
         };
     }

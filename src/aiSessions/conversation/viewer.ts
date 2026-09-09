@@ -2306,9 +2306,6 @@ export class ConversationViewer implements ConversationViewerApi {
             } catch (_error) {
                 result = 'failed';
             }
-            if (result === 'applied') {
-                await this.openMarkdownWorkspace(active.workspaceFile);
-            }
         }
         const panel = this.panel;
         if (!panel) return;
@@ -2321,6 +2318,12 @@ export class ConversationViewer implements ConversationViewerApi {
                 success: result === 'applied', error: result === 'applied' ? undefined : result,
             });
         } catch (_error) { /* no-op */ }
+        // Settle the exact request before replacing workspace UI. Otherwise
+        // the replacement clears its local pending id and loses the success
+        // acknowledgement, leaving stale composer state visible.
+        if (result === 'applied' && this.target === target) {
+            await this.openMarkdownWorkspace(active!.workspaceFile);
+        }
     }
 
     private async openMarkdownEditor(

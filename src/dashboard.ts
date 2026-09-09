@@ -2265,7 +2265,12 @@ async function initializeDashboard(
                 document.positionAt(range.start), document.positionAt(range.end)
             ), suggestion.replacement);
             try {
-                return await vscode.workspace.applyEdit(edit) ? 'applied' : 'failed';
+                if (!await vscode.workspace.applyEdit(edit)) return 'failed';
+                // The reading surface is rendered from the filesystem, not an
+                // unsaved editor buffer. Persist before reporting success or
+                // refreshing it, so the new document/version is authoritative
+                // and the operation participates in VS Code's native Undo.
+                return await document.save() ? 'applied' : 'failed';
             } catch (_error) {
                 return 'failed';
             }

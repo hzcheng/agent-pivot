@@ -11864,6 +11864,23 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.match(await page.locator('[data-markdown-workspace-suggestion-list]').innerText(),
         /tested restore command/,
         'an AI reply refreshes cards without reopening or moving the reading surface');
+    await page.getByRole('button', { name: 'Dismiss' }).click();
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace-suggestions',
+        version: 1,
+        workspaceRootId: 'root-a',
+        relativePath: 'docs/architecture-plan.md',
+        documentVersion: 'sha256:architecture-a',
+        suggestions: [{
+            messageId: 'assistant-suggestion-b',
+            selectedText: 'Rollback strategy',
+            replacement: 'Rollback strategy with a tested restore command.',
+        }],
+        subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+    });
+    assert.equal(await page.getByRole('heading', { name: 'AI suggested change' }).count(), 0,
+        'a rejected suggestion stays closed when the conversation refreshes');
     assert.notEqual(await conversation.count(), 0,
         'opening the reading surface keeps the conversation DOM intact behind it');
     await workspace.getByRole('link', { name: 'Open next plan' }).click();

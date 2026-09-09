@@ -190,6 +190,7 @@
     var markdownWorkspacePendingRequestId = '';
     var markdownWorkspaceSendAfterSave = false;
     var markdownWorkspacePendingSuggestionId = '';
+    var markdownWorkspacePendingSuggestionSourceId = '';
     var markdownWorkspaceReturnFocus;
     var markdownWorkspaceAvailable = !!(markdownWorkspace
         && markdownWorkspaceBack && markdownWorkspaceTitle
@@ -1708,7 +1709,9 @@
     function renderMarkdownWorkspaceSuggestions() {
         if (!markdownWorkspaceCommentsAvailable) return;
         markdownWorkspaceSuggestionList.textContent = '';
-        markdownWorkspaceSuggestions.forEach(function (suggestion) {
+        markdownWorkspaceSuggestions.filter(function (suggestion) {
+            return !markdownWorkspaceSuggestionDisposition(suggestion.messageId);
+        }).forEach(function (suggestion) {
             var card = document.createElement('article');
             card.className = 'conversation-document-suggestion-card';
             card.setAttribute('data-markdown-workspace-suggestion-id', suggestion.messageId);
@@ -1743,6 +1746,47 @@
         });
     }
 
+    function markdownWorkspaceSuggestionStateKey() {
+        return activeMarkdownWorkspaceDocument
+            ? activeMarkdownWorkspaceDocument.workspaceRootId + '\u0001'
+                + activeMarkdownWorkspaceDocument.relativePath
+            : '';
+    }
+
+    function markdownWorkspaceSuggestionDisposition(messageId) {
+        if (!vscodeApi || typeof vscodeApi.getState !== 'function') return '';
+        try {
+            var saved = vscodeApi.getState();
+            var all = saved && saved.conversationMarkdownWorkspaceSuggestions;
+            var entries = all && all[markdownWorkspaceSuggestionStateKey()];
+            var value = entries && entries[messageId];
+            return value === 'dismissed' || value === 'applied' ? value : '';
+        } catch (_error) {
+            return '';
+        }
+    }
+
+    function rememberMarkdownWorkspaceSuggestionDisposition(messageId, disposition) {
+        var key = markdownWorkspaceSuggestionStateKey();
+        if (!key || !messageId || !vscodeApi || typeof vscodeApi.setState !== 'function') return;
+        try {
+            var saved = typeof vscodeApi.getState === 'function'
+                ? vscodeApi.getState() : null;
+            var next = saved && typeof saved === 'object' && !Array.isArray(saved)
+                ? Object.assign({}, saved) : {};
+            var all = next.conversationMarkdownWorkspaceSuggestions
+                && typeof next.conversationMarkdownWorkspaceSuggestions === 'object'
+                && !Array.isArray(next.conversationMarkdownWorkspaceSuggestions)
+                ? Object.assign({}, next.conversationMarkdownWorkspaceSuggestions) : {};
+            var entries = all[key] && typeof all[key] === 'object' && !Array.isArray(all[key])
+                ? Object.assign({}, all[key]) : {};
+            entries[messageId] = disposition;
+            all[key] = entries;
+            next.conversationMarkdownWorkspaceSuggestions = all;
+            vscodeApi.setState(next);
+        } catch (_error) { /* Suggestion status is cosmetic; keep the card usable. */ }
+    }
+
     function useMarkdownWorkspaceSuggestion(messageId) {
         var suggestion = markdownWorkspaceSuggestions.find(function (candidate) {
             return candidate.messageId === messageId;
@@ -1757,6 +1801,7 @@
         markdownWorkspaceSuggestionComposer.hidden = false;
         markdownWorkspaceSuggestionInput.value = suggestion.replacement;
         updateMarkdownWorkspaceSuggestionPreview();
+        markdownWorkspacePendingSuggestionSourceId = suggestion.messageId;
         postMarkdownWorkspaceSuggestion();
     }
 
@@ -1978,9 +2023,16 @@
             ? 'Suggested change applied. You can undo it in VS Code.'
             : 'Suggested change was not applied because the document changed.');
         if (message.success) {
+            if (markdownWorkspacePendingSuggestionSourceId) {
+                rememberMarkdownWorkspaceSuggestionDisposition(
+                    markdownWorkspacePendingSuggestionSourceId, 'applied'
+                );
+                renderMarkdownWorkspaceSuggestions();
+            }
             markdownWorkspaceSuggestionComposer.hidden = true;
             markdownWorkspaceSuggestionInput.value = '';
         }
+        markdownWorkspacePendingSuggestionSourceId = '';
         return true;
     }
 
@@ -2153,6 +2205,7 @@
         markdownWorkspaceSelection = undefined;
         markdownWorkspacePendingRequestId = '';
         markdownWorkspacePendingSuggestionId = '';
+        markdownWorkspacePendingSuggestionSourceId = '';
         if (markdownWorkspaceCommentsAvailable) {
             markdownWorkspaceCommentComposer.hidden = true;
             markdownWorkspaceCommentInput.value = '';
@@ -4502,6 +4555,7 @@
             if (action === 'use') {
                 useMarkdownWorkspaceSuggestion(suggestionId);
             } else if (action === 'dismiss') {
+                rememberMarkdownWorkspaceSuggestionDisposition(suggestionId, 'dismissed');
                 markdownWorkspaceSuggestions = markdownWorkspaceSuggestions.filter(function (item) {
                     return item.messageId !== suggestionId;
                 });

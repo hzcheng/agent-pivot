@@ -1639,6 +1639,7 @@
             var state = document.createElement('span');
             state.textContent = comment.status;
             footer.appendChild(state);
+            footer.appendChild(workspaceCommentButton('Locate in document', 'locate', comment.id));
             if (comment.status === 'draft') {
                 footer.appendChild(workspaceCommentButton('Send to AI', 'send', comment.id));
             }
@@ -1695,6 +1696,30 @@
         if (focusTarget && typeof focusTarget.focus === 'function') focusTarget.focus();
     }
 
+    function locateMarkdownWorkspaceCommentSource(commentId) {
+        if (!markdownWorkspaceAvailable || !commentId) return;
+        var marker = markdownWorkspaceContent.querySelector(
+            '[data-markdown-workspace-comment-marker="' + cssAttributeValue(commentId) + '"]'
+        );
+        if (!marker) {
+            if (markdownWorkspaceCommentFeedback) {
+                markdownWorkspaceCommentFeedback.textContent =
+                    'This comment no longer has a reliable document location.';
+            }
+            return;
+        }
+        Array.prototype.forEach.call(markdownWorkspaceContent.querySelectorAll(
+            '.conversation-document-comment-highlight'
+        ), function (node) {
+            node.classList.remove('conversation-document-comment-highlight');
+        });
+        marker.parentElement.classList.add('conversation-document-comment-highlight');
+        if (typeof marker.scrollIntoView === 'function') {
+            marker.scrollIntoView({ block: 'center' });
+        }
+        marker.focus();
+    }
+
     function cssAttributeValue(value) {
         return String(value).replace(/["\\]/g, '\\$&');
     }
@@ -1720,11 +1745,25 @@
         if (!selectedText || Array.from(selectedText).length > 4000) return undefined;
         var source = String(markdownWorkspaceContent.textContent || '').replace(/\s+/g, ' ');
         var index = source.indexOf(selectedText);
+        var headingPath = [];
+        Array.prototype.forEach.call(markdownWorkspaceContent.querySelectorAll(
+            'h1, h2, h3, h4, h5, h6'
+        ), function (heading) {
+            var relation = heading === host ? 0 : heading.compareDocumentPosition(host);
+            // DOCUMENT_POSITION_FOLLOWING is 4. A heading after the selected
+            // node must not become its context.
+            if (relation !== 0 && !(relation & 4)) return;
+            var level = Number(String(heading.tagName || '').slice(1));
+            if (!Number.isFinite(level) || level < 1 || level > 6) return;
+            headingPath = headingPath.slice(0, level - 1);
+            headingPath[level - 1] = String(heading.textContent || '')
+                .replace(/\s+/g, ' ').trim().slice(0, 240);
+        });
         return {
             selectedText: selectedText,
             prefix: index >= 0 ? source.slice(Math.max(0, index - 480), index) : '',
             suffix: index >= 0 ? source.slice(index + selectedText.length, index + selectedText.length + 480) : '',
-            headingPath: [],
+            headingPath: headingPath.filter(Boolean),
         };
     }
 
@@ -4209,6 +4248,8 @@
                 });
             } else if (action === 'delete') {
                 postMarkdownWorkspaceComment('delete', { commentId: commentId });
+            } else if (action === 'locate') {
+                locateMarkdownWorkspaceCommentSource(commentId);
             }
         });
     }

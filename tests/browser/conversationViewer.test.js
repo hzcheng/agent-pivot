@@ -11863,6 +11863,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.equal(draftIntent.operation, 'add');
     assert.equal(draftIntent.document.relativePath, 'docs/architecture-plan.md');
     assert.equal(draftIntent.payload.anchor.selectedText, 'Rollback strategy');
+    assert.deepEqual(draftIntent.payload.anchor.headingPath, ['Architecture plan']);
     assert.equal(draftIntent.payload.text, 'Clarify the fallback.');
     await sendPage(page, {
         type: 'conversation-viewer-document-comments-result',
@@ -11884,6 +11885,10 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.equal(await page.locator('[data-comment-id="document-comment-a"]').isVisible(), true);
     assert.equal(await page.locator('[data-markdown-workspace-comment-marker="document-comment-a"]').isVisible(), true,
         'a file comment remains locatable from a compact marker in the rendered document');
+    await page.getByRole('button', { name: 'Locate in document' }).click();
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute(
+        'data-markdown-workspace-comment-marker'
+    )), 'document-comment-a');
     await page.getByRole('button', { name: 'Send to AI' }).last().click();
     const sendIntent = (await postedIntents(page)).at(-1);
     assert.equal(sendIntent.type, 'conversation-viewer-send-document-comment');

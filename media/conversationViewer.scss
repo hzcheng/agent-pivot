@@ -177,6 +177,12 @@ body {
     &:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 }
 
+.conversation-document-comment-highlight {
+    outline: 2px solid var(--vscode-editor-findMatchHighlightBorder, var(--vscode-focusBorder));
+    outline-offset: 3px;
+    background: var(--vscode-editor-findMatchHighlightBackground);
+}
+
 .conversation-document-comment-card {
     padding: 0.7rem;
     border: 1px solid var(--vscode-panel-border);

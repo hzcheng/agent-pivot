@@ -5240,6 +5240,23 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps the reader and discussion side b
         'desktop reader and discussion are visible side by side');
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 traps keyboard focus without hidden composers', async t => {
+    const { page } = await openHostViewerDocument(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/architecture-plan.md', relativePath: 'docs/architecture-plan.md',
+        workspaceRootId: 'root-a', documentVersion: 'sha256:architecture-a',
+        commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
+        title: 'architecture-plan.md', html: '<p>Rollback strategy</p>',
+        workspaceRequestId: 1, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+    });
+    await page.locator('[data-markdown-workspace-scroll]').focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-markdown-workspace-back')),
+        '', 'Tab from the last visible control must wrap instead of entering a hidden composer');
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
     async function assertPanelViews(page, label) {
         await page.locator('[data-conversation-position]').click();

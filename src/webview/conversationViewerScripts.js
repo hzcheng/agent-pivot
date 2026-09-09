@@ -4816,10 +4816,19 @@
         if (markdownWorkspaceAvailable && !markdownWorkspace.hidden
             && event.key === 'Tab') {
             var focusable = markdownWorkspace.querySelectorAll(
-                'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+                'a[href], button:not([disabled]), input:not([disabled]), '
+                    + 'textarea:not([disabled]), select:not([disabled]), '
+                    + '[tabindex]:not([tabindex="-1"])'
             );
             var nodes = Array.prototype.filter.call(focusable, function (node) {
-                return !node.hidden && node.getAttribute('aria-hidden') !== 'true';
+                for (var current = node; current && current !== markdownWorkspace;
+                    current = current.parentElement) {
+                    if (current.hidden || current.getAttribute('aria-hidden') === 'true') {
+                        return false;
+                    }
+                }
+                return !markdownWorkspace.hidden
+                    && markdownWorkspace.getAttribute('aria-hidden') !== 'true';
             });
             if (nodes.length) {
                 var firstNode = nodes[0];

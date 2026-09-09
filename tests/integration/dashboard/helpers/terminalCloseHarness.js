@@ -135,12 +135,11 @@ const mutations = {
         scenario: 'user-close',
         transform: source => replaceOnce(
             source,
-            'getAttentionController().acknowledge(authoritativeEventIds);\n'
-                + '        refreshAiSessionViewsIncrementally();\n'
+            "void refreshViewsNow('attention');\n"
                 + '        return aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);',
-            'getAttentionController().acknowledge(authoritativeEventIds);\n'
-                + '        yield aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);\n'
-                + '        refreshAiSessionViewsIncrementally();',
+            'yield aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);\n'
+                + "        void refreshViewsNow('attention');\n"
+                + '        return;',
             'acknowledgement ordering',
         ),
     },
@@ -564,12 +563,12 @@ async function runTerminalCloseContract(transform = source => source, scenario =
                 'ATTENTION-USER-TERMINAL-CLOSE-001 must acknowledge after the user close is observed');
             const refreshAfterAcknowledgeIndex = indexOfCall(
                 calls,
-                'schedule-refresh',
+                'refresh',
                 localAcknowledgeIndex
             );
             const bridgeAcknowledgeIndex = indexOfCall(calls, 'bridge-acknowledge');
             assert.ok(refreshAfterAcknowledgeIndex > localAcknowledgeIndex,
-                'ATTENTION-USER-TERMINAL-CLOSE-001 acknowledgement must queue the local refresh before waiting for the cross-window bridge');
+                'ATTENTION-USER-TERMINAL-CLOSE-001 acknowledgement must publish the local refresh before waiting for the cross-window bridge');
             assert.ok(bridgeAcknowledgeIndex > refreshAfterAcknowledgeIndex,
                 'ATTENTION-USER-TERMINAL-CLOSE-001 the cross-window bridge must be awaited only after the local refresh');
             const acknowledgeTaskIndex = indexOfLifecycleTask(calls, 'acknowledge-user-terminal-close');

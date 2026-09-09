@@ -11,8 +11,14 @@ const {
     buildWorkspaceDashboardSearchCatalog,
 } = require('../../../out/webview/dashboardViewModel');
 const { getDashboardWebviewOptions } = require('../../../out/dashboard/webviewOptions');
+const { getFileTransferContent } = require('../../../out/webview/webviewFileTransferContent');
+const { renderMachineProjectsPanel } = require('../../../out/webview/webviewMachineProjectsContent');
+const { renderManagedRemoteProjectsPanel } = require('../../../out/webview/webviewManagedRemoteProjectsContent');
 
 const root = path.join(__dirname, '..', '..', '..');
+const dashboardHostSource = fs.readFileSync(path.join(root, 'src', 'dashboard.ts'), 'utf8');
+const dashboardContentSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewContent.ts'), 'utf8');
+const stylesSource = fs.readFileSync(path.join(root, 'media', 'styles.scss'), 'utf8');
 const dashboardSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewDashboardScripts.js'), 'utf8');
 const generatedDashboardSource = fs.readFileSync(path.join(root, 'media', 'webviewDashboardScripts.js'), 'utf8');
 const skillPanelSource = fs.readFileSync(path.join(root, 'src', 'webview', 'webviewSkillPanelScripts.js'), 'utf8');
@@ -242,9 +248,12 @@ function createDashboardHarness({
     projectsButton.setAttribute('data-dashboard-tab', 'projects');
     const aiButton = createElement('dashboard-tab-ai-button');
     aiButton.setAttribute('data-dashboard-tab', 'ai');
+    const fileTransferButton = createElement('dashboard-tab-file-transfer-button');
+    fileTransferButton.setAttribute('data-dashboard-tab', 'file-transfer');
     const openPanel = createElement('dashboard-tab-open');
     const projectsPanel = createElement('dashboard-tab-projects');
     const aiPanel = createElement('dashboard-panel-ai');
+    const fileTransferPanel = createElement('dashboard-tab-file-transfer');
     const projectsLoading = createElement();
     const aiLoading = createElement();
     let promptSubtabSelections = 0;
@@ -282,6 +291,7 @@ function createDashboardHarness({
         'dashboard-tab-open': openPanel,
         'dashboard-tab-projects': projectsPanel,
         'dashboard-panel-ai': aiPanel,
+        'dashboard-tab-file-transfer': fileTransferPanel,
         'dashboard-search-results': searchResults,
         'dashboard-search-catalog': catalogElement,
     };
@@ -305,7 +315,7 @@ function createDashboardHarness({
                     ? collapseButton
                     : null,
             querySelectorAll: selector => selector === '[data-dashboard-tab]'
-                ? [openButton, projectsButton, aiButton]
+                ? [openButton, projectsButton, aiButton, fileTransferButton]
                 : [],
         },
         sessionStorage: {
@@ -371,9 +381,11 @@ function createDashboardHarness({
         openButton,
         projectsButton,
         aiButton,
+        fileTransferButton,
         openPanel,
         projectsPanel,
         aiPanel,
+        fileTransferPanel,
         projectsLoading,
         aiLoading,
         collapseButton,
@@ -411,6 +423,255 @@ function loadWebviewModules(options = {}) {
 }
 
 const webviewModules = loadWebviewModules();
+
+test('FILE-TRANSFER-UI-001 renders explicit Source and Target endpoint pickers', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc',
+        lifecycle: 'active',
+        catalog: {
+            machines: [
+                { id: 'machine-b', name: 'Staging', connection: { kind: 'ssh', host: 'staging', user: 'deploy', port: 22 } },
+                { id: 'machine-a', name: 'Build & Test', connection: { kind: 'ssh', host: 'build', user: 'dev', port: 22 } },
+            ],
+            environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [],
+        },
+        machineConflictCandidates: {},
+    });
+    assert.match(html, /File Transfer/);
+    assert.match(html, /data-file-transfer-endpoint="left"/);
+    assert.match(html, /data-file-transfer-endpoint="right"/);
+    assert.match(html, /aria-label="Source"/);
+    assert.match(html, /aria-label="Target"/);
+    assert.match(html, /file-transfer-feedback/);
+    assert.match(html, /data-file-transfer-swap/);
+    assert.match(html, /This Computer…/);
+    assert.match(html, /Build &amp; Test/);
+    assert.match(html, /data-file-transfer-task-status/);
+    assert.match(html, /data-file-transfer-clear-history/);
+    assert.match(html, /data-file-transfer-retry/);
+    assert.match(dashboardSource, /displayPath/);
+    assert.match(dashboardSource, /function endpointReady\(side\)/);
+    assert.match(dashboardSource, /side === 'left'/);
+    assert.doesNotMatch(html, /data-file-transfer-review-sheet/);
+    assert.match(dashboardSource, /swapEndpointLayout/);
+});
+
+test('FILE-TRANSFER-EDITOR-001 opens File Transfer from Projects into a dedicated editor surface', () => {
+    const { getFileTransferEditorContent } = require('../../../out/webview/webviewFileTransferEditorContent');
+    const transferButton = html => {
+        const match = html.match(/<button[^>]*data-action="open-file-transfer"[^>]*>[\s\S]*?<\/button>/);
+        assert.ok(match, 'expected a File Transfer button');
+        return match[0];
+    };
+    const projectsHtml = renderMachineProjectsPanel({
+        machines: [], favorites: [], tags: [], projectCount: 0,
+    }, 'revision:abc');
+    assert.match(projectsHtml, /data-action="open-file-transfer"/);
+    assert.match(projectsHtml, /aria-label="Open File Transfer"/);
+    assert.doesNotMatch(transferButton(projectsHtml), />Transfer</);
+    const managedProjectsHtml = renderManagedRemoteProjectsPanel({
+        revisionId: 'revision:abc', lifecycle: 'active', machines: [], favorites: [], tags: [], projectCount: 0,
+    });
+    assert.match(managedProjectsHtml, /data-action="open-file-transfer"/);
+    assert.doesNotMatch(transferButton(managedProjectsHtml), />Transfer</);
+    assert.match(stylesSource, /\.dashboard-tab-list\s*\{[\s\S]*?grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/);
+    assert.doesNotMatch(stylesSource, /\.machine-toolbar-button\.machine-transfer-action/);
+
+    const html = getFileTransferEditorContent(
+        { extensionPath: root },
+        {
+            cspSource: 'vscode-webview-resource:',
+            asWebviewUri: value => value.toString(),
+        },
+        {
+            revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+            catalog: { machines: [], environments: [], projects: [],
+                layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+                conflicts: [] },
+        },
+    );
+    assert.match(html, /<title>File Transfer<\/title>/);
+    assert.match(html, /id="dashboard-tab-file-transfer"/);
+    assert.match(html, /data-file-transfer-endpoint="left"/);
+    assert.match(html, /data-file-transfer-endpoint="right"/);
+    assert.doesNotMatch(html, /data-dashboard-tab="file-transfer"/);
+    assert.match(dashboardHostSource, /AGENT_PIVOT_FILE_TRANSFER_VIEW_TYPE/);
+    assert.match(dashboardHostSource, /createWebviewPanel\(/);
+    assert.match(dashboardHostSource, /'open-file-transfer': async message/);
+    assert.match(dashboardHostSource, /postFileTransferMessage/);
+    assert.doesNotMatch(dashboardContentSource, /data-dashboard-tab="file-transfer"/);
+});
+
+test('FILE-TRANSFER-UI-002 treats cancellation as a terminal transfer result', () => {
+    assert.match(dashboardSource, /message\.status !== 'copied' && message\.status !== 'cancelled' && message\.status !== 'failed'/);
+    assert.match(dashboardSource, /Copy cancelled after/);
+    assert.match(dashboardSource, /Copy failed after/);
+    assert.match(dashboardSource, /result\.status === 'failed'/);
+    assert.match(dashboardSource, /Cancelling copy…/);
+    assert.match(generatedDashboardSource, /Copy cancelled after/);
+});
+
+test('FILE-TRANSFER-UI-004 excludes conflict-blocked Managed Machines from endpoint choices', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: {
+            machines: [
+                { id: 'machine-ready', name: 'Ready', connection: { kind: 'ssh', host: 'ready', user: 'dev', port: 22 } },
+                { id: 'machine-blocked', name: 'Blocked', connection: { kind: 'ssh', host: 'blocked', user: 'dev', port: 22 } },
+            ],
+            environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [{ entityId: 'machine-blocked', relatedEntityIds: [], field: 'name', candidates: [] }],
+        },
+    });
+    assert.match(html, /Ready/);
+    assert.doesNotMatch(html, /Blocked/);
+});
+
+test('FILE-TRANSFER-UI-003 clears local history only after a correlated settlement', () => {
+    assert.match(dashboardSource, /file-transfer-clear-history/);
+    assert.match(dashboardSource, /pendingHistoryClearRequestId/);
+    assert.match(dashboardSource, /file-transfer-history-cleared/);
+    assert.match(dashboardSource, /file-transfer-history-clear-failed/);
+    assert.match(generatedDashboardSource, /file-transfer-history-cleared/);
+});
+
+test('FILE-TRANSFER-UI-005 keeps a failed endpoint selected so it can be refreshed', () => {
+    assert.match(dashboardSource, /paneFailures/);
+    assert.match(dashboardSource, /Select Refresh to try again/);
+    assert.match(dashboardSource, /file-transfer-remote-directory-failed/);
+});
+
+test('FILE-TRANSFER-UI-006 renders a directory response for either endpoint kind', () => {
+    assert.match(dashboardSource, /var directoryView = localRoots\[side\];/);
+    assert.doesNotMatch(dashboardSource, /var localRoot = value === 'local' \? localRoots\[side\] : null;/);
+});
+
+test('FILE-TRANSFER-UI-007 labels file metadata and blocks unsupported entry types', () => {
+    assert.match(dashboardSource, /file-transfer-file-meta/);
+    assert.match(dashboardSource, /Not supported for copy/);
+    assert.match(dashboardSource, /checkbox\.disabled = entry\.kind !== 'directory' && entry\.kind !== 'file'/);
+});
+
+test('FILE-TRANSFER-UI-008 renders correlated queued copy tasks with cancellation controls', () => {
+    assert.match(dashboardSource, /validateFileTransferCopyQueued/);
+    assert.match(dashboardSource, /file-transfer-copy-queued/);
+    assert.match(dashboardSource, /Queued · /);
+    assert.match(dashboardSource, /requestTaskCancellation/);
+    assert.match(dashboardSource, /Cancelling /);
+    assert.match(dashboardSource, /function fileTransferEndpointLabel\(endpoint\)/);
+    assert.match(dashboardSource, /task\.plan\.sourceLabel \+ ' → ' \+ task\.plan\.destinationLabel/);
+    assert.match(dashboardSource, /function validateFileTransferCopyProgress\(message\)/);
+    assert.match(dashboardSource, /function applyCopyProgress\(message\)/);
+    assert.match(dashboardSource, /function revealCompletedTarget\(silent\)/);
+    assert.match(dashboardSource, /data-file-transfer-reveal-target/);
+    assert.match(dashboardSource, /function validateFileTransferSavedPairs\(message\)/);
+    assert.match(dashboardSource, /function renderSavedPairs\(\)/);
+    assert.match(dashboardSource, /function selectSavedPair\(pair\)/);
+    assert.match(dashboardSource, /file-transfer-request-saved-pairs/);
+    assert.match(dashboardSource, /savedPairLabel\(entry\.source\) \+ ' → ' \+ savedPairLabel\(entry\.destination\)/);
+    assert.match(dashboardSource, /Downloading from source/);
+    assert.match(dashboardSource, /Uploading from relay to target/);
+    assert.match(dashboardSource, /file-transfer-task-list/);
+});
+
+test('FILE-TRANSFER-UI-009 retries failed copies only from a retained opaque plan', () => {
+    assert.match(dashboardSource, /lastFailedCopyPlan/);
+    assert.match(dashboardSource, /Revalidating failed items before retry/);
+    assert.match(dashboardSource, /var plan = lastFailedCopyPlan;/);
+    assert.match(dashboardSource, /submitCopyPlan\(plan\);/);
+});
+
+test('FILE-TRANSFER-UI-010 filters hidden entries and sorts each endpoint independently', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: { machines: [], environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [] },
+    });
+    assert.match(html, /data-file-transfer-show-hidden="left"/);
+    assert.match(html, /data-file-transfer-show-hidden="right"/);
+    assert.match(html, /data-file-transfer-sort="left"/);
+    assert.match(html, /value="modified"/);
+    assert.match(dashboardSource, /function sortFileTransferEntries/);
+    assert.match(dashboardSource, /treeEntry\.parentDirectory \|\| showHiddenEntries\[side\]/);
+    assert.match(dashboardSource, /!isHiddenFileTransferEntry\(treeEntry\.entry\.name\)/);
+    assert.match(dashboardSource, /sortFileTransferEntries\(root\.entries, fileTransferSort\[side\]\)/);
+});
+
+test('FILE-TRANSFER-UI-012 requires ready source and target directories before direct transfer', () => {
+    assert.match(dashboardSource, /function updateReadiness\(\)/);
+    assert.match(dashboardSource, /UI Bridge responding/);
+    assert.match(dashboardSource, /Source directory ready/);
+    assert.match(dashboardSource, /Target directory ready/);
+    assert.match(dashboardSource, /function startDirectCopy\(\)/);
+    assert.match(dashboardSource, /conflictPolicy: 'fail'/);
+    assert.doesNotMatch(dashboardSource, /function openReview\(\)/);
+});
+
+test('FILE-TRANSFER-UI-013 navigates directories through the explicit Location field and parent row', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: { machines: [], environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [] },
+    });
+    assert.match(html, /data-file-transfer-path-input="left"/);
+    assert.doesNotMatch(html, /data-file-transfer-pane-path/);
+    assert.doesNotMatch(dashboardSource, /function renderPaneBreadcrumbs/);
+    assert.match(dashboardSource, /function goToParentDirectory\(side, parentPath\)/);
+    assert.match(dashboardSource, /function openPath\(side, navigationPath, navigationKind\)/);
+});
+
+test('FILE-TRANSFER-UI-014 filters only the files already loaded in each pane', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: { machines: [], environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [] },
+    });
+    assert.match(html, /data-file-transfer-filter="left"/);
+    assert.match(html, /aria-label="Filter loaded files in Source files"/);
+    assert.match(dashboardSource, /entry\.name\.toLocaleLowerCase\(\)\.includes\(filter\)/);
+    assert.match(dashboardSource, /fileTransferFilter\[side\] = input\.value\.slice\(0, 255\)\.toLocaleLowerCase\(\);/);
+});
+
+test('FILE-TRANSFER-UI-015 keeps transfer deliberate instead of allowing a drag to execute it', () => {
+    assert.doesNotMatch(dashboardSource, /function beginFileTransferDrag/);
+    assert.doesNotMatch(dashboardSource, /function dropFileTransferEntry/);
+    assert.match(dashboardSource, /typeof onDragStart === 'function'/);
+    assert.match(dashboardSource, /startCopy\.addEventListener\('click', startDirectCopy\)/);
+});
+
+test('FILE-TRANSFER-UI-016 keeps P0 destination naming and replacement out of the direct transfer path', () => {
+    const html = getFileTransferContent({
+        revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
+        catalog: { machines: [], environments: [], projects: [],
+            layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
+            conflicts: [] },
+    });
+    assert.doesNotMatch(html, /data-file-transfer-target-name-input/);
+    assert.doesNotMatch(html, /data-file-transfer-review-sheet/);
+    assert.match(dashboardSource, /conflictPolicy: 'fail'/);
+    assert.doesNotMatch(dashboardSource, /targetNameInput/);
+    assert.doesNotMatch(dashboardSource, /reviewedCopyPlan/);
+});
+
+test('FILE-TRANSFER-OBSERVABILITY-002 writes every terminal copy result to the host diagnostics channel', () => {
+    assert.match(dashboardHostSource, /\[FileTransfer\] copy settled: status=\$\{status\}/,
+        'a failed local UI Bridge result must remain inspectable from the remote Agent Pivot output channel');
+    assert.match(dashboardHostSource, /\[FileTransfer\] copy command failed:/,
+        'a Bridge command rejection must retain its bounded error in the same output channel');
+});
+
+test('FILE-TRANSFER-COPY-007 writes UI Bridge lifecycle changes and status-query failures to the host diagnostics channel', () => {
+    assert.match(dashboardHostSource, /\[FileTransfer\] copy progress: phase=\$\{status\.phase\}/,
+        'a folder-copy stall must retain the last Bridge-reported lifecycle phase in the remote output channel');
+    assert.match(dashboardHostSource, /\[FileTransfer\] copy status query failed:/,
+        'a disconnected or unresponsive UI Bridge must be distinguishable from an SCP failure');
+});
 
 test('WEBVIEW-DASHBOARD-SEARCH-CATALOG-001 / WORKTREE-PRESENTATION-001 publishes catalog v3 worktrees while de-duplicating saved paths', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([{
@@ -1468,17 +1729,16 @@ test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-leve
     assert.equal(harness.controller.getActiveTab(), 'ai');
     assert.equal(harness.collapseButton.disabled, true);
 
+    harness.fileTransferButton.dispatch('click');
+    assert.equal(harness.controller.getActiveTab(), 'file-transfer');
+    assert.equal(harness.collapseButton.getAttribute('title'), 'No groups to collapse in File Transfer');
+
+    harness.fileTransferButton.focus = () => harness.fileTransferButton.classList.add('focused');
     harness.openButton.dispatch('keydown', {
         key: 'ArrowLeft',
         preventDefault: () => { prevented += 1; },
     });
-    assert.equal(harness.aiButton.classList.contains('focused'), false);
-    harness.aiButton.focus = () => harness.aiButton.classList.add('focused');
-    harness.openButton.dispatch('keydown', {
-        key: 'ArrowLeft',
-        preventDefault: () => { prevented += 1; },
-    });
-    assert.equal(harness.aiButton.classList.contains('focused'), true);
+    assert.equal(harness.fileTransferButton.classList.contains('focused'), true);
 
     harness.openButton.focus = () => harness.openButton.classList.add('focused');
     harness.projectsButton.dispatch('keydown', {
@@ -1487,17 +1747,17 @@ test('WEBVIEW-AI-DASHBOARD-001 supports mouse and roving Arrow/Home/End top-leve
     });
     assert.equal(harness.openButton.classList.contains('focused'), true);
 
-    harness.aiButton.classList.remove('focused');
+    harness.fileTransferButton.classList.remove('focused');
     harness.projectsButton.dispatch('keydown', {
         key: 'End',
         preventDefault: () => { prevented += 1; },
     });
-    assert.equal(harness.aiButton.classList.contains('focused'), true);
-    assert.equal(prevented, 4);
+    assert.equal(harness.fileTransferButton.classList.contains('focused'), true);
+    assert.equal(prevented, 3);
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'ArrowRight'), 'ai');
-    assert.equal(harness.context.getAdjacentDashboardTab('ai', 'ArrowRight'), 'open');
+    assert.equal(harness.context.getAdjacentDashboardTab('ai', 'ArrowRight'), 'file-transfer');
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'Home'), 'open');
-    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'End'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('projects', 'End'), 'file-transfer');
 });
 
 test('WEBVIEW-AI-DASHBOARD-001 keeps AI retryable when coherent Prompt mounting fails', async t => {
@@ -2031,7 +2291,7 @@ test('WEBVIEW-DASHBOARD-UPDATE-MESSAGE-001 PROJECT-INCREMENTAL-REFRESH-001 ignor
 test('SESSION-CONTROLLER-001 validates lazy responses and preserves independent background-tab scroll state', () => {
     const harness = createDashboardHarness();
     assert.equal(harness.context.normalizeDashboardTab('unknown'), 'open');
-    assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'ai');
+    assert.equal(harness.context.getAdjacentDashboardTab('open', 'ArrowLeft'), 'file-transfer');
     assert.equal(harness.context.getAdjacentDashboardTab('projects', 'ArrowRight'), 'ai');
     assert.equal(harness.context.validateProjectsPanelMessage({
         type: 'projects-panel-content', version: 1, requestId: 1, html: '',

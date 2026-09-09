@@ -418,13 +418,13 @@ test('MACHINE-PROJECTS-FOCUS-001 restores a Favorite Project to its directory ro
     }), true);
 });
 
-test('MACHINE-PROJECTS-FOCUS-001 restores focus to the toolbar after the focused Machine is removed', async t => {
+test('MACHINE-PROJECTS-FOCUS-001 restores focus to Add Machine when the focused Machine and Save action are unavailable', async t => {
     const page = await openPage(t, 360, managedMarkup('ready'));
     const emptyMarkup = renderManagedRemoteProjectsPanel({
         revisionId: `revision:${'b'.repeat(64)}`,
         lifecycle: 'active', clientState: 'ready', clientMessage: '',
         projectCount: 0, tags: [], favorites: [], machines: [],
-    });
+    }, undefined, false);
     await page.focus('[data-managed-machine-row] [data-action="toggle-machine-menu"]');
     await page.evaluate(nextMarkup => {
         const panel = document.getElementById('panel');
@@ -434,7 +434,7 @@ test('MACHINE-PROJECTS-FOCUS-001 restores focus to the toolbar after the focused
         restoreProjectsFocus(panel, state.focus);
     }, emptyMarkup);
 
-    assert.equal(await page.locator('[data-action="save-current-project"]')
+    assert.equal(await page.locator('[data-action="show-add-machine-form"]')
         .evaluate(node => document.activeElement === node), true);
 });
 

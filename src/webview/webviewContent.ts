@@ -274,6 +274,7 @@ export function getStewardContent(
                     ? createMachineProjectsUi()
                     : null;
                 const dashboard = initDashboard({
+                    enabledTabs: ['open', 'projects', 'ai'],
                     initialSearchQuery: storedFilter,
                     clearSearch: () => filtering && filtering.clear(),
                     postMessage: message => window.vscode.postMessage(message),

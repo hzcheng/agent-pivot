@@ -793,6 +793,35 @@ body .project {
     }
 }
 
+.file-transfer-editor {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    height: 100vh;
+    min-height: 0;
+    margin: 0;
+    overflow: hidden;
+    background: var(--vscode-editor-background);
+}
+
+.file-transfer-editor-content {
+    display: flex;
+    flex: 1 1 auto;
+    box-sizing: border-box;
+    min-height: 0;
+    overflow: hidden;
+    padding: 6px 10px;
+}
+
+.file-transfer-editor-panel {
+    display: flex;
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 1800px;
+    min-height: 0;
+    margin: 0 auto;
+}
+
 .managed-toolbar-label {
     font-size: 11px;
 }
@@ -1082,7 +1111,7 @@ body .project {
 }
 
 .machine-project-primary {
-    gap: 8px;
+    gap: 7px;
     padding-left: 5px;
 }
 
@@ -1762,6 +1791,739 @@ body .project {
 
 .dashboard-search-results {
     padding-top: 8px;
+}
+
+.file-transfer {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    padding: 0;
+    color: var(--vscode-foreground);
+    box-sizing: border-box;
+}
+
+.file-transfer-heading {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.file-transfer-workspace-header {
+    flex: 0 0 auto;
+    display: grid;
+    gap: 0;
+    padding: 0 0 4px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-editor-background);
+}
+
+.file-transfer-header,
+.file-transfer-pair,
+.file-transfer-pane-header,
+.file-transfer-action-bar {
+    display: flex;
+    align-items: center;
+}
+
+.file-transfer-header {
+    min-height: 20px;
+}
+
+.file-transfer-header h2 {
+    margin: 0;
+    font-size: 14px;
+}
+
+.file-transfer-header p,
+.file-transfer-pair-hint,
+.file-transfer-pane-status {
+    margin: 3px 0 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.file-transfer-header p {
+    max-width: 560px;
+}
+
+.file-transfer-tasks,
+.file-transfer-swap,
+.file-transfer-pane-header button,
+.file-transfer-action-bar button {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 5px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-button-secondaryBackground, transparent);
+    font: inherit;
+    cursor: pointer;
+}
+
+.file-transfer-tasks {
+    padding: 5px 8px;
+}
+
+.file-transfer-swap {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 3px;
+    border-radius: 50%;
+    font-size: 15px;
+}
+
+.file-transfer-tasks span {
+    margin-left: 4px;
+    color: var(--vscode-descriptionForeground);
+}
+
+.file-transfer-task-status {
+    margin: 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.file-transfer-feedback {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-height: 0;
+}
+
+.file-transfer-retry,
+.file-transfer-reveal-target {
+    margin: 0;
+    padding: 2px 6px;
+    font-size: 11px;
+}
+
+.file-transfer-task-list {
+    flex: 1 0 100%;
+    display: grid;
+    gap: 3px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+}
+
+.file-transfer-task-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 3px 6px;
+    border-left: 2px solid var(--vscode-progressBar-background, var(--vscode-focusBorder));
+    background: var(--vscode-list-inactiveSelectionBackground, transparent);
+}
+
+.file-transfer-task-telemetry {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-transfer-task-list button {
+    font-size: 11px;
+}
+
+.file-transfer-pair {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.file-transfer-saved-pairs {
+    margin: 7px 0 3px;
+}
+
+.file-transfer-saved-pairs h3 {
+    margin: 0 0 3px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.file-transfer-saved-pairs ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.file-transfer-saved-pairs li {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.file-transfer-saved-pairs button {
+    max-width: 260px;
+    overflow: hidden;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-button-secondaryBackground, transparent);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.4;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-transfer-saved-pairs button[data-file-transfer-saved-pair-pin] {
+    min-width: 22px;
+}
+
+.file-transfer-endpoint-picker {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 6px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+}
+
+.file-transfer-endpoint-picker > span {
+    flex: 0 0 auto;
+}
+
+.file-transfer-endpoint-picker select {
+    min-width: 0;
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 28px;
+    padding: 3px 6px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    font: inherit;
+}
+
+.file-transfer-pair-arrow {
+    flex: 0 0 auto;
+    padding-top: 17px;
+    color: var(--vscode-focusBorder);
+    font-size: 20px;
+}
+
+.file-transfer-pair-hint {
+    min-height: 0;
+    margin: -6px 2px 0;
+}
+
+.file-transfer-readiness {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin: 7px 0 0;
+}
+
+.file-transfer-readiness span {
+    padding: 3px 6px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 999px;
+    color: var(--vscode-descriptionForeground);
+    background: var(--vscode-editor-background);
+    font-size: 11px;
+}
+
+.file-transfer-readiness.is-ready span {
+    border-color: var(--vscode-testing-iconPassed, var(--vscode-focusBorder));
+    color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+}
+
+.file-transfer-pane-role {
+    min-width: 0;
+    color: var(--vscode-focusBorder);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.file-transfer-panes {
+    display: grid;
+    flex: 1 1 auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    min-height: 0;
+}
+
+.file-transfer-pane {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 0;
+    min-width: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 6px;
+    background: var(--vscode-editor-background);
+}
+
+.file-transfer-pane-header {
+    display: grid;
+    grid-template-columns: auto minmax(72px, max-content) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBarSectionHeader-background, transparent);
+}
+
+.file-transfer-pane-header strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-transfer-path-input {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    margin: 0;
+    color: var(--vscode-descriptionForeground);
+    font-size: 10px;
+}
+
+.file-transfer-path-input input {
+    min-width: 0;
+    flex: 1 1 auto;
+    height: 22px;
+    padding: 1px 4px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 3px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    font: inherit;
+}
+
+.file-transfer-pane-copy-state {
+    display: inline-block;
+    margin: 3px 0 0;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--vscode-badge-foreground);
+    background: var(--vscode-badge-background);
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.file-transfer-pane-copy-state[hidden] {
+    display: none;
+}
+
+.file-transfer-pane.is-file-transfer-copy-source {
+    border-color: var(--vscode-focusBorder);
+    box-shadow: inset 0 0 0 1px var(--vscode-focusBorder);
+}
+
+.file-transfer-pane-header button {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    font-size: 17px;
+}
+
+.file-transfer-pane-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 4px;
+}
+
+.file-transfer-pane-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 5px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+}
+
+.file-transfer-show-hidden,
+.file-transfer-sort,
+.file-transfer-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.file-transfer-sort select {
+    min-width: 76px;
+    min-height: 24px;
+    padding: 1px 4px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    font: inherit;
+}
+
+.file-transfer-filter {
+    flex: 1 1 104px;
+    min-width: 0;
+}
+
+.file-transfer-filter input {
+    width: 76px;
+    min-width: 0;
+    min-height: 24px;
+    padding: 1px 4px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    font: inherit;
+}
+
+.file-transfer-pane-status {
+    display: grid;
+    flex: 1 1 auto;
+    min-height: 72px;
+    place-items: center;
+    padding: 12px;
+    text-align: center;
+}
+
+.file-transfer-pane-status.is-directory-ready {
+    display: block;
+    flex: 0 0 auto;
+    min-height: 0;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    text-align: left;
+}
+
+.file-transfer-file-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 0;
+    list-style: none;
+}
+
+.file-transfer-file-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    overflow: hidden;
+    min-height: 28px;
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    color: var(--vscode-foreground);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-transfer-file-row[draggable="true"] {
+    cursor: grab;
+}
+
+.file-transfer-file-row[draggable="true"]:active {
+    cursor: grabbing;
+}
+
+.file-transfer-file-row.is-selected {
+    background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
+}
+
+.file-transfer-file-entry {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.file-transfer-tree-spacer {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 14px;
+    line-height: 1;
+}
+
+.file-transfer-tree-spacer.is-directory {
+    color: var(--vscode-symbolIcon-folderForeground, var(--vscode-textLink-foreground, var(--vscode-foreground)));
+    font-size: 17px;
+}
+
+.file-transfer-tree-spacer.is-file {
+    font-size: 12px;
+}
+
+.file-transfer-file-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-transfer-directory-name {
+    padding: 0;
+    border: 0;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        color: var(--vscode-textLink-foreground, var(--vscode-foreground));
+        text-decoration: underline;
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 2px;
+    }
+}
+
+.file-transfer-file-meta {
+    min-width: 0;
+    margin-left: auto;
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: 10px;
+    text-overflow: ellipsis;
+}
+
+.file-transfer-file-row.is-unsupported {
+    opacity: .65;
+}
+
+.file-transfer-file-row input {
+    flex: 0 0 auto;
+}
+
+.file-transfer-selection-spacer {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.file-transfer-review {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    left: 16px;
+    z-index: 200;
+    display: grid;
+    gap: 9px;
+    max-width: 460px;
+    margin: auto;
+    padding: 14px;
+    border: 1px solid var(--vscode-focusBorder);
+    border-radius: 8px;
+    color: var(--vscode-foreground);
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 8px 28px var(--vscode-widget-shadow, rgba(0, 0, 0, .45));
+
+    &[hidden] {
+        display: none !important;
+    }
+}
+
+.file-transfer-review h3,
+.file-transfer-review p {
+    margin: 0;
+}
+
+.file-transfer-review-note {
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.file-transfer-review-items {
+    max-height: 96px;
+    margin: 6px 0;
+    overflow: auto;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.file-transfer-conflict-policy {
+    display: grid;
+    gap: 4px;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.file-transfer-conflict-policy select {
+    min-height: 28px;
+    padding: 3px 6px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 4px;
+    color: var(--vscode-input-foreground);
+    background: var(--vscode-input-background);
+    font: inherit;
+}
+
+.file-transfer-review-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.file-transfer-review-actions button {
+    padding: 5px 9px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    font: inherit;
+    cursor: pointer;
+}
+
+.file-transfer-history {
+    padding-top: 3px;
+    border-top: 1px solid var(--vscode-panel-border);
+}
+
+.file-transfer-history h3 {
+    margin: 8px 0 6px;
+    font-size: 12px;
+}
+
+.file-transfer-history-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.file-transfer-history-heading button {
+    font-size: 11px;
+}
+
+.file-transfer-history ul {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--vscode-descriptionForeground);
+    font-size: 11px;
+}
+
+.file-transfer-action-bar {
+    flex: 0 0 auto;
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 8px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 7px;
+    background: var(--vscode-editor-background);
+    box-shadow: 0 -3px 10px rgba(0, 0, 0, .12);
+}
+
+.file-transfer-action-bar span {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+}
+
+.file-transfer-action-bar button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    padding: 6px 9px;
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    white-space: nowrap;
+}
+
+.file-transfer-action-bar button svg {
+    flex: 0 0 16px;
+    width: 16px;
+    height: 16px;
+}
+
+.file-transfer button:disabled {
+    cursor: default;
+    opacity: .55;
+}
+
+@media (max-width: 440px) {
+    .file-transfer-pair,
+    .file-transfer-panes {
+        grid-template-columns: 1fr;
+    }
+
+    .file-transfer-panes {
+        grid-template-rows: repeat(2, minmax(0, 1fr));
+    }
+
+    .file-transfer-pair {
+        display: grid;
+    }
+
+    .file-transfer-swap {
+        justify-self: center;
+        width: 28px;
+        height: 28px;
+    }
+
+    .file-transfer-pair-arrow {
+        padding-top: 0;
+        text-align: center;
+        transform: rotate(90deg);
+    }
+
+    .file-transfer-action-bar {
+        align-items: center;
+        flex-direction: row;
+        gap: 8px;
+        padding: 8px;
+    }
+
+    .file-transfer-pane-toolbar {
+        align-items: center;
+        flex-direction: row;
+    }
+
+    .file-transfer-pane-header {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        row-gap: 4px;
+    }
+
+    .file-transfer-path-input {
+        grid-column: 1 / -1;
+    }
 }
 
 .dashboard-search-section {

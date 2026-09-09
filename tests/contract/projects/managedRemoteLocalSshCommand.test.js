@@ -95,3 +95,222 @@ test('MANAGED-REMOTE-ACTIONS-001 rejects a Bridge without the projection-v2 capa
         /Update the Agent Pivot UI Bridge/,
     );
 });
+
+test('FILE-TRANSFER-COPY-005 rejects a Bridge that lacks the two-hop relay capability before it can start a copy', async () => {
+    const calls = [];
+    const commands = {
+        async executeCommand(command, request) {
+            calls.push(command);
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return {
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678',
+                    capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES.filter(
+                        value => value !== 'fileTransferTwoHopRelayV1',
+                    ),
+                };
+            }
+            return {
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 },
+            };
+        },
+    };
+    await assert.rejects(
+        new ManagedRemoteBridgeClient(commands).copyFileTransferEntries(
+            `revision:${'a'.repeat(64)}`,
+            {
+                kind: 'copy', taskId: 'copy-task-1234567890', conflictPolicy: 'fail',
+                source: { kind: 'managedMachine', machineId: 'machine:source', directoryId: 'a'.repeat(32) },
+                destination: { kind: 'managedMachine', machineId: 'machine:destination', directoryId: 'b'.repeat(32) },
+                entryIds: ['c'.repeat(32)],
+            },
+        ),
+        /Update the Agent Pivot UI Bridge/,
+    );
+    assert.deepEqual(calls, [MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND]);
+});
+
+test('FILE-TRANSFER-LOCAL-HOME-001 rejects a Bridge that cannot browse This Computer without a native picker', async () => {
+    const calls = [];
+    const commands = {
+        async executeCommand(command, request) {
+            calls.push(command);
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return {
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678',
+                    // This represents the previously released bridge: it can
+                    // browse local files, but still opens VS Code's picker.
+                    capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES.filter(
+                        value => value !== 'fileTransferLocalHomeV1',
+                    ),
+                };
+            }
+            return {
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: {},
+            };
+        },
+    };
+    await assert.rejects(
+        new ManagedRemoteBridgeClient(commands).selectFileTransferLocalRoot(),
+        /Update the Agent Pivot UI Bridge/,
+    );
+    assert.deepEqual(calls, [MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND]);
+});
+
+test('FILE-TRANSFER-COPY-006 keeps an active relay copy alive beyond the ordinary Bridge action timeout', async () => {
+    const commands = {
+        executeCommand(command, request) {
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return Promise.resolve({
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678', capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                });
+            }
+            return new Promise(resolve => setTimeout(() => resolve({
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 },
+            }), 25));
+        },
+    };
+    const result = await new ManagedRemoteBridgeClient(commands, 5).copyFileTransferEntries(
+        `revision:${'a'.repeat(64)}`,
+        {
+            kind: 'copy', taskId: 'copy-task-1234567890', conflictPolicy: 'fail',
+            source: { kind: 'managedMachine', machineId: 'machine:source', directoryId: 'a'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:destination', directoryId: 'b'.repeat(32) },
+            entryIds: ['c'.repeat(32)],
+        },
+    );
+    assert.equal(result.status, 'copied');
+});
+
+test('FILE-TRANSFER-PREFLIGHT-003 keeps a recursive folder review alive beyond the ordinary Bridge action timeout', async () => {
+    const commands = {
+        executeCommand(command, request) {
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return Promise.resolve({
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678', capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                });
+            }
+            return new Promise(resolve => setTimeout(() => resolve({
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: {
+                    totalItems: 1, knownBytes: 42, unknownSizeItems: 0,
+                    existingFileNames: [], existingDirectoryNames: [],
+                },
+            }), 25));
+        },
+    };
+    const result = await new ManagedRemoteBridgeClient(commands, 5).preflightFileTransfer(
+        `revision:${'a'.repeat(64)}`,
+        {
+            kind: 'preflight', entryIds: ['a'.repeat(32)],
+            source: { kind: 'managedMachine', machineId: 'machine:source', directoryId: 'b'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:destination', directoryId: 'c'.repeat(32) },
+        },
+    );
+    assert.equal(result.knownBytes, 42);
+});
+
+test('FILE-TRANSFER-PREFLIGHT-004 bounds an unresponsive folder review instead of leaving File Transfer checking indefinitely', async () => {
+    const commands = {
+        executeCommand(command, request) {
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return Promise.resolve({
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678', capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                });
+            }
+            return new Promise(resolve => setTimeout(() => resolve({
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: {
+                    totalItems: 1, knownBytes: 42, unknownSizeItems: 0,
+                    existingFileNames: [], existingDirectoryNames: [],
+                },
+            }), 25));
+        },
+    };
+    await assert.rejects(
+        new ManagedRemoteBridgeClient(commands, 5, 10).preflightFileTransfer(
+            `revision:${'a'.repeat(64)}`,
+            {
+                kind: 'preflight', entryIds: ['a'.repeat(32)],
+                source: { kind: 'managedMachine', machineId: 'machine:source', directoryId: 'b'.repeat(32) },
+                destination: { kind: 'managedMachine', machineId: 'machine:destination', directoryId: 'c'.repeat(32) },
+            },
+        ),
+        /timed out/i,
+    );
+});
+
+test('FILE-TRANSFER-PREFLIGHT-002 bridge client sends opaque handles and validates the bounded summary', async () => {
+    const calls = [];
+    const commands = {
+        async executeCommand(command, request) {
+            calls.push([command, request]);
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return {
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678', capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                };
+            }
+            return {
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: {
+                    totalItems: 1, knownBytes: 42, unknownSizeItems: 0,
+                    existingFileNames: ['report.txt'], existingDirectoryNames: [],
+                },
+            };
+        },
+    };
+    const result = await new ManagedRemoteBridgeClient(commands).preflightFileTransfer(
+        `revision:${'a'.repeat(64)}`,
+        {
+            kind: 'preflight', entryIds: ['a'.repeat(32)],
+            source: { kind: 'local', rootId: 'b'.repeat(32), directoryId: 'c'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'd'.repeat(32) },
+        },
+    );
+    assert.deepEqual(result.existingFileNames, ['report.txt']);
+    assert.equal(calls[1][1].operation, 'preflightFileTransfer');
+    assert.deepEqual(calls[1][1].fileTransfer, {
+        kind: 'preflight', entryIds: ['a'.repeat(32)],
+        source: { kind: 'local', rootId: 'b'.repeat(32), directoryId: 'c'.repeat(32) },
+        destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'd'.repeat(32) },
+    });
+    assert.doesNotMatch(JSON.stringify(calls[1][1]), /\/(?:home|tmp|work)\//u,
+        'the bridge request must not carry a local filesystem path');
+});
+
+test('FILE-TRANSFER-OBSERVABILITY-001 bridge client accepts bounded two-hop progress telemetry', async () => {
+    const commands = {
+        async executeCommand(command, request) {
+            if (command === MANAGED_REMOTE_BRIDGE_HANDSHAKE_COMMAND) {
+                return {
+                    protocolVersion: 1, requestId: request.requestId, challenge: request.challenge,
+                    sessionToken: 'session-12345678', capabilities: MANAGED_REMOTE_BRIDGE_CAPABILITIES,
+                };
+            }
+            return {
+                protocolVersion: 1, requestId: request.requestId, status: 'ok',
+                value: {
+                    status: 'running', phase: 'uploading', hop: 'relay-to-target',
+                    completedItems: 0, skippedItems: 0, totalItems: 1, currentItemName: 'archive.tar',
+                    transferredBytes: 536870912, totalBytes: 1073741824, bytesPerSecond: 44040192,
+                },
+            };
+        },
+    };
+    const result = await new ManagedRemoteBridgeClient(commands).getFileTransferCopyStatus(
+        'copy-task-1234567890',
+    );
+    assert.deepEqual(result, {
+        status: 'running', phase: 'uploading', hop: 'relay-to-target',
+        completedItems: 0, skippedItems: 0, totalItems: 1, currentItemName: 'archive.tar',
+        transferredBytes: 536870912, totalBytes: 1073741824, bytesPerSecond: 44040192,
+    });
+});

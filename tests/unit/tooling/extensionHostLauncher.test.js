@@ -152,8 +152,8 @@ test('RELEASE-SCHEDULED-EXTENSION-HOST-001 launches both extensions with pinned 
             MAIN_EXTENSION_ID,
         ]);
         assert.deepEqual(packagePlan.map(item => path.basename(item.artifactPath)), [
-            'agent-pivot-attention-ui-bridge-1.4.0.vsix',
-            'agent-pivot-1.4.0.vsix',
+            'agent-pivot-attention-ui-bridge-1.4.1.vsix',
+            'agent-pivot-1.4.1.vsix',
         ]);
         assert.equal(options.extensionTestsPath,
             path.join(environment.testHarness, 'index.js'));

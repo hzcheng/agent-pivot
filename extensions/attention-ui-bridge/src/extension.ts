@@ -175,7 +175,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
         inspectLegacySshTarget: (executable, activeConfigPath, target) =>
             managedLegacySshInspector.inspect(executable, activeConfigPath, target),
-    }, managedSshProjection);
+        defaultLocalDirectory: () => os.homedir(),
+    }, managedSshProjection, message => outputChannel.appendLine(`[FileTransfer] ${message}`));
     const instanceId = crypto.randomBytes(16).toString('hex');
     const store = new LocalStore(bridgeRoot, instanceId, bridgeProcessId);
     const productionStore = new ProductionAttentionStore(path.join(bridgeRoot, 'production-attention', 'v1'), bridgeProcessId);
@@ -555,6 +556,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         openWorkspacePinCoordinator,
         openWorkspaceRunningFocusCoordinator,
         openWorkspaceAttentionFocusCoordinator,
+        { dispose: () => managedRemoteController.dispose() },
         {
             dispose: () => {
                 if (scanTimer !== null) {

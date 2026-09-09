@@ -9,6 +9,7 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { Project, ProjectRemoteType, StewardInfos, ReopenStewardReason, AiSessionProviderId, isAiSessionProviderId } from './models';
 import { getStewardContent } from './webview/webviewContent';
+import { getFileTransferEditorContent } from './webview/webviewFileTransferEditorContent';
 import {
     buildMachineProjectsViewModel,
     isLocalMachineProjectPath,
@@ -35,6 +36,7 @@ import {
     AGENT_PIVOT_CONFIG_SECTION,
     AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
     AGENT_PIVOT_DASHBOARD_VIEW_ID,
+    AGENT_PIVOT_FILE_TRANSFER_VIEW_TYPE,
     OBSOLETE_PROJECT_SETTING_KEYS,
     MANAGED_REMOTE_CATALOG_DATA_KEY,
     MANAGED_REMOTE_CATALOG_LOCAL_STATE_KEY,
@@ -939,6 +941,7 @@ async function initializeDashboard(
     let managedRemoteSnapshot = createDisabledManagedRemoteSnapshot(
         managedRemoteCatalogActorId,
     );
+    let publishFileTransferEndpointCatalog = (): void => undefined;
     let managedRemoteCapability: ManagedRemoteManagementCapability | undefined;
     const managedRemoteBridgeClient = new ManagedRemoteBridgeClient(vscode.commands);
     const managedRemoteCapabilityPromise = createManagedRemoteManagementCapability({
@@ -954,6 +957,7 @@ async function initializeDashboard(
             ),
             refreshAuthoritative: async (_requestId, _operation, snapshot) => {
                 managedRemoteSnapshot = snapshot;
+                publishFileTransferEndpointCatalog();
                 await projectsPanelController?.postUpdated('replace');
                 openWorkspaceDashboardController?.invalidatePendingUpdates();
                 await openWorkspaceDashboardController?.postUpdated();
@@ -968,6 +972,7 @@ async function initializeDashboard(
     void managedRemoteCapabilityPromise.then(async capability => {
         managedRemoteCapability = capability;
         managedRemoteSnapshot = capability.snapshot;
+        publishFileTransferEndpointCatalog();
         logDashboardDiagnostic({
             event: 'managed-remote-catalog-ready',
             lifecycle: managedRemoteSnapshot.lifecycle,
@@ -2745,6 +2750,303 @@ async function initializeDashboard(
         },
     };
 
+    const fileTransferHistoryKey = 'fileTransferHistoryV1';
+    const readFileTransferHistory = (): FileTransferHistoryEntry[] => {
+        const value = context.globalState.get<unknown>(fileTransferHistoryKey, []);
+        return Array.isArray(value) ? value.filter(isFileTransferHistoryEntry).slice(0, 50) : [];
+    };
+    const fileTransferSavedPairKey = 'fileTransferSavedPairsV1';
+    const readFileTransferSavedPairs = (): FileTransferSavedPair[] => {
+        const value = context.globalState.get<unknown>(fileTransferSavedPairKey, []);
+        return Array.isArray(value) ? value.filter(isFileTransferSavedPair).slice(0, 12) : [];
+    };
+    const writeFileTransferSavedPairs = async (pairs: FileTransferSavedPair[]): Promise<FileTransferSavedPair[]> => {
+        const bounded = pairs.slice().sort((left, right) => Number(right.pinned) - Number(left.pinned)
+            || right.lastUsedAt - left.lastUsedAt).slice(0, 12);
+        await context.globalState.update(fileTransferSavedPairKey, bounded);
+        return bounded;
+    };
+    const isCurrentFileTransferSavedPair = (endpoints: FileTransferSavedPairEndpoint[]): boolean => {
+        if (managedRemoteSnapshot.lifecycle !== 'active' || endpoints.length !== 2) { return false; }
+        const machineIds = new Set(managedRemoteSnapshot.catalog.machines.map(machine => machine.id));
+        const blockedMachineIds = new Set<string>();
+        for (const conflict of managedRemoteSnapshot.catalog.conflicts) {
+            blockedMachineIds.add(conflict.entityId);
+            for (const relatedId of conflict.relatedEntityIds || []) {
+                blockedMachineIds.add(relatedId);
+            }
+        }
+        return endpoints.every(endpoint => endpoint.kind === 'local'
+            || (machineIds.has(endpoint.machineId) && !blockedMachineIds.has(endpoint.machineId)));
+    };
+    let activeFileTransferTaskId: string | undefined;
+    let activeFileTransferEditor: vscode.WebviewPanel | undefined;
+    let routeFileTransferEditorMessage: ((message: Record<string, unknown>) => void) | undefined;
+    const postFileTransferMessage = (message: unknown) => activeFileTransferEditor
+        ? activeFileTransferEditor.webview.postMessage(message)
+        : provider.postMessage(message);
+    const fileTransferMessageProvider = { postMessage: postFileTransferMessage };
+    publishFileTransferEndpointCatalog = (): void => {
+        if (!activeFileTransferEditor) { return; }
+        const blockedMachineIds = new Set<string>();
+        for (const conflict of managedRemoteSnapshot.catalog.conflicts) {
+            blockedMachineIds.add(conflict.entityId);
+            for (const relatedId of conflict.relatedEntityIds || []) {
+                blockedMachineIds.add(relatedId);
+            }
+        }
+        void activeFileTransferEditor.webview.postMessage({
+            type: 'file-transfer-endpoint-catalog', version: 1,
+            revisionId: managedRemoteSnapshot.lifecycle === 'active' ? managedRemoteSnapshot.revisionId || '' : '',
+            machines: managedRemoteSnapshot.lifecycle === 'active'
+                ? managedRemoteSnapshot.catalog.machines.filter(machine => !blockedMachineIds.has(machine.id))
+                    .map(machine => ({ id: machine.id, name: machine.name })) : [],
+        });
+    };
+    const fileTransferDirectoryDeliveries = new Map<string, {
+        side: 'left' | 'right';
+        message: Record<string, unknown>;
+        attempts: number;
+        retryTimer?: ReturnType<typeof setTimeout>;
+    }>();
+    const postFileTransferDirectoryResult = async (message: Record<string, unknown>): Promise<void> => {
+        const requestId = message.requestId;
+        const requestedSide = message.side;
+        if (typeof requestId !== 'string' || (requestedSide !== 'left' && requestedSide !== 'right')) {
+            await fileTransferMessageProvider.postMessage(message);
+            return;
+        }
+        const side = requestedSide as 'left' | 'right';
+        const delivery: {
+            side: 'left' | 'right';
+            message: Record<string, unknown>;
+            attempts: number;
+            retryTimer?: ReturnType<typeof setTimeout>;
+        } = { side, message, attempts: 0 };
+        fileTransferDirectoryDeliveries.set(requestId, delivery);
+        const deliver = async (): Promise<void> => {
+            if (fileTransferDirectoryDeliveries.get(requestId) !== delivery) {
+                return;
+            }
+            delivery.attempts += 1;
+            const delivered = await fileTransferMessageProvider.postMessage(message);
+            outputChannel.appendLine(`[FileTransfer] directory response delivered: side=${side} attempt=${delivery.attempts} accepted=${delivered}`);
+            if (fileTransferDirectoryDeliveries.get(requestId) !== delivery) {
+                return;
+            }
+            if (delivery.attempts >= 3) {
+                fileTransferDirectoryDeliveries.delete(requestId);
+                outputChannel.appendLine(`[FileTransfer] directory response was not acknowledged: side=${side}`);
+                return;
+            }
+            delivery.retryTimer = setTimeout(() => { void deliver(); }, 500);
+        };
+        await deliver();
+    };
+    const openFileTransferEditor = (): void => {
+        if (activeFileTransferEditor) {
+            activeFileTransferEditor.reveal(vscode.ViewColumn.Active, false);
+            return;
+        }
+        const panel = vscode.window.createWebviewPanel(
+            AGENT_PIVOT_FILE_TRANSFER_VIEW_TYPE,
+            'File Transfer',
+            vscode.ViewColumn.Active,
+            {
+                ...getDashboardWebviewOptions(context.extensionPath, vscode.Uri.file),
+                retainContextWhenHidden: true,
+            },
+        );
+        activeFileTransferEditor = panel;
+        panel.webview.html = getFileTransferEditorContent(
+            { extensionPath: context.extensionPath, createFileUri: vscode.Uri.file },
+            panel.webview as unknown as {
+                cspSource: string;
+                asWebviewUri(resource: unknown): { toString(): string };
+            },
+            managedRemoteSnapshot,
+        );
+        const messageSubscription = panel.webview.onDidReceiveMessage(message => {
+            if (!isFileTransferEditorMessage(message) || !routeFileTransferEditorMessage) {
+                return;
+            }
+            routeFileTransferEditorMessage(message);
+        });
+        panel.onDidDispose(() => {
+            messageSubscription.dispose();
+            if (activeFileTransferEditor === panel) {
+                activeFileTransferEditor = undefined;
+                for (const delivery of fileTransferDirectoryDeliveries.values()) {
+                    if (delivery.retryTimer) {
+                        clearTimeout(delivery.retryTimer);
+                    }
+                }
+                fileTransferDirectoryDeliveries.clear();
+            }
+        });
+    };
+    const queuedFileTransferTasks: Record<string, unknown>[] = [];
+    const boundedFileTransferDiagnosticMessage = (value: unknown): string => String(value)
+        .replace(/[\0\r\n]+/gu, ' ')
+        .replace(/(?:[A-Za-z]:)?[\\/][^\s:]*agent-pivot-file-transfer-[^\s:]+/gu, '[local relay staging]')
+        .trim().slice(0, 320) || 'File copy failed.';
+    const logFileTransferCopySettlement = (
+        status: FileTransferHistoryEntry['status'],
+        value: unknown,
+    ): void => {
+        const result = isRecordFileTransferCopyResult(value) ? value : undefined;
+        const diagnostic = result?.diagnostic;
+        outputChannel.appendLine(
+            `[FileTransfer] copy settled: status=${status}`
+                + ` completed=${result?.completedItems ?? 0} skipped=${result?.skippedItems ?? 0}`
+                + ` total=${result?.totalItems ?? 0}`
+                + (diagnostic ? ` phase=${diagnostic.phase} hop=${diagnostic.hop} code=${diagnostic.code}` : '')
+                + (status === 'failed'
+                    ? ` error=${boundedFileTransferDiagnosticMessage(result?.message || value)}` : ''),
+        );
+    };
+    const runNextFileTransferTask = (): void => {
+        const provider = fileTransferMessageProvider;
+        if (activeFileTransferTaskId || queuedFileTransferTasks.length === 0) {
+            return;
+        }
+        const task = queuedFileTransferTasks.shift()!;
+        activeFileTransferTaskId = task.requestId as string;
+        if (managedRemoteSnapshot.lifecycle !== 'active' || !managedRemoteSnapshot.revisionId) {
+            const message = 'Managed Machines are unavailable. Refresh and try again.';
+            void appendFileTransferHistorySafely(task, 'failed', message).then(() => provider.postMessage(
+                fileTransferCopySettlement(task, 'failed', message),
+            )).finally(() => {
+                if (activeFileTransferTaskId === task.requestId) {
+                    activeFileTransferTaskId = undefined;
+                }
+                runNextFileTransferTask();
+            });
+            return;
+        }
+        outputChannel.appendLine(`[FileTransfer] copy started: items=${Array.isArray(task.entryIds) ? task.entryIds.length : 0}`);
+        void Promise.resolve(provider.postMessage({
+            type: 'file-transfer-copy-started', version: 1, requestId: task.requestId,
+        })).then(() => {
+            let pollTimer: NodeJS.Timeout | undefined;
+            let polling = true;
+            let lastProgressKey: string | undefined;
+            let consecutiveStatusFailures = 0;
+            const scheduleProgressPoll = (): void => {
+                if (!polling || activeFileTransferTaskId !== task.requestId) { return; }
+                pollTimer = setTimeout(() => {
+                    if (!polling || activeFileTransferTaskId !== task.requestId) { return; }
+                    void managedRemoteBridgeClient.getFileTransferCopyStatus(task.requestId as string).then(
+                        status => {
+                            if (isRecordFileTransferCopyStatus(status)) {
+                                consecutiveStatusFailures = 0;
+                                const progressKey = [status.phase, status.hop || '', status.currentItemName || '',
+                                    status.activity || '', status.lastActivityAt || ''].join('|');
+                                if (progressKey !== lastProgressKey) {
+                                    lastProgressKey = progressKey;
+                                    outputChannel.appendLine(
+                                        `[FileTransfer] copy progress: phase=${status.phase} hop=${status.hop || 'unknown'}`
+                                            + ` item=${status.currentItemName || 'unknown'}`
+                                            + ` activity=${status.activity || 'unknown'}`
+                                            + (status.lastActivityAt ? ` at=${status.lastActivityAt}` : ''),
+                                    );
+                                }
+                                return provider.postMessage(fileTransferCopyProgress(task, status));
+                            }
+                            outputChannel.appendLine('[FileTransfer] copy status is unknown while the copy command is still pending.');
+                            return undefined;
+                        },
+                        error => {
+                            consecutiveStatusFailures += 1;
+                            outputChannel.appendLine(
+                                `[FileTransfer] copy status query failed: attempt=${consecutiveStatusFailures}`
+                                    + ` error=${boundedFileTransferDiagnosticMessage(error instanceof Error ? error.message : error)}`,
+                            );
+                            // Progress is observational. A temporarily busy command bridge must not
+                            // cancel a still-healthy OS-level transfer merely because telemetry is
+                            // unavailable; the copy request itself remains the terminal authority.
+                            if (consecutiveStatusFailures >= 3) {
+                                outputChannel.appendLine('[FileTransfer] copy progress is temporarily unavailable; continuing the transfer.');
+                            }
+                            return undefined;
+                        },
+                    ).then(scheduleProgressPoll, scheduleProgressPoll);
+                }, 500);
+            };
+            scheduleProgressPoll();
+            return managedRemoteBridgeClient.copyFileTransferEntries(
+                managedRemoteSnapshot.revisionId!,
+                {
+                    kind: 'copy',
+                    taskId: task.requestId as string,
+                    source: task.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                    destination: task.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                    entryIds: task.entryIds as string[],
+                    conflictPolicy: task.conflictPolicy as 'fail' | 'skip' | 'replace',
+                    ...(typeof task.targetName === 'string' ? { targetName: task.targetName } : {}),
+                },
+            ).finally(() => {
+                polling = false;
+                if (pollTimer) { clearTimeout(pollTimer); }
+            });
+        }).then(
+            async result => {
+                const status = isRecordFileTransferCopyResult(result) ? result.status : 'failed';
+                logFileTransferCopySettlement(status, result);
+                await appendFileTransferHistorySafely(task, status, result);
+                return provider.postMessage(fileTransferCopySettlement(task, status, result));
+            },
+            error => {
+                const rawMessage = boundedFileTransferDiagnosticMessage(
+                    error instanceof Error ? error.message : error,
+                );
+                outputChannel.appendLine(`[FileTransfer] copy command failed: ${rawMessage}`);
+                logFileTransferCopySettlement('failed', rawMessage);
+                return appendFileTransferHistorySafely(task, 'failed', rawMessage).then(() => provider.postMessage(
+                    fileTransferCopySettlement(task, 'failed', rawMessage.slice(0, 320)),
+                ));
+            },
+        ).finally(() => {
+            if (activeFileTransferTaskId === task.requestId) {
+                activeFileTransferTaskId = undefined;
+            }
+            runNextFileTransferTask();
+        });
+    };
+    const appendFileTransferHistory = async (
+        request: Record<string, unknown>,
+        status: FileTransferHistoryEntry['status'],
+        value: unknown,
+    ): Promise<void> => {
+        const entry: FileTransferHistoryEntry = {
+            at: Date.now(),
+            status,
+            itemCount: Array.isArray(request.entryIds) ? request.entryIds.length : 0,
+            conflictPolicy: String(request.conflictPolicy),
+            ...(compactFileTransferHistoryEndpoint(request.source)
+                && compactFileTransferHistoryEndpoint(request.destination)
+                ? {
+                    source: compactFileTransferHistoryEndpoint(request.source)!,
+                    destination: compactFileTransferHistoryEndpoint(request.destination)!,
+                } : {}),
+            ...(isRecordFileTransferCopyResult(value)
+                ? { completedItems: value.completedItems, skippedItems: value.skippedItems }
+                : {}),
+        };
+        await context.globalState.update(fileTransferHistoryKey, [entry, ...readFileTransferHistory()].slice(0, 50));
+    };
+    const appendFileTransferHistorySafely = async (
+        request: Record<string, unknown>,
+        status: FileTransferHistoryEntry['status'],
+        value: unknown,
+    ): Promise<void> => {
+        try {
+            await appendFileTransferHistory(request, status, value);
+        } catch (_error) {
+            // History is best effort. The task settlement remains authoritative.
+        }
+    };
+
     const dashboardMessageRouter = createDashboardMessageRouter({
         getAiSessionProviderIds: () => getRegisteredAiSessionProviders().map(provider => provider.id),
         saveCurrentWorkspace: async message => {
@@ -2823,6 +3125,307 @@ async function initializeDashboard(
             },
             'managed-remote-client-action': async message => {
                 await managedRemoteActions.handleMessage(message);
+            },
+            'open-file-transfer': async message => {
+                if (Object.keys(message).sort().join('\n') !== ['type', 'version'].join('\n')
+                    || message.version !== 1) {
+                    return;
+                }
+                openFileTransferEditor();
+            },
+            'file-transfer-directory-applied': async message => {
+                if (!isFileTransferDirectoryApplied(message)) {
+                    return;
+                }
+                const delivery = fileTransferDirectoryDeliveries.get(message.requestId as string);
+                if (!delivery || delivery.side !== message.side) {
+                    return;
+                }
+                if (delivery.retryTimer) {
+                    clearTimeout(delivery.retryTimer);
+                }
+                fileTransferDirectoryDeliveries.delete(message.requestId as string);
+                outputChannel.appendLine(`[FileTransfer] directory response applied: side=${message.side} attempts=${delivery.attempts}`);
+            },
+            'file-transfer-select-local-root': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferLocalRootRequest(message)) {
+                    return;
+                }
+                try {
+                    const root = await managedRemoteBridgeClient.selectFileTransferLocalRoot();
+                    await postFileTransferDirectoryResult({
+                        type: 'file-transfer-local-root-selected',
+                        version: 1,
+                        requestId: message.requestId,
+                        side: message.side,
+                        ...(root ? { root } : { cancelled: true }),
+                    });
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    await provider.postMessage({
+                        type: 'file-transfer-local-root-failed',
+                        version: 1,
+                        requestId: message.requestId,
+                        side: message.side,
+                        message: rawMessage.slice(0, 320),
+                    });
+                }
+            },
+            'file-transfer-list-remote-directory': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferRemoteDirectoryRequest(message)) {
+                    return;
+                }
+                outputChannel.appendLine(`[FileTransfer] managed directory requested: side=${message.side} machineId=${message.machineId}`);
+                if (managedRemoteSnapshot.lifecycle !== 'active'
+                    || !managedRemoteSnapshot.revisionId) {
+                    outputChannel.appendLine('[FileTransfer] managed directory unavailable: catalog is not active');
+                    await provider.postMessage(fileTransferDirectoryFailure(message,
+                        'Managed Machines are unavailable. Refresh and try again.'));
+                    return;
+                }
+                try {
+                    const root = await managedRemoteBridgeClient.listFileTransferRemoteDirectory(
+                        managedRemoteSnapshot.revisionId,
+                        message.machineId as string,
+                    );
+                    await postFileTransferDirectoryResult({
+                        type: 'file-transfer-remote-directory-listed',
+                        version: 1,
+                        requestId: message.requestId,
+                        side: message.side,
+                        root,
+                    });
+                    outputChannel.appendLine(`[FileTransfer] managed directory listed: side=${message.side} entries=${root.entries.length}`);
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    outputChannel.appendLine(`[FileTransfer] managed directory failed: side=${message.side} error=${rawMessage.replace(/[\r\n]+/gu, ' ').slice(0, 320)}`);
+                    await provider.postMessage(fileTransferDirectoryFailure(message,
+                        rawMessage.slice(0, 320)));
+                }
+            },
+            'file-transfer-open-directory': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferOpenDirectoryRequest(message)) {
+                    return;
+                }
+                try {
+                    const endpoint = message.endpoint as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference;
+                    const navigationPath = typeof message.path === 'string' ? message.path : undefined;
+                    if (endpoint.kind === 'local') {
+                        const root = await managedRemoteBridgeClient.listFileTransferLocalDirectory(
+                            endpoint.rootId, navigationPath === undefined ? endpoint.directoryId : undefined,
+                            navigationPath,
+                        );
+                        await postFileTransferDirectoryResult({
+                            type: 'file-transfer-local-root-selected',
+                            version: 1,
+                            requestId: message.requestId,
+                            side: message.side,
+                            root,
+                        });
+                    } else {
+                        if (managedRemoteSnapshot.lifecycle !== 'active' || !managedRemoteSnapshot.revisionId) {
+                            throw new Error('Managed Machines are unavailable. Refresh and try again.');
+                        }
+                        const root = await managedRemoteBridgeClient.listFileTransferRemoteDirectory(
+                            managedRemoteSnapshot.revisionId,
+                            endpoint.machineId,
+                            navigationPath === undefined ? endpoint.directoryId : undefined,
+                            navigationPath,
+                        );
+                        await postFileTransferDirectoryResult({
+                            type: 'file-transfer-remote-directory-listed',
+                            version: 1,
+                            requestId: message.requestId,
+                            side: message.side,
+                            root,
+                        });
+                    }
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    await provider.postMessage(fileTransferDirectoryFailure(message, rawMessage.slice(0, 320)));
+                }
+            },
+            'file-transfer-copy': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferCopyRequest(message)) {
+                    return;
+                }
+                if (managedRemoteSnapshot.lifecycle !== 'active'
+                    || !managedRemoteSnapshot.revisionId) {
+                    await provider.postMessage(fileTransferCopySettlement(message, 'failed',
+                        'Managed Machines are unavailable. Refresh and try again.'));
+                    return;
+                }
+                if (queuedFileTransferTasks.length >= 10) {
+                    await provider.postMessage(fileTransferCopySettlement(message, 'failed',
+                        'The File Transfer queue is full. Wait for a task to finish before adding another.'));
+                    return;
+                }
+                queuedFileTransferTasks.push(message);
+                await provider.postMessage({
+                    type: 'file-transfer-copy-queued',
+                    version: 1,
+                    requestId: message.requestId,
+                    position: queuedFileTransferTasks.length,
+                });
+                runNextFileTransferTask();
+            },
+            'file-transfer-preflight-copy': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferPreflightRequest(message)) {
+                    return;
+                }
+                if (managedRemoteSnapshot.lifecycle !== 'active'
+                    || !managedRemoteSnapshot.revisionId) {
+                    await provider.postMessage(fileTransferPreflightFailure(message,
+                        'Managed Machines are unavailable. Refresh and try again.'));
+                    return;
+                }
+                try {
+                    outputChannel.appendLine(
+                        `[FileTransfer] preflight started: items=${Array.isArray(message.entryIds) ? message.entryIds.length : 0}`,
+                    );
+                    const result = await managedRemoteBridgeClient.preflightFileTransfer(
+                        managedRemoteSnapshot.revisionId,
+                        {
+                            kind: 'preflight',
+                            source: message.source as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                            destination: message.destination as import('./projects/managedRemote/bridgeProtocol').FileTransferEndpointReference,
+                            entryIds: message.entryIds as string[],
+                            ...(typeof message.targetName === 'string' ? { targetName: message.targetName } : {}),
+                        },
+                    );
+                    outputChannel.appendLine(
+                        `[FileTransfer] preflight settled: items=${result.totalItems}`
+                            + ` bytes=${result.knownBytes} unknown=${result.unknownSizeItems}`,
+                    );
+                    await provider.postMessage(fileTransferPreflightSettlement(message, result));
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    outputChannel.appendLine(
+                        `[FileTransfer] preflight failed: ${boundedFileTransferDiagnosticMessage(rawMessage)}`,
+                    );
+                    await provider.postMessage(fileTransferPreflightFailure(message, rawMessage.slice(0, 320)));
+                }
+            },
+            'file-transfer-request-history': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferHistoryRequest(message)) {
+                    return;
+                }
+                await provider.postMessage({
+                    type: 'file-transfer-history', version: 1, entries: readFileTransferHistory(),
+                });
+            },
+            'file-transfer-request-saved-pairs': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferSavedPairsRequest(message)) {
+                    return;
+                }
+                await provider.postMessage({
+                    type: 'file-transfer-saved-pairs', version: 1, entries: readFileTransferSavedPairs(),
+                });
+            },
+            'file-transfer-save-pair': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferSavedPairMutation(message)) {
+                    return;
+                }
+                const endpoints = normalizeFileTransferSavedPairEndpoints(message.endpoints as FileTransferSavedPairEndpoint[]);
+                if (!isCurrentFileTransferSavedPair(endpoints)) {
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs-failed', version: 1, requestId: message.requestId,
+                        message: 'The selected endpoint pair is no longer available. Refresh and choose it again.',
+                    });
+                    return;
+                }
+                try {
+                    const key = fileTransferSavedPairKeyFor(endpoints);
+                    const existing = readFileTransferSavedPairs();
+                    const prior = existing.find(pair => fileTransferSavedPairKeyFor(pair.endpoints) === key);
+                    const entries = await writeFileTransferSavedPairs([{
+                        endpoints, pinned: prior?.pinned === true, lastUsedAt: Date.now(),
+                    }, ...existing.filter(pair => fileTransferSavedPairKeyFor(pair.endpoints) !== key)]);
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs', version: 1, requestId: message.requestId, entries,
+                    });
+                } catch (_error) {
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs-failed', version: 1, requestId: message.requestId,
+                        message: 'Could not save this endpoint pair locally.',
+                    });
+                }
+            },
+            'file-transfer-set-saved-pair-pinned': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferSavedPairPinMutation(message)) {
+                    return;
+                }
+                const endpoints = normalizeFileTransferSavedPairEndpoints(message.endpoints as FileTransferSavedPairEndpoint[]);
+                if (!isCurrentFileTransferSavedPair(endpoints)) {
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs-failed', version: 1, requestId: message.requestId,
+                        message: 'The selected endpoint pair is no longer available. Refresh and choose it again.',
+                    });
+                    return;
+                }
+                try {
+                    const key = fileTransferSavedPairKeyFor(endpoints);
+                    const existing = readFileTransferSavedPairs();
+                    const entries = await writeFileTransferSavedPairs(existing.map(pair =>
+                        fileTransferSavedPairKeyFor(pair.endpoints) === key
+                            ? { ...pair, pinned: message.pinned === true, lastUsedAt: Date.now() } : pair));
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs', version: 1, requestId: message.requestId, entries,
+                    });
+                } catch (_error) {
+                    await provider.postMessage({
+                        type: 'file-transfer-saved-pairs-failed', version: 1, requestId: message.requestId,
+                        message: 'Could not update this endpoint pair locally.',
+                    });
+                }
+            },
+            'file-transfer-clear-history': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferHistoryClearRequest(message)) {
+                    return;
+                }
+                try {
+                    await context.globalState.update(fileTransferHistoryKey, []);
+                    await provider.postMessage({
+                        type: 'file-transfer-history-cleared', version: 1,
+                        requestId: message.requestId, entries: [],
+                    });
+                } catch (error) {
+                    const rawMessage = error instanceof Error ? error.message : String(error);
+                    await provider.postMessage({
+                        type: 'file-transfer-history-clear-failed', version: 1,
+                        requestId: message.requestId, message: rawMessage.slice(0, 320),
+                    });
+                }
+            },
+            'file-transfer-cancel-copy': async message => {
+                const provider = fileTransferMessageProvider;
+                if (!isFileTransferCancelRequest(message)) {
+                    return;
+                }
+                try {
+                    const queuedIndex = queuedFileTransferTasks.findIndex(task => task.requestId === message.taskId);
+                    if (queuedIndex >= 0) {
+                        const [cancelled] = queuedFileTransferTasks.splice(queuedIndex, 1);
+                        const result = { status: 'cancelled' as const, completedItems: 0, skippedItems: 0,
+                            totalItems: Array.isArray(cancelled.entryIds) ? cancelled.entryIds.length : 0 };
+                        await appendFileTransferHistorySafely(cancelled, 'cancelled', result);
+                        await provider.postMessage(fileTransferCopySettlement(cancelled, 'cancelled', result));
+                        return;
+                    }
+                    await managedRemoteBridgeClient.cancelFileTransferCopy(message.taskId as string);
+                } catch (_error) {
+                    // The terminal settlement remains the authoritative task outcome.
+                }
             },
         },
         createAiSession: async e => {
@@ -2946,6 +3549,7 @@ async function initializeDashboard(
             );
         },
     });
+    routeFileTransferEditorMessage = message => { void dashboardMessageRouter(message); };
     const providerOptions: AgentPivotViewProviderOptions = {
         getWebviewOptions: () => getDashboardWebviewOptions(context.extensionPath, vscode.Uri.file),
         renderContent: (webview, documentGeneration) => {
@@ -4412,6 +5016,444 @@ async function initializeDashboard(
 
 }
 
+}
+
+function isFileTransferEditorMessage(value: unknown): value is Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return false;
+    }
+    return new Set([
+        'file-transfer-select-local-root',
+        'file-transfer-list-remote-directory',
+        'file-transfer-directory-applied',
+        'file-transfer-open-directory',
+        'file-transfer-copy',
+        'file-transfer-preflight-copy',
+        'file-transfer-request-history',
+        'file-transfer-request-saved-pairs',
+        'file-transfer-save-pair',
+        'file-transfer-set-saved-pair-pinned',
+        'file-transfer-clear-history',
+        'file-transfer-cancel-copy',
+    ]).has((value as Record<string, unknown>).type as string);
+}
+
+function isFileTransferDirectoryApplied(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-directory-applied'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && (value.side === 'left' || value.side === 'right')
+        && Object.keys(value).sort().join('\n') === [
+            'requestId', 'side', 'type', 'version',
+        ].join('\n');
+}
+
+function isFileTransferLocalRootRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-select-local-root'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && (value.side === 'left' || value.side === 'right')
+        && Object.keys(value).sort().join('\n') === [
+            'requestId', 'side', 'type', 'version',
+        ].join('\n');
+}
+
+function isFileTransferRemoteDirectoryRequest(value: Record<string, unknown>): value is Record<string, string | number> {
+    return value.type === 'file-transfer-list-remote-directory'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && (value.side === 'left' || value.side === 'right')
+        && typeof value.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value.machineId)
+        && Object.keys(value).sort().join('\n') === [
+            'machineId', 'requestId', 'side', 'type', 'version',
+        ].join('\n');
+}
+
+function fileTransferDirectoryFailure(
+    request: Record<string, unknown>,
+    message: string,
+): Record<string, unknown> {
+    return {
+        type: 'file-transfer-remote-directory-failed',
+        version: 1,
+        requestId: request.requestId,
+        side: request.side,
+        message,
+    };
+}
+
+function isFileTransferCopyRequest(value: Record<string, unknown>): boolean {
+    if (value.type !== 'file-transfer-copy'
+        || value.version !== 1
+        || typeof value.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        || !Array.isArray(value.entryIds)
+        || value.entryIds.length < 1
+        || value.entryIds.length > 100
+        || !value.entryIds.every(entry => typeof entry === 'string' && /^[a-f0-9]{32}$/u.test(entry))
+        || new Set(value.entryIds).size !== value.entryIds.length
+        || !['fail', 'skip', 'replace'].includes(String(value.conflictPolicy))
+        || !isFileTransferEndpointReference(value.source)
+        || !isFileTransferEndpointReference(value.destination)
+        || !isFileTransferTargetName(value.targetName)
+        || !Object.keys(value).every(key => [
+            'conflictPolicy', 'destination', 'entryIds', 'requestId', 'source', 'targetName', 'type', 'version',
+        ].includes(key))
+        || !['conflictPolicy', 'destination', 'entryIds', 'requestId', 'source', 'type', 'version']
+            .every(key => Object.prototype.hasOwnProperty.call(value, key))) {
+        return false;
+    }
+    return true;
+}
+
+function isFileTransferTargetName(value: unknown): boolean {
+    return value === undefined || (typeof value === 'string'
+        && /^(?!\.\.?$)[^\\/\0\r\n]{1,255}$/u.test(value));
+}
+
+function isFileTransferPreflightRequest(value: Record<string, unknown>): boolean {
+    if (value.type !== 'file-transfer-preflight-copy'
+        || value.version !== 1
+        || typeof value.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        || !Array.isArray(value.entryIds)
+        || value.entryIds.length < 1
+        || value.entryIds.length > 100
+        || !value.entryIds.every(entry => typeof entry === 'string' && /^[a-f0-9]{32}$/u.test(entry))
+        || new Set(value.entryIds).size !== value.entryIds.length
+        || !isFileTransferEndpointReference(value.source)
+        || !isFileTransferEndpointReference(value.destination)
+        || !isFileTransferTargetName(value.targetName)
+        || !Object.keys(value).every(key => [
+            'destination', 'entryIds', 'requestId', 'source', 'targetName', 'type', 'version',
+        ].includes(key))
+        || !['destination', 'entryIds', 'requestId', 'source', 'type', 'version']
+            .every(key => Object.prototype.hasOwnProperty.call(value, key))) {
+        return false;
+    }
+    return true;
+}
+
+function isFileTransferOpenDirectoryRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-open-directory'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && (value.side === 'left' || value.side === 'right')
+        && isFileTransferEndpointReference(value.endpoint)
+        && (value.path === undefined || isFileTransferNavigationPath(value.path, value.endpoint))
+        && Object.keys(value).every(key => [
+            'endpoint', 'path', 'requestId', 'side', 'type', 'version',
+        ].includes(key))
+        && ['endpoint', 'requestId', 'side', 'type', 'version']
+            .every(key => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function isFileTransferNavigationPath(value: unknown, endpoint: unknown): boolean {
+    if (typeof value !== 'string' || value.length < 1 || value.length > 1024 || /[\0\r\n]/u.test(value)) {
+        return false;
+    }
+    const kind = endpoint && typeof endpoint === 'object'
+        ? (endpoint as Record<string, unknown>).kind : undefined;
+    if (kind === 'local') {
+        return !/[\\]/u.test(value)
+            && (value === '.' || (!value.startsWith('/') && value.split('/').every(segment =>
+                segment.length > 0 && segment !== '.' && segment !== '..')));
+    }
+    return kind === 'managedMachine'
+        && (value === '.' || value === '/' || (value.startsWith('/') && value.split('/').every((segment, index) =>
+            index === 0 || (segment.length > 0 && segment !== '.' && segment !== '..'))));
+}
+
+function isFileTransferEndpointReference(value: unknown): boolean {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const endpoint = value as Record<string, unknown>;
+    if (endpoint.kind === 'local') {
+        return Object.keys(endpoint).sort().join('\n') === ['directoryId', 'kind', 'rootId'].join('\n')
+            && typeof endpoint.rootId === 'string' && /^[a-f0-9]{32}$/u.test(endpoint.rootId)
+            && typeof endpoint.directoryId === 'string' && /^[a-f0-9]{32}$/u.test(endpoint.directoryId);
+    }
+    return endpoint.kind === 'managedMachine'
+        && Object.keys(endpoint).sort().join('\n') === ['directoryId', 'kind', 'machineId'].join('\n')
+        && typeof endpoint.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(endpoint.machineId)
+        && typeof endpoint.directoryId === 'string' && /^[a-f0-9]{32}$/u.test(endpoint.directoryId);
+}
+
+function fileTransferCopySettlement(
+    request: Record<string, unknown>,
+    status: 'copied' | 'cancelled' | 'failed',
+    value: unknown,
+): Record<string, unknown> {
+    return status === 'copied' || status === 'cancelled' || isRecordFileTransferCopyResult(value)
+        ? { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, value }
+        : { type: 'file-transfer-copy-settled', version: 1, requestId: request.requestId, status, message: value };
+}
+
+function fileTransferCopyProgress(
+    request: Record<string, unknown>,
+    progress: {
+        status: 'running';
+        phase: 'preparing' | 'downloading' | 'uploading' | 'verifying';
+        completedItems: number;
+        skippedItems: number;
+        totalItems: number;
+        currentItemName?: string;
+        hop?: 'source-to-relay' | 'relay-to-target' | 'source-to-target';
+        transferredBytes?: number;
+        totalBytes?: number;
+        bytesPerSecond?: number;
+        activity?: 'preparing' | 'scp-started' | 'scp-running' | 'scp-exited' | 'verifying';
+        lastActivityAt?: number;
+    },
+): Record<string, unknown> {
+    return {
+        type: 'file-transfer-copy-progress', version: 1, requestId: request.requestId,
+        progress,
+    };
+}
+
+function fileTransferPreflightSettlement(
+    request: Record<string, unknown>,
+    result: unknown,
+): Record<string, unknown> {
+    return { type: 'file-transfer-copy-preflighted', version: 1, requestId: request.requestId, result };
+}
+
+function fileTransferPreflightFailure(
+    request: Record<string, unknown>,
+    message: string,
+): Record<string, unknown> {
+    return { type: 'file-transfer-copy-preflight-failed', version: 1, requestId: request.requestId, message };
+}
+
+function isFileTransferCancelRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-cancel-copy'
+        && value.version === 1
+        && typeof value.taskId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.taskId)
+        && Object.keys(value).sort().join('\n') === ['taskId', 'type', 'version'].join('\n');
+}
+
+interface FileTransferHistoryEntry {
+    at: number;
+    status: 'copied' | 'cancelled' | 'failed';
+    itemCount: number;
+    conflictPolicy: string;
+    completedItems?: number;
+    skippedItems?: number;
+    source?: FileTransferSavedPairEndpoint;
+    destination?: FileTransferSavedPairEndpoint;
+}
+
+function compactFileTransferHistoryEndpoint(value: unknown): FileTransferSavedPairEndpoint | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return null; }
+    const endpoint = value as Record<string, unknown>;
+    if (endpoint.kind === 'local') { return { kind: 'local' }; }
+    return endpoint.kind === 'managedMachine' && typeof endpoint.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(endpoint.machineId)
+        ? { kind: 'managedMachine', machineId: endpoint.machineId } : null;
+}
+
+function isFileTransferHistoryEntry(value: unknown): value is FileTransferHistoryEntry {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const entry = value as Record<string, unknown>;
+    return Object.keys(entry).every(key => [
+        'at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems', 'source', 'destination',
+    ].includes(key))
+        && Number.isSafeInteger(entry.at) && (entry.at as number) > 0
+        && (entry.status === 'copied' || entry.status === 'cancelled' || entry.status === 'failed')
+        && Number.isSafeInteger(entry.itemCount) && (entry.itemCount as number) > 0
+        && typeof entry.conflictPolicy === 'string'
+        && ['fail', 'skip', 'replace'].includes(entry.conflictPolicy)
+        && (entry.completedItems === undefined
+            || (Number.isSafeInteger(entry.completedItems) && (entry.completedItems as number) >= 0))
+        && (entry.skippedItems === undefined
+            || (Number.isSafeInteger(entry.skippedItems) && (entry.skippedItems as number) >= 0))
+        && ((entry.source === undefined && entry.destination === undefined)
+            || (isFileTransferSavedPairEndpoint(entry.source)
+                && isFileTransferSavedPairEndpoint(entry.destination)));
+}
+
+function isRecordFileTransferCopyResult(value: unknown): value is {
+    status: 'copied' | 'cancelled' | 'failed';
+    completedItems: number;
+    skippedItems: number;
+    totalItems: number;
+    message?: string;
+    diagnostic?: {
+        phase: 'preparing' | 'downloading' | 'uploading' | 'verifying';
+        hop: 'source-to-relay' | 'relay-to-target' | 'source-to-target';
+        code: 'space' | 'network' | 'permission' | 'verification' | 'cancelled' | 'unknown';
+    };
+} {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const result = value as Record<string, unknown>;
+    const failed = result.status === 'failed';
+    return Object.keys(result).every(key => [
+        'status', 'completedItems', 'skippedItems', 'totalItems', 'message', 'diagnostic',
+    ].includes(key))
+        && (result.status === 'copied' || result.status === 'cancelled' || failed)
+        && Number.isSafeInteger(result.completedItems) && (result.completedItems as number) >= 0
+        && Number.isSafeInteger(result.skippedItems) && (result.skippedItems as number) >= 0
+        && Number.isSafeInteger(result.totalItems) && (result.totalItems as number) > 0
+        && (result.completedItems as number) + (result.skippedItems as number) <= (result.totalItems as number)
+        && (!failed || (typeof result.message === 'string' && result.message.length > 0
+            && result.message.length <= 320 && !/[\0\r\n]/u.test(result.message)))
+        && (failed || result.message === undefined)
+        && (result.diagnostic === undefined || (failed && isFileTransferCopyDiagnostic(result.diagnostic)));
+}
+
+function isFileTransferCopyDiagnostic(value: unknown): boolean {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const diagnostic = value as Record<string, unknown>;
+    return Object.keys(diagnostic).sort().join('\n') === ['code', 'hop', 'phase'].join('\n')
+        && ['preparing', 'downloading', 'uploading', 'verifying'].includes(diagnostic.phase as string)
+        && ['source-to-relay', 'relay-to-target', 'source-to-target'].includes(diagnostic.hop as string)
+        && ['space', 'network', 'permission', 'verification', 'cancelled', 'unknown'].includes(diagnostic.code as string);
+}
+
+function isRecordFileTransferCopyStatus(value: unknown): value is {
+    status: 'running';
+    phase: 'preparing' | 'downloading' | 'uploading' | 'verifying';
+    completedItems: number;
+    skippedItems: number;
+    totalItems: number;
+    currentItemName?: string;
+    hop?: 'source-to-relay' | 'relay-to-target' | 'source-to-target';
+    transferredBytes?: number;
+    totalBytes?: number;
+    bytesPerSecond?: number;
+    activity?: 'preparing' | 'scp-started' | 'scp-running' | 'scp-exited' | 'verifying';
+    lastActivityAt?: number;
+} {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const status = value as Record<string, unknown>;
+    return Object.keys(status).every(key => [
+        'status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName',
+        'hop', 'transferredBytes', 'totalBytes', 'bytesPerSecond',
+        'activity', 'lastActivityAt',
+    ].includes(key))
+        && status.status === 'running'
+        && ['preparing', 'downloading', 'uploading', 'verifying'].includes(status.phase as string)
+        && Number.isSafeInteger(status.completedItems) && (status.completedItems as number) >= 0
+        && Number.isSafeInteger(status.skippedItems) && (status.skippedItems as number) >= 0
+        && Number.isSafeInteger(status.totalItems) && (status.totalItems as number) > 0
+        && (status.completedItems as number) + (status.skippedItems as number) <= (status.totalItems as number)
+        && (status.currentItemName === undefined || (typeof status.currentItemName === 'string'
+            && status.currentItemName.length > 0 && status.currentItemName.length <= 255
+            && !/[\0\r\n]/u.test(status.currentItemName)))
+        && (status.hop === undefined || ['source-to-relay', 'relay-to-target', 'source-to-target'].includes(status.hop as string))
+        && ((status.transferredBytes === undefined) === (status.totalBytes === undefined))
+        && (status.transferredBytes === undefined || (Number.isSafeInteger(status.transferredBytes)
+            && (status.transferredBytes as number) >= 0 && Number.isSafeInteger(status.totalBytes)
+            && (status.totalBytes as number) >= 0
+            && (status.transferredBytes as number) <= (status.totalBytes as number)))
+        && (status.bytesPerSecond === undefined || (Number.isSafeInteger(status.bytesPerSecond)
+            && (status.bytesPerSecond as number) >= 0))
+        && (status.activity === undefined || ['preparing', 'scp-started', 'scp-running', 'scp-exited', 'verifying'].includes(status.activity as string))
+        && (status.lastActivityAt === undefined || (Number.isSafeInteger(status.lastActivityAt)
+            && (status.lastActivityAt as number) >= 0));
+}
+
+function isFileTransferHistoryRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-request-history'
+        && value.version === 1
+        && Object.keys(value).sort().join('\n') === ['type', 'version'].join('\n');
+}
+
+function isFileTransferHistoryClearRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-clear-history'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && Object.keys(value).sort().join('\n') === ['requestId', 'type', 'version'].join('\n');
+}
+
+interface FileTransferSavedPairEndpoint {
+    kind: 'local' | 'managedMachine';
+    machineId?: string;
+}
+
+interface FileTransferSavedPair {
+    endpoints: FileTransferSavedPairEndpoint[];
+    pinned: boolean;
+    lastUsedAt: number;
+}
+
+function isFileTransferSavedPairEndpoint(value: unknown): value is FileTransferSavedPairEndpoint {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const endpoint = value as Record<string, unknown>;
+    if (endpoint.kind === 'local') {
+        return Object.keys(endpoint).length === 1;
+    }
+    return endpoint.kind === 'managedMachine'
+        && Object.keys(endpoint).sort().join('\n') === ['kind', 'machineId'].join('\n')
+        && typeof endpoint.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(endpoint.machineId);
+}
+
+function normalizeFileTransferSavedPairEndpoints(
+    endpoints: FileTransferSavedPairEndpoint[],
+): FileTransferSavedPairEndpoint[] {
+    return endpoints.slice().sort((left, right) => fileTransferSavedPairEndpointKey(left)
+        .localeCompare(fileTransferSavedPairEndpointKey(right)));
+}
+
+function fileTransferSavedPairEndpointKey(endpoint: FileTransferSavedPairEndpoint): string {
+    return endpoint.kind === 'local' ? 'local' : `managed:${endpoint.machineId}`;
+}
+
+function fileTransferSavedPairKeyFor(endpoints: FileTransferSavedPairEndpoint[]): string {
+    return normalizeFileTransferSavedPairEndpoints(endpoints).map(fileTransferSavedPairEndpointKey).join('|');
+}
+
+function hasValidFileTransferSavedPairEndpoints(value: unknown): value is FileTransferSavedPairEndpoint[] {
+    return Array.isArray(value)
+        && value.length === 2
+        && value.every(isFileTransferSavedPairEndpoint)
+        && new Set(value.map(fileTransferSavedPairEndpointKey)).size === 2
+        && !(value[0].kind === 'local' && value[1].kind === 'local');
+}
+
+function isFileTransferSavedPair(value: unknown): value is FileTransferSavedPair {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) { return false; }
+    const pair = value as Record<string, unknown>;
+    return Object.keys(pair).sort().join('\n') === ['endpoints', 'lastUsedAt', 'pinned'].join('\n')
+        && hasValidFileTransferSavedPairEndpoints(pair.endpoints)
+        && typeof pair.pinned === 'boolean'
+        && Number.isSafeInteger(pair.lastUsedAt) && (pair.lastUsedAt as number) > 0;
+}
+
+function isFileTransferSavedPairsRequest(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-request-saved-pairs'
+        && value.version === 1
+        && Object.keys(value).sort().join('\n') === ['type', 'version'].join('\n');
+}
+
+function isFileTransferSavedPairMutation(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-save-pair'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && hasValidFileTransferSavedPairEndpoints(value.endpoints)
+        && Object.keys(value).sort().join('\n') === ['endpoints', 'requestId', 'type', 'version'].join('\n');
+}
+
+function isFileTransferSavedPairPinMutation(value: Record<string, unknown>): boolean {
+    return value.type === 'file-transfer-set-saved-pair-pinned'
+        && value.version === 1
+        && typeof value.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/u.test(value.requestId)
+        && hasValidFileTransferSavedPairEndpoints(value.endpoints)
+        && typeof value.pinned === 'boolean'
+        && Object.keys(value).sort().join('\n') === [
+            'endpoints', 'pinned', 'requestId', 'type', 'version',
+        ].join('\n');
 }
 
 

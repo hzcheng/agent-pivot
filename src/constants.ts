@@ -36,6 +36,8 @@ export const AGENT_PIVOT_VIEW_CONTAINER_ID = 'agentPivot';
 export const AGENT_PIVOT_DASHBOARD_VIEW_ID = 'agentPivot.dashboard';
 export const AGENT_PIVOT_CONVERSATION_VIEW_TYPE =
     'agentPivot.aiConversation';
+export const AGENT_PIVOT_FILE_TRANSFER_VIEW_TYPE =
+    'agentPivot.fileTransfer';
 export const REOPEN_KEY = 'reopenAgentPivotReason';
 export const FAVORITES_GROUP_ID = '__favorites';
 export const FAVORITES_GROUP_COLLAPSED_KEY = 'favoritesGroupCollapsed';

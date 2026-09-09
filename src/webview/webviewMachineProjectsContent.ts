@@ -21,12 +21,13 @@ export function renderMachineProjectsPanel(
     const addManagedMachine = managedRemoteRevisionId === undefined
         ? ''
         : `<button type="button" class="machine-toolbar-button" data-managed-operation="addMachine" aria-label="Add Managed Machine" title="Add Managed Machine">${Icons.add}<span class="managed-toolbar-label">Machine</span></button>`;
+    const openFileTransfer = `<button type="button" class="machine-toolbar-button" data-action="open-file-transfer" aria-label="Open File Transfer" title="Open File Transfer">${Icons.handoff}</button>`;
     const saveCurrentProject = `<button type="button" class="machine-toolbar-button" data-action="save-current-project" aria-label="Save Current Project" title="${canSaveCurrentProject ? 'Save Current Project' : 'Open a project before saving it'}"${canSaveCurrentProject ? '' : ' disabled'}>${Icons.save}</button>`;
     if (!model.machines.length) {
         return `<section class="machine-projects machine-projects-empty" data-machine-projects${managedAttributes} data-machine-project-count="0">
             <div class="machine-projects-toolbar">
                 <span class="machine-projects-summary">0 projects</span>
-                <div class="machine-projects-toolbar-actions">${saveCurrentProject}${addManagedMachine}</div>
+                <div class="machine-projects-toolbar-actions">${openFileTransfer}${saveCurrentProject}${addManagedMachine}</div>
             </div>
             <p>No projects have been added yet.</p>
         </section>`;
@@ -38,6 +39,7 @@ export function renderMachineProjectsPanel(
             </div>
             <div class="machine-projects-toolbar-actions">
                 ${renderTagControls(model.tags)}
+                ${openFileTransfer}
                 ${addManagedMachine}
                 ${saveCurrentProject}
             </div>

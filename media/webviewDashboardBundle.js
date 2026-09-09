@@ -10116,6 +10116,8 @@ function createMachineProjectsUi() {
             applyFilters();
         } else if (action === 'save-current-project') {
             window.vscode.postMessage({ type: 'save-current-workspace' });
+        } else if (action === 'open-file-transfer') {
+            window.vscode.postMessage({ type: 'open-file-transfer', version: 1 });
         } else if (action === 'toggle-machine-favorite') {
             var favoriteRow = control.closest('[data-machine-project-row]');
             if (favoriteRow) {
@@ -12037,9 +12039,13 @@ function restoreMachineProjectsFocus(panel, target) {
 }
 
 function focusProjectsPanelFallback(panel) {
-    var fallback = panel && panel.querySelector(
-        '[data-action="save-current-project"], [data-managed-operation="addMachine"], button:not(:disabled)'
-    );
+    if (!panel) {
+        return;
+    }
+    var fallback = panel.querySelector('[data-action="save-current-project"]:not(:disabled)')
+        || panel.querySelector('[data-action="show-add-machine-form"], [data-managed-operation="addMachine"]')
+        || panel.querySelector('[data-action="open-file-transfer"]')
+        || panel.querySelector('button:not(:disabled)');
     if (fallback && typeof fallback.focus === 'function') {
         fallback.focus({ preventScroll: true });
     }
@@ -12047,12 +12053,12 @@ function focusProjectsPanelFallback(panel) {
 
 /* src/webview/webviewDashboardValidationScripts.js */
 function normalizeDashboardTab(tab) {
-    return tab === 'projects' || tab === 'ai' ? tab : 'open';
+    return tab === 'projects' || tab === 'ai' || tab === 'file-transfer' ? tab : 'open';
 }
 
 function getAdjacentDashboardTab(tab, key) {
     tab = normalizeDashboardTab(tab);
-    var tabs = ['open', 'projects', 'ai'];
+    var tabs = ['open', 'projects', 'ai', 'file-transfer'];
     var currentIndex = tabs.indexOf(tab);
     if (key === 'Home') {
         return tabs[0];
@@ -12780,15 +12786,504 @@ function writeDashboardSessionValue(key, value) {
     }
 }
 
+function formatFileTransferBytes(bytes) {
+    if (!Number.isSafeInteger(bytes) || bytes < 0) return 'Unknown size';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+}
+
+function fileTransferTreeLabel(name) {
+    var normalized = String(name || '').replace(/\\/g, '/');
+    var parts = normalized.split('/').filter(function (part) { return part.length > 0; });
+    return parts.length ? parts[parts.length - 1] : normalized || 'Unnamed item';
+}
+
+function isHiddenFileTransferEntry(name) {
+    return fileTransferTreeLabel(name).charAt(0) === '.';
+}
+
+function fileTransferParentPath(displayPath) {
+    var normalized = String(displayPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (!normalized || normalized === '.' || normalized === '/') return null;
+    var separator = normalized.lastIndexOf('/');
+    if (separator < 0) return '.';
+    if (separator === 0) return '/';
+    if (separator === 2 && /^[A-Za-z]:$/.test(normalized.slice(0, separator))) {
+        return normalized.slice(0, separator + 1);
+    }
+    return normalized.slice(0, separator);
+}
+
+function renderLocalFileTransferEntries(
+    fileList,
+    entries,
+    selectedIds,
+    onChange,
+    onToggleDirectory,
+    onDragStart,
+    onDragEnd,
+    selectionEnabled,
+    directoryId,
+) {
+    var allowSelection = selectionEnabled !== false;
+    var previousScrollTop = fileList.scrollTop;
+    var previousDirectoryId = fileList.getAttribute('data-file-transfer-directory-id');
+    var directoryChanged = !!directoryId && !!previousDirectoryId && previousDirectoryId !== directoryId;
+    var activeElement = document.activeElement;
+    var activeRow = activeElement && typeof activeElement.closest === 'function'
+        ? activeElement.closest('[data-file-transfer-entry-id], [data-file-transfer-parent-directory]') : null;
+    var activeEntryId = activeRow && activeRow.getAttribute('data-file-transfer-entry-id');
+    var activeParent = activeRow && activeRow.hasAttribute('data-file-transfer-parent-directory');
+    fileList.textContent = '';
+    entries.forEach(function (treeEntry) {
+        var entry = treeEntry.entry || treeEntry;
+        var isParentDirectory = !!treeEntry.parentDirectory;
+        var directoryId = treeEntry.directoryId || null;
+        var row = document.createElement('li');
+        row.className = 'file-transfer-file-row';
+        if (isParentDirectory) row.className += ' is-parent-directory';
+        if (!isParentDirectory && selectedIds.has(entry.id)) row.className += ' is-selected';
+        if (entry.kind === 'symlink' || entry.kind === 'unsupported') {
+            row.className += ' is-unsupported';
+        }
+        if (isParentDirectory) {
+            row.setAttribute('data-file-transfer-parent-directory', treeEntry.side || '');
+        } else {
+            row.setAttribute('data-file-transfer-entry-id', entry.id);
+        }
+        if (entry.kind === 'directory' || isParentDirectory) {
+            row.title = isParentDirectory ? 'Go to the parent directory' : 'Open this folder';
+            row.addEventListener('click', function (event) {
+                var target = event.target;
+                if (treeEntry.loading || (target && typeof target.closest === 'function'
+                    && target.closest('input'))) return;
+                onToggleDirectory(isParentDirectory ? null : entry.id, isParentDirectory, treeEntry.parentPath);
+            });
+        }
+        if (!isParentDirectory && allowSelection && typeof onDragStart === 'function'
+            && (entry.kind === 'directory' || entry.kind === 'file')) {
+            row.draggable = true;
+            row.addEventListener('dragstart', function (event) {
+                onDragStart(entry.id, directoryId, event);
+            });
+            if (typeof onDragEnd === 'function') row.addEventListener('dragend', onDragEnd);
+        }
+        var spacer = document.createElement('span');
+        spacer.className = 'file-transfer-tree-spacer';
+        spacer.className += isParentDirectory ? ' is-parent-directory'
+            : entry.kind === 'directory' ? ' is-directory' : ' is-file';
+        spacer.setAttribute('aria-hidden', 'true');
+        spacer.textContent = isParentDirectory ? '↥' : entry.kind === 'directory' ? '›' : '•';
+        row.appendChild(spacer);
+        var entryContent = document.createElement('div');
+        entryContent.className = 'file-transfer-file-entry';
+        if (isParentDirectory && allowSelection) {
+            var selectionSpacer = document.createElement('input');
+            selectionSpacer.type = 'checkbox';
+            selectionSpacer.className = 'file-transfer-selection-spacer';
+            selectionSpacer.disabled = true;
+            selectionSpacer.tabIndex = -1;
+            selectionSpacer.setAttribute('aria-hidden', 'true');
+            entryContent.appendChild(selectionSpacer);
+        }
+        if (!isParentDirectory && allowSelection) {
+            var checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = selectedIds.has(entry.id);
+            checkbox.disabled = entry.kind !== 'directory' && entry.kind !== 'file';
+            checkbox.setAttribute('aria-label', 'Select ' + entry.name);
+            checkbox.addEventListener('change', function () {
+                onChange(entry.id, directoryId, checkbox.checked);
+            });
+            entryContent.appendChild(checkbox);
+        }
+        var entryName = entry.kind === 'directory' || isParentDirectory
+            ? document.createElement('button') : document.createElement('span');
+        entryName.className = 'file-transfer-file-name';
+        var treeLabel = isParentDirectory ? '..' : fileTransferTreeLabel(entry.name);
+        entryName.textContent = treeLabel;
+        if (treeLabel !== entry.name) entryName.title = entry.name;
+        if (entry.kind === 'directory' || isParentDirectory) {
+            entryName.type = 'button';
+            entryName.className += ' file-transfer-directory-name';
+            if (isParentDirectory) entryName.className += ' file-transfer-parent-directory';
+            entryName.setAttribute('data-file-transfer-directory-name', '');
+            if (isParentDirectory) entryName.setAttribute('data-file-transfer-parent-directory', treeEntry.side || '');
+            entryName.setAttribute('aria-label', row.title);
+            entryName.disabled = !!treeEntry.loading;
+            entryName.addEventListener('click', function (event) {
+                event.stopPropagation();
+                onToggleDirectory(isParentDirectory ? null : entry.id, isParentDirectory, treeEntry.parentPath);
+            });
+        }
+        entryContent.appendChild(entryName);
+        var meta = [];
+        if (Number.isSafeInteger(entry.size)) meta.push(formatFileTransferBytes(entry.size));
+        if (Number.isSafeInteger(entry.modifiedAt)) {
+            meta.push(new Date(entry.modifiedAt).toLocaleString());
+        }
+        if (entry.kind === 'symlink' || entry.kind === 'unsupported') {
+            meta.push('Not supported for copy');
+        }
+        if (meta.length) {
+            var metadata = document.createElement('span');
+            metadata.className = 'file-transfer-file-meta';
+            metadata.textContent = meta.join(' · ');
+            entryContent.appendChild(metadata);
+        }
+        row.appendChild(entryContent);
+        fileList.appendChild(row);
+    });
+    if (directoryId) fileList.setAttribute('data-file-transfer-directory-id', directoryId);
+    else fileList.removeAttribute('data-file-transfer-directory-id');
+    fileList.scrollTop = directoryChanged ? 0 : previousScrollTop;
+    if (!directoryChanged && (activeEntryId || activeParent)) {
+        var focusSelector = activeParent ? '[data-file-transfer-parent-directory] button'
+            : '[data-file-transfer-entry-id="' + activeEntryId + '"] input, [data-file-transfer-entry-id="' + activeEntryId + '"] button';
+        var replacementFocus = fileList.querySelector(focusSelector);
+        if (replacementFocus && typeof replacementFocus.focus === 'function') replacementFocus.focus();
+    }
+}
+
+function sortFileTransferEntries(entries, sort) {
+    return entries.slice().sort(function (left, right) {
+        if (sort === 'size') {
+            var leftSize = Number.isSafeInteger(left.size) ? left.size : -1;
+            var rightSize = Number.isSafeInteger(right.size) ? right.size : -1;
+            if (leftSize !== rightSize) return rightSize - leftSize;
+        } else if (sort === 'modified') {
+            var leftModified = Number.isSafeInteger(left.modifiedAt) ? left.modifiedAt : -1;
+            var rightModified = Number.isSafeInteger(right.modifiedAt) ? right.modifiedAt : -1;
+            if (leftModified !== rightModified) return rightModified - leftModified;
+        } else if (sort === 'type' && left.kind !== right.kind) {
+            return left.kind.localeCompare(right.kind);
+        } else if (sort === 'name') {
+            if (left.kind === 'directory' && right.kind !== 'directory') return -1;
+            if (left.kind !== 'directory' && right.kind === 'directory') return 1;
+        }
+        return left.name.localeCompare(right.name);
+    });
+}
+
+function validateFileTransferLocalRootMessage(message) {
+    if (!message || typeof message !== 'object'
+        || message.version !== 1
+        || typeof message.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        || (message.side !== 'left' && message.side !== 'right')) {
+        return false;
+    }
+    if ((message.type === 'file-transfer-local-root-selected'
+        || message.type === 'file-transfer-remote-directory-listed') && message.root) {
+        return Object.keys(message).sort().join('\n') === [
+            'requestId', 'root', 'side', 'type', 'version',
+        ].join('\n') && validateFileTransferLocalRoot(message.root);
+    }
+    if (message.type === 'file-transfer-local-root-failed'
+        || message.type === 'file-transfer-remote-directory-failed') {
+        return Object.keys(message).sort().join('\n') === [
+            'message', 'requestId', 'side', 'type', 'version',
+        ].join('\n')
+            && typeof message.message === 'string'
+            && message.message.length > 0
+            && message.message.length <= 320;
+    }
+    return Object.keys(message).sort().join('\n') === [
+        'cancelled', 'requestId', 'side', 'type', 'version',
+    ].join('\n') && message.type === 'file-transfer-local-root-selected'
+        && message.cancelled === true;
+}
+
+function validateFileTransferLocalRoot(root) {
+    return !!root && typeof root === 'object'
+        && Object.keys(root).sort().join('\n') === (root.hasMore === undefined
+            ? ['directoryId', 'displayPath', 'entries', 'label', 'rootId']
+            : ['directoryId', 'displayPath', 'entries', 'hasMore', 'label', 'rootId']).join('\n')
+        && /^[a-f0-9]{32}$/.test(root.rootId)
+        && /^[a-f0-9]{32}$/.test(root.directoryId)
+        && typeof root.label === 'string'
+        && root.label.length > 0
+        && root.label.length <= 255
+        && typeof root.displayPath === 'string'
+        && root.displayPath.length > 0
+        && root.displayPath.length <= 1024
+        && !/[\0\r\n]/.test(root.displayPath)
+        && Array.isArray(root.entries)
+        && root.entries.length <= 1000
+        && (root.hasMore === undefined || typeof root.hasMore === 'boolean')
+        && root.entries.every(validateFileTransferDirectoryEntry);
+}
+
+function validateFileTransferDirectoryEntry(entry) {
+    return !!entry && typeof entry === 'object'
+        && Object.keys(entry).every(function (key) {
+            return ['id', 'name', 'kind', 'size', 'modifiedAt'].includes(key);
+        })
+        && ['id', 'name', 'kind'].every(function (key) {
+            return Object.prototype.hasOwnProperty.call(entry, key);
+        })
+        && /^[a-f0-9]{32}$/.test(entry.id)
+        && typeof entry.name === 'string'
+        && entry.name.length > 0
+        && entry.name.length <= 255
+        && ['directory', 'file', 'symlink', 'unsupported'].includes(entry.kind)
+        && (entry.size === undefined || (Number.isSafeInteger(entry.size) && entry.size >= 0))
+        && (entry.modifiedAt === undefined
+            || (Number.isSafeInteger(entry.modifiedAt) && entry.modifiedAt >= 0));
+}
+
+function validateFileTransferCopySettlement(message) {
+    if (!message || message.type !== 'file-transfer-copy-settled'
+        || message.version !== 1
+        || typeof message.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        || (message.status !== 'copied' && message.status !== 'cancelled' && message.status !== 'failed')) {
+        return false;
+    }
+    if (message.status === 'copied' || message.status === 'cancelled') {
+        return Object.keys(message).sort().join('\n') === [
+            'requestId', 'status', 'type', 'value', 'version',
+        ].join('\n');
+    }
+    if (message.status === 'failed' && message.value && typeof message.value === 'object'
+        && !Array.isArray(message.value)) {
+        var result = message.value;
+        return Object.keys(message).sort().join('\n') === [
+            'requestId', 'status', 'type', 'value', 'version',
+        ].join('\n')
+            && Object.keys(result).sort().join('\n') === (result.diagnostic === undefined
+                ? ['completedItems', 'message', 'skippedItems', 'status', 'totalItems']
+                : ['completedItems', 'diagnostic', 'message', 'skippedItems', 'status', 'totalItems']).join('\n')
+            && result.status === 'failed'
+            && Number.isSafeInteger(result.completedItems) && result.completedItems >= 0
+            && Number.isSafeInteger(result.skippedItems) && result.skippedItems >= 0
+            && Number.isSafeInteger(result.totalItems) && result.totalItems > 0
+            && result.completedItems + result.skippedItems <= result.totalItems
+            && typeof result.message === 'string' && result.message.length > 0
+            && result.message.length <= 320 && !/[\0\r\n]/.test(result.message)
+            && (result.diagnostic === undefined || validateFileTransferCopyDiagnostic(result.diagnostic));
+    }
+    return Object.keys(message).sort().join('\n') === [
+        'message', 'requestId', 'status', 'type', 'version',
+    ].join('\n') && typeof message.message === 'string' && message.message.length <= 320;
+}
+
+function validateFileTransferCopyDiagnostic(diagnostic) {
+    return !!diagnostic && typeof diagnostic === 'object'
+        && Object.keys(diagnostic).sort().join('\n') === ['code', 'hop', 'phase'].join('\n')
+        && ['preparing', 'downloading', 'uploading', 'verifying'].includes(diagnostic.phase)
+        && ['source-to-relay', 'relay-to-target', 'source-to-target'].includes(diagnostic.hop)
+        && ['space', 'network', 'permission', 'verification', 'cancelled', 'unknown'].includes(diagnostic.code);
+}
+
+function validateFileTransferCopyStarted(message) {
+    return !!message && message.type === 'file-transfer-copy-started'
+        && message.version === 1
+        && typeof message.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        && Object.keys(message).sort().join('\n') === [
+            'requestId', 'type', 'version',
+        ].join('\n');
+}
+
+function validateFileTransferCopyProgress(message) {
+    if (!message || message.type !== 'file-transfer-copy-progress'
+        || message.version !== 1
+        || typeof message.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        || Object.keys(message).sort().join('\n') !== [
+            'progress', 'requestId', 'type', 'version',
+        ].join('\n')) {
+        return false;
+    }
+    var progress = message.progress;
+    return !!progress && typeof progress === 'object'
+        && Object.keys(progress).every(function (key) {
+            return ['status', 'phase', 'completedItems', 'skippedItems', 'totalItems', 'currentItemName',
+                'hop', 'transferredBytes', 'totalBytes', 'bytesPerSecond', 'activity', 'lastActivityAt'].includes(key);
+        })
+        && progress.status === 'running'
+        && ['preparing', 'downloading', 'uploading', 'verifying'].includes(progress.phase)
+        && Number.isSafeInteger(progress.completedItems) && progress.completedItems >= 0
+        && Number.isSafeInteger(progress.skippedItems) && progress.skippedItems >= 0
+        && Number.isSafeInteger(progress.totalItems) && progress.totalItems > 0
+        && progress.completedItems + progress.skippedItems <= progress.totalItems
+        && (progress.currentItemName === undefined || (typeof progress.currentItemName === 'string'
+            && progress.currentItemName.length > 0 && progress.currentItemName.length <= 255
+            && !/[\0\r\n]/.test(progress.currentItemName)))
+        && (progress.hop === undefined || ['source-to-relay', 'relay-to-target', 'source-to-target'].includes(progress.hop))
+        && ((progress.transferredBytes === undefined) === (progress.totalBytes === undefined))
+        && (progress.transferredBytes === undefined || (Number.isSafeInteger(progress.transferredBytes)
+            && progress.transferredBytes >= 0 && Number.isSafeInteger(progress.totalBytes)
+            && progress.totalBytes >= 0 && progress.transferredBytes <= progress.totalBytes))
+        && (progress.bytesPerSecond === undefined || (Number.isSafeInteger(progress.bytesPerSecond)
+            && progress.bytesPerSecond >= 0))
+        && (progress.activity === undefined || ['preparing', 'scp-started', 'scp-running', 'scp-exited', 'verifying'].includes(progress.activity))
+        && (progress.lastActivityAt === undefined || (Number.isSafeInteger(progress.lastActivityAt)
+            && progress.lastActivityAt >= 0));
+}
+
+function validateFileTransferSavedPairs(message) {
+    if (!message || message.type !== 'file-transfer-saved-pairs' || message.version !== 1
+        || !Array.isArray(message.entries) || message.entries.length > 12
+        || !message.entries.every(validateFileTransferSavedPair)) {
+        return false;
+    }
+    var expected = message.requestId === undefined
+        ? ['entries', 'type', 'version'] : ['entries', 'requestId', 'type', 'version'];
+    return Object.keys(message).sort().join('\n') === expected.join('\n')
+        && (message.requestId === undefined || (typeof message.requestId === 'string'
+            && /^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)));
+}
+
+function validateFileTransferSavedPairsFailure(message) {
+    return !!message && message.type === 'file-transfer-saved-pairs-failed'
+        && message.version === 1
+        && typeof message.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        && typeof message.message === 'string' && message.message.length > 0 && message.message.length <= 320
+        && Object.keys(message).sort().join('\n') === [
+            'message', 'requestId', 'type', 'version',
+        ].join('\n');
+}
+
+function validateFileTransferSavedPair(pair) {
+    if (!pair || typeof pair !== 'object'
+        || Object.keys(pair).sort().join('\n') !== ['endpoints', 'lastUsedAt', 'pinned'].join('\n')
+        || !Array.isArray(pair.endpoints) || pair.endpoints.length !== 2
+        || !pair.endpoints.every(validateFileTransferSavedPairEndpoint)
+        || typeof pair.pinned !== 'boolean'
+        || !Number.isSafeInteger(pair.lastUsedAt) || pair.lastUsedAt <= 0) {
+        return false;
+    }
+    var keys = pair.endpoints.map(function (endpoint) {
+        return endpoint.kind === 'local' ? 'local' : 'managed:' + endpoint.machineId;
+    });
+    return new Set(keys).size === 2 && !(pair.endpoints[0].kind === 'local' && pair.endpoints[1].kind === 'local');
+}
+
+function validateFileTransferSavedPairEndpoint(endpoint) {
+    if (!endpoint || typeof endpoint !== 'object') return false;
+    if (endpoint.kind === 'local') return Object.keys(endpoint).length === 1;
+    return endpoint.kind === 'managedMachine'
+        && Object.keys(endpoint).sort().join('\n') === ['kind', 'machineId'].join('\n')
+        && typeof endpoint.machineId === 'string'
+        && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(endpoint.machineId);
+}
+
+function validateFileTransferCopyQueued(message) {
+    return !!message && message.type === 'file-transfer-copy-queued'
+        && message.version === 1
+        && typeof message.requestId === 'string'
+        && /^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)
+        && Number.isSafeInteger(message.position) && message.position >= 1 && message.position <= 10
+        && Object.keys(message).sort().join('\n') === [
+            'position', 'requestId', 'type', 'version',
+        ].join('\n');
+}
+
+function validateFileTransferCopyPreflight(message) {
+    if (!message || message.version !== 1
+        || typeof message.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)) {
+        return false;
+    }
+    if (message.type === 'file-transfer-copy-preflight-failed') {
+        return Object.keys(message).sort().join('\n') === [
+            'message', 'requestId', 'type', 'version',
+        ].join('\n') && typeof message.message === 'string' && message.message.length <= 320;
+    }
+    var result = message.result;
+    return message.type === 'file-transfer-copy-preflighted'
+        && Object.keys(message).sort().join('\n') === [
+            'requestId', 'result', 'type', 'version',
+        ].join('\n')
+        && !!result && typeof result === 'object'
+        && Object.keys(result).sort().join('\n') === [
+            'existingDirectoryNames', 'existingFileNames', 'knownBytes', 'totalItems', 'unknownSizeItems',
+        ].join('\n')
+        && Number.isSafeInteger(result.totalItems) && result.totalItems > 0 && result.totalItems <= 100
+        && Number.isSafeInteger(result.knownBytes) && result.knownBytes >= 0
+        && Number.isSafeInteger(result.unknownSizeItems)
+        && result.unknownSizeItems >= 0 && result.unknownSizeItems <= result.totalItems
+        && validFileTransferPreflightNames(result.existingFileNames)
+        && validFileTransferPreflightNames(result.existingDirectoryNames);
+}
+
+function validFileTransferPreflightNames(names) {
+    return Array.isArray(names) && names.length <= 100
+        && names.every(function (name) {
+            return typeof name === 'string' && name.length > 0 && name.length <= 255
+                && !/[\0\r\n]/.test(name);
+        }) && new Set(names).size === names.length;
+}
+
+function validateFileTransferHistory(message) {
+    return !!message && message.type === 'file-transfer-history'
+        && message.version === 1
+        && Object.keys(message).sort().join('\n') === ['entries', 'type', 'version'].join('\n')
+        && Array.isArray(message.entries)
+        && message.entries.length <= 50
+        && message.entries.every(function (entry) {
+            return !!entry && typeof entry === 'object'
+                && Object.keys(entry).every(function (key) {
+                    return ['at', 'status', 'itemCount', 'conflictPolicy', 'completedItems', 'skippedItems', 'source', 'destination'].includes(key);
+                })
+                && Number.isSafeInteger(entry.at) && entry.at > 0
+                && (entry.status === 'copied' || entry.status === 'cancelled' || entry.status === 'failed')
+                && Number.isSafeInteger(entry.itemCount) && entry.itemCount > 0
+                && ['fail', 'skip', 'replace'].includes(entry.conflictPolicy)
+                && ((entry.source === undefined && entry.destination === undefined)
+                    || (validateFileTransferSavedPairEndpoint(entry.source)
+                        && validateFileTransferSavedPairEndpoint(entry.destination)));
+        });
+}
+
+function validateFileTransferHistoryClearSettlement(message) {
+    if (!message || message.version !== 1
+        || typeof message.requestId !== 'string'
+        || !/^[A-Za-z0-9._:-]{16,256}$/.test(message.requestId)) {
+        return false;
+    }
+    if (message.type === 'file-transfer-history-cleared') {
+        return Object.keys(message).sort().join('\n') === ['entries', 'requestId', 'type', 'version'].join('\n')
+            && Array.isArray(message.entries) && message.entries.length === 0;
+    }
+    return message.type === 'file-transfer-history-clear-failed'
+        && Object.keys(message).sort().join('\n') === ['message', 'requestId', 'type', 'version'].join('\n')
+        && typeof message.message === 'string' && message.message.length <= 320;
+}
+
+function validateFileTransferEndpointCatalog(message) {
+    return !!message && message.type === 'file-transfer-endpoint-catalog' && message.version === 1
+        && typeof message.revisionId === 'string' && message.revisionId.length <= 255
+        && Array.isArray(message.machines) && message.machines.length <= 500
+        && message.machines.every(function (machine) {
+            return !!machine && typeof machine === 'object'
+                && typeof machine.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(machine.id)
+                && typeof machine.name === 'string' && machine.name.length > 0 && machine.name.length <= 255;
+        });
+}
+
 function initDashboard(options) {
     options = options || {};
     var storageKey = 'agentPivot.activeDashboardTab';
-    var scrollPositions = { open: 0, projects: 0, ai: 0 };
+    var scrollPositions = { open: 0, projects: 0, ai: 0, 'file-transfer': 0 };
     var activeTab = normalizeDashboardTab(readDashboardSessionValue(storageKey));
+    var enabledTabs = Array.isArray(options.enabledTabs) && options.enabledTabs.length
+        ? options.enabledTabs : ['open', 'projects', 'ai', 'file-transfer'];
+    if (enabledTabs.indexOf(activeTab) < 0) {
+        activeTab = enabledTabs.indexOf('open') >= 0 ? 'open' : enabledTabs[0];
+    }
     var pendingScrollRestoreTab = null;
     var panelRequestTimeoutMs = Number(options.panelRequestTimeoutMs) > 0
         ? Number(options.panelRequestTimeoutMs)
         : 5000;
+    var fileTransferDirectoryRequestTimeoutMs = Number(options.fileTransferDirectoryRequestTimeoutMs) > 0
+        ? Number(options.fileTransferDirectoryRequestTimeoutMs)
+        : 20000;
     var scheduleTimeout = options.setTimeout
         || (typeof setTimeout === 'function' ? setTimeout : null);
     var cancelTimeout = options.clearTimeout
@@ -12800,6 +13295,7 @@ function initDashboard(options) {
         open: document.getElementById('dashboard-tab-open'),
         projects: document.getElementById('dashboard-tab-projects'),
         ai: document.getElementById('dashboard-panel-ai'),
+        'file-transfer': document.getElementById('dashboard-tab-file-transfer'),
     };
     var tablist = document.querySelector ? document.querySelector('[role="tablist"]') : null;
     var collapseButton = document.querySelector ? document.querySelector('[data-action="toggle-all-groups"]') : null;
@@ -12865,11 +13361,14 @@ function initDashboard(options) {
         if (typeof options.onActiveTabChanged === 'function') {
             options.onActiveTabChanged(activeTab);
         }
-        if (collapseButton && activeTab === 'ai') {
+        if (collapseButton && (activeTab === 'ai' || activeTab === 'file-transfer')) {
             collapseButton.disabled = true;
             collapseButton.setAttribute('aria-disabled', 'true');
-            collapseButton.setAttribute('title', 'No groups to collapse in AI');
-            collapseButton.setAttribute('aria-label', 'No groups to collapse in AI');
+            const unavailableMessage = activeTab === 'ai'
+                ? 'No groups to collapse in AI'
+                : 'No groups to collapse in File Transfer';
+            collapseButton.setAttribute('title', unavailableMessage);
+            collapseButton.setAttribute('aria-label', unavailableMessage);
         }
     }
 
@@ -12948,6 +13447,9 @@ function initDashboard(options) {
                 pendingScrollRestoreTab = 'ai';
                 aiPanel.ensureAiPanel();
             }
+        } else if (activeTab === 'file-transfer' && tabChanged) {
+            options.postMessage({ type: 'file-transfer-request-history', version: 1 });
+            options.postMessage({ type: 'file-transfer-request-saved-pairs', version: 1 });
         } else if (tabChanged) {
             restoreScroll(activeTab);
         }
@@ -13147,6 +13649,1225 @@ function initDashboard(options) {
         setPendingSkillReveal: value => { pendingSkillReveal = value; },
     });
 
+    function initializeFileTransferPanel() {
+        var panel = panels['file-transfer'];
+        if (!panel || !panel.querySelectorAll) {
+            return;
+        }
+        var selectors = Array.from(panel.querySelectorAll('[data-file-transfer-endpoint]'));
+        var swap = panel.querySelector('[data-file-transfer-swap]');
+        var panes = {
+            left: panel.querySelector('[data-file-transfer-pane="left"]'),
+            right: panel.querySelector('[data-file-transfer-pane="right"]'),
+        };
+        var hint = panel.querySelector('[data-file-transfer-pair-hint]');
+        var readiness = panel.querySelector('[data-file-transfer-readiness]');
+        var bridgeStatus = panel.querySelector('[data-file-transfer-bridge-status]');
+        var sourceStatus = panel.querySelector('[data-file-transfer-source-status]');
+        var targetStatus = panel.querySelector('[data-file-transfer-target-status]');
+        var summary = panel.querySelector('[data-file-transfer-summary]');
+        var savedPairsPanel = panel.querySelector('[data-file-transfer-saved-pairs]');
+        var savedPairList = panel.querySelector('[data-file-transfer-saved-pair-list]');
+        var tasks = panel.querySelector('[data-file-transfer-tasks]');
+        var taskStatus = panel.querySelector('[data-file-transfer-task-status]');
+        var revealTarget = panel.querySelector('[data-file-transfer-reveal-target]');
+        var retry = panel.querySelector('[data-file-transfer-retry]');
+        var taskList = panel.querySelector('[data-file-transfer-task-list]');
+        var historyList = panel.querySelector('[data-file-transfer-history-list]');
+        var clearHistory = panel.querySelector('[data-file-transfer-clear-history]');
+        var startCopy = panel.querySelector('[data-file-transfer-start-copy]');
+        var localRoots = { left: null, right: null };
+        var localRootDisplayPaths = { left: null, right: null };
+        var paneFailures = { left: null, right: null };
+        var paneNavigationErrors = { left: null, right: null };
+        var pendingLocalRootRequests = { left: null, right: null };
+        var pendingLocalRootTimeouts = { left: null, right: null };
+        var selectedEntries = { left: new Set(), right: new Set() };
+        var selectedEntryDirectoryIds = { left: null, right: null };
+        var pathSuggestions = { left: [], right: [] };
+        var pendingDirectoryOperations = { left: null, right: null };
+        var fileTransferSort = { left: 'name', right: 'name' };
+        var showHiddenEntries = { left: false, right: false };
+        var fileTransferFilter = { left: '', right: '' };
+        var pendingCopyRequestId = null;
+        var pendingCopyPreflightRequestId = null;
+        var activeCopyTaskId = null;
+        var pendingCopyItemCount = 0;
+        var pendingCopyPlan = null;
+        var pendingCopyPreflightPlan = null;
+        var lastFailedCopyPlan = null;
+        var lastCompletedCopyPlan = null;
+        var savedPairs = [];
+        var lastRememberedPairKey = null;
+        var transferTasks = {};
+        var pendingHistoryClearRequestId = null;
+        var appliedEndpointCatalogRevision = null;
+
+        function endpointReady(side) {
+            return !!localRoots[side] && !paneFailures[side] && !pendingLocalRootRequests[side];
+        }
+
+        function updateReadiness() {
+            var bridgeIsResponding = endpointReady('left') || endpointReady('right');
+            if (bridgeStatus) bridgeStatus.textContent = bridgeIsResponding
+                ? 'UI Bridge responding' : 'UI Bridge waiting for an endpoint response';
+            if (sourceStatus) sourceStatus.textContent = endpointReady('left')
+                ? 'Source directory ready' : 'Source directory not ready';
+            if (targetStatus) targetStatus.textContent = endpointReady('right')
+                ? 'Target directory ready' : 'Target directory not ready';
+            if (readiness && readiness.classList) {
+                readiness.classList.toggle('is-ready', endpointReady('left') && endpointReady('right'));
+            }
+        }
+
+        function renderTaskCount() {
+            if (tasks) {
+                tasks.disabled = !activeCopyTaskId;
+                tasks.title = !activeCopyTaskId
+                    ? 'Transfer tasks will appear here'
+                    : 'Cancel the active file copy';
+                var count = tasks.querySelector ? tasks.querySelector('span') : null;
+                if (count) count.textContent = String(Object.keys(transferTasks).length);
+            }
+            renderTaskList();
+        }
+
+        function savedPairEndpointKey(endpoint) {
+            return endpoint.kind === 'local' ? 'local' : 'managed:' + endpoint.machineId;
+        }
+
+        function savedPairKey(endpoints) {
+            return endpoints.map(savedPairEndpointKey).sort().join('|');
+        }
+
+        function savedPairLabel(endpoint) {
+            if (endpoint.kind === 'local') return 'This Computer';
+            var selector = selectors.find(function (candidate) {
+                return candidate.value === 'managed:' + endpoint.machineId;
+            });
+            var option = selector && Array.from(selector.options || []).find(function (candidate) {
+                return candidate.value === 'managed:' + endpoint.machineId;
+            });
+            return option && option.textContent ? option.textContent : null;
+        }
+
+        function renderSavedPairs() {
+            if (!savedPairsPanel || !savedPairList) return;
+            savedPairList.textContent = '';
+            var visiblePairs = savedPairs.filter(function (pair) {
+                return pair.endpoints.every(function (endpoint) { return !!savedPairLabel(endpoint); });
+            });
+            savedPairsPanel.hidden = visiblePairs.length === 0;
+            visiblePairs.forEach(function (pair) {
+                var item = document.createElement('li');
+                var select = document.createElement('button');
+                select.type = 'button';
+                select.textContent = pair.endpoints.map(savedPairLabel).join(' ↔ ');
+                select.title = 'Select this endpoint pair';
+                select.addEventListener('click', function () { selectSavedPair(pair); });
+                item.appendChild(select);
+                var pin = document.createElement('button');
+                pin.type = 'button';
+                pin.setAttribute('data-file-transfer-saved-pair-pin', '');
+                pin.textContent = pair.pinned ? '★' : '☆';
+                pin.title = pair.pinned ? 'Unpin endpoint pair' : 'Pin endpoint pair';
+                pin.setAttribute('aria-label', pin.title + ': ' + select.textContent);
+                pin.addEventListener('click', function () { setSavedPairPinned(pair, !pair.pinned); });
+                item.appendChild(pin);
+                savedPairList.appendChild(item);
+            });
+        }
+
+        function applyEndpointCatalog(message) {
+            if (!validateFileTransferEndpointCatalog(message)) return false;
+            // The initial HTML options are a snapshot too. Since they carry no
+            // revision token, the first catalog push must also invalidate any
+            // ready Managed Machine handles rendered from that snapshot.
+            var revisionChanged = appliedEndpointCatalogRevision === null
+                || appliedEndpointCatalogRevision !== message.revisionId;
+            appliedEndpointCatalogRevision = message.revisionId;
+            var available = new Set(message.machines.map(function (machine) { return 'managed:' + machine.id; }));
+            selectors.forEach(function (selector) {
+                var previousValue = selector.value;
+                selector.textContent = '';
+                var placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = 'Choose endpoint…';
+                selector.appendChild(placeholder);
+                var local = document.createElement('option');
+                local.value = 'local';
+                local.textContent = 'This Computer…';
+                selector.appendChild(local);
+                message.machines.forEach(function (machine) {
+                    var option = document.createElement('option');
+                    option.value = 'managed:' + machine.id;
+                    option.textContent = machine.name;
+                    selector.appendChild(option);
+                });
+                if (previousValue === 'local' || available.has(previousValue)) {
+                    selector.value = previousValue;
+                    // Opaque Managed Machine handles are intentionally bound
+                    // to a catalog revision. Re-list retained selections when
+                    // the catalog changes; keeping an old "ready" pane would
+                    // only lead to a stale-handle transfer failure.
+                    if (revisionChanged && previousValue.indexOf('managed:') === 0) {
+                        var retainedSide = selector.getAttribute('data-file-transfer-endpoint');
+                        if (retainedSide === 'left' || retainedSide === 'right') {
+                            resetEndpointState(retainedSide);
+                            requestRemoteDirectory(retainedSide, previousValue.slice('managed:'.length));
+                        }
+                    }
+                } else {
+                    selector.value = '';
+                    var side = selector.getAttribute('data-file-transfer-endpoint');
+                    if (side === 'left' || side === 'right') resetEndpointState(side);
+                }
+            });
+            renderSavedPairs();
+            updatePair();
+            return true;
+        }
+
+        function renderTaskList() {
+            if (!taskList) return;
+            var taskIds = Object.keys(transferTasks);
+            taskList.textContent = '';
+            taskList.hidden = taskIds.length === 0;
+            taskIds.forEach(function (taskId) {
+                var task = transferTasks[taskId];
+                var row = document.createElement('li');
+                var label = document.createElement('span');
+                label.className = 'file-transfer-task-telemetry';
+                var route = task.plan && task.plan.sourceLabel && task.plan.destinationLabel
+                    ? ' · ' + task.plan.sourceLabel + ' → ' + task.plan.destinationLabel : '';
+                var itemProgress = task.progress && Number.isSafeInteger(task.progress.completedItems)
+                    ? task.progress.completedItems + task.progress.skippedItems + '/' + task.progress.totalItems
+                    : String(task.itemCount);
+                label.textContent = task.status === 'running'
+                    ? 'Copying ' + itemProgress + ' item(s)'
+                        + fileTransferProgressDetail(task.progress) + route
+                    : task.status === 'cancelling'
+                        ? 'Cancelling ' + task.itemCount + ' item(s)' + route
+                        : 'Queued · ' + task.itemCount + ' item(s)' + route;
+                row.appendChild(label);
+                var cancel = document.createElement('button');
+                cancel.type = 'button';
+                cancel.textContent = 'Cancel';
+                cancel.addEventListener('click', function () { requestTaskCancellation(taskId); });
+                row.appendChild(cancel);
+                taskList.appendChild(row);
+            });
+        }
+
+        function renderTaskStatus(message) {
+            if (!taskStatus) return;
+            taskStatus.hidden = !message;
+            taskStatus.textContent = message || '';
+        }
+
+        function formatFileTransferBytes(value) {
+            if (!Number.isSafeInteger(value) || value < 0) return null;
+            var units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+            var unit = 0;
+            var amount = value;
+            while (amount >= 1024 && unit < units.length - 1) {
+                amount /= 1024;
+                unit += 1;
+            }
+            var digits = amount >= 100 || Number.isInteger(amount) ? 0 : amount >= 10 ? 1 : 2;
+            return amount.toFixed(digits).replace(/\.0+$/, '') + ' ' + units[unit];
+        }
+
+        function fileTransferHopLabel(hop, phase) {
+            if (hop === 'source-to-relay') return 'Source → relay';
+            if (hop === 'relay-to-target') return 'Relay → target';
+            if (hop === 'source-to-target') return 'Source → target';
+            return phase === 'downloading' ? 'Source → relay'
+                : phase === 'uploading' ? 'Relay → target' : null;
+        }
+
+        function fileTransferProgressDetail(progress) {
+            if (!progress) return '';
+            var details = [];
+            var hop = fileTransferHopLabel(progress.hop, progress.phase);
+            if (hop) details.push(hop);
+            if (Number.isSafeInteger(progress.transferredBytes) && Number.isSafeInteger(progress.totalBytes)) {
+                details.push(formatFileTransferBytes(progress.transferredBytes)
+                    + ' / ' + formatFileTransferBytes(progress.totalBytes));
+            }
+            if (Number.isSafeInteger(progress.bytesPerSecond)) {
+                details.push(formatFileTransferBytes(progress.bytesPerSecond) + '/s');
+            }
+            if (progress.activity) details.push(progress.activity.replace(/-/g, ' '));
+            if (progress.currentItemName) details.push(progress.currentItemName);
+            return details.length ? ' · ' + details.join(' · ') : '';
+        }
+
+        function renderHistory(entries) {
+            if (!historyList) return false;
+            historyList.textContent = '';
+            if (!entries.length) {
+                var empty = document.createElement('li');
+                empty.textContent = 'No completed transfers yet.';
+                historyList.appendChild(empty);
+                if (clearHistory) clearHistory.disabled = true;
+                return true;
+            }
+            entries.forEach(function (entry) {
+                var row = document.createElement('li');
+                var detail = entry.status === 'copied'
+                    ? 'Copied ' + (entry.completedItems === undefined ? entry.itemCount : entry.completedItems)
+                        + (entry.skippedItems ? ', skipped ' + entry.skippedItems : '')
+                    : entry.status === 'cancelled'
+                        ? 'Cancelled after ' + (entry.completedItems || 0) + ' copied'
+                    : 'Failed after ' + (entry.completedItems || 0) + ' copied'
+                        + (entry.skippedItems ? ', skipped ' + entry.skippedItems : '');
+                if (entry.source && entry.destination) {
+                    detail += ' · ' + savedPairLabel(entry.source) + ' → ' + savedPairLabel(entry.destination);
+                }
+                row.textContent = detail + ' · ' + entry.itemCount + ' item(s) · ' + entry.conflictPolicy;
+                historyList.appendChild(row);
+            });
+            if (clearHistory) clearHistory.disabled = !!pendingHistoryClearRequestId;
+            return true;
+        }
+
+        function applyHistory(message) {
+            return renderHistory(message.entries);
+        }
+
+        function requestHistoryClear() {
+            if (pendingHistoryClearRequestId || !clearHistory || clearHistory.disabled) return;
+            var requestId = 'file-transfer-history-clear-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingHistoryClearRequestId = requestId;
+            clearHistory.disabled = true;
+            options.postMessage({ type: 'file-transfer-clear-history', version: 1, requestId: requestId });
+        }
+
+        function applyHistoryClearSettlement(message) {
+            if (message.requestId !== pendingHistoryClearRequestId) return false;
+            pendingHistoryClearRequestId = null;
+            if (message.type === 'file-transfer-history-cleared') {
+                renderHistory(message.entries);
+            } else {
+                if (clearHistory) clearHistory.disabled = false;
+                renderTaskStatus('Could not clear transfer history: ' + message.message);
+            }
+            return true;
+        }
+
+        function selectorFor(side) {
+            return selectors.find(function (selector) {
+                return selector.getAttribute('data-file-transfer-endpoint') === side;
+            }) || null;
+        }
+
+        function visibleFileTransferDirectoryEntries(side, root) {
+            if (!root) return [];
+            var filter = fileTransferFilter[side];
+            var entries = sortFileTransferEntries(root.entries, fileTransferSort[side])
+                .filter(function (entry) {
+                    return !filter || entry.name.toLocaleLowerCase().includes(filter);
+                }).map(function (entry) {
+                    return { entry: entry, directoryId: root.directoryId };
+                });
+            var parentPath = fileTransferParentPathForSide(side, root.displayPath);
+            if (parentPath) {
+                entries.unshift({
+                    parentDirectory: true,
+                    side: side,
+                    parentPath: parentPath,
+                    entry: { id: 'parent-directory', name: '..', kind: 'parent' },
+                });
+            }
+            return entries;
+        }
+
+        function comparableFileTransferPath(value) {
+            var normalized = String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+            if (!normalized) return '/';
+            return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
+        }
+
+        function fileTransferParentPathForSide(side, displayPath) {
+            var parentPath = fileTransferParentPath(displayPath);
+            var selector = selectorFor(side);
+            if (parentPath && selector && selector.value === 'local'
+                && localRootDisplayPaths[side]
+                && comparableFileTransferPath(displayPath)
+                    === comparableFileTransferPath(localRootDisplayPaths[side])) {
+                return null;
+            }
+            return parentPath;
+        }
+
+        function localFileTransferNavigationPath(side, displayPath) {
+            var normalizedPath = String(displayPath).replace(/\\/g, '/');
+            var rootDisplayPath = localRootDisplayPaths[side];
+            if (!rootDisplayPath) return normalizedPath;
+            var normalizedRoot = String(rootDisplayPath).replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+            if (comparableFileTransferPath(normalizedPath) === comparableFileTransferPath(normalizedRoot)) {
+                return '.';
+            }
+            var prefix = normalizedRoot === '/' ? '/' : normalizedRoot + '/';
+            var comparablePath = comparableFileTransferPath(normalizedPath);
+            var comparablePrefix = comparableFileTransferPath(prefix);
+            if (comparablePath.indexOf(comparablePrefix) === 0) {
+                return normalizedPath.slice(prefix.length);
+            }
+            return normalizedPath;
+        }
+
+        function selectedDirectoryEntries(side) {
+            var directoryId = selectedEntryDirectoryIds[side];
+            var directory = directoryId && localRoots[side]
+                && localRoots[side].directoryId === directoryId ? localRoots[side] : null;
+            var entries = directory && Array.isArray(directory.entries) ? directory.entries : [];
+            return Array.from(selectedEntries[side]).map(function (entryId) {
+                return entries.find(function (entry) { return entry.id === entryId; }) || null;
+            }).filter(Boolean);
+        }
+
+        function rememberPathSuggestion(side, displayPath) {
+            if ((side !== 'left' && side !== 'right') || typeof displayPath !== 'string'
+                || !displayPath || displayPath.length > 1024 || /[\0\r\n]/.test(displayPath)) {
+                return;
+            }
+            pathSuggestions[side] = [displayPath].concat(pathSuggestions[side].filter(function (value) {
+                return value !== displayPath;
+            })).slice(0, 12);
+        }
+
+        function renderPathSuggestions(side, pane, directoryView) {
+            var options = pane.querySelector('[data-file-transfer-path-options]');
+            if (!options) return;
+            options.textContent = '';
+            if (!directoryView) return;
+            pathSuggestions[side].forEach(function (displayPath) {
+                var option = document.createElement('option');
+                option.value = displayPath;
+                options.appendChild(option);
+            });
+        }
+
+        function updatePane(side, selector) {
+            var pane = panes[side];
+            if (!pane || !selector) {
+                return;
+            }
+            var name = pane.querySelector('[data-file-transfer-pane-name]');
+            var pathInput = pane.querySelector('[data-file-transfer-path-input]');
+            var status = pane.querySelector('[data-file-transfer-pane-status]');
+            var refresh = pane.querySelector('[data-file-transfer-refresh]');
+            var filter = pane.querySelector('[data-file-transfer-filter]');
+            var showHidden = pane.querySelector('[data-file-transfer-show-hidden]');
+            var sort = pane.querySelector('[data-file-transfer-sort]');
+            var fileList = pane.querySelector('[data-file-transfer-file-list]');
+            var option = selector.options && selector.selectedIndex >= 0
+                ? selector.options[selector.selectedIndex] : null;
+            var value = selector.value || '';
+            if (!value) {
+                if (name) name.textContent = 'Choose an endpoint';
+                if (status) {
+                    status.classList.remove('is-directory-ready');
+                    status.textContent = 'Choose an endpoint to browse its files.';
+                }
+                if (refresh) refresh.disabled = true;
+                if (filter) filter.disabled = true;
+                if (showHidden) showHidden.disabled = true;
+                if (sort) sort.disabled = true;
+                if (pathInput) {
+                    pathInput.disabled = true;
+                    pathInput.value = '';
+                }
+                if (fileList) {
+                    fileList.textContent = '';
+                    fileList.hidden = true;
+                }
+                return;
+            }
+            if (name) name.textContent = option ? option.textContent : 'Selected endpoint';
+            var directoryView = localRoots[side];
+            var directoryEntries = directoryView ? visibleFileTransferDirectoryEntries(side, directoryView)
+                .filter(function (treeEntry) {
+                    return treeEntry.parentDirectory || showHiddenEntries[side]
+                        || !isHiddenFileTransferEntry(treeEntry.entry.name);
+                }) : [];
+            if (filter) {
+                filter.disabled = !directoryView;
+                filter.value = fileTransferFilter[side];
+            }
+            if (showHidden) {
+                showHidden.disabled = !directoryView;
+                showHidden.checked = showHiddenEntries[side];
+            }
+            if (sort) {
+                sort.disabled = !directoryView;
+                sort.value = fileTransferSort[side];
+            }
+            if (pathInput) {
+                pathInput.disabled = !directoryView;
+                pathInput.value = directoryView ? directoryView.displayPath : '';
+            }
+            renderPathSuggestions(side, pane, directoryView);
+            if (status) {
+                status.classList.toggle('is-directory-ready', !!directoryView);
+                status.textContent = paneFailures[side] || paneNavigationErrors[side]
+                    ? (paneFailures[side] || paneNavigationErrors[side]) + ' Select Refresh to try again.'
+                    : directoryView
+                    ? Math.max(0, directoryEntries.length - (fileTransferParentPathForSide(side, directoryView.displayPath) ? 1 : 0)) + ' items loaded'
+                        + (directoryView.hasMore ? ' · first 1,000 shown' : '')
+                    : value === 'local' && pendingLocalRootRequests[side]
+                        ? 'Opening local folder…'
+                    : value.indexOf('managed:') === 0 && pendingLocalRootRequests[side]
+                        ? 'Opening directory…'
+                    : value === 'local'
+                        ? 'Choose a local folder.'
+                    : 'Opening machine directory…';
+            }
+            if (fileList) {
+                renderLocalFileTransferEntries(
+                    fileList,
+                    directoryEntries,
+                    selectedEntries[side],
+                    function (entryId, directoryId, selected) {
+                        updateSelection(side, entryId, directoryId, selected);
+                    },
+                    function (directoryId, parentDirectory, parentPath) {
+                        if (parentDirectory) goToParentDirectory(side, parentPath);
+                        else openDirectory(side, directoryId);
+                    },
+                    null,
+                    null,
+                    side === 'left',
+                    directoryView && directoryView.directoryId,
+                );
+                fileList.hidden = !directoryView;
+            }
+            if (refresh) refresh.disabled = !directoryView && !paneFailures[side];
+        }
+
+        function updatePair() {
+            var left = selectorFor('left');
+            var right = selectorFor('right');
+            if (left && right && left.value && left.value === right.value) {
+                right.value = '';
+                resetEndpointState('right');
+                if (hint) hint.textContent = 'Source and target must be different endpoints.';
+            } else if (left && right && left.value && right.value) {
+                if (hint) hint.textContent = 'Select files in Source, then transfer them to Target.';
+            } else if (hint) {
+                hint.textContent = 'Select a source and a target. Source files always travel left to right.';
+            }
+            updatePane('left', left);
+            updatePane('right', right);
+            var count = selectedEntries.left.size;
+            var sourceLabel = left && left.options && left.selectedIndex >= 0
+                ? left.options[left.selectedIndex].textContent : 'Source';
+            var targetLabel = right && right.options && right.selectedIndex >= 0
+                ? right.options[right.selectedIndex].textContent : 'Target';
+            var sourcePath = localRoots.left ? localRoots.left.displayPath : '—';
+            var targetPath = localRoots.right ? localRoots.right.displayPath : '—';
+            if (summary) summary.textContent = count
+                ? count + ' selected item' + (count === 1 ? '' : 's') + ' · '
+                    + sourceLabel + ' ' + sourcePath + ' → ' + targetLabel + ' ' + targetPath
+                : 'Select source files · ' + sourceLabel + ' ' + sourcePath + ' → ' + targetLabel + ' ' + targetPath;
+            if (startCopy) {
+                startCopy.disabled = !!pendingCopyRequestId || !!pendingCopyPreflightRequestId
+                    || !count || !endpointReady('left') || !endpointReady('right');
+                startCopy.textContent = count ? 'Transfer ' + count + ' item' + (count === 1 ? '' : 's') : 'Transfer';
+            }
+            updateReadiness();
+        }
+
+        function updateSelection(side, entryId, directoryId, selected) {
+            if (side !== 'left') return;
+            if (selected) {
+                if (selectedEntryDirectoryIds[side]
+                    && selectedEntryDirectoryIds[side] !== directoryId) {
+                    selectedEntries[side].clear();
+                }
+                selectedEntryDirectoryIds[side] = directoryId;
+                selectedEntries[side].add(entryId);
+            } else {
+                selectedEntries[side].delete(entryId);
+                if (selectedEntries[side].size === 0) selectedEntryDirectoryIds[side] = null;
+            }
+            updatePair();
+        }
+
+        function clearPendingDirectoryRequest(side) {
+            if (pendingLocalRootTimeouts[side] !== null) {
+                cancelTimeout(pendingLocalRootTimeouts[side]);
+                pendingLocalRootTimeouts[side] = null;
+            }
+            pendingDirectoryOperations[side] = null;
+        }
+
+        function startDirectoryRequest(side, requestId, operation) {
+            clearPendingDirectoryRequest(side);
+            pendingLocalRootRequests[side] = requestId;
+            pendingDirectoryOperations[side] = operation || { mode: 'navigate' };
+            if (!scheduleTimeout) return;
+            pendingLocalRootTimeouts[side] = scheduleTimeout(function () {
+                if (pendingLocalRootRequests[side] !== requestId) return;
+                pendingLocalRootRequests[side] = null;
+                pendingLocalRootTimeouts[side] = null;
+                pendingDirectoryOperations[side] = null;
+                if (localRoots[side]) {
+                    paneNavigationErrors[side] = 'The directory request did not reply. Check the local Agent Pivot UI Bridge.';
+                } else {
+                    paneFailures[side] = 'The directory request did not reply. Check the local Agent Pivot UI Bridge.';
+                }
+                updatePair();
+            }, fileTransferDirectoryRequestTimeoutMs);
+        }
+
+        function requestLocalRoot(side) {
+            var requestId = 'file-transfer-' + side + '-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            startDirectoryRequest(side, requestId, { mode: 'root' });
+            options.postMessage({
+                type: 'file-transfer-select-local-root',
+                version: 1,
+                requestId: requestId,
+                side: side,
+            });
+        }
+
+        function requestRemoteDirectory(side, machineId) {
+            var requestId = 'file-transfer-' + side + '-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            startDirectoryRequest(side, requestId, { mode: 'root' });
+            options.postMessage({
+                type: 'file-transfer-list-remote-directory',
+                version: 1,
+                requestId: requestId,
+                side: side,
+                machineId: machineId,
+            });
+        }
+
+        function openDirectory(side, directoryId, remember) {
+            var selector = selectorFor(side);
+            var root = localRoots[side];
+            if (!selector || !root || !directoryId) return;
+            var requestId = 'file-transfer-open-' + side + '-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            startDirectoryRequest(side, requestId, {
+                mode: 'navigate',
+                directoryId: directoryId,
+                previousDirectory: remember !== false && root.directoryId !== directoryId ? root : null,
+            });
+            selectedEntries[side].clear();
+            selectedEntryDirectoryIds[side] = null;
+            if (selector.value === 'local') {
+                options.postMessage({
+                    type: 'file-transfer-open-directory',
+                    version: 1,
+                    requestId: requestId,
+                    side: side,
+                    endpoint: { kind: 'local', rootId: root.rootId, directoryId: directoryId },
+                });
+            } else if (selector.value.indexOf('managed:') === 0) {
+                options.postMessage({
+                    type: 'file-transfer-open-directory',
+                    version: 1,
+                    requestId: requestId,
+                    side: side,
+                    endpoint: {
+                        kind: 'managedMachine',
+                        machineId: selector.value.slice('managed:'.length),
+                        directoryId: directoryId,
+                    },
+                });
+            }
+            updatePair();
+        }
+
+        function goToParentDirectory(side, parentPath) {
+            if (parentPath) openPath(side, parentPath, 'parent');
+        }
+
+        function openPath(side, navigationPath, navigationKind) {
+            var selector = selectorFor(side);
+            var root = localRoots[side];
+            if (!selector || !root || !navigationPath) return;
+            var normalizedPath = String(navigationPath).replace(/\\/g, '/');
+            var isLocalPath = selector.value === 'local';
+            var requestPath = isLocalPath
+                ? localFileTransferNavigationPath(side, normalizedPath)
+                : normalizedPath;
+            var validPath = isLocalPath
+                ? (requestPath === '.' || (!requestPath.startsWith('/') && requestPath.split('/').every(function (part) {
+                    return part && part !== '.' && part !== '..';
+                })))
+                : (normalizedPath === '.' || normalizedPath === '/' || (normalizedPath.startsWith('/') && normalizedPath.split('/').every(function (part, index) {
+                    return index === 0 || (part && part !== '.' && part !== '..');
+                })));
+            if (!validPath) {
+                paneNavigationErrors[side] = isLocalPath
+                    ? 'Use a path inside the selected local folder.'
+                    : 'Use an absolute Managed Machine path.';
+                updatePair();
+                return;
+            }
+            var requestId = 'file-transfer-path-' + side + '-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            startDirectoryRequest(side, requestId, { mode: 'navigate', navigationKind: navigationKind || 'direct' });
+            selectedEntries[side].clear();
+            selectedEntryDirectoryIds[side] = null;
+            var endpoint = selector.value === 'local'
+                ? { kind: 'local', rootId: root.rootId, directoryId: root.directoryId }
+                : selector.value.indexOf('managed:') === 0
+                    ? {
+                        kind: 'managedMachine',
+                        machineId: selector.value.slice('managed:'.length),
+                        directoryId: root.directoryId,
+                    } : null;
+            if (!endpoint) return;
+            options.postMessage({
+                type: 'file-transfer-open-directory', version: 1, requestId: requestId,
+                side: side, endpoint: endpoint, path: requestPath,
+            });
+            updatePair();
+        }
+
+        function resetEndpointState(side) {
+            localRoots[side] = null;
+            localRootDisplayPaths[side] = null;
+            paneFailures[side] = null;
+            paneNavigationErrors[side] = null;
+            clearPendingDirectoryRequest(side);
+            pendingLocalRootRequests[side] = null;
+            selectedEntries[side].clear();
+            selectedEntryDirectoryIds[side] = null;
+            pathSuggestions[side] = [];
+            lastRememberedPairKey = null;
+        }
+
+        function activateEndpointSelection(side, selector) {
+            if (side !== 'left' && side !== 'right' || !selector) return;
+            resetEndpointState(side);
+            if (selector.value === 'local') {
+                requestLocalRoot(side);
+            } else if (selector.value.indexOf('managed:') === 0) {
+                requestRemoteDirectory(side, selector.value.slice('managed:'.length));
+            }
+            updatePair();
+        }
+
+        function onEndpointChange(event) {
+            var selector = event.currentTarget;
+            var side = selector && selector.getAttribute
+                ? selector.getAttribute('data-file-transfer-endpoint') : null;
+            activateEndpointSelection(side, selector);
+        }
+
+        function selectSavedPair(pair) {
+            if (!pair || !Array.isArray(pair.endpoints) || pair.endpoints.length !== 2) return;
+            ['left', 'right'].forEach(function (side, index) {
+                var selector = selectorFor(side);
+                var endpoint = pair.endpoints[index];
+                var value = savedPairEndpointKey(endpoint);
+                if (!selector || selector.value === value) return;
+                selector.value = value;
+                activateEndpointSelection(side, selector);
+            });
+            rememberCurrentPair(true);
+        }
+
+        function pairEndpointsFromSelectors() {
+            var values = ['left', 'right'].map(function (side) {
+                var selector = selectorFor(side);
+                if (!selector || !selector.value) return null;
+                return selector.value === 'local' ? { kind: 'local' }
+                    : selector.value.indexOf('managed:') === 0
+                        ? { kind: 'managedMachine', machineId: selector.value.slice('managed:'.length) } : null;
+            });
+            return values.every(Boolean) && savedPairEndpointKey(values[0]) !== savedPairEndpointKey(values[1])
+                ? values : null;
+        }
+
+        function rememberCurrentPair(force) {
+            var endpoints = pairEndpointsFromSelectors();
+            if (!endpoints) return;
+            var key = savedPairKey(endpoints);
+            if (!force && key === lastRememberedPairKey) return;
+            lastRememberedPairKey = key;
+            options.postMessage({
+                type: 'file-transfer-save-pair', version: 1,
+                requestId: 'file-transfer-saved-pair-' + Date.now() + '-'
+                    + Math.random().toString(16).slice(2, 18),
+                endpoints: endpoints,
+            });
+        }
+
+        function setSavedPairPinned(pair, pinned) {
+            options.postMessage({
+                type: 'file-transfer-set-saved-pair-pinned', version: 1,
+                requestId: 'file-transfer-saved-pair-pin-' + Date.now() + '-'
+                    + Math.random().toString(16).slice(2, 18),
+                endpoints: pair.endpoints,
+                pinned: pinned,
+            });
+        }
+
+        function swapEndpointLayout() {
+            var left = selectorFor('left');
+            var right = selectorFor('right');
+            if (!left || !right || pendingLocalRootRequests.left || pendingLocalRootRequests.right) return;
+            var leftValue = left.value;
+            left.value = right.value;
+            right.value = leftValue;
+            var leftRoot = localRoots.left;
+            localRoots.left = localRoots.right;
+            localRoots.right = leftRoot;
+            var leftRootDisplayPath = localRootDisplayPaths.left;
+            localRootDisplayPaths.left = localRootDisplayPaths.right;
+            localRootDisplayPaths.right = leftRootDisplayPath;
+            var leftSelection = selectedEntries.left;
+            selectedEntries.left = selectedEntries.right;
+            selectedEntries.right = leftSelection;
+            var leftSelectionDirectoryId = selectedEntryDirectoryIds.left;
+            selectedEntryDirectoryIds.left = selectedEntryDirectoryIds.right;
+            selectedEntryDirectoryIds.right = leftSelectionDirectoryId;
+            var leftPathSuggestions = pathSuggestions.left;
+            pathSuggestions.left = pathSuggestions.right;
+            pathSuggestions.right = leftPathSuggestions;
+            var leftSort = fileTransferSort.left;
+            fileTransferSort.left = fileTransferSort.right;
+            fileTransferSort.right = leftSort;
+            var leftShowHidden = showHiddenEntries.left;
+            showHiddenEntries.left = showHiddenEntries.right;
+            showHiddenEntries.right = leftShowHidden;
+            var leftFilter = fileTransferFilter.left;
+            fileTransferFilter.left = fileTransferFilter.right;
+            fileTransferFilter.right = leftFilter;
+            var leftFailure = paneFailures.left;
+            paneFailures.left = paneFailures.right;
+            paneFailures.right = leftFailure;
+            var leftNavigationError = paneNavigationErrors.left;
+            paneNavigationErrors.left = paneNavigationErrors.right;
+            paneNavigationErrors.right = leftNavigationError;
+            updatePair();
+        }
+
+        function applyLocalRootMessage(message) {
+            if (!message || (message.side !== 'left' && message.side !== 'right')
+                || pendingLocalRootRequests[message.side] !== message.requestId) {
+                return false;
+            }
+            var operation = pendingDirectoryOperations[message.side];
+            clearPendingDirectoryRequest(message.side);
+            pendingLocalRootRequests[message.side] = null;
+            if ((message.type === 'file-transfer-local-root-selected'
+                || message.type === 'file-transfer-remote-directory-listed') && message.root) {
+                var endpointSelector = selectorFor(message.side);
+                if (endpointSelector && endpointSelector.value === 'local'
+                    && operation && operation.mode === 'root') {
+                    localRootDisplayPaths[message.side] = message.root.displayPath;
+                }
+                rememberPathSuggestion(message.side, message.root.displayPath);
+                localRoots[message.side] = message.root;
+                selectedEntries[message.side].clear();
+                selectedEntryDirectoryIds[message.side] = null;
+                paneFailures[message.side] = null;
+                paneNavigationErrors[message.side] = null;
+            } else if (message.type === 'file-transfer-local-root-failed'
+                || message.type === 'file-transfer-remote-directory-failed') {
+                if (localRoots[message.side]) {
+                    paneNavigationErrors[message.side] = message.message || 'Could not open this directory.';
+                } else {
+                    paneFailures[message.side] = message.message || 'Could not open this endpoint.';
+                }
+            } else {
+                var selector = selectorFor(message.side);
+                if (selector) selector.value = '';
+                localRoots[message.side] = null;
+                paneFailures[message.side] = null;
+                selectedEntries[message.side].clear();
+                selectedEntryDirectoryIds[message.side] = null;
+            }
+            if (localRoots.left && localRoots.right) rememberCurrentPair(false);
+            updatePair();
+            options.postMessage({
+                type: 'file-transfer-directory-applied',
+                version: 1,
+                requestId: message.requestId,
+                side: message.side,
+            });
+            return true;
+        }
+
+        function applySavedPairs(message) {
+            savedPairs = message.entries.slice();
+            renderSavedPairs();
+            return true;
+        }
+
+        function applySavedPairsFailure(message) {
+            lastRememberedPairKey = null;
+            renderTaskStatus(message.message || 'Could not update endpoint pairs locally.');
+            return true;
+        }
+
+        function endpointReference(side, directoryId) {
+            var selector = selectorFor(side);
+            var root = localRoots[side];
+            if (!selector || !root) return null;
+            var resolvedDirectoryId = directoryId || root.directoryId;
+            if (selector.value === 'local') {
+                return { kind: 'local', rootId: root.rootId, directoryId: resolvedDirectoryId };
+            }
+            if (selector.value.indexOf('managed:') === 0) {
+                return {
+                    kind: 'managedMachine',
+                    machineId: selector.value.slice('managed:'.length),
+                    directoryId: resolvedDirectoryId,
+                };
+            }
+            return null;
+        }
+
+        function startDirectCopy() {
+            if (pendingCopyRequestId || pendingCopyPreflightRequestId || (startCopy && startCopy.disabled)) return;
+            var source = endpointReference('left', selectedEntryDirectoryIds.left);
+            var destination = endpointReference('right');
+            if (!source || !destination || selectedEntries.left.size === 0) return;
+            submitCopyPlan({
+                source: source,
+                destination: destination,
+                entryIds: Array.from(selectedEntries.left),
+                conflictPolicy: 'fail',
+            });
+        }
+
+        function fileTransferEndpointLabel(endpoint) {
+            if (!endpoint || endpoint.kind === 'local') return 'This Computer';
+            var selector = selectors.find(function (candidate) {
+                return candidate.value === 'managed:' + endpoint.machineId;
+            });
+            var option = selector && selector.options && selector.selectedIndex >= 0
+                ? selector.options[selector.selectedIndex] : null;
+            return option && option.textContent ? option.textContent : 'Managed Machine';
+        }
+
+        function submitCopyPlan(plan) {
+            if (!plan || pendingCopyRequestId || pendingCopyPreflightRequestId) return;
+            var requestId = 'file-transfer-preflight-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingCopyPreflightRequestId = requestId;
+            pendingCopyPreflightPlan = {
+                source: plan.source, destination: plan.destination,
+                entryIds: plan.entryIds.slice(), conflictPolicy: plan.conflictPolicy,
+                sourceLabel: fileTransferEndpointLabel(plan.source),
+                destinationLabel: fileTransferEndpointLabel(plan.destination),
+                ...(plan.targetName ? { targetName: plan.targetName } : {}),
+            };
+            if (startCopy) startCopy.disabled = true;
+            if (retry) retry.hidden = true;
+            if (taskStatus) taskStatus.setAttribute('aria-live', 'polite');
+            renderTaskStatus('Checking selected items…');
+            options.postMessage({
+                type: 'file-transfer-preflight-copy', version: 1, requestId: requestId,
+                source: pendingCopyPreflightPlan.source,
+                destination: pendingCopyPreflightPlan.destination,
+                entryIds: pendingCopyPreflightPlan.entryIds,
+                ...(pendingCopyPreflightPlan.targetName ? { targetName: pendingCopyPreflightPlan.targetName } : {}),
+            });
+        }
+
+        function queueCopyPlan(plan) {
+            var requestId = 'file-transfer-copy-' + Date.now() + '-'
+                + Math.random().toString(16).slice(2, 18);
+            pendingCopyRequestId = requestId;
+            pendingCopyItemCount = plan.entryIds.length;
+            pendingCopyPlan = {
+                source: plan.source, destination: plan.destination,
+                entryIds: plan.entryIds.slice(), conflictPolicy: plan.conflictPolicy,
+                sourceLabel: fileTransferEndpointLabel(plan.source),
+                destinationLabel: fileTransferEndpointLabel(plan.destination),
+                ...(plan.targetName ? { targetName: plan.targetName } : {}),
+            };
+            if (startCopy) startCopy.disabled = true;
+            if (retry) retry.hidden = true;
+            options.postMessage({
+                type: 'file-transfer-copy',
+                version: 1,
+                requestId: requestId,
+                source: pendingCopyPlan.source,
+                destination: pendingCopyPlan.destination,
+                entryIds: pendingCopyPlan.entryIds,
+                conflictPolicy: pendingCopyPlan.conflictPolicy,
+                ...(pendingCopyPlan.targetName ? { targetName: pendingCopyPlan.targetName } : {}),
+            });
+        }
+
+        function applyCopyPreflight(message) {
+            if (message.requestId !== pendingCopyPreflightRequestId) return false;
+            var plan = pendingCopyPreflightPlan;
+            pendingCopyPreflightRequestId = null;
+            pendingCopyPreflightPlan = null;
+            if (message.type === 'file-transfer-copy-preflight-failed') {
+                renderTaskStatus(message.message || 'Could not check the selected items.');
+                updatePair();
+                return true;
+            }
+            if (!plan) {
+                updatePair();
+                return true;
+            }
+            queueCopyPlan(plan);
+            return true;
+        }
+
+        function applyCopySettlement(message) {
+            if (message.requestId !== pendingCopyRequestId && !transferTasks[message.requestId]) return false;
+            var wasPending = message.requestId === pendingCopyRequestId;
+            var task = transferTasks[message.requestId]
+                || (wasPending ? { plan: pendingCopyPlan, itemCount: pendingCopyItemCount } : null);
+            if (wasPending) {
+                pendingCopyRequestId = null;
+                pendingCopyItemCount = 0;
+                pendingCopyPlan = null;
+            }
+            if (activeCopyTaskId === message.requestId) activeCopyTaskId = null;
+            if (taskStatus) taskStatus.setAttribute('aria-live', 'polite');
+            delete transferTasks[message.requestId];
+            renderTaskCount();
+            if (startCopy && !pendingCopyRequestId) startCopy.disabled = false;
+            if (message.status === 'copied') {
+                var completed = message.value && Number.isSafeInteger(message.value.completedItems)
+                    ? message.value.completedItems : 0;
+                var skipped = message.value && Number.isSafeInteger(message.value.skippedItems)
+                    ? message.value.skippedItems : 0;
+                renderTaskStatus('Copy complete: ' + completed + ' copied'
+                    + (skipped ? ', ' + skipped + ' skipped.' : '.'));
+                lastCompletedCopyPlan = task && task.plan ? task.plan : null;
+                if (revealTarget) revealTarget.hidden = !lastCompletedCopyPlan;
+                if (task && task.plan === lastFailedCopyPlan) {
+                    lastFailedCopyPlan = null;
+                    if (retry) retry.hidden = true;
+                }
+                updatePair();
+                revealCompletedTarget(true);
+            } else if (message.status === 'cancelled') {
+                var cancelledAfter = message.value && Number.isSafeInteger(message.value.completedItems)
+                    ? message.value.completedItems : 0;
+                renderTaskStatus('Copy cancelled after ' + cancelledAfter + ' item(s).');
+            } else {
+                var failedAfter = message.value && Number.isSafeInteger(message.value.completedItems)
+                    ? message.value.completedItems : 0;
+                var failedSkipped = message.value && Number.isSafeInteger(message.value.skippedItems)
+                    ? message.value.skippedItems : 0;
+                var failureMessage = message.value && typeof message.value.message === 'string'
+                    ? message.value.message : (message.message || 'File copy failed.');
+                var diagnostic = message.value && message.value.diagnostic;
+                var diagnosticLabel = diagnostic && validateFileTransferCopyDiagnostic(diagnostic)
+                    ? ' [' + fileTransferHopLabel(diagnostic.hop, diagnostic.phase) + ' · ' + diagnostic.code + ']'
+                    : '';
+                renderTaskStatus('Copy failed after ' + failedAfter + ' copied'
+                    + (failedSkipped ? ', ' + failedSkipped + ' skipped' : '') + diagnosticLabel + ': ' + failureMessage);
+                lastFailedCopyPlan = task && task.plan ? task.plan : null;
+                if (retry) retry.hidden = !lastFailedCopyPlan;
+            }
+            options.postMessage({ type: 'file-transfer-request-history', version: 1 });
+            return true;
+        }
+
+        function applyCopyStarted(message) {
+            var task = transferTasks[message.requestId];
+            if (!task) return false;
+            activeCopyTaskId = message.requestId;
+            task.status = 'running';
+            if (taskStatus) taskStatus.setAttribute('aria-live', 'polite');
+            renderTaskCount();
+            renderTaskStatus('Copying ' + task.itemCount + ' item(s) from '
+                + (task.plan.sourceLabel || 'the selected endpoint') + ' to '
+                + (task.plan.destinationLabel || 'the other endpoint') + '. Select Transfers to cancel.');
+            updatePair();
+            return true;
+        }
+
+        function applyCopyProgress(message) {
+            var task = transferTasks[message.requestId];
+            if (!task || task.status !== 'running') return false;
+            task.progress = message.progress;
+            renderTaskCount();
+            // Byte counters can update many times per minute. Keep their
+            // visual telemetry current without repeatedly interrupting a
+            // screen-reader user; phase and terminal states remain polite.
+            if (taskStatus) taskStatus.setAttribute('aria-live', 'off');
+            var phaseLabels = {
+                preparing: 'Preparing secure relay',
+                downloading: 'Downloading from source to relay',
+                uploading: 'Uploading from relay to target',
+                verifying: 'Verifying delivery',
+            };
+            var phase = message.progress.hop === 'source-to-target'
+                ? 'Streaming through relay'
+                : phaseLabels[message.progress.phase] || 'Preparing transfer';
+            var current = ' ' + phase + fileTransferProgressDetail(message.progress) + '.';
+            renderTaskStatus('Copying ' + (message.progress.completedItems + message.progress.skippedItems)
+                + ' of ' + message.progress.totalItems + ' item(s).' + current);
+            return true;
+        }
+
+        function applyCopyQueued(message) {
+            if (message.requestId !== pendingCopyRequestId) return false;
+            transferTasks[message.requestId] = {
+                status: 'queued', itemCount: pendingCopyItemCount, plan: pendingCopyPlan,
+            };
+            pendingCopyRequestId = null;
+            pendingCopyItemCount = 0;
+            pendingCopyPlan = null;
+            if (startCopy) startCopy.disabled = false;
+            selectedEntries.left.clear();
+            selectedEntries.right.clear();
+            renderTaskStatus('Copy queued in position ' + message.position + '.');
+            renderTaskCount();
+            updatePair();
+            return true;
+        }
+
+        function requestTaskCancellation(taskId) {
+            var task = transferTasks[taskId];
+            if (!task) return;
+            task.status = 'cancelling';
+            if (taskId === activeCopyTaskId) {
+                renderTaskStatus('Cancelling copy…');
+            }
+            renderTaskCount();
+            options.postMessage({ type: 'file-transfer-cancel-copy', version: 1, taskId: taskId });
+        }
+
+        function retryFailedCopy() {
+            if (!lastFailedCopyPlan || pendingCopyRequestId || pendingCopyPreflightRequestId) return;
+            renderTaskStatus('Revalidating failed items before retry…');
+            var plan = lastFailedCopyPlan;
+            lastFailedCopyPlan = null;
+            submitCopyPlan(plan);
+        }
+
+        function sameFileTransferEndpoint(left, right) {
+            if (!left || !right || left.kind !== right.kind) return false;
+            return left.kind === 'local'
+                ? left.rootId === right.rootId
+                : left.machineId === right.machineId;
+        }
+
+        function revealCompletedTarget(silent) {
+            if (!lastCompletedCopyPlan || !lastCompletedCopyPlan.destination) return;
+            var destination = lastCompletedCopyPlan.destination;
+            var side = ['left', 'right'].find(function (candidate) {
+                return sameFileTransferEndpoint(endpointReference(candidate), destination);
+            });
+            if (!side) {
+                renderTaskStatus('Select the original destination endpoint to reveal this copy target.');
+                return;
+            }
+            if (!silent) renderTaskStatus('Opening the completed copy target…');
+            openDirectory(side, destination.directoryId);
+        }
+
+        selectors.forEach(function (selector) {
+            selector.addEventListener('change', onEndpointChange);
+        });
+        if (swap) swap.addEventListener('click', swapEndpointLayout);
+        if (startCopy) startCopy.addEventListener('click', startDirectCopy);
+        if (retry) retry.addEventListener('click', retryFailedCopy);
+        if (revealTarget) revealTarget.addEventListener('click', revealCompletedTarget);
+        if (clearHistory) clearHistory.addEventListener('click', requestHistoryClear);
+        Array.from(panel.querySelectorAll('[data-file-transfer-filter]')).forEach(function (input) {
+            input.addEventListener('input', function () {
+                var side = input.getAttribute('data-file-transfer-filter');
+                if (side !== 'left' && side !== 'right') return;
+                fileTransferFilter[side] = input.value.slice(0, 255).toLocaleLowerCase();
+                updatePair();
+            });
+        });
+        Array.from(panel.querySelectorAll('[data-file-transfer-path-input]')).forEach(function (input) {
+            input.addEventListener('change', function () {
+                var side = input.getAttribute('data-file-transfer-path-input');
+                if (side === 'left' || side === 'right') openPath(side, input.value);
+            });
+            input.addEventListener('keydown', function (event) {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                var side = input.getAttribute('data-file-transfer-path-input');
+                if (side === 'left' || side === 'right') openPath(side, input.value);
+            });
+        });
+        Array.from(panel.querySelectorAll('[data-file-transfer-show-hidden]')).forEach(function (checkbox) {
+            checkbox.addEventListener('change', function () {
+                var side = checkbox.getAttribute('data-file-transfer-show-hidden');
+                if (side !== 'left' && side !== 'right') return;
+                showHiddenEntries[side] = checkbox.checked;
+                if (!showHiddenEntries[side] && selectedEntryDirectoryIds[side]) {
+                    var selectedDirectory = localRoots[side]
+                        && localRoots[side].directoryId === selectedEntryDirectoryIds[side]
+                        ? localRoots[side] : null;
+                    if (selectedDirectory) {
+                        selectedDirectory.entries.forEach(function (entry) {
+                            if (isHiddenFileTransferEntry(entry.name)) selectedEntries[side].delete(entry.id);
+                        });
+                    }
+                    if (selectedEntries[side].size === 0) selectedEntryDirectoryIds[side] = null;
+                }
+                updatePair();
+            });
+        });
+        Array.from(panel.querySelectorAll('[data-file-transfer-sort]')).forEach(function (select) {
+            select.addEventListener('change', function () {
+                var side = select.getAttribute('data-file-transfer-sort');
+                if (side !== 'left' && side !== 'right') return;
+                if (!['name', 'type', 'modified', 'size'].includes(select.value)) return;
+                fileTransferSort[side] = select.value;
+                updatePair();
+            });
+        });
+        Array.from(panel.querySelectorAll('[data-file-transfer-refresh]')).forEach(function (button) {
+            button.addEventListener('click', function () {
+                var side = button.getAttribute('data-file-transfer-refresh');
+                var root = side === 'left' || side === 'right' ? localRoots[side] : null;
+                if (root) {
+                    openDirectory(side, root.directoryId, false);
+                    return;
+                }
+                var selector = side === 'left' || side === 'right' ? selectorFor(side) : null;
+                if (!selector || !paneFailures[side]) return;
+                if (selector.value === 'local') requestLocalRoot(side);
+                else if (selector.value.indexOf('managed:') === 0) {
+                    requestRemoteDirectory(side, selector.value.slice('managed:'.length));
+                }
+            });
+        });
+        if (tasks) tasks.addEventListener('click', function () {
+            if (!activeCopyTaskId) return;
+            tasks.disabled = true;
+            requestTaskCancellation(activeCopyTaskId);
+        });
+        renderTaskCount();
+        updatePair();
+
+        return {
+            applyLocalRootMessage: applyLocalRootMessage,
+            applyCopyPreflight: applyCopyPreflight,
+            applyCopySettlement: applyCopySettlement,
+            applyCopyStarted: applyCopyStarted,
+            applyCopyProgress: applyCopyProgress,
+            applyCopyQueued: applyCopyQueued,
+            applyHistory: applyHistory,
+            applySavedPairs: applySavedPairs,
+            applySavedPairsFailure: applySavedPairsFailure,
+            applyEndpointCatalog: applyEndpointCatalog,
+            applyHistoryClearSettlement: applyHistoryClearSettlement,
+        };
+    }
+    var fileTransferPanel = initializeFileTransferPanel();
+
 
 
 
@@ -13214,6 +14935,50 @@ function initDashboard(options) {
         if (event && event.data && event.data.type === 'skill-scope-action-result') {
             skillPanel.settleSkillScopeActionWithoutHtml(event.data);
         }
+        if (event && event.data && validateFileTransferLocalRootMessage(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyLocalRootMessage(event.data);
+        }
+        if (event && event.data && validateFileTransferCopyPreflight(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopyPreflight(event.data);
+        }
+        if (event && event.data && validateFileTransferCopySettlement(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopySettlement(event.data);
+        }
+        if (event && event.data && validateFileTransferCopyStarted(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopyStarted(event.data);
+        }
+        if (event && event.data && validateFileTransferCopyProgress(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopyProgress(event.data);
+        }
+        if (event && event.data && validateFileTransferCopyQueued(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyCopyQueued(event.data);
+        }
+        if (event && event.data && validateFileTransferSavedPairs(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applySavedPairs(event.data);
+        }
+        if (event && event.data && validateFileTransferSavedPairsFailure(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applySavedPairsFailure(event.data);
+        }
+        if (event && event.data && validateFileTransferHistory(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyHistory(event.data);
+        }
+        if (event && event.data && validateFileTransferHistoryClearSettlement(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyHistoryClearSettlement(event.data);
+        }
+        if (event && event.data && validateFileTransferEndpointCatalog(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyEndpointCatalog(event.data);
+        }
         if (event && event.data
             && event.data.type === 'select-dashboard-tab'
             && event.data.version === 1
@@ -13267,6 +15032,9 @@ function initDashboard(options) {
     } else if (activeTab === 'ai') {
         pendingScrollRestoreTab = 'ai';
         aiPanel.ensureAiPanel();
+    } else if (activeTab === 'file-transfer') {
+        options.postMessage({ type: 'file-transfer-request-history', version: 1 });
+        options.postMessage({ type: 'file-transfer-request-saved-pairs', version: 1 });
     }
     document.body.classList.remove('preload');
     notifyActiveTabChanged();
@@ -13277,6 +15045,28 @@ function initDashboard(options) {
         applyProjectsPanelUpdatedMessage: projectsPanel.applyProjectsPanelUpdatedMessage,
         applyAiPanelMessage: aiPanel.applyAiPanelMessage,
         applyPromptPanelUpdatedMessage: aiPanel.applyPromptPanelUpdatedMessage,
+        applyFileTransferLocalRootMessage: fileTransferPanel
+            ? fileTransferPanel.applyLocalRootMessage : function () { return false; },
+        applyFileTransferCopyPreflight: fileTransferPanel
+            ? fileTransferPanel.applyCopyPreflight : function () { return false; },
+        applyFileTransferCopySettlement: fileTransferPanel
+            ? fileTransferPanel.applyCopySettlement : function () { return false; },
+        applyFileTransferCopyStarted: fileTransferPanel
+            ? fileTransferPanel.applyCopyStarted : function () { return false; },
+        applyFileTransferCopyProgress: fileTransferPanel
+            ? fileTransferPanel.applyCopyProgress : function () { return false; },
+        applyFileTransferCopyQueued: fileTransferPanel
+            ? fileTransferPanel.applyCopyQueued : function () { return false; },
+        applyFileTransferHistory: fileTransferPanel
+            ? fileTransferPanel.applyHistory : function () { return false; },
+        applyFileTransferSavedPairs: fileTransferPanel
+            ? fileTransferPanel.applySavedPairs : function () { return false; },
+        applyFileTransferSavedPairsFailure: fileTransferPanel
+            ? fileTransferPanel.applySavedPairsFailure : function () { return false; },
+        applyFileTransferHistoryClearSettlement: fileTransferPanel
+            ? fileTransferPanel.applyHistoryClearSettlement : function () { return false; },
+        applyFileTransferEndpointCatalog: fileTransferPanel
+            ? fileTransferPanel.applyEndpointCatalog : function () { return false; },
         ensureProjectsPanel: projectsPanel.ensureProjectsPanel,
         ensureAiPanel: aiPanel.ensureAiPanel,
         getActiveTab: () => activeTab,

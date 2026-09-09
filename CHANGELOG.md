@@ -4,6 +4,24 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-09
+
+### Added
+
+- Add File Transfer for browsing and copying files and folders between This
+  Computer and Managed Machines through the local UI Bridge relay.
+
+### Fixed
+
+- Stream file and folder transfers directly into the selected target path so
+  the visible destination reflects the operation as it runs.
+
+### Changed
+
+- Continue publishing through the VS Code Marketplace with the existing
+  Workspace Trust declaration and progressively rendered AI Conversation
+  experience.
+
 ### Fixed
 
 - Validate Managed Remote SSH aliases against the complete configuration used

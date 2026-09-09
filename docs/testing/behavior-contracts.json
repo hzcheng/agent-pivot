@@ -7328,5 +7328,428 @@
       "src/workspaces/sessionHydration.ts",
       "src/workspaces/sessionHydrationController.ts"
     ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-020",
+    "domain": "webview",
+    "title": "File Transfer presents fixed source and target roles and a direct transfer action without a review dialog or repeated readiness details",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewDashboardScripts.js",
+      "src/webview/webviewFileTransferContent.ts",
+      "media/styles.scss",
+      "media/styles.css",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-021",
+    "domain": "webview",
+    "title": "File Transfer keeps the endpoint controls and transfer action fixed while source and target directory lists scroll independently",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewFileTransferContent.ts",
+      "media/styles.scss",
+      "media/styles.css"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-022",
+    "domain": "webview",
+    "title": "File Transfer offers each endpoint's visited directories in a path dropdown while preserving direct path navigation",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewFileTransferContent.ts",
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-OBSERVABILITY-001",
+    "domain": "webview",
+    "title": "File Transfer exposes its live source-to-relay and relay-to-target stage, byte progress, and transfer speed without revealing local staging paths",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js",
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeProtocol.ts",
+      "src/projects/managedRemote/bridgeClient.ts",
+      "src/dashboard.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-OBSERVABILITY-002",
+    "domain": "error",
+    "title": "File Transfer records every terminal Bridge result in the Agent Pivot host diagnostics channel so a remote session can diagnose a local UI Bridge failure",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-017",
+    "domain": "webview",
+    "title": "File Transfer opens one directory at a time, updates Path, and returns through an explicit .. directory row",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewDashboardScripts.js",
+      "src/webview/webviewFileTransferContent.ts",
+      "media/styles.scss",
+      "media/styles.css",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-018",
+    "domain": "webview",
+    "title": "File Transfer hides path-like hidden entries by default, opens folders from an explicit name control, and keeps endpoint controls visible while long directories are browsed",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewDashboardScripts.js",
+      "src/webview/webviewFileTransferContent.ts",
+      "media/styles.scss",
+      "media/styles.css",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-024",
+    "domain": "webview",
+    "title": "File Transfer keeps endpoint and location controls compact and removes truncated navigation breadcrumbs",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewFileTransferContent.ts",
+      "media/styles.scss",
+      "media/styles.css"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-REMOTE-BROWSE-002",
+    "domain": "project",
+    "title": "File Transfer opens a remote folder whose SFTP listing identifies it with an absolute path",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteBridgeController.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-SSH-E2E-001",
+    "domain": "runtime",
+    "title": "File Transfer relays a Managed Machine copy through the UI Bridge computer without requiring the two Managed Machines to connect to each other",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-STREAMING-001",
+    "domain": "runtime",
+    "title": "Managed Machine transfers stream through the UI Bridge without staging the complete file on its local disk",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js",
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-REMOTE-BROWSE-003",
+    "domain": "runtime",
+    "title": "A newly selected Managed Machine opens File Transfer at its authenticated login home directory rather than a relative dot path",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-LOCAL-DISPLAY-001",
+    "domain": "runtime",
+    "title": "This Computer displays its home-rooted absolute Location while retaining opaque browsing handles",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/webview/webviewDashboardScripts.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-LOCAL-HOME-001",
+    "domain": "runtime",
+    "title": "File Transfer refuses a UI Bridge that would open a native picker for This Computer",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeProtocol.ts",
+      "src/projects/managedRemote/bridgeClient.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-COPY-005",
+    "domain": "runtime",
+    "title": "File Transfer refuses a UI Bridge without the required two-hop relay before it can start a copy",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeProtocol.ts",
+      "src/projects/managedRemote/bridgeClient.ts",
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-COPY-006",
+    "domain": "runtime",
+    "title": "File Transfer does not apply the short control-command timeout to an active two-hop relay copy",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeClient.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-PREFLIGHT-003",
+    "domain": "runtime",
+    "title": "File Transfer allows a recursive folder review to outlive the short Bridge control-command timeout",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeClient.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-PREFLIGHT-004",
+    "domain": "runtime",
+    "title": "File Transfer bounds an unresponsive folder review instead of indefinitely showing Checking selected items",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteLocalSshCommand.test.js"
+    ],
+    "evidence": [
+      "src/projects/managedRemote/bridgeClient.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-PREFLIGHT-005",
+    "domain": "runtime",
+    "title": "Managed Machine folder preflight does not recursively walk every nested remote directory before streaming begins",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-PREFLIGHT-006",
+    "domain": "runtime",
+    "title": "File Transfer accepts a listed Managed Machine file when SFTP lstat omits its type details",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteBridgeController.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-COPY-007",
+    "domain": "runtime",
+    "title": "File Transfer exposes bounded SCP lifecycle telemetry and prevents interactive SSH prompts from leaving a copy indefinitely unresolved",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/projects/managedRemote/bridgeClient.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-COPY-008",
+    "domain": "runtime",
+    "title": "A locally reviewed folder transfer reuses its short-lived safety manifest instead of scanning the local tree again before copy",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-019",
+    "domain": "webview",
+    "title": "File Transfer leaves its direct transfer action available when source and target directories are ready",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-COPY-009",
+    "domain": "project",
+    "title": "Folder transfer preserves symbolic links without following them while retaining the streamed relay between Managed Machines",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-COPY-010",
+    "domain": "runtime",
+    "title": "File Transfer streams directly into the visible final target path without creating a hidden sibling staging item",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-023",
+    "domain": "webview",
+    "title": "The direct Transfer action completes one correlated safety preflight before it queues a copy, without exposing a separate review surface",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js",
+      "src/dashboard.ts"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-UI-006",
+    "domain": "webview",
+    "title": "A Managed Machine directory request keeps its selected endpoint, renders a correlated listing, or visibly expires when no reply arrives",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js",
+      "tests/integration/dashboard/webviewState.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewDashboardScripts.js",
+      "media/webviewDashboardScripts.js",
+      "media/webviewDashboardBundle.js"
+    ]
+  },
+  {
+    "id": "FILE-TRANSFER-EDITOR-001",
+    "domain": "webview",
+    "title": "Projects exposes File Transfer as an editor surface with fixed source and target roles",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/webviewState.test.js",
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/dashboard.ts",
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewFileTransferEditorContent.ts",
+      "src/webview/webviewMachineProjectsContent.ts",
+      "src/webview/webviewManagedRemoteProjectsContent.ts",
+      "src/webview/webviewDashboardScripts.js"
+    ]
   }
 ]

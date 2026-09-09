@@ -62,6 +62,119 @@ test('MANAGED-REMOTE-BRIDGE-001 accepts only identity-based versioned requests',
     };
     assert.deepEqual(parseManagedRemoteBridgeRequest(project), project);
 
+    const localDirectory = {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'listFileTransferLocalDirectory',
+        fileTransfer: {
+            kind: 'localRoot',
+            rootId: 'a'.repeat(32),
+            directoryId: 'b'.repeat(32),
+        },
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(localDirectory), localDirectory);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...localDirectory,
+        fileTransfer: { ...localDirectory.fileTransfer, path: '/outside' },
+    }), null);
+    assert.deepEqual(parseManagedRemoteBridgeRequest({
+        ...localDirectory,
+        fileTransfer: { kind: 'localRoot', rootId: 'a'.repeat(32), path: 'reports/2026' },
+    })?.fileTransfer.path, 'reports/2026');
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...localDirectory,
+        fileTransfer: { kind: 'localRoot', rootId: 'a'.repeat(32), path: '../outside' },
+    }), null);
+    const remoteDirectory = {
+        ...localDirectory,
+        operation: 'listFileTransferRemoteDirectory',
+        expectedRevisionId: `revision:${'a'.repeat(64)}`,
+        targetId: 'machine:one',
+        fileTransfer: { kind: 'managedMachine', path: '/opt/releases' },
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(remoteDirectory), remoteDirectory);
+    assert.deepEqual(parseManagedRemoteBridgeRequest({
+        ...remoteDirectory,
+        fileTransfer: { kind: 'managedMachine', path: '/' },
+    })?.fileTransfer.path, '/');
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...remoteDirectory,
+        fileTransfer: { kind: 'managedMachine', path: '/opt/../secrets' },
+    }), null);
+    assert.deepEqual(parseManagedRemoteBridgeRequest({
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'selectFileTransferLocalRoot',
+    }), {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'selectFileTransferLocalRoot',
+    });
+
+    const copy = {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'copyFileTransferEntries',
+        expectedRevisionId: `revision:${'a'.repeat(64)}`,
+        fileTransfer: {
+            kind: 'copy',
+            taskId: 'task-123456789012',
+            source: { kind: 'local', rootId: 'a'.repeat(32), directoryId: 'b'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'c'.repeat(32) },
+            entryIds: ['d'.repeat(32)],
+            conflictPolicy: 'skip',
+        },
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(copy), copy);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...copy,
+        fileTransfer: { ...copy.fileTransfer, entryIds: ['d'.repeat(32), 'd'.repeat(32)] },
+    }), null);
+    assert.deepEqual(parseManagedRemoteBridgeRequest({
+        ...copy,
+        fileTransfer: { ...copy.fileTransfer, targetName: 'renamed-report.txt' },
+    })?.fileTransfer.targetName, 'renamed-report.txt');
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...copy,
+        fileTransfer: { ...copy.fileTransfer, targetName: '../outside' },
+    }), null);
+
+    const preflight = {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'preflightFileTransfer',
+        expectedRevisionId: `revision:${'a'.repeat(64)}`,
+        fileTransfer: {
+            kind: 'preflight',
+            source: { kind: 'local', rootId: 'a'.repeat(32), directoryId: 'b'.repeat(32) },
+            destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: 'c'.repeat(32) },
+            entryIds: ['d'.repeat(32)],
+        },
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(preflight), preflight);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...preflight,
+        fileTransfer: { ...preflight.fileTransfer, path: '/untrusted' },
+    }), null);
+
+    const progress = {
+        protocolVersion: 1,
+        requestId: 'request-12345678',
+        sessionToken: 'session-12345678',
+        operation: 'getFileTransferCopyStatus',
+        fileTransfer: { kind: 'status', taskId: 'task-123456789012' },
+    };
+    assert.deepEqual(parseManagedRemoteBridgeRequest(progress), progress);
+    assert.equal(parseManagedRemoteBridgeRequest({
+        ...progress,
+        fileTransfer: { ...progress.fileTransfer, path: '/untrusted' },
+    }), null);
+
 });
 
 test('MANAGED-REMOTE-BRIDGE-001 correlates the strict capability handshake', () => {

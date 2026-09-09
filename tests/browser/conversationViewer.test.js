@@ -11805,6 +11805,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     const documentHtml = '<h1>Architecture plan</h1>'
         + '<p>Rollback strategy</p>'
         + '<p><a href="docs/next-plan.md#L3">Open next plan</a></p>'
+        + '<p>Rollback strategy</p>'
         + '<p>' + 'Detailed review context. '.repeat(800) + '</p>';
 
     assert.equal(await workspace.isHidden(), true);
@@ -11816,6 +11817,11 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         workspaceRootId: 'root-a',
         documentVersion: 'sha256:architecture-a',
         commentSnapshot: { revision: 0, comments: [] },
+        suggestions: [{
+            messageId: 'assistant-suggestion-a',
+            selectedText: 'Rollback strategy',
+            replacement: 'Rollback strategy with an explicit restore command.',
+        }],
         title: 'architecture-plan.md',
         html: documentHtml,
         workspaceRequestId: 1,
@@ -11835,6 +11841,29 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.equal(await workspace.locator('h1').innerText(), 'Architecture plan');
     assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), true,
         'the document reader keeps file-specific discussion beside the rendered Markdown');
+    assert.equal(await page.getByRole('heading', { name: 'AI suggested change' }).isVisible(),
+        true, 'a bounded structured AI response becomes an actionable document card');
+    assert.match(await page.locator('[data-markdown-workspace-suggestion-list]').innerText(),
+        /Rollback strategy with an explicit restore command\./);
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace-suggestions',
+        version: 1,
+        workspaceRootId: 'root-a',
+        relativePath: 'docs/architecture-plan.md',
+        documentVersion: 'sha256:architecture-a',
+        suggestions: [{
+            messageId: 'assistant-suggestion-b',
+            selectedText: 'Rollback strategy',
+            replacement: 'Rollback strategy with a tested restore command.',
+        }],
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+    });
+    assert.match(await page.locator('[data-markdown-workspace-suggestion-list]').innerText(),
+        /tested restore command/,
+        'an AI reply refreshes cards without reopening or moving the reading surface');
     assert.notEqual(await conversation.count(), 0,
         'opening the reading surface keeps the conversation DOM intact behind it');
     await workspace.getByRole('link', { name: 'Open next plan' }).click();
@@ -11891,7 +11920,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         },
         comments: [{
             id: 'document-comment-a', documentVersion: 'sha256:architecture-a',
-            anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: [] },
+            anchor: draftIntent.payload.anchor,
             text: 'Clarify the fallback.', status: 'draft', createdAt: 1,
         }],
     });

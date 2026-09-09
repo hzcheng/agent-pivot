@@ -169,6 +169,9 @@
     var markdownWorkspaceSuggestionPreview = document.querySelector(
         '[data-markdown-workspace-suggestion-preview]'
     );
+    var markdownWorkspaceSuggestionList = document.querySelector(
+        '[data-markdown-workspace-suggestion-list]'
+    );
     var markdownWorkspaceActive = document.querySelector(
         '[data-markdown-workspace-active]'
     );
@@ -181,6 +184,7 @@
     var activeMarkdownWorkspaceDocument;
     var markdownWorkspaceCommentRevision = 0;
     var markdownWorkspaceComments = [];
+    var markdownWorkspaceSuggestions = [];
     var markdownWorkspaceSelection;
     var markdownWorkspaceCommentRequestSerial = 0;
     var markdownWorkspacePendingRequestId = '';
@@ -197,7 +201,7 @@
         && markdownWorkspaceCommentInput && markdownWorkspaceCommentList
         && markdownWorkspaceCommentCount && markdownWorkspaceCommentFeedback
         && markdownWorkspaceSuggestionComposer && markdownWorkspaceSuggestionInput
-        && markdownWorkspaceSuggestionPreview);
+        && markdownWorkspaceSuggestionPreview && markdownWorkspaceSuggestionList);
     var markdownWorkspaceActiveAvailable = !!(markdownWorkspaceActive
         && markdownWorkspaceActiveTitle);
     var conversationDisplayName = document.querySelector(
@@ -1602,7 +1606,11 @@
                 sessionId: message.sessionId,
             })
             && (message.commentSnapshot === undefined
-                || validMarkdownWorkspaceSnapshot(message.commentSnapshot));
+                || validMarkdownWorkspaceSnapshot(message.commentSnapshot))
+            && (message.suggestions === undefined
+                || (Array.isArray(message.suggestions)
+                    && message.suggestions.length <= 20
+                    && message.suggestions.every(validMarkdownWorkspaceSuggestion)));
     }
 
     function validMarkdownWorkspaceSnapshot(snapshot) {
@@ -1620,6 +1628,38 @@
             && typeof comment.text === 'string'
             && (comment.status === 'draft' || comment.status === 'sent'
                 || comment.status === 'resolved' || comment.status === 'outdated');
+    }
+
+    function validMarkdownWorkspaceSuggestion(suggestion) {
+        return !!suggestion && !Array.isArray(suggestion)
+            && typeof suggestion.messageId === 'string' && suggestion.messageId.length > 0
+            && suggestion.messageId.length <= 512
+            && typeof suggestion.selectedText === 'string' && suggestion.selectedText.length > 0
+            && suggestion.selectedText.length <= 4000
+            && typeof suggestion.replacement === 'string' && suggestion.replacement.length > 0
+            && suggestion.replacement.length <= 12000;
+    }
+
+    function validMarkdownWorkspaceSuggestionsMessage(message) {
+        return !!message && !Array.isArray(message)
+            && message.type === 'conversation-viewer-markdown-workspace-suggestions'
+            && message.version === 1
+            && typeof message.workspaceRootId === 'string'
+            && message.workspaceRootId.length > 0 && message.workspaceRootId.length <= 512
+            && typeof message.relativePath === 'string'
+            && message.relativePath.length > 0 && message.relativePath.length <= 4096
+            && typeof message.documentVersion === 'string'
+            && message.documentVersion.length > 0 && message.documentVersion.length <= 512
+            && Number.isSafeInteger(message.subscriptionGeneration)
+            && message.subscriptionGeneration >= 1
+            && validCommentTarget({
+                projectId: message.projectId,
+                provider: message.provider,
+                sessionId: message.sessionId,
+            })
+            && Array.isArray(message.suggestions)
+            && message.suggestions.length <= 20
+            && message.suggestions.every(validMarkdownWorkspaceSuggestion);
     }
 
     function workspaceCommentTarget() {
@@ -1665,6 +1705,61 @@
         renderMarkdownWorkspaceCommentMarkers(valid);
     }
 
+    function renderMarkdownWorkspaceSuggestions() {
+        if (!markdownWorkspaceCommentsAvailable) return;
+        markdownWorkspaceSuggestionList.textContent = '';
+        markdownWorkspaceSuggestions.forEach(function (suggestion) {
+            var card = document.createElement('article');
+            card.className = 'conversation-document-suggestion-card';
+            card.setAttribute('data-markdown-workspace-suggestion-id', suggestion.messageId);
+            var heading = document.createElement('h3');
+            heading.textContent = 'AI suggested change';
+            card.appendChild(heading);
+            var quote = document.createElement('blockquote');
+            quote.textContent = suggestion.selectedText;
+            card.appendChild(quote);
+            var preview = document.createElement('pre');
+            preview.textContent = '− ' + suggestion.selectedText + '\n+ '
+                + suggestion.replacement;
+            card.appendChild(preview);
+            var note = document.createElement('p');
+            note.textContent = 'Select the quoted source text, then apply this change.';
+            card.appendChild(note);
+            var actions = document.createElement('footer');
+            var apply = document.createElement('button');
+            apply.type = 'button';
+            apply.textContent = 'Use suggestion';
+            apply.setAttribute('data-markdown-workspace-suggestion-action', 'use');
+            apply.setAttribute('data-suggestion-id', suggestion.messageId);
+            actions.appendChild(apply);
+            var dismiss = document.createElement('button');
+            dismiss.type = 'button';
+            dismiss.textContent = 'Dismiss';
+            dismiss.setAttribute('data-markdown-workspace-suggestion-action', 'dismiss');
+            dismiss.setAttribute('data-suggestion-id', suggestion.messageId);
+            actions.appendChild(dismiss);
+            card.appendChild(actions);
+            markdownWorkspaceSuggestionList.appendChild(card);
+        });
+    }
+
+    function useMarkdownWorkspaceSuggestion(messageId) {
+        var suggestion = markdownWorkspaceSuggestions.find(function (candidate) {
+            return candidate.messageId === messageId;
+        });
+        if (!suggestion) return;
+        if (!markdownWorkspaceSelection
+            || markdownWorkspaceSelection.selectedText !== suggestion.selectedText) {
+            markdownWorkspaceCommentFeedback.textContent =
+                'Select the exact source text shown in this suggestion before applying it.';
+            return;
+        }
+        markdownWorkspaceSuggestionComposer.hidden = false;
+        markdownWorkspaceSuggestionInput.value = suggestion.replacement;
+        updateMarkdownWorkspaceSuggestionPreview();
+        postMarkdownWorkspaceSuggestion();
+    }
+
     function renderMarkdownWorkspaceCommentMarkers(comments) {
         if (!markdownWorkspaceAvailable) return;
         Array.prototype.forEach.call(markdownWorkspaceContent.querySelectorAll(
@@ -1673,17 +1768,7 @@
         comments.filter(function (comment) {
             return comment.status !== 'outdated' && comment.anchor.selectedText;
         }).forEach(function (comment, index) {
-            var elements = markdownWorkspaceContent.querySelectorAll(
-                'p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6'
-            );
-            var target;
-            Array.prototype.some.call(elements, function (element) {
-                if (String(element.textContent || '').indexOf(comment.anchor.selectedText) < 0) {
-                    return false;
-                }
-                target = element;
-                return true;
-            });
+            var target = findMarkdownWorkspaceCommentElement(comment.anchor);
             if (!target) return;
             var marker = document.createElement('button');
             marker.type = 'button';
@@ -1693,6 +1778,39 @@
             marker.setAttribute('aria-label', 'Open comment ' + String(index + 1));
             target.appendChild(marker);
         });
+    }
+
+    function findMarkdownWorkspaceCommentElement(anchor) {
+        var elements = markdownWorkspaceContent.querySelectorAll(
+            'p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6'
+        );
+        var matches = [];
+        Array.prototype.forEach.call(elements, function (element) {
+            var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+            var node;
+            while ((node = walker.nextNode())) {
+                var value = String(node.nodeValue || '');
+                var offset = value.indexOf(anchor.selectedText);
+                while (offset >= 0) {
+                    var beforeRange = document.createRange();
+                    beforeRange.selectNodeContents(markdownWorkspaceContent);
+                    beforeRange.setEnd(node, offset);
+                    var afterRange = document.createRange();
+                    afterRange.selectNodeContents(markdownWorkspaceContent);
+                    afterRange.setStart(node, offset + anchor.selectedText.length);
+                    var prefix = String(beforeRange.toString() || '').replace(/\s+/g, ' ');
+                    var suffix = String(afterRange.toString() || '').replace(/\s+/g, ' ');
+                    if ((!anchor.prefix || prefix.endsWith(anchor.prefix))
+                        && (!anchor.suffix || suffix.startsWith(anchor.suffix))) {
+                        matches.push(element);
+                    }
+                    offset = value.indexOf(anchor.selectedText, offset + 1);
+                }
+            }
+        });
+        // A marker must never guess between duplicate passages. Returning no
+        // marker keeps “Locate” honest and lets the Host mark it stale later.
+        return matches.length === 1 ? matches[0] : undefined;
     }
 
     function locateMarkdownWorkspaceComment(commentId) {
@@ -2031,6 +2149,7 @@
         activeMarkdownWorkspaceDocument = undefined;
         markdownWorkspaceCommentRevision = 0;
         markdownWorkspaceComments = [];
+        markdownWorkspaceSuggestions = [];
         markdownWorkspaceSelection = undefined;
         markdownWorkspacePendingRequestId = '';
         markdownWorkspacePendingSuggestionId = '';
@@ -2041,6 +2160,7 @@
             setMarkdownWorkspaceCommentPending(false, '');
             markdownWorkspaceSendAfterSave = false;
             renderMarkdownWorkspaceComments();
+            renderMarkdownWorkspaceSuggestions();
         }
         if (markdownWorkspaceActiveAvailable) {
             markdownWorkspaceActive.hidden = true;
@@ -2081,6 +2201,7 @@
             ? message.commentSnapshot.revision : 0;
         markdownWorkspaceComments = message.commentSnapshot
             ? message.commentSnapshot.comments.slice() : [];
+        markdownWorkspaceSuggestions = message.suggestions ? message.suggestions.slice() : [];
         markdownWorkspaceSelection = undefined;
         markdownWorkspacePendingRequestId = '';
         markdownWorkspacePendingSuggestionId = '';
@@ -2090,6 +2211,7 @@
         markdownWorkspacePath.textContent = message.relativePath;
         markdownWorkspaceContent.innerHTML = sanitizeConversationHtml(message.html);
         renderMarkdownWorkspaceComments();
+        renderMarkdownWorkspaceSuggestions();
         if (markdownWorkspaceActiveAvailable) {
             markdownWorkspaceActiveTitle.textContent = message.title;
             markdownWorkspaceActive.hidden = false;
@@ -2112,6 +2234,29 @@
         } else {
             restorePosition();
         }
+        return true;
+    }
+
+    function applyMarkdownWorkspaceSuggestions(message) {
+        if (!message || message.type !== 'conversation-viewer-markdown-workspace-suggestions') {
+            return false;
+        }
+        if (!validMarkdownWorkspaceSuggestionsMessage(message)
+            || !activeMarkdownWorkspaceDocument) return true;
+        var messageTarget = [
+            message.projectId,
+            message.provider,
+            message.sessionId,
+        ].join('\u0001');
+        if (message.subscriptionGeneration !== state.subscriptionGeneration
+            || messageTarget !== activeMarkdownWorkspaceTarget
+            || message.workspaceRootId !== activeMarkdownWorkspaceDocument.workspaceRootId
+            || message.relativePath !== activeMarkdownWorkspaceDocument.relativePath
+            || message.documentVersion !== activeMarkdownWorkspaceDocument.documentVersion) {
+            return true;
+        }
+        markdownWorkspaceSuggestions = message.suggestions.slice();
+        renderMarkdownWorkspaceSuggestions();
         return true;
     }
 
@@ -4347,6 +4492,22 @@
         });
         markdownWorkspaceSuggestionInput.addEventListener('input',
             updateMarkdownWorkspaceSuggestionPreview);
+        markdownWorkspaceSuggestionList.addEventListener('click', function (event) {
+            var target = event.target && event.target.closest
+                ? event.target.closest('[data-markdown-workspace-suggestion-action]') : null;
+            if (!target) return;
+            var action = target.getAttribute('data-markdown-workspace-suggestion-action');
+            var suggestionId = target.getAttribute('data-suggestion-id');
+            if (!suggestionId) return;
+            if (action === 'use') {
+                useMarkdownWorkspaceSuggestion(suggestionId);
+            } else if (action === 'dismiss') {
+                markdownWorkspaceSuggestions = markdownWorkspaceSuggestions.filter(function (item) {
+                    return item.messageId !== suggestionId;
+                });
+                renderMarkdownWorkspaceSuggestions();
+            }
+        });
     }
     messages.addEventListener('click', function (event) {
         var link = event.target && event.target.closest
@@ -4582,6 +4743,7 @@
 
     window.addEventListener('message', function (event) {
         if (applyMarkdownWorkspace(event.data)) return;
+        if (applyMarkdownWorkspaceSuggestions(event.data)) return;
         if (applyMarkdownWorkspaceCommentsResult(event.data)) return;
         if (applyMarkdownWorkspaceSuggestionResult(event.data)) return;
         if (applyCopyResult(event.data)) return;

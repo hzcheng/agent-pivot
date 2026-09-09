@@ -180,6 +180,12 @@ export function buildMarkdownDocumentCommentPrompt(
         ] : []),
         '用户评论：',
         comment.text,
+        '',
+        '如果建议修改，请在回复末尾单独输出一个 markdown-suggestion fenced block，'
+            + '其中 JSON 只能包含 selectedText 和 replacement；不要声称已写入文件。格式为：',
+        '```markdown-suggestion',
+        '{"selectedText":"引用原文的精确文本","replacement":"建议替换后的 Markdown"}',
+        '```',
     ].join('\n');
     if (graphemeLength(prompt) > DOCUMENT_COMMENT_LIMITS.maxPromptGraphemes) {
         throw fail('tooLarge');

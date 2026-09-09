@@ -525,18 +525,34 @@ export function findUniqueMarkdownSuggestionAnchor(
         || typeof anchor.prefix !== 'string' || typeof anchor.suffix !== 'string') {
         return undefined;
     }
-    let match: { start: number; end: number } | undefined;
+    const candidates: Array<{ start: number; end: number }> = [];
     let start = source.indexOf(anchor.selectedText);
     while (start >= 0) {
         const end = start + anchor.selectedText.length;
-        const prefix = source.slice(Math.max(0, start - anchor.prefix.length), start);
+        candidates.push({ start, end });
+        start = source.indexOf(anchor.selectedText, start + 1);
+    }
+    // Rendering removes Markdown delimiters and normalizes whitespace, so
+    // its surrounding context is not necessarily byte-identical to source.
+    // A single raw occurrence remains safe to apply; duplicate occurrences
+    // still require the exact context and are rejected if ambiguous.
+    if (candidates.length === 1) {
+        return candidates[0];
+    }
+    let match: { start: number; end: number } | undefined;
+    for (const candidate of candidates) {
+        const { start: candidateStart, end } = candidate;
+        const prefix = source.slice(
+            Math.max(0, candidateStart - anchor.prefix.length), candidateStart
+        );
         const suffix = source.slice(end, end + anchor.suffix.length);
         if ((!anchor.prefix || prefix === anchor.prefix)
             && (!anchor.suffix || suffix === anchor.suffix)) {
-            if (match) return undefined;
-            match = { start, end };
+            if (match) {
+                return undefined;
+            }
+            match = candidate;
         }
-        start = source.indexOf(anchor.selectedText, start + 1);
     }
     return match;
 }

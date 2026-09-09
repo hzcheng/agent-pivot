@@ -17,4 +17,12 @@ test('MARKDOWN-SUGGESTION-ANCHOR-001 only returns a uniquely contextual source r
     assert.equal(findUniqueMarkdownSuggestionAnchor(source, {
         selectedText: 'missing', prefix: '', suffix: '',
     }), undefined);
+    assert.deepEqual(findUniqueMarkdownSuggestionAnchor(
+        '## Release plan\n\nUse **one** tested rollback command.\n', {
+            selectedText: 'one',
+            // This is the rendered, not raw-Markdown, surrounding context.
+            prefix: 'Use ', suffix: ' tested rollback command.',
+        }
+    ), { start: 23, end: 26 },
+    'a uniquely occurring source quote stays applicable despite Markdown delimiters');
 });

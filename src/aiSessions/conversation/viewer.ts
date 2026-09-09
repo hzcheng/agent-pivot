@@ -48,6 +48,7 @@ import {
     ConversationWorkspaceFileTarget,
 } from './markdown';
 import { renderConversationDiffs } from './diffRenderer';
+import { parseMarkdownSuggestionEnvelope } from './markdownSuggestions';
 import { parseConversationViewerMessage } from './viewerProtocol';
 import type {
     ConversationSessionSwitchDirection,
@@ -2271,6 +2272,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 workspaceRootId: document.workspaceRootId,
                 documentVersion: document.documentVersion,
                 commentSnapshot: this.documentCommentController.snapshot,
+                suggestions: this.markdownWorkspaceSuggestions(),
                 workspaceRequestId,
                 subscriptionGeneration: this.subscriptionGeneration,
                 projectId: target.projectId,
@@ -2280,6 +2282,63 @@ export class ConversationViewer implements ConversationViewerApi {
         } catch (_error) {
             this.showNotice('Markdown document could not be opened.');
         }
+    }
+
+    /** Only the explicit envelope is promoted into an actionable document
+     * suggestion. Keeping this translation in the Host means the Webview
+     * never needs to interpret arbitrary model Markdown as a mutation. */
+    private markdownWorkspaceSuggestions(): Array<{
+        messageId: string;
+        selectedText: string;
+        replacement: string;
+    }> {
+        const suggestions: Array<{
+            messageId: string;
+            selectedText: string;
+            replacement: string;
+        }> = [];
+        for (const message of this.messages()) {
+            if (message.role !== 'assistant') {
+                continue;
+            }
+            const suggestion = parseMarkdownSuggestionEnvelope(message.markdown);
+            if (!suggestion) {
+                continue;
+            }
+            suggestions.push({ messageId: message.id, ...suggestion });
+            if (suggestions.length === 20) {
+                break;
+            }
+        }
+        return suggestions;
+    }
+
+    /** Conversation refreshes may carry the assistant's reply to a document
+     * comment while the reader stays open. Publish only the bounded cards so
+     * the reader does not close, scroll, or lose its current selection. */
+    private async publishActiveMarkdownWorkspaceSuggestions(
+        panel: vscode.WebviewPanel,
+        target: ConversationViewerTarget,
+        generation: number
+    ): Promise<void> {
+        const active = this.activeMarkdownWorkspace;
+        if (!active || active.target !== target || active.generation !== generation
+            || generation !== this.subscriptionGeneration) {
+            return;
+        }
+        try {
+            await panel.webview.postMessage({
+                type: 'conversation-viewer-markdown-workspace-suggestions', version: 1,
+                workspaceRootId: active.workspaceRootId,
+                relativePath: active.workspaceFile.relativePath,
+                documentVersion: active.documentVersion,
+                suggestions: this.markdownWorkspaceSuggestions(),
+                subscriptionGeneration: generation,
+                projectId: target.projectId,
+                provider: target.provider,
+                sessionId: target.sessionId,
+            });
+        } catch (_error) { /* A rebuilding Webview receives suggestions later. */ }
     }
 
     private async applyMarkdownSuggestion(
@@ -3151,6 +3210,9 @@ export class ConversationViewer implements ConversationViewerApi {
                 updateKind
             );
             await this.deliverPublication(publication, replaceDocument);
+            await this.publishActiveMarkdownWorkspaceSuggestions(
+                panel, target, generation
+            );
             this.refreshSubagentsAfterPublication(
                 panel,
                 target,

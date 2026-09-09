@@ -4,33 +4,8 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
-## [1.4.6] - 2026-09-09
-
-### Changed
-
-- Publish this File Transfer update through the VS Code Marketplace while
-  retaining the existing Workspace Trust declaration and progressively
-  rendered AI Conversation experience.
-
 ### Fixed
 
-- Show the resolved absolute local directory in File Transfer Location for
-  This Computer while keeping browser-to-bridge navigation root-relative and
-  capability-bound.
-
-## [1.4.5] - 2026-09-09
-
-### Changed
-
-- Publish this update through the VS Code Marketplace while retaining the
-  existing Workspace Trust declaration and progressively rendered AI
-  Conversation experience.
-
-### Fixed
-
-- Require the File Transfer UI Bridge to support non-modal This Computer
-  browsing, so selecting the local endpoint opens the UI host home directory
-  instead of falling back to a native directory picker.
 - Validate Managed Remote SSH aliases against the complete configuration used
   by Remote - SSH, avoiding false standalone-config failures while preserving
   endpoint and unsafe-route checks.
@@ -54,59 +29,6 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
   now bound to the Machine identity, so a shared name no longer makes the open
   window ambiguous and no longer shows Save for a Project that is already
   stored.
-
-## [1.4.4] - 2026-09-08
-
-### Fixed
-
-- Require the File Transfer UI Bridge that relays Managed Machine copies
-  through the UI computer before a copy can start, rather than silently using
-  an older remote-to-remote transfer implementation.
-
-### Changed
-
-- Publish this update through the VS Code Marketplace while retaining the
-  existing Workspace Trust declaration and progressively rendered AI
-  Conversation experience.
-
-## [1.4.3] - 2026-09-07
-
-### Fixed
-
-- Make File Transfer's source, target, readiness, destination navigation, and
-  relay progress explicit; remove the blocking Review Copy dialog and refresh
-  the target directory automatically after a successful copy.
-
-### Changed
-
-- Publish this update through the VS Code Marketplace while retaining the
-  existing Workspace Trust declaration and progressively rendered AI
-  Conversation experience.
-
-## [1.4.2] - 2026-09-07
-
-### Fixed
-
-- Relay Managed Machine file copies through the UI Bridge computer with two
-  ordinary SSH transfers, avoiding SCP remote-to-remote compatibility gaps.
-
-### Changed
-
-- Publish this update through the VS Code Marketplace while retaining the
-  existing Workspace Trust declaration and progressively rendered AI
-  Conversation experience.
-
-## [1.4.1] - 2026-09-07
-
-### Added
-
-- Add File Transfer to Projects: browse local folders and Managed Machine
-  directories, select files or folders on either side, review the operation,
-  and run it as a cancellable background copy.
-
-### Changed
-
-- Publish the File Transfer experience and its local UI Bridge through the VS Code Marketplace while retaining the existing Workspace Trust declaration and progressively rendered AI Conversation experience.
 
 ## [1.4.0] - 2026-08-30
 

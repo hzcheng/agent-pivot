@@ -87,8 +87,8 @@ export function getFileTransferContent(
                 <button type="button" class="file-transfer-swap" data-file-transfer-swap title="Switch source and target" aria-label="Switch source and target">⇄</button>
                 ${endpointPicker('right', options)}
             </div>
-            <div class="file-transfer-feedback" aria-live="polite">
-                <p class="file-transfer-task-status" data-file-transfer-task-status hidden></p>
+            <div class="file-transfer-feedback">
+                <p class="file-transfer-task-status" data-file-transfer-task-status aria-live="polite" hidden></p>
                 <button type="button" class="file-transfer-reveal-target" data-file-transfer-reveal-target hidden>Reveal target</button>
                 <button type="button" class="file-transfer-retry" data-file-transfer-retry hidden>Retry failed items</button>
                 <ul class="file-transfer-task-list" data-file-transfer-task-list aria-label="Transfer tasks" hidden></ul>

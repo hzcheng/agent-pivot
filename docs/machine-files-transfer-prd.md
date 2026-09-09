@@ -109,8 +109,9 @@ Projects tab
 The Transfer button is available regardless of the current Project selection.
 It opens a blank source/target route rather than starting a transfer.
 
-The page title is **File Transfer**. The primary page action is `Select
-endpoints`; during a running task the persistent badge/action is `Transfers (n)`.
+The page title is **File Transfer**. It opens directly into the endpoint pickers;
+running and queued work remains visible in the compact transfer task list, where
+the active task can be cancelled.
 The page remains distinct from AI Conversation: an AI may open a reviewed,
 pre-filled transfer draft, but must never execute a task without a user action.
 
@@ -118,17 +119,17 @@ pre-filled transfer draft, but must never execute a task without a user action.
 
 ### 7.1 Select a pair
 
-1. The user opens File Transfer and chooses `Select endpoints`.
-2. A compact route picker presents `Source` and `Target`, plus a `Switch
+1. The user opens File Transfer and chooses `Source` and `Target` directly.
+2. The compact route picker presents `Source` and `Target`, plus a `Switch
    source and target` control. The roles are explicit at all times.
 3. Each control can select an eligible Managed Machine or `This Computer`.
    Selecting This Computer opens a native folder picker; the selected folder is
    the local endpoint root. Each option shows display name, endpoint-safe
    identity, connection readiness, and any catalog-conflict reason. The same
    endpoint cannot be selected twice, so the local endpoint appears at most once.
-4. Opening each directory is the endpoint health check. A fixed readiness strip
-   states `UI Bridge responding`, `Source directory ready`, and `Target
-   directory ready`; a transfer remains unavailable until all three are true.
+4. Opening each directory is the endpoint health check. The pane status states
+   whether its directory is ready; a transfer remains unavailable until both
+   endpoints are ready and at least one Source item is selected.
 5. A failed check leaves the selected endpoint visible and offers Refresh with
    a human-readable remedy; it does not show raw credentials, SSH config, or
    unbounded stderr.
@@ -141,8 +142,8 @@ this computer; it is never synchronized to another computer.
 ### 7.2 Browse and select
 
 The two-pane browser has clear Source and Target folder headers: endpoint name,
-reachable status, current path breadcrumbs, an editable bounded path field,
-Refresh, and Up. Both panes
+current location, an editable bounded path field, and Refresh. A `..` row
+navigates to the parent directory. Both panes
 may be navigated independently. A local pane additionally offers `Choose local
 folder`; it can navigate only within the user-selected local root, and choosing
 a different root goes through the native picker again.
@@ -226,9 +227,22 @@ resume is a later feature, not an implied guarantee.
 
 - Support regular files and directories recursively. Preserve relative names
   beneath the selected root.
-- First release does not follow symlinks silently. The review lists symlinks and
-  lets the user skip them; preserving a link as a link is P1 after a security
-  review.
+- The first release never follows symlinks while inspecting a source tree;
+  supported relative symlinks inside a transferred folder are preserved as
+  links. A selected root item that becomes a symlink after listing is rejected.
+- Implementation safety status: POSIX local sources are opened with
+  `O_NOFOLLOW` and transferred through an inherited descriptor, so a pathname
+  swap after validation cannot redirect a copy. Until the Bridge has an
+  equivalent Windows no-reparse-point descriptor backend, Windows local-source
+  copies fail closed with an explicit message. This is not a platform
+  exemption: the Windows P0 gate in section 10.3 remains unmet and must block
+  release rather than silently weakening the local-root boundary.
+- Atomic no-clobber publication is also a release gate. The current CLI path
+  uses GNU `mv -Tn` for a Managed Machine → local target and GNU `mv -Tf` for
+  an explicit Replace. A native no-replace primitive is required before macOS
+  and Windows UI-host certification, and either a portable remote primitive or
+  an explicit Managed Machine OS contract is required before non-GNU remotes
+  can be claimed as supported.
 - Special files (devices, sockets, FIFOs) are unsupported and reported before
   start.
 - Preserve timestamps and executable mode only when both remote platforms and
@@ -339,9 +353,9 @@ platform exclusion is permitted for release.
 
 | Path | Use | Benefits | Limits / decision |
 | --- | --- | --- | --- |
-| A. OpenSSH CLI transport (recommended P0) | Bridge invokes the discovered local OpenSSH tooling with the Agent Pivot-generated config. Bounded SFTP batch operations list/stat paths; Managed Machine-to-Machine copy is always two ordinary SCP hops through a per-operation temporary directory on this computer, while ordinary SCP handles local-root ↔ Managed Machine copies. | Reuses the exact local auth and config already trusted by Managed Machines; no secret handling or remote-to-remote reachability. | The temporary directory is cleaned after every result. The product does not pre-check its free space; a disk-full transfer fails truthfully at the affected relay phase. |
-| B. Native SFTP client in the bridge | A later implementation uses a locally authenticated SFTP session per Managed Machine and streams remote reads/writes to the other remote session or native local-root filesystem stream with backpressure. | Precise progress, deterministic file enumeration and collision behavior, no temporary full-file staging. | Must faithfully honor existing SSH config, host-key, proxy, and agent behavior. Do not introduce it until this parity is proven; never copy credentials out of OpenSSH. |
-| C. Local temporary staging | Download then upload using SFTP/scp. | Required relay mechanism when two Managed Machines cannot reach one another. | Consumes local disk and doubles I/O. It is cleaned after every task; insufficient disk is reported rather than pre-blocked. |
+| A. OpenSSH CLI transport (recommended P0) | Bridge invokes discovered local OpenSSH tooling with the Agent Pivot-generated config. Bounded SFTP batch operations list/stat paths; Managed Machine-to-Machine files use `scp -3` and folders use one streamed tar producer/consumer pair through the UI Bridge process. | Reuses the exact local auth and config, does not require source-to-target reachability, and never stages a complete payload on local disk. | A unique sibling target is verified before atomic publication; failed or cancelled work is removed without replacing the existing target. |
+| B. Native SFTP client in the bridge | A later implementation may use persistent authenticated SFTP sessions with stream backpressure. | More precise progress and fewer control connections. | Must faithfully honor existing SSH config, host-key, proxy, and agent behavior. Do not introduce it until this parity is proven; never copy credentials out of OpenSSH. |
+| C. Local temporary staging | Download then upload using SFTP/scp. | Compatibility fallback only. | Not part of the P0 path because it consumes local disk and doubles I/O. |
 | D. Remote-to-remote transport | Source directly reaches target. | Potentially efficient on networks that allow it. | Explicitly out of scope. It violates the topology promise and makes policy/credential behavior inconsistent. |
 
 The P0 transport spike is a delivery gate, not an optional polish item. It must

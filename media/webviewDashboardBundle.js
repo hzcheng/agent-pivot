@@ -12804,7 +12804,7 @@ function fileTransferParentPath(displayPath) {
     var normalized = String(displayPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
     if (!normalized || normalized === '.' || normalized === '/') return null;
     var separator = normalized.lastIndexOf('/');
-    if (separator < 0) return null;
+    if (separator < 0) return '.';
     if (separator === 0) return '/';
     if (separator === 2 && /^[A-Za-z]:$/.test(normalized.slice(0, separator))) {
         return normalized.slice(0, separator + 1);
@@ -12827,6 +12827,11 @@ function renderLocalFileTransferEntries(
     var previousScrollTop = fileList.scrollTop;
     var previousDirectoryId = fileList.getAttribute('data-file-transfer-directory-id');
     var directoryChanged = !!directoryId && !!previousDirectoryId && previousDirectoryId !== directoryId;
+    var activeElement = document.activeElement;
+    var activeRow = activeElement && typeof activeElement.closest === 'function'
+        ? activeElement.closest('[data-file-transfer-entry-id], [data-file-transfer-parent-directory]') : null;
+    var activeEntryId = activeRow && activeRow.getAttribute('data-file-transfer-entry-id');
+    var activeParent = activeRow && activeRow.hasAttribute('data-file-transfer-parent-directory');
     fileList.textContent = '';
     entries.forEach(function (treeEntry) {
         var entry = treeEntry.entry || treeEntry;
@@ -12930,6 +12935,12 @@ function renderLocalFileTransferEntries(
     if (directoryId) fileList.setAttribute('data-file-transfer-directory-id', directoryId);
     else fileList.removeAttribute('data-file-transfer-directory-id');
     fileList.scrollTop = directoryChanged ? 0 : previousScrollTop;
+    if (!directoryChanged && (activeEntryId || activeParent)) {
+        var focusSelector = activeParent ? '[data-file-transfer-parent-directory] button'
+            : '[data-file-transfer-entry-id="' + activeEntryId + '"] input, [data-file-transfer-entry-id="' + activeEntryId + '"] button';
+        var replacementFocus = fileList.querySelector(focusSelector);
+        if (replacementFocus && typeof replacementFocus.focus === 'function') replacementFocus.focus();
+    }
 }
 
 function sortFileTransferEntries(entries, sort) {
@@ -13239,6 +13250,17 @@ function validateFileTransferHistoryClearSettlement(message) {
     return message.type === 'file-transfer-history-clear-failed'
         && Object.keys(message).sort().join('\n') === ['message', 'requestId', 'type', 'version'].join('\n')
         && typeof message.message === 'string' && message.message.length <= 320;
+}
+
+function validateFileTransferEndpointCatalog(message) {
+    return !!message && message.type === 'file-transfer-endpoint-catalog' && message.version === 1
+        && typeof message.revisionId === 'string' && message.revisionId.length <= 255
+        && Array.isArray(message.machines) && message.machines.length <= 500
+        && message.machines.every(function (machine) {
+            return !!machine && typeof machine === 'object'
+                && typeof machine.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(machine.id)
+                && typeof machine.name === 'string' && machine.name.length > 0 && machine.name.length <= 255;
+        });
 }
 
 function initDashboard(options) {
@@ -13674,6 +13696,7 @@ function initDashboard(options) {
         var lastRememberedPairKey = null;
         var transferTasks = {};
         var pendingHistoryClearRequestId = null;
+        var appliedEndpointCatalogRevision = null;
 
         function endpointReady(side) {
             return !!localRoots[side] && !paneFailures[side] && !pendingLocalRootRequests[side];
@@ -13693,13 +13716,14 @@ function initDashboard(options) {
         }
 
         function renderTaskCount() {
-            if (!tasks) return;
-            tasks.disabled = !activeCopyTaskId;
-            tasks.title = !activeCopyTaskId
-                ? 'Transfer tasks will appear here'
-                : 'Cancel the active file copy';
-            var count = tasks.querySelector ? tasks.querySelector('span') : null;
-            if (count) count.textContent = String(Object.keys(transferTasks).length);
+            if (tasks) {
+                tasks.disabled = !activeCopyTaskId;
+                tasks.title = !activeCopyTaskId
+                    ? 'Transfer tasks will appear here'
+                    : 'Cancel the active file copy';
+                var count = tasks.querySelector ? tasks.querySelector('span') : null;
+                if (count) count.textContent = String(Object.keys(transferTasks).length);
+            }
             renderTaskList();
         }
 
@@ -13747,6 +13771,56 @@ function initDashboard(options) {
                 item.appendChild(pin);
                 savedPairList.appendChild(item);
             });
+        }
+
+        function applyEndpointCatalog(message) {
+            if (!validateFileTransferEndpointCatalog(message)) return false;
+            // The initial HTML options are a snapshot too. Since they carry no
+            // revision token, the first catalog push must also invalidate any
+            // ready Managed Machine handles rendered from that snapshot.
+            var revisionChanged = appliedEndpointCatalogRevision === null
+                || appliedEndpointCatalogRevision !== message.revisionId;
+            appliedEndpointCatalogRevision = message.revisionId;
+            var available = new Set(message.machines.map(function (machine) { return 'managed:' + machine.id; }));
+            selectors.forEach(function (selector) {
+                var previousValue = selector.value;
+                selector.textContent = '';
+                var placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = 'Choose endpoint…';
+                selector.appendChild(placeholder);
+                var local = document.createElement('option');
+                local.value = 'local';
+                local.textContent = 'This Computer…';
+                selector.appendChild(local);
+                message.machines.forEach(function (machine) {
+                    var option = document.createElement('option');
+                    option.value = 'managed:' + machine.id;
+                    option.textContent = machine.name;
+                    selector.appendChild(option);
+                });
+                if (previousValue === 'local' || available.has(previousValue)) {
+                    selector.value = previousValue;
+                    // Opaque Managed Machine handles are intentionally bound
+                    // to a catalog revision. Re-list retained selections when
+                    // the catalog changes; keeping an old "ready" pane would
+                    // only lead to a stale-handle transfer failure.
+                    if (revisionChanged && previousValue.indexOf('managed:') === 0) {
+                        var retainedSide = selector.getAttribute('data-file-transfer-endpoint');
+                        if (retainedSide === 'left' || retainedSide === 'right') {
+                            resetEndpointState(retainedSide);
+                            requestRemoteDirectory(retainedSide, previousValue.slice('managed:'.length));
+                        }
+                    }
+                } else {
+                    selector.value = '';
+                    var side = selector.getAttribute('data-file-transfer-endpoint');
+                    if (side === 'left' || side === 'right') resetEndpointState(side);
+                }
+            });
+            renderSavedPairs();
+            updatePair();
+            return true;
         }
 
         function renderTaskList() {
@@ -14039,6 +14113,7 @@ function initDashboard(options) {
             var right = selectorFor('right');
             if (left && right && left.value && left.value === right.value) {
                 right.value = '';
+                resetEndpointState('right');
                 if (hint) hint.textContent = 'Source and target must be different endpoints.';
             } else if (left && right && left.value && right.value) {
                 if (hint) hint.textContent = 'Select files in Source, then transfer them to Target.';
@@ -14179,6 +14254,22 @@ function initDashboard(options) {
             var selector = selectorFor(side);
             var root = localRoots[side];
             if (!selector || !root || !navigationPath) return;
+            var normalizedPath = String(navigationPath).replace(/\\/g, '/');
+            var isLocalPath = selector.value === 'local';
+            var validPath = isLocalPath
+                ? (normalizedPath === '.' || (!normalizedPath.startsWith('/') && normalizedPath.split('/').every(function (part) {
+                    return part && part !== '.' && part !== '..';
+                })))
+                : (normalizedPath === '.' || normalizedPath === '/' || (normalizedPath.startsWith('/') && normalizedPath.split('/').every(function (part, index) {
+                    return index === 0 || (part && part !== '.' && part !== '..');
+                })));
+            if (!validPath) {
+                paneNavigationErrors[side] = isLocalPath
+                    ? 'Use a path inside the selected local folder.'
+                    : 'Use an absolute Managed Machine path.';
+                updatePair();
+                return;
+            }
             var requestId = 'file-transfer-path-' + side + '-' + Date.now() + '-'
                 + Math.random().toString(16).slice(2, 18);
             startDirectoryRequest(side, requestId, { mode: 'navigate', navigationKind: navigationKind || 'direct' });
@@ -14195,13 +14286,12 @@ function initDashboard(options) {
             if (!endpoint) return;
             options.postMessage({
                 type: 'file-transfer-open-directory', version: 1, requestId: requestId,
-                side: side, endpoint: endpoint, path: navigationPath,
+                side: side, endpoint: endpoint, path: normalizedPath,
             });
             updatePair();
         }
 
-        function activateEndpointSelection(side, selector) {
-            if (side !== 'left' && side !== 'right' || !selector) return;
+        function resetEndpointState(side) {
             localRoots[side] = null;
             paneFailures[side] = null;
             paneNavigationErrors[side] = null;
@@ -14211,6 +14301,11 @@ function initDashboard(options) {
             selectedEntryDirectoryIds[side] = null;
             pathSuggestions[side] = [];
             lastRememberedPairKey = null;
+        }
+
+        function activateEndpointSelection(side, selector) {
+            if (side !== 'left' && side !== 'right' || !selector) return;
+            resetEndpointState(side);
             if (selector.value === 'local') {
                 requestLocalRoot(side);
             } else if (selector.value.indexOf('managed:') === 0) {
@@ -14421,6 +14516,7 @@ function initDashboard(options) {
             };
             if (startCopy) startCopy.disabled = true;
             if (retry) retry.hidden = true;
+            if (taskStatus) taskStatus.setAttribute('aria-live', 'polite');
             renderTaskStatus('Checking selected items…');
             options.postMessage({
                 type: 'file-transfer-preflight-copy', version: 1, requestId: requestId,
@@ -14486,6 +14582,7 @@ function initDashboard(options) {
                 pendingCopyPlan = null;
             }
             if (activeCopyTaskId === message.requestId) activeCopyTaskId = null;
+            if (taskStatus) taskStatus.setAttribute('aria-live', 'polite');
             delete transferTasks[message.requestId];
             renderTaskCount();
             if (startCopy && !pendingCopyRequestId) startCopy.disabled = false;
@@ -14533,6 +14630,7 @@ function initDashboard(options) {
             if (!task) return false;
             activeCopyTaskId = message.requestId;
             task.status = 'running';
+            if (taskStatus) taskStatus.setAttribute('aria-live', 'polite');
             renderTaskCount();
             renderTaskStatus('Copying ' + task.itemCount + ' item(s) from '
                 + (task.plan.sourceLabel || 'the selected endpoint') + ' to '
@@ -14546,6 +14644,10 @@ function initDashboard(options) {
             if (!task || task.status !== 'running') return false;
             task.progress = message.progress;
             renderTaskCount();
+            // Byte counters can update many times per minute. Keep their
+            // visual telemetry current without repeatedly interrupting a
+            // screen-reader user; phase and terminal states remain polite.
+            if (taskStatus) taskStatus.setAttribute('aria-live', 'off');
             var phaseLabels = {
                 preparing: 'Preparing secure relay',
                 downloading: 'Downloading from source to relay',
@@ -14708,6 +14810,7 @@ function initDashboard(options) {
             applyHistory: applyHistory,
             applySavedPairs: applySavedPairs,
             applySavedPairsFailure: applySavedPairsFailure,
+            applyEndpointCatalog: applyEndpointCatalog,
             applyHistoryClearSettlement: applyHistoryClearSettlement,
         };
     }
@@ -14820,6 +14923,10 @@ function initDashboard(options) {
             && fileTransferPanel) {
             fileTransferPanel.applyHistoryClearSettlement(event.data);
         }
+        if (event && event.data && validateFileTransferEndpointCatalog(event.data)
+            && fileTransferPanel) {
+            fileTransferPanel.applyEndpointCatalog(event.data);
+        }
         if (event && event.data
             && event.data.type === 'select-dashboard-tab'
             && event.data.version === 1
@@ -14906,6 +15013,8 @@ function initDashboard(options) {
             ? fileTransferPanel.applySavedPairsFailure : function () { return false; },
         applyFileTransferHistoryClearSettlement: fileTransferPanel
             ? fileTransferPanel.applyHistoryClearSettlement : function () { return false; },
+        applyFileTransferEndpointCatalog: fileTransferPanel
+            ? fileTransferPanel.applyEndpointCatalog : function () { return false; },
         ensureProjectsPanel: projectsPanel.ensureProjectsPanel,
         ensureAiPanel: aiPanel.ensureAiPanel,
         getActiveTab: () => activeTab,

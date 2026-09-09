@@ -2,8 +2,8 @@
 
 import { createHash, randomBytes } from 'crypto';
 import { ChildProcess, spawn } from 'child_process';
-import { constants } from 'fs';
-import { access, lstat, mkdir, opendir, realpath, stat } from 'fs/promises';
+import { constants, Stats } from 'fs';
+import { access, FileHandle, lstat, mkdir, open, opendir, realpath, rename, rm, stat } from 'fs/promises';
 import * as path from 'path';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
@@ -67,6 +67,8 @@ export interface ManagedRemoteBridgeLocalActions {
 
 interface FileTransferLocalRoot {
     path: string;
+    device: number;
+    inode: number;
     label: string;
     directories: Map<string, string>;
     entries: Map<string, FileTransferEntry>;
@@ -81,10 +83,14 @@ interface FileTransferEntry {
 
 interface ResolvedFileTransferEntry extends FileTransferEntry {
     id: string;
+    /** Present only for a source selected beneath an approved local root. */
+    localRootPath?: string;
+    localRootIdentity?: { device: number; inode: number };
 }
 
 interface FileTransferRemoteDirectory extends FileTransferEntry {
     machineId: string;
+    revisionId: string;
     path: string;
 }
 
@@ -144,6 +150,11 @@ const FILE_TRANSFER_TREE_MAX_ENTRIES = 10_000;
 // dependency directory. The source fingerprint must still match at copy time.
 const FILE_TRANSFER_TREE_REVIEW_TTL_MS = 15_000;
 const FILE_TRANSFER_TREE_REVIEW_MAX_ENTRIES = 32;
+// The Webview request deadline is 15 seconds. Keep the owning process below
+// that deadline so a timed-out browse never leaves an orphaned SFTP child.
+const FILE_TRANSFER_SFTP_CONTROL_TIMEOUT_MS = 12_000;
+const FILE_TRANSFER_HANDLE_MAX_ENTRIES = 4_096;
+const FILE_TRANSFER_ROOT_MAX_ENTRIES = 16;
 
 interface ReviewedFileTransferTrees {
     expiresAt: number;
@@ -222,7 +233,9 @@ function startFileTransferProgressMonitor(
         }, () => undefined).finally(() => { sampling = false; });
     };
     sample();
-    active.monitorTimer = setInterval(sample, 750);
+    // Remote size sampling opens an SFTP control connection. Keep it sparse:
+    // telemetry must never become the busiest SSH client during a large copy.
+    active.monitorTimer = setInterval(sample, 5_000);
 }
 
 function completeFileTransferProgressMonitor(active: ActiveFileTransferCopy): void {
@@ -350,34 +363,50 @@ function quoteSftpPath(value: string): string {
     return `"${value.replace(/([\\"])/gu, '\\$1')}"`;
 }
 
+function runFileTransferSftpBatch(
+    sshExecutable: string,
+    alias: string,
+    command: string,
+): Promise<{ stdout: string; stderr: string }> {
+    const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
+    return new Promise((resolve, reject) => {
+        const child = spawn(sftpExecutable, [...fileTransferSshOptions(), '-b', '-', alias], {
+            stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
+        });
+        const stdout: Buffer[] = [];
+        const stderr: Buffer[] = [];
+        let settled = false;
+        const finish = (error?: Error) => {
+            if (settled) { return; }
+            settled = true;
+            clearTimeout(timeout);
+            if (error) { reject(error); }
+            else { resolve({ stdout: Buffer.concat(stdout).toString('utf8'), stderr: Buffer.concat(stderr).toString('utf8') }); }
+        };
+        const timeout = setTimeout(() => {
+            stopFileTransferProcess(child);
+            finish(new Error('Remote SFTP control request timed out. Refresh the Machine and try again.'));
+        }, FILE_TRANSFER_SFTP_CONTROL_TIMEOUT_MS);
+        child.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
+        child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        child.on('error', error => finish(new Error(`Could not start SFTP: ${error.message}`)));
+        child.on('close', code => {
+            if (code === 0) { finish(); return; }
+            const message = Buffer.concat(stderr).toString('utf8').trim();
+            finish(new Error(message ? `Remote SFTP control request failed: ${message.slice(0, 320)}`
+                : 'Remote SFTP control request failed.'));
+        });
+        child.stdin.end(command);
+    });
+}
+
 function listRemoteDirectory(
     sshExecutable: string,
     alias: string,
     directoryPath: string,
 ): Promise<RemoteDirectoryRow[]> {
-    const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
-    return new Promise((resolve, reject) => {
-        const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-        process.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
-        process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
-        process.on('error', error => reject(new Error(`Could not start SFTP: ${error.message}`)));
-        process.on('close', code => {
-            if (code !== 0) {
-                const message = Buffer.concat(stderr).toString('utf8').trim();
-                reject(new Error(message ? `Could not read remote directory: ${message.slice(0, 320)}`
-                    : 'Could not read remote directory.'));
-                return;
-            }
-            try {
-                resolve(parseSftpLongListing(Buffer.concat(stdout).toString('utf8')));
-            } catch (error) {
-                reject(error);
-            }
-        });
-        process.stdin.end(`ls -la ${quoteSftpPath(directoryPath)}\n`);
-    });
+    return runFileTransferSftpBatch(sshExecutable, alias, `ls -la ${quoteSftpPath(directoryPath)}\n`)
+        .then(({ stdout }) => parseSftpLongListing(stdout));
 }
 
 /** Resolve the authenticated SFTP session's actual login directory, never a guessed user path. */
@@ -385,26 +414,13 @@ function remoteLoginDirectory(
     sshExecutable: string,
     alias: string,
 ): Promise<string> {
-    const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
-    return new Promise((resolve, reject) => {
-        const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
-        const stdout: Buffer[] = [];
-        process.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
-        process.on('error', error => reject(new Error(`Could not start SFTP: ${error.message}`)));
-        process.on('close', code => {
-            if (code !== 0) {
-                reject(new Error('Could not determine the remote login directory.'));
-                return;
-            }
+    return runFileTransferSftpBatch(sshExecutable, alias, 'pwd\n').then(({ stdout }) => {
             const match = /^Remote working directory:\s*(\/[^\0\r\n]{0,1023})\s*$/mu
-                .exec(Buffer.concat(stdout).toString('utf8'));
+                .exec(stdout);
             if (!match || !path.posix.isAbsolute(match[1])) {
-                reject(new Error('Could not determine the remote login directory.'));
-                return;
+                throw new Error('Could not determine the remote login directory.');
             }
-            resolve(match[1]);
-        });
-        process.stdin.end('pwd\n');
+            return match[1];
     });
 }
 
@@ -413,23 +429,11 @@ function remotePathKind(
     alias: string,
     targetPath: string,
 ): Promise<FileTransferDirectoryEntry['kind'] | null> {
-    const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
-    return new Promise((resolve, reject) => {
-        const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-        process.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
-        process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
-        process.on('error', error => reject(new Error(`Could not start SFTP: ${error.message}`)));
-        process.on('close', code => {
-            if (code !== 0) {
-                reject(new Error('Could not inspect the remote copy destination.'));
-                return;
-            }
-            const kind = parseSftpPathKind(Buffer.concat([...stdout, ...stderr]).toString('utf8'));
+    return runFileTransferSftpBatch(sshExecutable, alias, `-lstat ${quoteSftpPath(targetPath)}\n`)
+        .then(({ stdout, stderr }) => {
+            const kind = parseSftpPathKind(`${stdout}${stderr}`);
             if (kind) {
-                resolve(kind);
-                return;
+                return kind;
             }
             // Some OpenSSH releases omit a stable type line for batch `stat`.
             // Fall back to the already-validated directory listing parser so
@@ -437,16 +441,9 @@ function remotePathKind(
             // target. This remains a non-recursive, local-UI-host operation.
             const parent = path.posix.dirname(targetPath) || '.';
             const name = path.posix.basename(targetPath);
-            void listRemoteDirectory(sshExecutable, alias, parent).then(
-                rows => resolve(rows.find(row => row.name === name)?.kind || null),
-                reject,
-            );
+            return listRemoteDirectory(sshExecutable, alias, parent)
+                .then(rows => rows.find(row => row.name === name)?.kind || null);
         });
-        // `lstat` checks the requested path itself without following a
-        // symbolic link. The leading dash keeps a missing path from failing
-        // the whole batch.
-        process.stdin.end(`-lstat ${quoteSftpPath(targetPath)}\n`);
-    });
 }
 
 function remotePathExists(
@@ -604,30 +601,19 @@ function remoteFileSize(
     alias: string,
     targetPath: string,
 ): Promise<number> {
-    const sftpExecutable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'sftp.exe' : 'sftp');
-    return new Promise((resolve, reject) => {
-        const process = spawn(sftpExecutable, ['-b', '-', alias], { stdio: ['pipe', 'pipe', 'pipe'] });
-        const stdout: Buffer[] = [];
-        const stderr: Buffer[] = [];
-        process.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)));
-        process.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
-        process.on('error', error => reject(new Error(`Could not start SFTP: ${error.message}`)));
-        process.on('close', code => {
-            if (code !== 0) {
-                const message = Buffer.concat(stderr).toString('utf8').trim();
-                reject(new Error(message ? `Could not verify remote file size: ${message.slice(0, 320)}`
-                    : 'Could not verify remote file size.'));
-                return;
+    return runFileTransferSftpBatch(sshExecutable, alias, `ls -l ${quoteSftpPath(targetPath)}\n`)
+        .then(({ stdout }) => {
+            // With an explicit absolute path OpenSSH SFTP may print that full
+            // path as the last column. Do not route this verification through
+            // the directory-listing name validator: a valid 255-byte basename
+            // plus its parent exceeds that display-only bound.
+            const match = /^-[rwxStTs-]{9}\s+\S+\s+\S+\s+\S+\s+(\d+)\s+[A-Za-z]{3}\s+\d{1,2}\s+(?:\d\d:\d\d|\d{4})\s+.+$/mu.exec(stdout);
+            const size = match ? Number(match[1]) : NaN;
+            if (!Number.isSafeInteger(size) || size < 0) {
+                throw new Error('Could not verify remote file size.');
             }
-            const entry = parseSftpLongListing(Buffer.concat(stdout).toString('utf8'))[0];
-            if (!entry || entry.kind !== 'file' || !Number.isSafeInteger(entry.size)) {
-                reject(new Error('Could not verify remote file size.'));
-                return;
-            }
-            resolve(entry.size);
+            return size;
         });
-        process.stdin.end(`ls -l ${quoteSftpPath(targetPath)}\n`);
-    });
 }
 
 function fileTransferChildPath(parent: string, relativePath: string): string {
@@ -743,6 +729,83 @@ export function parseSftpPathKind(output: string): FileTransferDirectoryEntry['k
         : marker === 'l' ? 'symlink' : marker ? 'unsupported' : null;
 }
 
+interface StableLocalFileTransferSource {
+    /** Child-visible descriptor path. The descriptor itself is inherited as fd 3. */
+    path: string;
+    fd: number;
+    close(): Promise<void>;
+}
+
+function fileTransferDescriptorPath(fd: number): string {
+    return process.platform === 'darwin' ? `/dev/fd/${fd}` : `/proc/self/fd/${fd}`;
+}
+
+function fileTransferChildDescriptorPath(): string {
+    return fileTransferDescriptorPath(3);
+}
+
+/**
+ * Open the selected local item once, without following a symlink, and give
+ * the transport child that already-open descriptor. Re-checking a pathname is
+ * not sufficient: it can be swapped between validation and scp/tar opening
+ * it. POSIX fd inheritance keeps the exact inode selected by the user.
+ */
+async function openStableLocalFileTransferSource(
+    rootPath: string,
+    rootIdentity: { device: number; inode: number },
+    sourcePath: string,
+    expectedKind: FileTransferDirectoryEntry['kind'],
+): Promise<StableLocalFileTransferSource> {
+    if (process.platform === 'win32') {
+        // Node has no descriptor-relative, no-reparse-point child pathname on
+        // Windows. Fail closed instead of allowing a junction/symlink swap to
+        // turn a listed local item into an arbitrary source outside its root.
+        throw new Error('Secure local-source transfer is not available on this Windows UI Bridge. Choose a Managed Machine as Source.');
+    }
+    const relativePath = path.relative(rootPath, sourcePath);
+    const components = relativePath.split(path.sep).filter(Boolean);
+    if (!relativePath || relativePath === '..' || relativePath.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relativePath) || components.some(component => component === '.' || component === '..')) {
+        throw new Error('The selected local source is outside the approved folder. Refresh Source and choose it again.');
+    }
+    const directoryFlag = expectedKind === 'directory' ? constants.O_DIRECTORY : 0;
+    let handle: FileHandle | undefined;
+    try {
+        // Do not ask the kernel to resolve `root/sub/file` in one step:
+        // O_NOFOLLOW covers only `file`. Walk from an opened root descriptor
+        // and keep every parent descriptor stable, so replacing `sub` with a
+        // link after browsing cannot redirect a later component outside root.
+        handle = await open(rootPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY);
+        const openedRoot = await handle.stat();
+        if (openedRoot.dev !== rootIdentity.device || openedRoot.ino !== rootIdentity.inode) {
+            throw new Error('The approved local folder changed before transfer. Browse Source again.');
+        }
+        for (let index = 0; index < components.length; index += 1) {
+            const previous: FileHandle = handle;
+            const finalComponent = index === components.length - 1;
+            handle = await open(
+                `${fileTransferDescriptorPath(previous.fd)}/${components[index]}`,
+                constants.O_RDONLY | constants.O_NOFOLLOW | (finalComponent ? directoryFlag : constants.O_DIRECTORY),
+            );
+            await previous.close();
+        }
+    } catch {
+        await handle?.close();
+        throw new Error('The selected local source changed before transfer. Refresh Source and choose it again.');
+    }
+    try {
+        const details = await handle!.stat();
+        const actualKind = details.isDirectory() ? 'directory' : details.isFile() ? 'file' : 'unsupported';
+        if (actualKind !== expectedKind) {
+            throw new Error('The selected local source changed before transfer. Refresh Source and choose it again.');
+        }
+        return { path: fileTransferChildDescriptorPath(), fd: handle!.fd, close: () => handle!.close() };
+    } catch (error) {
+        await handle!.close();
+        throw error;
+    }
+}
+
 function copyFileTransferEntry(
     sshExecutable: string,
     recursive: boolean,
@@ -752,6 +815,7 @@ function copyFileTransferEntry(
     totalBytes?: number,
     readTransferredBytes?: () => Promise<number>,
     relayThroughLocal = false,
+    sourceFd?: number,
 ): Promise<void> {
     const executable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'scp.exe' : 'scp');
     const args = [
@@ -780,7 +844,10 @@ function copyFileTransferEntry(
     }
     return new Promise<void>((resolve, reject) => {
         const child = spawn(executable, args, {
-            stdio: ['ignore', 'pipe', 'pipe'],
+            // When the source is local, its descriptor is inherited as fd 3.
+            // The pathname passed to scp then refers to that descriptor in the
+            // child, rather than re-opening a mutable user-controlled path.
+            stdio: sourceFd === undefined ? ['ignore', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', sourceFd],
             // SCP owns an SSH child on POSIX. A separate process group lets a
             // cancellation terminate both without relying on shell commands.
             detached: process.platform !== 'win32',
@@ -788,7 +855,13 @@ function copyFileTransferEntry(
         active.process = child;
         noteFileTransferActivity(active, 'scp-started');
         const stderr: Buffer[] = [];
-        child.stderr.on('data', chunk => {
+        const stderrOutput = child.stderr;
+        if (!stderrOutput) {
+            stopFileTransferProcess(child);
+            reject(new Error('Could not start SCP stderr stream.'));
+            return;
+        }
+        stderrOutput.on('data', chunk => {
             stderr.push(Buffer.from(chunk));
             noteFileTransferActivity(active, 'scp-running');
         });
@@ -840,13 +913,15 @@ function remoteArchiveCommand(directoryPath: string, extracting: boolean): strin
 
 function startFileTransferArchiveProcess(
     sshExecutable: string,
-    endpoint: { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string },
+    endpoint: { kind: 'local'; path: string; sourceFd?: number } | { kind: 'managedMachine'; alias: string; path: string },
     extracting: boolean,
 ): ChildProcess {
     if (endpoint.kind === 'local') {
         const executable = process.platform === 'win32' ? 'tar.exe' : 'tar';
-        return spawn(executable, ['-C', endpoint.path, `-${extracting ? 'x' : 'c'}f`, '-', ...(extracting ? [] : ['.'])], {
-            stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
+        const sourcePath = endpoint.sourceFd === undefined ? endpoint.path : fileTransferChildDescriptorPath();
+        return spawn(executable, ['-C', sourcePath, `-${extracting ? 'x' : 'c'}f`, '-', ...(extracting ? [] : ['.'])], {
+            stdio: endpoint.sourceFd === undefined ? ['pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe', endpoint.sourceFd],
+            detached: process.platform !== 'win32',
         });
     }
     return spawn(sshExecutable, [...fileTransferSshOptions(), endpoint.alias,
@@ -857,7 +932,7 @@ function startFileTransferArchiveProcess(
 
 function copyFileTransferFolderArchive(
     sshExecutable: string,
-    source: { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string },
+    source: { kind: 'local'; path: string; sourceFd?: number } | { kind: 'managedMachine'; alias: string; path: string },
     destination: { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string },
     active: ActiveFileTransferCopy,
 ): Promise<void> {
@@ -958,6 +1033,153 @@ async function createFileTransferDirectory(
         return;
     }
     await createRemoteFileTransferDirectory(sshExecutable, destination.alias, destination.path, active);
+}
+
+type FileTransferPathEndpoint = { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string };
+
+function fileTransferTemporaryPath(finalPath: string, remote: boolean): string {
+    // Keep this independently bounded: appending a suffix to a valid 255-byte
+    // filename makes the staging path invalid on common filesystems.
+    const pathApi = remote ? path.posix : path;
+    return pathApi.join(pathApi.dirname(finalPath), `.agent-pivot-transfer-${randomBytes(12).toString('hex')}`);
+}
+
+function runRemoteFileTransferCommand(
+    sshExecutable: string,
+    alias: string,
+    command: string,
+    active?: ActiveFileTransferCopy,
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const child = spawn(sshExecutable, [...fileTransferSshOptions(), alias, command], {
+            stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32',
+        });
+        if (active) {
+            active.process = child;
+            active.processes = [child];
+        }
+        const stderr: Buffer[] = [];
+        child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        const clearActiveProcess = () => {
+            if (active?.process === child) {
+                active.process = undefined;
+                active.processes = undefined;
+            }
+        };
+        child.on('error', error => {
+            clearActiveProcess();
+            reject(new Error(`Could not finalize copy destination: ${error.message}`));
+        });
+        child.on('close', code => {
+            clearActiveProcess();
+            if (active?.cancelled) { reject(new Error('File copy was cancelled.')); return; }
+            if (code === 0) { resolve(); return; }
+            const message = Buffer.concat(stderr).toString('utf8').trim();
+            reject(new Error(message ? `Could not finalize copy destination: ${message.slice(0, 320)}`
+                : 'Could not finalize copy destination.'));
+        });
+    });
+}
+
+function publishLocalFileTransferTemporaryPath(
+    temporaryPath: string,
+    destinationPath: string,
+    active: ActiveFileTransferCopy,
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        // GNU mv's -T -n is an atomic no-clobber publication on the local
+        // filesystem: it neither overwrites a concurrent destination nor
+        // treats a concurrently-created directory as a parent. Do not fall
+        // back to check-then-rename on platforms without this guarantee.
+        const child = spawn('mv', ['-Tn', '--', temporaryPath, destinationPath], {
+            stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32',
+        });
+        active.process = child;
+        active.processes = [child];
+        const stderr: Buffer[] = [];
+        child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
+        const clearActiveProcess = () => {
+            if (active.process === child) {
+                active.process = undefined;
+                active.processes = undefined;
+            }
+        };
+        child.on('error', error => {
+            clearActiveProcess();
+            reject(new Error(`Could not finalize copy destination: ${error.message}`));
+        });
+        child.on('close', async code => {
+            clearActiveProcess();
+            if (active.cancelled) { reject(new Error('File copy was cancelled.')); return; }
+            if (code !== 0) {
+                const message = Buffer.concat(stderr).toString('utf8').trim();
+                reject(new Error(message ? `Could not finalize copy destination: ${message.slice(0, 320)}`
+                    : 'Could not finalize copy destination.'));
+                return;
+            }
+            if (await localPathKind(temporaryPath)) {
+                reject(new Error('Copy target appeared while the folder was transferring. Refresh Target and try again.'));
+                return;
+            }
+            resolve();
+        });
+    });
+}
+
+async function publishFileTransferTemporaryPath(
+    sshExecutable: string,
+    temporary: FileTransferPathEndpoint,
+    destination: FileTransferPathEndpoint,
+    active: ActiveFileTransferCopy,
+    replaceExisting: boolean,
+): Promise<void> {
+    if (temporary.kind === 'local' && destination.kind === 'local') {
+        // POSIX rename replaces atomically. Platforms that prohibit replacing
+        // an open file fail before touching the original, which is safer than
+        // deleting it before the verified replacement is ready.
+        if (replaceExisting) {
+            await rename(temporary.path, destination.path);
+        } else {
+            await publishLocalFileTransferTemporaryPath(temporary.path, destination.path, active);
+        }
+        return;
+    }
+    if (temporary.kind !== 'managedMachine' || destination.kind !== 'managedMachine'
+        || temporary.alias !== destination.alias) {
+        throw new Error('Could not finalize copy destination.');
+    }
+    const temporaryPath = quoteRemoteShellArgument(temporary.path);
+    const destinationPath = quoteRemoteShellArgument(destination.path);
+    // -n is available on the OpenSSH-supported POSIX hosts and prevents a
+    // concurrent file from being overwritten. Without GNU `-T`, a concurrent
+    // directory may receive the staging item as a child; detect and remove
+    // only that opaque child, then fail instead of reporting false success.
+    const nestedTemporaryPath = quoteRemoteShellArgument(
+        remoteChildPath(destination.path, path.posix.basename(temporary.path)),
+    );
+    const command = replaceExisting
+        ? `mv -Tf -- ${temporaryPath} ${destinationPath}`
+        : `mv -n ${temporaryPath} ${destinationPath} && ! test -e ${temporaryPath} && ! test -L ${temporaryPath}`
+            + ` && ! test -e ${nestedTemporaryPath} && ! test -L ${nestedTemporaryPath}`
+            + ` || { rm -rf -- ${nestedTemporaryPath}; exit 3; }`;
+    await runRemoteFileTransferCommand(sshExecutable, temporary.alias, command, active);
+}
+
+async function discardFileTransferTemporaryPath(
+    sshExecutable: string,
+    temporary: FileTransferPathEndpoint,
+): Promise<void> {
+    try {
+        if (temporary.kind === 'local') {
+            await rm(temporary.path, { recursive: true, force: true });
+            return;
+        }
+        await runRemoteFileTransferCommand(sshExecutable, temporary.alias,
+            `rm -rf -- ${quoteRemoteShellArgument(temporary.path)}`);
+    } catch {
+        // Preserve the original transfer error. The temporary name is opaque
+        // and unique, so a later cleanup cannot address user content.
+    }
 }
 
 /**
@@ -1207,6 +1429,23 @@ export class ManagedRemoteBridgeController {
         return this.projection.ensureReady(slot);
     }
 
+    private evictFileTransferHandles(): void {
+        const evict = <T>(entries: Map<string, T>, maximum: number): void => {
+            while (entries.size > maximum) {
+                const oldest = entries.keys().next().value as string | undefined;
+                if (!oldest) { return; }
+                entries.delete(oldest);
+            }
+        };
+        evict(this.fileTransferRoots, FILE_TRANSFER_ROOT_MAX_ENTRIES);
+        evict(this.fileTransferRemoteDirectories, FILE_TRANSFER_HANDLE_MAX_ENTRIES);
+        evict(this.fileTransferRemoteEntries, FILE_TRANSFER_HANDLE_MAX_ENTRIES);
+        for (const root of this.fileTransferRoots.values()) {
+            evict(root.directories, FILE_TRANSFER_HANDLE_MAX_ENTRIES);
+            evict(root.entries, FILE_TRANSFER_HANDLE_MAX_ENTRIES);
+        }
+    }
+
     private async selectFileTransferLocalRoot(): Promise<FileTransferLocalRootResponse | null> {
         if (!this.localActions) {
             throw new Error('Local folder selection is unavailable.');
@@ -1214,7 +1453,8 @@ export class ManagedRemoteBridgeController {
         const selected = await this.localActions.selectLocalDirectory();
         if (!selected) { return null; }
         const rootPath = await realpath(selected);
-        if (!(await stat(rootPath)).isDirectory()) {
+        const rootDetails = await stat(rootPath);
+        if (!rootDetails.isDirectory()) {
             throw new Error('The selected local path is not a directory.');
         }
         const rootId = this.fileTransferHandle();
@@ -1222,10 +1462,13 @@ export class ManagedRemoteBridgeController {
         const label = path.basename(rootPath) || rootPath;
         this.fileTransferRoots.set(rootId, {
             path: rootPath,
+            device: rootDetails.dev,
+            inode: rootDetails.ino,
             label,
             directories: new Map([[directoryId, rootPath]]),
             entries: new Map(),
         });
+        this.evictFileTransferHandles();
         return this.listFileTransferLocalDirectory(rootId, directoryId);
     }
 
@@ -1253,6 +1496,9 @@ export class ManagedRemoteBridgeController {
             throw new Error('The selected local directory is outside the approved folder.');
         }
         root.directories.set(resolvedDirectoryId, currentPath);
+        for (const [entryId, entry] of root.entries) {
+            if (entry.directoryId === resolvedDirectoryId) { root.entries.delete(entryId); }
+        }
         const entries: FileTransferDirectoryEntry[] = [];
         const directory = await opendir(currentPath);
         for await (const child of directory) {
@@ -1288,6 +1534,7 @@ export class ManagedRemoteBridgeController {
                         ? { modifiedAt: Math.max(0, Math.floor(childStat.mtimeMs)) } : {}),
                 });
         }
+        this.evictFileTransferHandles();
         const hasMore = entries.length > 1_000;
         entries.sort((left, right) => {
             if (left.kind === 'directory' && right.kind !== 'directory') { return -1; }
@@ -1327,18 +1574,18 @@ export class ManagedRemoteBridgeController {
         if (navigationPath !== undefined) {
             resolvedDirectoryId = this.fileTransferHandle();
             directory = {
-                machineId, path: navigationPath, kind: 'directory', directoryId: resolvedDirectoryId,
+                machineId, revisionId: slot.revisionId, path: navigationPath, kind: 'directory', directoryId: resolvedDirectoryId,
             };
             this.fileTransferRemoteDirectories.set(resolvedDirectoryId, directory);
         } else if (resolvedDirectoryId) {
             directory = this.fileTransferRemoteDirectories.get(resolvedDirectoryId);
-            if (!directory || directory.machineId !== machineId) {
+            if (!directory || directory.machineId !== machineId || directory.revisionId !== slot.revisionId) {
                 throw new Error('The selected remote directory is no longer available. Refresh the Machine.');
             }
         } else {
             resolvedDirectoryId = this.fileTransferHandle();
             directory = {
-                machineId,
+                machineId, revisionId: slot.revisionId,
                 path: await remoteLoginDirectory(coordinator.getExecutable(), target.alias),
                 kind: 'directory',
                 directoryId: resolvedDirectoryId,
@@ -1351,13 +1598,13 @@ export class ManagedRemoteBridgeController {
             const id = this.fileTransferHandle();
             const entryPath = remoteChildPath(directory!.path, row.name);
             this.fileTransferRemoteEntries.set(id, {
-                machineId, path: entryPath, kind: row.kind,
+                machineId, revisionId: slot.revisionId, path: entryPath, kind: row.kind,
                 ...(row.size === undefined ? {} : { size: row.size }),
                 directoryId: resolvedDirectoryId!,
             });
             if (row.kind === 'directory') {
                 this.fileTransferRemoteDirectories.set(id, {
-                    machineId,
+                    machineId, revisionId: slot.revisionId,
                     path: entryPath,
                     kind: 'directory',
                     directoryId: id,
@@ -1369,6 +1616,7 @@ export class ManagedRemoteBridgeController {
                 ...(row.modifiedAt === undefined ? {} : { modifiedAt: row.modifiedAt }),
             };
         });
+        this.evictFileTransferHandles();
         return {
             rootId: machineIdToTransferRootId(machineId),
             directoryId: resolvedDirectoryId,
@@ -1443,17 +1691,29 @@ export class ManagedRemoteBridgeController {
                         throw new Error(`File Transfer cannot safely replace an existing folder or non-file: ${path.basename(entry.path)}. Choose Skip existing or another folder.`);
                     }
                 }
+                // Never stream into the visible destination. A verified
+                // sibling is published only after copy completion, so Replace
+                // cannot corrupt the original on interruption and a failed
+                // folder copy leaves no collision that blocks retry.
+                const temporaryPath = fileTransferTemporaryPath(destinationPath, destination.kind === 'managedMachine');
+                const temporaryDestination: FileTransferPathEndpoint = destination.kind === 'local'
+                    ? { kind: 'local', path: temporaryPath }
+                    : { kind: 'managedMachine', alias: destination.alias, path: temporaryPath };
+                try {
+                const stableLocalSource = source.kind === 'local'
+                    ? await openStableLocalFileTransferSource(
+                        entry.localRootPath!, entry.localRootIdentity!, entry.path, entry.kind,
+                    ) : undefined;
+                try {
                 const legacyScp = !await scpUsesSftpByDefault(coordinator.getExecutable());
                 const copySource = source.kind === 'managedMachine'
-                    ? scpRemotePath(source.alias, entry.path, legacyScp) : entry.path;
+                    ? scpRemotePath(source.alias, entry.path, legacyScp) : stableLocalSource!.path;
                 const copyDestination = destination.kind === 'managedMachine'
-                    ? scpRemotePath(destination.alias, destinationPath, legacyScp) : destinationPath;
+                    ? scpRemotePath(destination.alias, temporaryPath, legacyScp) : temporaryPath;
                 const archiveSource = source.kind === 'local'
-                    ? { kind: 'local' as const, path: entry.path }
+                    ? { kind: 'local' as const, path: entry.path, sourceFd: stableLocalSource!.fd }
                     : { kind: 'managedMachine' as const, alias: source.alias, path: entry.path };
-                const archiveDestination = destination.kind === 'local'
-                    ? { kind: 'local' as const, path: destinationPath }
-                    : { kind: 'managedMachine' as const, alias: destination.alias, path: destinationPath };
+                const archiveDestination = temporaryDestination;
                 if (entry.kind === 'directory') {
                     // A single tar producer/consumer pair preserves symbolic
                     // links and avoids recursively launching SFTP once for
@@ -1473,7 +1733,7 @@ export class ManagedRemoteBridgeController {
                     await relayFileTransferEntry(
                         coordinator.getExecutable(), false, copySource,
                         copyDestination, active, totalBytes,
-                        () => remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath),
+                        () => remoteFileSize(coordinator.getExecutable(), destination.alias, temporaryPath),
                     );
                 } else {
                     active.phase = source.kind === 'managedMachine' ? 'downloading' : 'uploading';
@@ -1484,34 +1744,76 @@ export class ManagedRemoteBridgeController {
                         coordinator.getExecutable(), false, copySource,
                         copyDestination, active, totalBytes,
                         destination.kind === 'local'
-                            ? () => localFileTransferProgressBytes(destinationPath)
-                            : () => remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath),
+                            ? () => localFileTransferProgressBytes(temporaryPath)
+                            : () => remoteFileSize(coordinator.getExecutable(), destination.alias, temporaryPath),
+                        false, stableLocalSource?.fd,
                     );
                 }
                 active.phase = 'verifying';
                 noteFileTransferActivity(active, 'verifying');
                 if (entry.kind === 'directory' && entryTree) {
                     await verifyCopiedFileTransferTree(
-                        entryTree, destination, destinationPath, coordinator.getExecutable(),
+                        entryTree, temporaryDestination, temporaryPath, coordinator.getExecutable(),
                     );
                 } else if (entry.kind === 'directory') {
                     const copiedKind = destination.kind === 'local'
-                        ? await localPathKind(destinationPath)
+                        ? await localPathKind(temporaryPath)
                         : await remotePathKind(
-                            coordinator.getExecutable(), destination.alias, destinationPath,
+                            coordinator.getExecutable(), destination.alias, temporaryPath,
                         );
                     if (copiedKind !== 'directory') {
                         throw new Error(`File copy did not create the target folder: ${path.basename(entry.path)}.`);
                     }
                 } else if (entry.kind === 'file') {
                     const copiedSize = destination.kind === 'local'
-                        ? await localFileSize(destinationPath)
+                        ? await localFileSize(temporaryPath)
                         : await remoteFileSize(
-                            coordinator.getExecutable(), destination.alias, destinationPath,
+                            coordinator.getExecutable(), destination.alias, temporaryPath,
                         );
                     if (Number.isSafeInteger(entry.size) && copiedSize !== entry.size) {
                         throw new Error(`File copy did not pass size verification: ${path.basename(entry.path)}.`);
                     }
+                }
+                if (active.cancelled) { throw new Error('File copy was cancelled.'); }
+                await publishFileTransferTemporaryPath(
+                    coordinator.getExecutable(), temporaryDestination,
+                    destination.kind === 'local'
+                        ? { kind: 'local', path: destinationPath }
+                        : { kind: 'managedMachine', alias: destination.alias, path: destinationPath },
+                    active,
+                    collisionKind === 'file' && request.conflictPolicy === 'replace',
+                );
+                // Publishing is a separate race boundary. Verify the visible
+                // result too; a remote command must never turn a staged copy
+                // into an apparently successful write at another path.
+                const publishedDestination: FileTransferPathEndpoint = destination.kind === 'local'
+                    ? { kind: 'local', path: destinationPath }
+                    : { kind: 'managedMachine', alias: destination.alias, path: destinationPath };
+                if (entry.kind === 'directory' && entryTree) {
+                    await verifyCopiedFileTransferTree(
+                        entryTree, publishedDestination, destinationPath, coordinator.getExecutable(),
+                    );
+                } else if (entry.kind === 'directory') {
+                    const publishedKind = destination.kind === 'local'
+                        ? await localPathKind(destinationPath)
+                        : await remotePathKind(coordinator.getExecutable(), destination.alias, destinationPath);
+                    if (publishedKind !== 'directory') {
+                        throw new Error(`File copy was not published to the target folder: ${path.basename(entry.path)}.`);
+                    }
+                } else if (Number.isSafeInteger(entry.size)) {
+                    const publishedSize = destination.kind === 'local'
+                        ? await localFileSize(destinationPath)
+                        : await remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath);
+                    if (publishedSize !== entry.size) {
+                        throw new Error(`File copy did not pass final size verification: ${path.basename(entry.path)}.`);
+                    }
+                }
+                } finally {
+                    await stableLocalSource?.close();
+                }
+                } catch (error) {
+                    await discardFileTransferTemporaryPath(coordinator.getExecutable(), temporaryDestination);
+                    throw error;
                 }
                 completedItems += 1;
                 active.completedItems = completedItems;
@@ -1754,7 +2056,32 @@ export class ManagedRemoteBridgeController {
                 || entry.kind === 'symlink' || entry.kind === 'unsupported')) {
                 throw new Error('Select only regular files or folders from the current local directory.');
             }
-            return { kind: 'local', entries: entries.map(({ id, entry }) => ({ id, ...entry! })) };
+            const resolvedEntries: ResolvedFileTransferEntry[] = [];
+            for (const { id, entry } of entries) {
+                const listed = entry!;
+                let details: Stats;
+                let currentPath: string;
+                try {
+                    // Re-check the exact directory item immediately before
+                    // preflight/copy. A stale opaque ID must not become an
+                    // authority to follow a symlink swapped in after listing.
+                    details = await lstat(listed.path);
+                    currentPath = await realpath(listed.path);
+                } catch {
+                    throw new Error('The selected local source is no longer available. Refresh Source and choose it again.');
+                }
+                const currentKind = details.isDirectory() ? 'directory'
+                    : details.isFile() ? 'file' : details.isSymbolicLink() ? 'symlink' : 'unsupported';
+                if (currentKind !== listed.kind || currentKind === 'symlink'
+                    || !this.isWithinLocalRoot(root.path, currentPath)) {
+                    throw new Error('The selected local source is no longer available. Refresh Source and choose it again.');
+                }
+                resolvedEntries.push({
+                    id, ...listed, path: currentPath, localRootPath: root.path,
+                    localRootIdentity: { device: root.device, inode: root.inode },
+                });
+            }
+            return { kind: 'local', entries: resolvedEntries };
         }
         const target = resolveManagedMachineTarget(
             materializeManagedRemoteCatalog(slot.document), endpoint.machineId,
@@ -1763,8 +2090,9 @@ export class ManagedRemoteBridgeController {
         const entries = entryIds.map(id => ({ id, entry: this.fileTransferRemoteEntries.get(id) }));
         if (entries.some(({ entry }) => !entry || entry.machineId !== endpoint.machineId
             || entry.directoryId !== endpoint.directoryId
+            || entry.revisionId !== slot.revisionId
             || entry.kind === 'symlink' || entry.kind === 'unsupported')) {
-            throw new Error('Select only regular files or folders from the current Managed Machine directory.');
+            throw new Error('The selected Managed Machine directory changed. Refresh Source and choose the items again.');
         }
         return { kind: 'managedMachine', alias: target.alias, entries: entries.map(({ id, entry }) => ({ id, ...entry! })) };
     }
@@ -1791,8 +2119,8 @@ export class ManagedRemoteBridgeController {
             return { kind: 'local', path: resolvedPath };
         }
         const directory = this.fileTransferRemoteDirectories.get(endpoint.directoryId);
-        if (!directory || directory.machineId !== endpoint.machineId) {
-            throw new Error('The selected Managed Machine destination is no longer available. Browse it again.');
+        if (!directory || directory.machineId !== endpoint.machineId || directory.revisionId !== slot.revisionId) {
+            throw new Error('The selected Managed Machine destination changed. Browse it again.');
         }
         const target = resolveManagedMachineTarget(
             materializeManagedRemoteCatalog(slot.document), endpoint.machineId,

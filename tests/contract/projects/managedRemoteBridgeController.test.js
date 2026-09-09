@@ -295,6 +295,40 @@ test('FILE-TRANSFER-LOCAL-BROWSE-002 binds selected file handles to the reviewed
     );
 });
 
+test('FILE-TRANSFER-LOCAL-BROWSE-002 rejects a listed local file when it is replaced by a symlink outside the approved root', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-symlink-swap-root-'));
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-symlink-swap-outside-'));
+    t.after(() => {
+        fs.rmSync(root, { recursive: true, force: true });
+        fs.rmSync(outside, { recursive: true, force: true });
+    });
+    const listedPath = path.join(root, 'report.txt');
+    fs.writeFileSync(listedPath, 'approved', 'utf8');
+    const outsidePath = path.join(outside, 'private.txt');
+    fs.writeFileSync(outsidePath, 'not approved', 'utf8');
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { throw new Error('local source validation must not read catalog'); },
+    }, {
+        async create() { return {}; },
+    }, 'session-12345678', {
+        platform: 'linux', openTerminal() {}, async writeClipboard() {},
+        async selectLocalDirectory() { return root; },
+    });
+    const selected = await controller.execute(request('selectFileTransferLocalRoot'));
+    const entry = selected.value.entries.find(candidate => candidate.name === 'report.txt');
+    assert.ok(entry);
+    fs.unlinkSync(listedPath);
+    fs.symlinkSync(outsidePath, listedPath);
+
+    await assert.rejects(
+        () => controller.resolveFileTransferSource(undefined, {
+            kind: 'local', rootId: selected.value.rootId, directoryId: selected.value.directoryId,
+        }, [entry.id]),
+        /no longer available|regular files or folders/i,
+        'a stale opaque entry must not follow a post-listing symlink outside the approved root',
+    );
+});
+
 test('FILE-TRANSFER-REMOTE-BROWSE-002 preserves an absolute directory name returned by SFTP when opening that folder', async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-remote-path-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));

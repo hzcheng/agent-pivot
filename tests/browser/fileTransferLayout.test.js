@@ -638,6 +638,107 @@ test('FILE-TRANSFER-UI-019 FILE-TRANSFER-UI-023 keeps the direct transfer action
     assert.equal(copyRequest.destination.machineId, 'machine:deploy');
 });
 
+test('FILE-TRANSFER-UI-008 renders a queued task and exposes its cancellation control in the compact workspace', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'],
+            postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+    const left = page.locator('[data-file-transfer-endpoint="left"]');
+    await left.selectOption('managed:machine:build');
+    const leftRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.side === 'left'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1, requestId: leftRequest.requestId, side: 'left',
+        root: { rootId: '0123456789abcdef0123456789abcdef', directoryId: 'fedcba9876543210fedcba9876543210',
+            label: 'Build Machine', displayPath: '/workspace',
+            entries: [{ id: '11111111111111111111111111111111', name: 'report.txt', kind: 'file', size: 12 }] },
+    });
+    const right = page.locator('[data-file-transfer-endpoint="right"]');
+    await right.selectOption('managed:machine:deploy');
+    const rightRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.side === 'right'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-remote-directory-listed', version: 1, requestId: rightRequest.requestId, side: 'right',
+        root: { rootId: 'abcdef0123456789abcdef0123456789', directoryId: '1234567890abcdef1234567890abcdef',
+            label: 'Deploy Machine', displayPath: '/incoming', entries: [] },
+    });
+    await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] input').check();
+    await page.locator('[data-file-transfer-start-copy]').click();
+    const preflight = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-preflight-copy'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-copy-preflighted', version: 1, requestId: preflight.requestId,
+        result: { totalItems: 1, knownBytes: 12, unknownSizeItems: 0, existingFileNames: [], existingDirectoryNames: [] },
+    });
+    const copy = await page.evaluate(() => window.__fileTransferMessages.find(message => message.type === 'file-transfer-copy'));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-copy-queued', version: 1, requestId: copy.requestId, position: 1,
+    });
+    const task = page.locator('[data-file-transfer-task-list]');
+    assert.equal(await task.getByRole('button', { name: 'Cancel' }).count(), 1,
+        'a queued transfer must remain visible and cancellable in the compact workspace');
+});
+
+test('FILE-TRANSFER-UI-006 refreshes endpoint choices while preserving a still-valid machine selection', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'], postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+    const source = page.locator('[data-file-transfer-endpoint="left"]');
+    await source.selectOption('managed:machine:build');
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'file-transfer-endpoint-catalog', version: 1, revisionId: 'revision-2',
+        machines: [
+            { id: 'machine:build', name: 'Renamed Build' },
+            { id: 'machine:new', name: 'New Machine' },
+        ],
+    } })));
+    assert.equal(await source.inputValue(), 'managed:machine:build',
+        'a still-valid endpoint must not be reset during a catalog refresh');
+    assert.equal(await source.locator('option[value="managed:machine:new"]').count(), 1,
+        'newly available machines must appear without reopening File Transfer');
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'file-transfer-endpoint-catalog', version: 1, revisionId: 'revision-3',
+        machines: [
+            { id: 'machine:build', name: 'Renamed Build' },
+            { id: 'machine:new', name: 'New Machine' },
+        ],
+    } })));
+    assert.equal(await page.evaluate(() => window.__fileTransferMessages.filter(message =>
+        message.type === 'file-transfer-list-remote-directory' && message.machineId === 'machine:build'
+    ).length), 3, 'a retained Managed Machine must be re-listed after its opaque handles become stale');
+    await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'file-transfer-endpoint-catalog', version: 1, revisionId: 'revision-4',
+        machines: [{ id: 'machine:new', name: 'New Machine' }],
+    } })));
+    assert.equal(await source.inputValue(), '',
+        'a removed endpoint must clear its stale ready state instead of remaining actionable');
+});
+
 test('FILE-TRANSFER-UI-020 FILE-TRANSFER-OBSERVABILITY-001 FILE-TRANSFER-STREAMING-001 makes the source, target, and direct transfer action explicit while showing live two-hop relay telemetry', async t => {
     const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
     t.after(() => page.close());

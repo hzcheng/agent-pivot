@@ -941,6 +941,7 @@ async function initializeDashboard(
     let managedRemoteSnapshot = createDisabledManagedRemoteSnapshot(
         managedRemoteCatalogActorId,
     );
+    let publishFileTransferEndpointCatalog = (): void => undefined;
     let managedRemoteCapability: ManagedRemoteManagementCapability | undefined;
     const managedRemoteBridgeClient = new ManagedRemoteBridgeClient(vscode.commands);
     const managedRemoteCapabilityPromise = createManagedRemoteManagementCapability({
@@ -956,6 +957,7 @@ async function initializeDashboard(
             ),
             refreshAuthoritative: async (_requestId, _operation, snapshot) => {
                 managedRemoteSnapshot = snapshot;
+                publishFileTransferEndpointCatalog();
                 await projectsPanelController?.postUpdated('replace');
                 openWorkspaceDashboardController?.invalidatePendingUpdates();
                 await openWorkspaceDashboardController?.postUpdated();
@@ -970,6 +972,7 @@ async function initializeDashboard(
     void managedRemoteCapabilityPromise.then(async capability => {
         managedRemoteCapability = capability;
         managedRemoteSnapshot = capability.snapshot;
+        publishFileTransferEndpointCatalog();
         logDashboardDiagnostic({
             event: 'managed-remote-catalog-ready',
             lifecycle: managedRemoteSnapshot.lifecycle,
@@ -2783,6 +2786,23 @@ async function initializeDashboard(
         ? activeFileTransferEditor.webview.postMessage(message)
         : provider.postMessage(message);
     const fileTransferMessageProvider = { postMessage: postFileTransferMessage };
+    publishFileTransferEndpointCatalog = (): void => {
+        if (!activeFileTransferEditor) { return; }
+        const blockedMachineIds = new Set<string>();
+        for (const conflict of managedRemoteSnapshot.catalog.conflicts) {
+            blockedMachineIds.add(conflict.entityId);
+            for (const relatedId of conflict.relatedEntityIds || []) {
+                blockedMachineIds.add(relatedId);
+            }
+        }
+        void activeFileTransferEditor.webview.postMessage({
+            type: 'file-transfer-endpoint-catalog', version: 1,
+            revisionId: managedRemoteSnapshot.lifecycle === 'active' ? managedRemoteSnapshot.revisionId || '' : '',
+            machines: managedRemoteSnapshot.lifecycle === 'active'
+                ? managedRemoteSnapshot.catalog.machines.filter(machine => !blockedMachineIds.has(machine.id))
+                    .map(machine => ({ id: machine.id, name: machine.name })) : [],
+        });
+    };
     const fileTransferDirectoryDeliveries = new Map<string, {
         side: 'left' | 'right';
         message: Record<string, unknown>;
@@ -2942,16 +2962,11 @@ async function initializeDashboard(
                                 `[FileTransfer] copy status query failed: attempt=${consecutiveStatusFailures}`
                                     + ` error=${boundedFileTransferDiagnosticMessage(error instanceof Error ? error.message : error)}`,
                             );
-                            // The copy request remains the terminal authority, but ask the Bridge to stop a
-                            // stranded child after repeated failed heartbeats. Its eventual cancellation result
-                            // is still recorded through the normal settlement path.
+                            // Progress is observational. A temporarily busy command bridge must not
+                            // cancel a still-healthy OS-level transfer merely because telemetry is
+                            // unavailable; the copy request itself remains the terminal authority.
                             if (consecutiveStatusFailures >= 3) {
-                                outputChannel.appendLine('[FileTransfer] cancelling copy after three missed UI Bridge heartbeats.');
-                                void managedRemoteBridgeClient.cancelFileTransferCopy(task.requestId as string).catch(cancelError => {
-                                    outputChannel.appendLine(
-                                        `[FileTransfer] copy cancellation request failed: ${boundedFileTransferDiagnosticMessage(cancelError instanceof Error ? cancelError.message : cancelError)}`,
-                                    );
-                                });
+                                outputChannel.appendLine('[FileTransfer] copy progress is temporarily unavailable; continuing the transfer.');
                             }
                             return undefined;
                         },

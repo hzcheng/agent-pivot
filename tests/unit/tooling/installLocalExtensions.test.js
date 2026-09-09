@@ -116,7 +116,8 @@ test('LOCAL-INSTALL-CLI-TARGET-001 keeps the UI-only Bridge out of a remote Serv
 
     assert.equal(status, 0);
     assert.equal(calls.length, 1);
-    assert.match(calls[0].args.join('\n'), /agent-pivot-1\.4\.0\.vsix/u);
+    const mainPackage = require(path.join(repositoryRoot, 'package.json'));
+    assert.match(calls[0].args.join('\n'), new RegExp(`agent-pivot-${mainPackage.version.replace(/\./gu, '\\.')}\\.vsix`, 'u'));
     assert.doesNotMatch(calls[0].args.join('\n'), /attention-ui-bridge/u);
     assert.match(logger.out.join('\n'), /UI Bridge.*packaged.*local UI host/iu);
 });

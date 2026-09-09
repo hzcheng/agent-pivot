@@ -86,7 +86,7 @@ function waitForPort(port, process) {
 function writeClientWrapper(root, binary, clientConfig) {
     const wrapper = path.join(root, 'bin', binary);
     fs.mkdirSync(path.dirname(wrapper), { recursive: true });
-    fs.writeFileSync(wrapper, `#!/bin/sh\nif [ "${binary}" = scp ] && [ -n "$AGENT_PIVOT_SCP_LOG" ]; then\n  printf '%s\\n' "$*" >> "$AGENT_PIVOT_SCP_LOG"\nfi\nexec /usr/bin/${binary} -F "${clientConfig}" "$@"\n`, { mode: 0o700 });
+    fs.writeFileSync(wrapper, `#!/bin/sh\nif [ "${binary}" = scp ] && [ -n "$AGENT_PIVOT_SCP_LOG" ]; then\n  printf '%s\\n' "$*" >> "$AGENT_PIVOT_SCP_LOG"\nfi\nif [ "${binary}" = scp ] && [ -n "$AGENT_PIVOT_SCP_SWAP_SOURCE" ]; then\n  rm -rf -- "$AGENT_PIVOT_SCP_SWAP_SOURCE"\n  ln -s -- "$AGENT_PIVOT_SCP_SWAP_TARGET" "$AGENT_PIVOT_SCP_SWAP_SOURCE"\nfi\nif [ "${binary}" = ssh ] && [ -n "$AGENT_PIVOT_SSH_PUBLISH_RACE_DESTINATION" ] && printf '%s' "$*" | grep -q 'mv -n'; then\n  mkdir -p -- "$AGENT_PIVOT_SSH_PUBLISH_RACE_DESTINATION"\nfi\nexec /usr/bin/${binary} -F "${clientConfig}" "$@"\n`, { mode: 0o700 });
     return wrapper;
 }
 
@@ -143,14 +143,28 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     const remoteTwo = fs.mkdtempSync(path.join(os.homedir(), 'agent-pivot-file-transfer-ssh-two-'));
     fs.mkdirSync(localRoot);
     fs.writeFileSync(path.join(localRoot, 'local.txt'), 'from local\n', 'utf8');
+    const swappedLocalFile = 'swap-protected.txt';
+    const swappedLocalPath = path.join(localRoot, swappedLocalFile);
+    const outsideSwapTarget = path.join(root, 'outside-swap-target.txt');
+    fs.writeFileSync(swappedLocalPath, 'approved before swap\n', 'utf8');
+    fs.writeFileSync(outsideSwapTarget, 'private after swap\n', 'utf8');
     fs.chmodSync(path.join(localRoot, 'local.txt'), 0o751);
     fs.utimesSync(path.join(localRoot, 'local.txt'), new Date('2023-05-06T07:08:09.000Z'), new Date('2023-05-06T07:08:09.000Z'));
     const localSpecialFile = "-local #?% '雪.txt";
     fs.writeFileSync(path.join(localRoot, localSpecialFile), 'from local special file\n', 'utf8');
+    const maximumLengthLocalFile = 'x'.repeat(255);
+    fs.writeFileSync(path.join(localRoot, maximumLengthLocalFile), 'maximum-length filename\n', 'utf8');
     const localConflictFile = 'already-there.txt';
     fs.writeFileSync(path.join(localRoot, localConflictFile), 'from local conflict file\n', 'utf8');
     fs.mkdirSync(path.join(localRoot, 'local folder'));
     fs.writeFileSync(path.join(localRoot, 'local folder', 'nested.txt'), 'from local folder\n', 'utf8');
+    fs.mkdirSync(path.join(localRoot, 'publish-race-folder'));
+    fs.writeFileSync(path.join(localRoot, 'publish-race-folder', 'nested.txt'), 'must not land inside a concurrent folder\n', 'utf8');
+    fs.mkdirSync(path.join(localRoot, 'parent-swap'));
+    fs.writeFileSync(path.join(localRoot, 'parent-swap', 'approved.txt'), 'approved before parent swap\n', 'utf8');
+    const outsideParentSwap = path.join(root, 'outside-parent-swap');
+    fs.mkdirSync(outsideParentSwap);
+    fs.writeFileSync(path.join(outsideParentSwap, 'approved.txt'), 'private after parent swap\n', 'utf8');
     fs.mkdirSync(path.join(localRoot, 'empty-directory-conflict'));
     fs.writeFileSync(path.join(localRoot, 'empty-directory-conflict', 'nested.txt'), 'must not replace an empty directory\n', 'utf8');
     fs.mkdirSync(path.join(remoteTwo, 'empty-directory-conflict'));
@@ -202,6 +216,12 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     const ssh = writeClientWrapper(root, 'ssh', clientConfig);
     writeClientWrapper(root, 'scp', clientConfig);
     writeClientWrapper(root, 'sftp', clientConfig);
+    fs.writeFileSync(path.join(root, 'bin', 'mv'), `#!/bin/sh
+if [ -n "$AGENT_PIVOT_LOCAL_PUBLISH_RACE_DESTINATION" ]; then
+  mkdir -p -- "$AGENT_PIVOT_LOCAL_PUBLISH_RACE_DESTINATION"
+fi
+exec /bin/mv "$@"
+`, { mode: 0o700 });
     const controller = new ManagedRemoteBridgeController({
         readManagedCatalogEnvelope() { return envelope; },
     }, {
@@ -217,6 +237,15 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
 
     const local = await controller.execute(request('selectFileTransferLocalRoot', undefined, 'local'));
     assert.equal(local.status, 'ok');
+    const parentSwapDirectory = local.value.entries.find(entry => entry.name === 'parent-swap');
+    assert.ok(parentSwapDirectory);
+    const parentSwapListing = await controller.execute({
+        ...request('listFileTransferLocalDirectory', undefined, 'parent-swap-list'),
+        fileTransfer: { kind: 'localRoot', rootId: local.value.rootId, directoryId: parentSwapDirectory.id },
+    });
+    assert.equal(parentSwapListing.status, 'ok', parentSwapListing.message);
+    const parentSwapFile = parentSwapListing.value.entries.find(entry => entry.name === 'approved.txt');
+    assert.ok(parentSwapFile);
     const sourceRoot = await controller.execute({
         ...request('listFileTransferRemoteDirectory', slot.revisionId, 'source-list'),
         targetId: machines[0].id,
@@ -259,17 +288,23 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.equal(destination.status, 'ok', destination.message);
     const linkedRemoteFolder = source.value.entries.find(entry => entry.name === 'remote folder with relative link');
     const localFile = local.value.entries.find(entry => entry.name === 'local.txt');
+    const swapProtectedLocal = local.value.entries.find(entry => entry.name === swappedLocalFile);
     const localSpecial = local.value.entries.find(entry => entry.name === localSpecialFile);
+    const maximumLengthLocal = local.value.entries.find(entry => entry.name === maximumLengthLocalFile);
     const localConflict = local.value.entries.find(entry => entry.name === localConflictFile);
     const localFolder = local.value.entries.find(entry => entry.name === 'local folder');
+    const publishRaceFolder = local.value.entries.find(entry => entry.name === 'publish-race-folder');
     const emptyDirectoryConflict = local.value.entries.find(entry => entry.name === 'empty-directory-conflict');
     const linkedLocalFolder = local.value.entries.find(entry => entry.name === 'folder with relative link');
     const remoteFile = source.value.entries.find(entry => entry.name === remoteSpecialFile);
     const remoteFolderEntry = source.value.entries.find(entry => entry.name === remoteFolder);
     assert.ok(localFile);
+    assert.ok(swapProtectedLocal);
     assert.ok(localSpecial);
+    assert.ok(maximumLengthLocal);
     assert.ok(localConflict);
     assert.ok(localFolder);
+    assert.ok(publishRaceFolder);
     assert.ok(emptyDirectoryConflict);
     assert.ok(linkedLocalFolder);
     assert.ok(linkedRemoteFolder);
@@ -350,6 +385,56 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     const copiedLocalStat = fs.statSync(path.join(remoteTwo, 'renamed-local.txt'));
     assert.equal(copiedLocalStat.mode & 0o777, 0o751);
     assert.ok(Math.abs(copiedLocalStat.mtimeMs - new Date('2023-05-06T07:08:09.000Z').getTime()) < 1_000);
+    assert.match(fs.readFileSync(scpLog, 'utf8'), /\.agent-pivot-transfer-[a-f0-9]{24}/u,
+        'FILE-TRANSFER-SSH-E2E-001 must stream into an opaque sibling before publishing a verified target');
+    assert.match(fs.readFileSync(scpLog, 'utf8'), /\/proc\/self\/fd\/3/u,
+        'FILE-TRANSFER-LOCAL-SAFETY-001 must pass a stable local descriptor to scp, not re-open the selected path');
+
+    // The scp wrapper replaces the selected pathname immediately before it
+    // execs the real client. The child inherited fd 3 still refers to the
+    // approved inode, proving a post-validation symlink swap cannot escape
+    // the local-root boundary.
+    process.env.AGENT_PIVOT_SCP_SWAP_SOURCE = swappedLocalPath;
+    process.env.AGENT_PIVOT_SCP_SWAP_TARGET = outsideSwapTarget;
+    try {
+        const copiedSwappedLocal = await controller.execute({
+            ...request('copyFileTransferEntries', slot.revisionId, 'local-symlink-swap'),
+            fileTransfer: {
+                kind: 'copy', taskId: 'file-transfer-e2e-local-symlink-swap', conflictPolicy: 'fail',
+                source: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+                destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+                entryIds: [swapProtectedLocal.id], targetName: 'swap-protected-copy.txt',
+            },
+        });
+        assert.equal(copiedSwappedLocal.status, 'ok', copiedSwappedLocal.message);
+        assert.equal(copiedSwappedLocal.value.status, 'copied', JSON.stringify(copiedSwappedLocal.value));
+    } finally {
+        delete process.env.AGENT_PIVOT_SCP_SWAP_SOURCE;
+        delete process.env.AGENT_PIVOT_SCP_SWAP_TARGET;
+    }
+    assert.equal(fs.readFileSync(path.join(remoteTwo, 'swap-protected-copy.txt'), 'utf8'), 'approved before swap\n',
+        'FILE-TRANSFER-LOCAL-SAFETY-001 must copy the selected descriptor, not the replacement symlink target');
+
+    process.env.AGENT_PIVOT_SCP_SWAP_SOURCE = path.join(localRoot, 'parent-swap');
+    process.env.AGENT_PIVOT_SCP_SWAP_TARGET = outsideParentSwap;
+    try {
+        const copiedParentSwappedLocal = await controller.execute({
+            ...request('copyFileTransferEntries', slot.revisionId, 'local-parent-symlink-swap'),
+            fileTransfer: {
+                kind: 'copy', taskId: 'file-transfer-e2e-local-parent-symlink-swap', conflictPolicy: 'fail',
+                source: { kind: 'local', rootId: local.value.rootId, directoryId: parentSwapListing.value.directoryId },
+                destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+                entryIds: [parentSwapFile.id], targetName: 'parent-swap-copy.txt',
+            },
+        });
+        assert.equal(copiedParentSwappedLocal.status, 'ok', copiedParentSwappedLocal.message);
+        assert.equal(copiedParentSwappedLocal.value.status, 'copied', JSON.stringify(copiedParentSwappedLocal.value));
+    } finally {
+        delete process.env.AGENT_PIVOT_SCP_SWAP_SOURCE;
+        delete process.env.AGENT_PIVOT_SCP_SWAP_TARGET;
+    }
+    assert.equal(fs.readFileSync(path.join(remoteTwo, 'parent-swap-copy.txt'), 'utf8'), 'approved before parent swap\n',
+        'FILE-TRANSFER-LOCAL-SAFETY-001 must keep every parent descriptor beneath the approved root stable');
 
     const copiedSpecialLocal = await controller.execute({
         ...request('copyFileTransferEntries', slot.revisionId, 'local-special-copy'),
@@ -362,6 +447,20 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     });
     assert.equal(copiedSpecialLocal.status, 'ok', copiedSpecialLocal.message);
     assert.equal(fs.readFileSync(path.join(remoteTwo, localSpecialFile), 'utf8'), 'from local special file\n');
+
+    const copiedMaximumLengthLocal = await controller.execute({
+        ...request('copyFileTransferEntries', slot.revisionId, 'maximum-length-local-copy'),
+        fileTransfer: {
+            kind: 'copy', taskId: 'file-transfer-e2e-maximum-length-local', conflictPolicy: 'fail',
+            source: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+            entryIds: [maximumLengthLocal.id],
+        },
+    });
+    assert.equal(copiedMaximumLengthLocal.status, 'ok', copiedMaximumLengthLocal.message);
+    assert.equal(copiedMaximumLengthLocal.value.status, 'copied', JSON.stringify(copiedMaximumLengthLocal.value));
+    assert.equal(fs.readFileSync(path.join(remoteTwo, maximumLengthLocalFile), 'utf8'), 'maximum-length filename\n',
+        'FILE-TRANSFER-COPY-011 must use a bounded sibling staging name for valid 255-byte targets');
 
     const copiedConflictLocal = await controller.execute({
         ...request('copyFileTransferEntries', slot.revisionId, 'local-conflict-copy'),
@@ -420,6 +519,56 @@ test('FILE-TRANSFER-SSH-E2E-001 relays local and managed files through real Open
     assert.equal(copiedFolder.status, 'ok', copiedFolder.message);
     assert.deepEqual(copiedFolder.value, { status: 'copied', completedItems: 1, skippedItems: 0, totalItems: 1 });
     assert.equal(fs.readFileSync(path.join(remoteTwo, 'local folder', 'nested.txt'), 'utf8'), 'from local folder\n');
+
+    // Simulate another actor creating the final folder after the collision
+    // check but immediately before publication. `mv -Tn` must reject that
+    // race rather than nesting the verified staging folder inside it and
+    // reporting a false success.
+    const publishRaceDestination = path.join(remoteTwo, 'publish-race-folder');
+    process.env.AGENT_PIVOT_SSH_PUBLISH_RACE_DESTINATION = publishRaceDestination;
+    try {
+        const racedFolderCopy = await controller.execute({
+            ...request('copyFileTransferEntries', slot.revisionId, 'folder-publish-race'),
+            fileTransfer: {
+                kind: 'copy', taskId: 'file-transfer-e2e-folder-publish-race', conflictPolicy: 'fail',
+                source: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+                destination: { kind: 'managedMachine', machineId: machines[1].id, directoryId: destination.value.directoryId },
+                entryIds: [publishRaceFolder.id],
+            },
+        });
+        assert.equal(racedFolderCopy.status, 'ok', racedFolderCopy.message);
+        assert.equal(racedFolderCopy.value.status, 'failed', JSON.stringify(racedFolderCopy.value));
+    } finally {
+        delete process.env.AGENT_PIVOT_SSH_PUBLISH_RACE_DESTINATION;
+    }
+    assert.equal(fs.existsSync(path.join(publishRaceDestination, 'publish-race-folder')), false,
+        'FILE-TRANSFER-COPY-010 must not nest a staged folder inside a concurrent destination');
+    assert.equal(fs.existsSync(path.join(publishRaceDestination, 'nested.txt')), false,
+        'FILE-TRANSFER-COPY-010 must not report an unrelated concurrent destination as copied');
+
+    const localPublishRaceDestination = path.join(localRoot, 'local-publish-race.txt');
+    const previousPath = process.env.PATH;
+    process.env.AGENT_PIVOT_LOCAL_PUBLISH_RACE_DESTINATION = localPublishRaceDestination;
+    process.env.PATH = `${path.join(root, 'bin')}${path.delimiter}${previousPath || ''}`;
+    try {
+        const racedLocalPublication = await controller.execute({
+            ...request('copyFileTransferEntries', slot.revisionId, 'local-publish-race'),
+            fileTransfer: {
+                kind: 'copy', taskId: 'file-transfer-e2e-local-publish-race', conflictPolicy: 'fail',
+                source: { kind: 'managedMachine', machineId: machines[0].id, directoryId: source.value.directoryId },
+                destination: { kind: 'local', rootId: local.value.rootId, directoryId: local.value.directoryId },
+                entryIds: [remoteFile.id], targetName: 'local-publish-race.txt',
+            },
+        });
+        assert.equal(racedLocalPublication.status, 'ok', racedLocalPublication.message);
+        assert.equal(racedLocalPublication.value.status, 'failed', JSON.stringify(racedLocalPublication.value));
+    } finally {
+        delete process.env.AGENT_PIVOT_LOCAL_PUBLISH_RACE_DESTINATION;
+        if (previousPath === undefined) delete process.env.PATH;
+        else process.env.PATH = previousPath;
+    }
+    assert.deepEqual(fs.readdirSync(localPublishRaceDestination), [],
+        'FILE-TRANSFER-COPY-010 must not publish a staging item inside a concurrent local directory');
 
     const blockedRelayDirectory = path.join(root, 'blocked-relay-directory');
     fs.mkdirSync(blockedRelayDirectory, { mode: 0o500 });

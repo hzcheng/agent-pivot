@@ -154,6 +154,9 @@
     var markdownWorkspaceCommentList = document.querySelector(
         '[data-markdown-workspace-comment-list]'
     );
+    var markdownWorkspaceReplyList = document.querySelector(
+        '[data-markdown-workspace-reply-list]'
+    );
     var markdownWorkspaceCommentCount = document.querySelector(
         '[data-markdown-workspace-comment-count]'
     );
@@ -184,6 +187,7 @@
     var activeMarkdownWorkspaceDocument;
     var markdownWorkspaceCommentRevision = 0;
     var markdownWorkspaceComments = [];
+    var markdownWorkspaceReplies = [];
     var markdownWorkspaceSuggestions = [];
     var markdownWorkspaceSelection;
     var markdownWorkspaceCommentRequestSerial = 0;
@@ -200,6 +204,7 @@
         && markdownWorkspaceDiscussion && markdownWorkspaceSelectionActions
         && markdownWorkspaceSelectionSummary && markdownWorkspaceCommentComposer
         && markdownWorkspaceCommentInput && markdownWorkspaceCommentList
+        && markdownWorkspaceReplyList
         && markdownWorkspaceCommentCount && markdownWorkspaceCommentFeedback
         && markdownWorkspaceSuggestionComposer && markdownWorkspaceSuggestionInput
         && markdownWorkspaceSuggestionPreview && markdownWorkspaceSuggestionList);
@@ -1608,6 +1613,10 @@
             })
             && (message.commentSnapshot === undefined
                 || validMarkdownWorkspaceSnapshot(message.commentSnapshot))
+            && (message.replies === undefined
+                || (Array.isArray(message.replies)
+                    && message.replies.length <= 40
+                    && message.replies.every(validMarkdownWorkspaceReply)))
             && (message.suggestions === undefined
                 || (Array.isArray(message.suggestions)
                     && message.suggestions.length <= 20
@@ -1641,6 +1650,16 @@
             && suggestion.replacement.length <= 12000;
     }
 
+    function validMarkdownWorkspaceReply(reply) {
+        return !!reply && !Array.isArray(reply)
+            && typeof reply.messageId === 'string' && reply.messageId.length > 0
+            && reply.messageId.length <= 512
+            && typeof reply.commentId === 'string' && reply.commentId.length > 0
+            && reply.commentId.length <= 512
+            && typeof reply.html === 'string' && reply.html.length > 0
+            && reply.html.length <= 1000000;
+    }
+
     function validMarkdownWorkspaceSuggestionsMessage(message) {
         return !!message && !Array.isArray(message)
             && message.type === 'conversation-viewer-markdown-workspace-suggestions'
@@ -1660,7 +1679,10 @@
             })
             && Array.isArray(message.suggestions)
             && message.suggestions.length <= 20
-            && message.suggestions.every(validMarkdownWorkspaceSuggestion);
+            && message.suggestions.every(validMarkdownWorkspaceSuggestion)
+            && Array.isArray(message.replies)
+            && message.replies.length <= 40
+            && message.replies.every(validMarkdownWorkspaceReply);
     }
 
     function workspaceCommentTarget() {
@@ -1704,6 +1726,28 @@
             markdownWorkspaceCommentList.appendChild(card);
         });
         renderMarkdownWorkspaceCommentMarkers(valid);
+    }
+
+    function renderMarkdownWorkspaceReplies() {
+        if (!markdownWorkspaceCommentsAvailable) return;
+        markdownWorkspaceReplyList.textContent = '';
+        markdownWorkspaceReplies.forEach(function (reply) {
+            var card = document.createElement('article');
+            card.className = 'conversation-document-reply-card';
+            card.setAttribute('data-markdown-workspace-reply-id', reply.messageId);
+            var heading = document.createElement('h3');
+            heading.textContent = 'AI reply';
+            card.appendChild(heading);
+            var replyFor = document.createElement('p');
+            replyFor.className = 'conversation-document-reply-meta';
+            replyFor.textContent = 'Reply to document comment';
+            card.appendChild(replyFor);
+            var content = document.createElement('div');
+            content.className = 'conversation-markdown';
+            content.innerHTML = sanitizeConversationHtml(reply.html);
+            card.appendChild(content);
+            markdownWorkspaceReplyList.appendChild(card);
+        });
     }
 
     function renderMarkdownWorkspaceSuggestions() {
@@ -2201,6 +2245,7 @@
         activeMarkdownWorkspaceDocument = undefined;
         markdownWorkspaceCommentRevision = 0;
         markdownWorkspaceComments = [];
+        markdownWorkspaceReplies = [];
         markdownWorkspaceSuggestions = [];
         markdownWorkspaceSelection = undefined;
         markdownWorkspacePendingRequestId = '';
@@ -2213,6 +2258,7 @@
             setMarkdownWorkspaceCommentPending(false, '');
             markdownWorkspaceSendAfterSave = false;
             renderMarkdownWorkspaceComments();
+            renderMarkdownWorkspaceReplies();
             renderMarkdownWorkspaceSuggestions();
         }
         if (markdownWorkspaceActiveAvailable) {
@@ -2254,6 +2300,7 @@
             ? message.commentSnapshot.revision : 0;
         markdownWorkspaceComments = message.commentSnapshot
             ? message.commentSnapshot.comments.slice() : [];
+        markdownWorkspaceReplies = message.replies ? message.replies.slice() : [];
         markdownWorkspaceSuggestions = message.suggestions ? message.suggestions.slice() : [];
         markdownWorkspaceSelection = undefined;
         markdownWorkspacePendingRequestId = '';
@@ -2264,6 +2311,7 @@
         markdownWorkspacePath.textContent = message.relativePath;
         markdownWorkspaceContent.innerHTML = sanitizeConversationHtml(message.html);
         renderMarkdownWorkspaceComments();
+        renderMarkdownWorkspaceReplies();
         renderMarkdownWorkspaceSuggestions();
         if (markdownWorkspaceActiveAvailable) {
             markdownWorkspaceActiveTitle.textContent = message.title;
@@ -2309,7 +2357,9 @@
             return true;
         }
         markdownWorkspaceSuggestions = message.suggestions.slice();
+        markdownWorkspaceReplies = message.replies.slice();
         renderMarkdownWorkspaceSuggestions();
+        renderMarkdownWorkspaceReplies();
         return true;
     }
 

@@ -2272,6 +2272,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 workspaceRootId: document.workspaceRootId,
                 documentVersion: document.documentVersion,
                 commentSnapshot: this.documentCommentController.snapshot,
+                replies: this.markdownWorkspaceReplies(),
                 suggestions: this.markdownWorkspaceSuggestions(),
                 workspaceRequestId,
                 subscriptionGeneration: this.subscriptionGeneration,
@@ -2313,6 +2314,55 @@ export class ConversationViewer implements ConversationViewerApi {
         return suggestions;
     }
 
+    private markdownWorkspaceReplies(): Array<{
+        messageId: string;
+        commentId: string;
+        html: string;
+    }> {
+        const comments = this.documentCommentController.snapshot.comments.filter(comment =>
+            comment.status === 'sent' || comment.status === 'resolved'
+                || comment.status === 'outdated'
+        );
+        if (!comments.length) {
+            return [];
+        }
+        const commentByMarker = new Map(comments.map(comment => [
+            `markdown-document-comment-id:${comment.id}`, comment.id,
+        ]));
+        const commentByInteraction = new Map<string, string>();
+        const messages = this.messages();
+        for (const message of messages) {
+            if (message.role !== 'user') {
+                continue;
+            }
+            for (const [marker, commentId] of commentByMarker) {
+                if (message.markdown.includes(marker)) {
+                    commentByInteraction.set(message.interactionId, commentId);
+                    break;
+                }
+            }
+        }
+        const replies: Array<{ messageId: string; commentId: string; html: string }> = [];
+        for (const message of messages) {
+            if (message.role !== 'assistant') {
+                continue;
+            }
+            const commentId = commentByInteraction.get(message.interactionId);
+            if (!commentId) {
+                continue;
+            }
+            const html = renderConversationMarkdown(message.markdown);
+            if (!html || Buffer.byteLength(html, 'utf8') > 1_000_000) {
+                continue;
+            }
+            replies.push({ messageId: message.id, commentId, html });
+            if (replies.length === 40) {
+                break;
+            }
+        }
+        return replies;
+    }
+
     /** Conversation refreshes may carry the assistant's reply to a document
      * comment while the reader stays open. Publish only the bounded cards so
      * the reader does not close, scroll, or lose its current selection. */
@@ -2332,6 +2382,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 workspaceRootId: active.workspaceRootId,
                 relativePath: active.workspaceFile.relativePath,
                 documentVersion: active.documentVersion,
+                replies: this.markdownWorkspaceReplies(),
                 suggestions: this.markdownWorkspaceSuggestions(),
                 subscriptionGeneration: generation,
                 projectId: target.projectId,

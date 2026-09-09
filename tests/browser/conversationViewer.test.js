@@ -5081,6 +5081,35 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps a previous document sidebar togg
     );
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps document-scoped AI replies in the reading surface', async t => {
+    const { page } = await openHostViewerDocument(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace',
+        version: 1,
+        href: 'docs/architecture-plan.md',
+        relativePath: 'docs/architecture-plan.md',
+        workspaceRootId: 'root-a',
+        documentVersion: 'sha256:architecture-a',
+        commentSnapshot: { revision: 0, comments: [] },
+        replies: [{
+            messageId: 'assistant-reply-a',
+            commentId: 'document-comment-a',
+            html: '<p>Test the restore command in staging before release.</p>',
+        }],
+        suggestions: [],
+        title: 'architecture-plan.md',
+        html: '<h1>Architecture plan</h1><p>Rollback strategy</p>',
+        workspaceRequestId: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+    });
+    assert.equal(await page.getByRole('heading', { name: 'AI reply' }).isVisible(), true);
+    assert.match(await page.locator('[data-markdown-workspace-reply-list]').innerText(),
+        /Test the restore command in staging before release\./);
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
     async function assertPanelViews(page, label) {
         await page.locator('[data-conversation-position]').click();
@@ -11825,6 +11854,11 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         workspaceRootId: 'root-a',
         documentVersion: 'sha256:architecture-a',
         commentSnapshot: { revision: 0, comments: [] },
+        replies: [{
+            messageId: 'assistant-reply-a',
+            commentId: 'document-comment-a',
+            html: '<p>Test the restore command in staging before release.</p>',
+        }],
         suggestions: [{
             messageId: 'assistant-suggestion-a',
             selectedText: 'Rollback strategy',
@@ -11849,6 +11883,10 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.equal(await workspace.locator('h1').innerText(), 'Architecture plan');
     assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), true,
         'the document reader keeps file-specific discussion beside the rendered Markdown');
+    assert.equal(await page.getByRole('heading', { name: 'AI reply' }).isVisible(), true,
+        'document-scoped AI replies remain readable beside the Markdown');
+    assert.match(await page.locator('[data-markdown-workspace-reply-list]').innerText(),
+        /Test the restore command in staging/);
     assert.equal(await page.getByRole('heading', { name: 'AI suggested change' }).isVisible(),
         true, 'a bounded structured AI response becomes an actionable document card');
     assert.match(await page.locator('[data-markdown-workspace-suggestion-list]').innerText(),
@@ -11859,6 +11897,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         workspaceRootId: 'root-a',
         relativePath: 'docs/architecture-plan.md',
         documentVersion: 'sha256:architecture-a',
+        replies: [],
         suggestions: [{
             messageId: 'assistant-suggestion-b',
             selectedText: 'Rollback strategy',
@@ -11879,6 +11918,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         workspaceRootId: 'root-a',
         relativePath: 'docs/architecture-plan.md',
         documentVersion: 'sha256:architecture-a',
+        replies: [],
         suggestions: [{
             messageId: 'assistant-suggestion-b',
             selectedText: 'Rollback strategy',

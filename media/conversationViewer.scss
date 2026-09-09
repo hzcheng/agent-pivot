@@ -171,6 +171,29 @@ body {
     gap: 0.65rem;
 }
 
+.conversation-document-reply-list {
+    display: grid;
+    gap: 0.65rem;
+    margin-top: 0.8rem;
+}
+
+.conversation-document-reply-card {
+    padding: 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+    border-radius: 3px;
+    background: var(--vscode-editor-background);
+
+    h3 { margin: 0; font-size: 0.95em; }
+    .conversation-document-reply-meta {
+        margin: 0.25rem 0 0.5rem;
+        color: var(--vscode-descriptionForeground);
+        font-size: 0.85em;
+    }
+    .conversation-markdown > :first-child { margin-top: 0; }
+    .conversation-markdown > :last-child { margin-bottom: 0; }
+}
+
 .conversation-document-suggestion-list {
     display: grid;
     gap: 0.65rem;

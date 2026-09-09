@@ -90,6 +90,7 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 persists file-anchored drafts, s
     assert.equal(submitted.length, 1);
     assert.match(submitted[0].prompt, /文件：docs\/plan\.md/);
     assert.match(submitted[0].prompt, /Ship the rollback plan/);
+    assert.match(submitted[0].prompt, /markdown-document-comment-id:[a-f0-9]{32}/);
     assert.match(submitted[0].prompt, /```markdown-suggestion/);
     assert.match(submitted[0].prompt, /"selectedText":"引用原文的精确文本"/);
     assert.equal(controller.snapshot.comments[0].status, 'sent');

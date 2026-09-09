@@ -41,6 +41,7 @@ test('MARKDOWN-DOCUMENT-COMMENTS-001 creates file-anchored drafts and builds bou
     assert.match(prompt, /章节：Operations > Rollback strategy/);
     assert.match(prompt, /The migration runs before restart\./);
     assert.match(prompt, /Explain the recovery path/);
+    assert.match(prompt, /markdown-document-comment-id:comment-a/);
 });
 
 test('MARKDOWN-DOCUMENT-COMMENTS-001 records sent, resolved, and outdated states without losing the anchor', () => {

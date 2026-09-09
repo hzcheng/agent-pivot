@@ -68,6 +68,7 @@ import type {
     ConversationViewerDocumentCommentMutationMessage,
     ConversationViewerSendDocumentCommentMessage,
     ConversationViewerApplyMarkdownSuggestionMessage,
+    ConversationViewerMarkdownSuggestionStatusMessage,
 } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
@@ -1934,6 +1935,10 @@ export class ConversationViewer implements ConversationViewerApi {
             await this.applyMarkdownSuggestion(parsed);
             return;
         }
+        if (parsed.type === 'conversation-viewer-markdown-suggestion-status') {
+            await this.updateMarkdownSuggestionStatus(parsed);
+            return;
+        }
         if (parsed.type === 'conversation-viewer-bookmark-mutation') {
             await this.bookmarkController.enqueue(parsed);
             return;
@@ -2516,6 +2521,51 @@ export class ConversationViewer implements ConversationViewerApi {
         // acknowledgement, leaving stale composer state visible.
         if (result === 'applied' && this.target === target) {
             await this.openMarkdownWorkspace(active!.workspaceFile);
+        }
+    }
+
+    private async updateMarkdownSuggestionStatus(
+        message: ConversationViewerMarkdownSuggestionStatusMessage
+    ): Promise<void> {
+        const active = this.activeMarkdownWorkspace;
+        const target = this.target;
+        const matches = Boolean(active && target && active.target === target
+            && active.generation === this.subscriptionGeneration
+            && message.subscriptionGeneration === this.subscriptionGeneration
+            && message.projectId === target.projectId && message.provider === target.provider
+            && message.sessionId === target.sessionId
+            && message.document.workspaceRootId === active.workspaceRootId
+            && message.document.relativePath === active.workspaceFile.relativePath
+            && message.document.documentVersion === active.documentVersion
+            && this.markdownWorkspaceSuggestions().some(suggestion =>
+                suggestion.messageId === message.payload.suggestionId
+            ));
+        let success = false;
+        if (matches) {
+            try {
+                await this.rememberMarkdownSuggestionDisposition(
+                    message.payload.suggestionId, message.payload.disposition
+                );
+                success = true;
+            } catch (_error) {
+                this.showNotice('Suggestion decision could not be saved.');
+            }
+        }
+        const panel = this.panel;
+        if (panel) {
+            await Promise.resolve(panel.webview.postMessage({
+                type: 'conversation-viewer-markdown-suggestion-status-result', version: 1,
+                requestId: message.requestId, subscriptionGeneration: message.subscriptionGeneration,
+                projectId: message.projectId, provider: message.provider,
+                sessionId: message.sessionId, document: { ...message.document }, success,
+            })).catch(() => undefined);
+        }
+        if (success && panel && target) {
+            try {
+                await this.publishActiveMarkdownWorkspaceSuggestions(
+                    panel, target, this.subscriptionGeneration
+                );
+            } catch (_error) { /* authority refresh on the next conversation update */ }
         }
     }
 

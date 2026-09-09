@@ -5188,6 +5188,29 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps a stale suggestion visible and c
     assert.match(regenerateIntent.payload.text, /重新生成/);
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 submits a suggestion dismissal for Host authority', async t => {
+    const { page } = await openHostViewerDocument(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/architecture-plan.md', relativePath: 'docs/architecture-plan.md',
+        workspaceRootId: 'root-a', documentVersion: 'sha256:architecture-a',
+        commentSnapshot: { revision: 0, comments: [] }, replies: [],
+        suggestions: [{
+            messageId: 'assistant-suggestion-dismiss', selectedText: 'Rollback strategy',
+            replacement: 'Rollback with a staged restore.',
+        }],
+        title: 'architecture-plan.md', html: '<p>Rollback strategy</p>',
+        workspaceRequestId: 1, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+    });
+    await page.getByRole('button', { name: 'Dismiss' }).click();
+    const intent = (await postedIntents(page)).at(-1);
+    assert.equal(intent.type, 'conversation-viewer-markdown-suggestion-status');
+    assert.deepEqual(intent.payload, {
+        suggestionId: 'assistant-suggestion-dismiss', disposition: 'dismissed',
+    });
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
     async function assertPanelViews(page, label) {
         await page.locator('[data-conversation-position]').click();
@@ -12001,6 +12024,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
             messageId: 'assistant-suggestion-b',
             selectedText: 'Rollback strategy',
             replacement: 'Rollback strategy with a tested restore command.',
+            disposition: 'dismissed',
         }],
         subscriptionGeneration: 1,
         projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',

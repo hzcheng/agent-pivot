@@ -198,6 +198,7 @@
     var markdownWorkspaceSendAfterSave = false;
     var markdownWorkspacePendingSuggestionId = '';
     var markdownWorkspacePendingSuggestionSourceId = '';
+    var markdownWorkspacePendingSuggestionStatusRequestId = '';
     var markdownWorkspaceReturnFocus;
     var markdownWorkspaceAvailable = !!(markdownWorkspace
         && markdownWorkspaceBack && markdownWorkspaceTitle
@@ -2207,6 +2208,34 @@
         return true;
     }
 
+    function dismissMarkdownWorkspaceSuggestion(messageId) {
+        var documentTarget = workspaceCommentTarget();
+        if (!documentTarget || !messageId || markdownWorkspacePendingSuggestionStatusRequestId
+            || !validCommentTarget(commentTarget)) return;
+        var requestId = 'markdown-suggestion-status-' + (++markdownWorkspaceCommentRequestSerial)
+            + '-' + String(Date.now());
+        markdownWorkspacePendingSuggestionStatusRequestId = requestId;
+        setMarkdownWorkspaceCommentPending(true, 'Dismissing suggested change…');
+        post({
+            type: 'conversation-viewer-markdown-suggestion-status', version: 1,
+            requestId: requestId, subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId, provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId, document: documentTarget,
+            payload: { suggestionId: messageId, disposition: 'dismissed' },
+        });
+    }
+
+    function applyMarkdownWorkspaceSuggestionStatusResult(message) {
+        if (!message || message.type !== 'conversation-viewer-markdown-suggestion-status-result'
+            || message.version !== 1
+            || message.requestId !== markdownWorkspacePendingSuggestionStatusRequestId) return false;
+        if (!message.success) {
+            markdownWorkspacePendingSuggestionStatusRequestId = '';
+            setMarkdownWorkspaceCommentPending(false, 'Suggestion decision could not be saved.');
+        }
+        return true;
+    }
+
     function postMarkdownWorkspaceComment(operation, payload) {
         var documentTarget = workspaceCommentTarget();
         if (!documentTarget || !validCommentTarget(commentTarget)
@@ -2378,6 +2407,7 @@
         markdownWorkspacePendingRequestId = '';
         markdownWorkspacePendingSuggestionId = '';
         markdownWorkspacePendingSuggestionSourceId = '';
+        markdownWorkspacePendingSuggestionStatusRequestId = '';
         if (markdownWorkspaceCommentsAvailable) {
             markdownWorkspaceCommentComposer.hidden = true;
             markdownWorkspaceCommentInput.value = '';
@@ -2497,6 +2527,10 @@
         markdownWorkspaceReplies = message.replies.slice();
         renderMarkdownWorkspaceSuggestions();
         renderMarkdownWorkspaceReplies();
+        if (markdownWorkspacePendingSuggestionStatusRequestId) {
+            markdownWorkspacePendingSuggestionStatusRequestId = '';
+            setMarkdownWorkspaceCommentPending(false, 'Suggested change dismissed.');
+        }
         if (newReplyCount) {
             markdownWorkspaceNewReplies.textContent = String(newReplyCount)
                 + (newReplyCount === 1 ? ' new AI reply' : ' new AI replies');
@@ -4753,11 +4787,7 @@
             } else if (action === 'regenerate') {
                 regenerateMarkdownWorkspaceSuggestion(suggestionId);
             } else if (action === 'dismiss') {
-                rememberMarkdownWorkspaceSuggestionDisposition(suggestionId, 'dismissed');
-                markdownWorkspaceSuggestions = markdownWorkspaceSuggestions.filter(function (item) {
-                    return item.messageId !== suggestionId;
-                });
-                renderMarkdownWorkspaceSuggestions();
+                dismissMarkdownWorkspaceSuggestion(suggestionId);
             }
         });
     }
@@ -4998,6 +5028,7 @@
         if (applyMarkdownWorkspaceSuggestions(event.data)) return;
         if (applyMarkdownWorkspaceCommentsResult(event.data)) return;
         if (applyMarkdownWorkspaceSuggestionResult(event.data)) return;
+        if (applyMarkdownWorkspaceSuggestionStatusResult(event.data)) return;
         if (applyCopyResult(event.data)) return;
         if (outlineController.applyBookmarksResult(event.data)) return;
         if (commentsController.applyCommentsResult(event.data)) return;

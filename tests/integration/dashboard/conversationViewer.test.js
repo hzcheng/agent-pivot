@@ -5467,6 +5467,59 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
     viewer.dispose();
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a rejected suggestion only for the active document identity', async () => {
+    const saved = [];
+    const suggestionStateStore = {
+        load: async () => ({ revision: 0, suggestions: [] }),
+        save: async (storeTarget, snapshot) => saved.push({ storeTarget, snapshot }),
+    };
+    const { viewer, panel } = createViewer({
+        markdownSuggestionStateStore: suggestionStateStore,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Architecture\n\nRollback strategy',
+            workspaceRootId: 'root-a', documentVersion: 'sha256:document-a',
+        }),
+        readPage: async request => ({
+            ...page(request.sessionId, request.anchorInteractionId),
+            messages: [{
+                id: 'assistant-suggestion-a', interactionId: request.anchorInteractionId,
+                role: 'assistant', markdown: '```markdown-suggestion\n'
+                    + '{"selectedText":"Rollback strategy","replacement":"Rollback with a staged restore."}\n```',
+            }],
+        }),
+    });
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-markdown-suggestion-status', version: 1,
+        requestId: 'dismiss-suggestion-a', subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+        document: {
+            workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:document-a',
+        },
+        payload: { suggestionId: 'assistant-suggestion-a', disposition: 'dismissed' },
+    });
+    assert.equal(saved.length, 1, 'the Host must persist a recognized dismissal');
+    assert.deepEqual(saved[0].storeTarget, {
+        projectId: 'project-a', workspaceRootId: 'root-a',
+        relativePath: 'docs/architecture-plan.md',
+    });
+    assert.deepEqual(saved[0].snapshot, {
+        revision: 1,
+        suggestions: [{
+            messageId: 'assistant-suggestion-a', disposition: 'dismissed',
+            updatedAt: saved[0].snapshot.suggestions[0].updatedAt,
+        }],
+    });
+    assert.equal(panel.postedMessages.at(-1).type,
+        'conversation-viewer-markdown-workspace-suggestions');
+    viewer.dispose();
+});
+
 test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps absolute code locations reachable from the workspace when a Conversation is bound to a worktree', () => {
     const dashboardSource = fs.readFileSync(
         path.join(__dirname, '../../../src/dashboard.ts'),

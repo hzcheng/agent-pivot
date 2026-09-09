@@ -5440,6 +5440,14 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
     };
     const { viewer, panel } = createViewer({
         markdownSuggestionStateStore: suggestionStateStore,
+        documentCommentStore: {
+            load: async () => ({ revision: 1, comments: [{
+                id: 'document-comment-a', documentVersion: 'sha256:document-a',
+                anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: [] },
+                text: 'Improve the rollback guidance.', status: 'sent', createdAt: 1,
+            }] }),
+            save: async () => undefined,
+        },
         readWorkspaceMarkdown: async () => ({
             markdown: '# Architecture\n\nRollback strategy',
             workspaceRootId: 'root-a',
@@ -5448,9 +5456,16 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
         readPage: async request => ({
             ...page(request.sessionId, request.anchorInteractionId),
             messages: [{
+                id: 'user-document-comment-a', interactionId: request.anchorInteractionId,
+                role: 'user', markdown: 'markdown-document-comment-id:document-comment-a',
+            }, {
                 id: 'assistant-suggestion-a', interactionId: request.anchorInteractionId,
                 role: 'assistant', markdown: '```markdown-suggestion\n'
                     + '{"selectedText":"Rollback strategy","replacement":"Rollback with a staged restore."}\n```',
+            }, {
+                id: 'assistant-unrelated-suggestion', interactionId: 'other-interaction',
+                role: 'assistant', markdown: '```markdown-suggestion\n'
+                    + '{"selectedText":"Rollback strategy","replacement":"Wrong document."}\n```',
             }],
         }),
     });
@@ -5463,6 +5478,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
     const workspace = panel.postedMessages.find(message =>
         message.type === 'conversation-viewer-markdown-workspace'
     );
+    assert.deepEqual(workspace.suggestions.map(suggestion => suggestion.messageId),
+        ['assistant-suggestion-a']);
     assert.equal(workspace.suggestions[0].disposition, 'outdated');
     viewer.dispose();
 });

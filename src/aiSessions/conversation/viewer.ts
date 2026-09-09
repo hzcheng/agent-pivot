@@ -2338,8 +2338,13 @@ export class ConversationViewer implements ConversationViewerApi {
             selectedText: string;
             replacement: string;
         }> = [];
+        const commentInteractions = this.markdownWorkspaceCommentInteractions();
+        if (!commentInteractions.size) {
+            return suggestions;
+        }
         for (const message of this.messages()) {
-            if (message.role !== 'assistant') {
+            if (message.role !== 'assistant'
+                || !commentInteractions.has(message.interactionId)) {
                 continue;
             }
             const suggestion = parseMarkdownSuggestionEnvelope(message.markdown);
@@ -2359,6 +2364,32 @@ export class ConversationViewer implements ConversationViewerApi {
             }
         }
         return suggestions;
+    }
+
+    /** Only assistant responses to a persisted document comment belong to the
+     * currently opened file. Session transcript messages alone are never a
+     * document identity. */
+    private markdownWorkspaceCommentInteractions(): Map<string, string> {
+        const comments = this.documentCommentController.snapshot.comments.filter(comment =>
+            comment.status === 'sent' || comment.status === 'resolved'
+                || comment.status === 'outdated'
+        );
+        const commentByMarker = new Map(comments.map(comment => [
+            `markdown-document-comment-id:${comment.id}`, comment.id,
+        ]));
+        const interactions = new Map<string, string>();
+        for (const message of this.messages()) {
+            if (message.role !== 'user') {
+                continue;
+            }
+            for (const [marker, commentId] of commentByMarker) {
+                if (message.markdown.includes(marker)) {
+                    interactions.set(message.interactionId, commentId);
+                    break;
+                }
+            }
+        }
+        return interactions;
     }
 
     private async rememberMarkdownSuggestionDisposition(
@@ -2388,29 +2419,9 @@ export class ConversationViewer implements ConversationViewerApi {
         commentId: string;
         html: string;
     }> {
-        const comments = this.documentCommentController.snapshot.comments.filter(comment =>
-            comment.status === 'sent' || comment.status === 'resolved'
-                || comment.status === 'outdated'
-        );
-        if (!comments.length) {
-            return [];
-        }
-        const commentByMarker = new Map(comments.map(comment => [
-            `markdown-document-comment-id:${comment.id}`, comment.id,
-        ]));
-        const commentByInteraction = new Map<string, string>();
+        const commentByInteraction = this.markdownWorkspaceCommentInteractions();
+        if (!commentByInteraction.size) { return []; }
         const messages = this.messages();
-        for (const message of messages) {
-            if (message.role !== 'user') {
-                continue;
-            }
-            for (const [marker, commentId] of commentByMarker) {
-                if (message.markdown.includes(marker)) {
-                    commentByInteraction.set(message.interactionId, commentId);
-                    break;
-                }
-            }
-        }
         const replies: Array<{ messageId: string; commentId: string; html: string }> = [];
         for (const message of messages) {
             if (message.role !== 'assistant') {
@@ -2478,13 +2489,24 @@ export class ConversationViewer implements ConversationViewerApi {
             && message.document.relativePath === active.workspaceFile.relativePath
             && message.document.documentVersion === active.documentVersion) {
             try {
-                result = await Promise.resolve(this.options.applyWorkspaceMarkdownSuggestion?.(
+                const authoritative = this.markdownWorkspaceSuggestions().find(suggestion =>
+                    suggestion.messageId === message.payload.suggestionId
+                );
+                if (!authoritative) {
+                    result = 'stale';
+                } else {
+                    result = await Promise.resolve(this.options.applyWorkspaceMarkdownSuggestion?.(
                     active.workspaceFile, target, {
                         workspaceRootId: message.document.workspaceRootId,
                         documentVersion: message.document.documentVersion,
-                        ...message.payload,
+                        selectedText: authoritative.selectedText,
+                        // The source envelope contains no source offsets. For
+                        // duplicate text the dashboard therefore fails closed
+                        // rather than trusting Webview-supplied context.
+                        prefix: '', suffix: '', replacement: authoritative.replacement,
                     }
-                ) || 'failed');
+                    ) || 'failed');
+                }
             } catch (_error) {
                 result = 'failed';
             }

@@ -466,7 +466,25 @@ function createAvailableConversationCapability(
     const terminalAuthority: {
         confirmedTarget?: ConversationViewerTarget;
     } = {};
-    const viewer = ownership.own(factories.createViewer({
+    let markdownWorkspaceViewer: ConversationViewer | undefined;
+    let viewerOptions: ConversationViewerOptions;
+    const openMarkdownWorkspaceInPanel = async (
+        target: ConversationViewerTarget,
+        workspaceFile: import('./markdown').ConversationWorkspaceFileTarget
+    ): Promise<void> => {
+        if (!markdownWorkspaceViewer) {
+            markdownWorkspaceViewer = ownership.own(new ConversationViewer({
+                ...viewerOptions,
+                openMarkdownWorkspaceInPanel: undefined,
+                panelViewType: 'agentPivot.markdownWorkspace',
+                panelTitle: 'Markdown workspace',
+                panelViewColumn: vscode.ViewColumn.Beside,
+            }));
+        }
+        await markdownWorkspaceViewer.openMarkdownWorkspaceDocument(target, workspaceFile);
+        markdownWorkspaceViewer.focus();
+    };
+    viewerOptions = {
         createPanel: options.createPanel,
         readSnapshot: typeof coordinator.readSnapshot === 'function'
             ? coordinator.readSnapshot.bind(coordinator)
@@ -483,6 +501,7 @@ function createAvailableConversationCapability(
         openLocalFile: options.openLocalFile,
         readWorkspaceMarkdown: options.readWorkspaceMarkdown,
         applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
+        openMarkdownWorkspaceInPanel,
         mediaUri: getConversationMediaUri,
         showThinking: options.getShowThinking,
         readSessionStatus: options.readSessionStatus,
@@ -532,7 +551,8 @@ function createAvailableConversationCapability(
         now: options.monotonicNow,
         setTimer: options.setTimer,
         clearTimer: options.clearTimer,
-    }));
+    };
+    const viewer = ownership.own(factories.createViewer(viewerOptions));
     const queueConversationFocus = (
         _target: ConversationSessionOpenTarget,
         isCurrent: () => boolean

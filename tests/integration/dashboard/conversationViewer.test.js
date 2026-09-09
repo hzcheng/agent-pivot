@@ -2996,6 +2996,7 @@ function createViewer(options = {}) {
         openLocalFile: options.openLocalFile,
         readWorkspaceMarkdown: options.readWorkspaceMarkdown,
         applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
+        openMarkdownWorkspaceInPanel: options.openMarkdownWorkspaceInPanel,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         runCommandInTerminal: options.runCommandInTerminal,
         renameSession: options.renameSession,
@@ -5431,6 +5432,35 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 routes absolute and workspace-relative f
         provider: 'codex',
         sessionId: 'session-a',
     }], 'file resolution remains bound to the viewed conversation target');
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps the primary conversation untouched when opening the document reader', async () => {
+    const opened = [];
+    const { viewer, panel } = createViewer({
+        openMarkdownWorkspaceInPanel: async (viewerTarget, workspaceFile) => {
+            opened.push({ viewerTarget, workspaceFile });
+        },
+    });
+
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md#L12',
+    });
+
+    assert.deepEqual(opened.map(entry => ({
+        projectId: entry.viewerTarget.projectId,
+        provider: entry.viewerTarget.provider,
+        sessionId: entry.viewerTarget.sessionId,
+        workspaceFile: entry.workspaceFile,
+    })), [{
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+        workspaceFile: { relativePath: 'docs/architecture-plan.md', line: 12, column: 1 },
+    }]);
+    assert.equal(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-markdown-workspace'), false,
+    'the primary conversation must never be covered or replaced by the reader');
+    viewer.dispose();
 });
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion decisions with the rendered document', async () => {

@@ -186,6 +186,15 @@ export interface ConversationViewerOptions {
             replacement: string;
         }
     ) => PromiseLike<'applied' | 'stale' | 'failed'> | 'applied' | 'stale' | 'failed';
+    /** Opens a Markdown document in its own reader panel.  The primary
+     * conversation never trades its transcript surface for document UI. */
+    openMarkdownWorkspaceInPanel?: (
+        target: ConversationViewerTarget,
+        workspaceFile: ConversationWorkspaceFileTarget
+    ) => PromiseLike<void> | Promise<void> | void;
+    panelViewType?: string;
+    panelTitle?: string;
+    panelViewColumn?: vscode.ViewColumn;
     mediaUri: (fileName: string) => vscode.Uri;
     showThinking?: () => boolean;
     submitPrompt: (
@@ -271,6 +280,10 @@ export interface ConversationViewerApi extends AiSessionDisposable {
     open(
         target: ConversationViewerTarget,
         snapshot?: ConversationSnapshot
+    ): Promise<void>;
+    openMarkdownWorkspaceDocument?(
+        target: ConversationViewerTarget,
+        workspaceFile: ConversationWorkspaceFileTarget
     ): Promise<void>;
     restore(
         panel: vscode.WebviewPanel,
@@ -850,6 +863,16 @@ export class ConversationViewer implements ConversationViewerApi {
         snapshot?: ConversationSnapshot
     ): Promise<void> {
         await this.loadTarget(target, true, snapshot, false, 'open');
+    }
+
+    async openMarkdownWorkspaceDocument(
+        target: ConversationViewerTarget,
+        workspaceFile: ConversationWorkspaceFileTarget
+    ): Promise<void> {
+        await this.open(target);
+        if (this.target && hasSameConversationViewerTarget(this.target, target)) {
+            await this.openMarkdownWorkspace(workspaceFile);
+        }
     }
 
     async restore(
@@ -1538,9 +1561,9 @@ export class ConversationViewer implements ConversationViewerApi {
             return this.panel;
         }
         const panel = this.options.createPanel(
-            AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
-            'AI Conversation',
-            vscode.ViewColumn.Active,
+            this.options.panelViewType || AGENT_PIVOT_CONVERSATION_VIEW_TYPE,
+            this.options.panelTitle || 'AI Conversation',
+            this.options.panelViewColumn || vscode.ViewColumn.Active,
             this.webviewOptions()
         );
         this.attachPanel(panel);
@@ -2216,6 +2239,10 @@ export class ConversationViewer implements ConversationViewerApi {
         const workspaceFile = parseConversationWorkspaceFileLink(href);
         if (workspaceFile) {
             if (isConversationWorkspaceMarkdownFile(workspaceFile)) {
+                if (this.options.openMarkdownWorkspaceInPanel && this.target) {
+                    await this.options.openMarkdownWorkspaceInPanel(this.target, workspaceFile);
+                    return;
+                }
                 await this.openMarkdownWorkspace(workspaceFile);
                 return;
             }

@@ -4,8 +4,19 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-09-09
+
+### Changed
+
+- Publish this update through the VS Code Marketplace while retaining the
+  existing Workspace Trust declaration and progressively rendered AI
+  Conversation experience.
+
 ### Fixed
 
+- Require the File Transfer UI Bridge to support non-modal This Computer
+  browsing, so selecting the local endpoint opens the UI host home directory
+  instead of falling back to a native directory picker.
 - Validate Managed Remote SSH aliases against the complete configuration used
   by Remote - SSH, avoiding false standalone-config failures while preserving
   endpoint and unsafe-route checks.

@@ -67,6 +67,7 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
             documentVersion: 'sha256:document-1',
         },
         payload: {
+            suggestionId: 'assistant-suggestion-1',
             selectedText: 'Old paragraph.', prefix: '', suffix: '',
             replacement: 'New paragraph.',
         },

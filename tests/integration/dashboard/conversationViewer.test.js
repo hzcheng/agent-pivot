@@ -2987,6 +2987,8 @@ function createViewer(options = {}) {
             return true;
         },
         openLocalFile: options.openLocalFile,
+        readWorkspaceMarkdown: options.readWorkspaceMarkdown,
+        applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         runCommandInTerminal: options.runCommandInTerminal,
         renameSession: options.renameSession,
@@ -2999,6 +3001,8 @@ function createViewer(options = {}) {
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
         showThinking: options.showThinking,
         commentStore: options.commentStore,
+        documentCommentStore: options.documentCommentStore,
+        markdownSuggestionStateStore: options.markdownSuggestionStateStore,
         bookmarkStore: options.bookmarkStore,
         changes: options.changes,
         setTimer: options.setTimer,
@@ -5420,6 +5424,47 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 routes absolute and workspace-relative f
         provider: 'codex',
         sessionId: 'session-a',
     }], 'file resolution remains bound to the viewed conversation target');
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion decisions with the rendered document', async () => {
+    const suggestionStateStore = {
+        load: async () => ({
+            revision: 4,
+            suggestions: [{
+                messageId: 'assistant-suggestion-a',
+                disposition: 'outdated',
+                updatedAt: 1000,
+            }],
+        }),
+        save: async () => undefined,
+    };
+    const { viewer, panel } = createViewer({
+        markdownSuggestionStateStore: suggestionStateStore,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Architecture\n\nRollback strategy',
+            workspaceRootId: 'root-a',
+            documentVersion: 'sha256:document-a',
+        }),
+        readPage: async request => ({
+            ...page(request.sessionId, request.anchorInteractionId),
+            messages: [{
+                id: 'assistant-suggestion-a', interactionId: request.anchorInteractionId,
+                role: 'assistant', markdown: '```markdown-suggestion\n'
+                    + '{"selectedText":"Rollback strategy","replacement":"Rollback with a staged restore."}\n```',
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md',
+    });
+    const workspace = panel.postedMessages.find(message =>
+        message.type === 'conversation-viewer-markdown-workspace'
+    );
+    assert.equal(workspace.suggestions[0].disposition, 'outdated');
+    viewer.dispose();
 });
 
 test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps absolute code locations reachable from the workspace when a Conversation is bound to a worktree', () => {

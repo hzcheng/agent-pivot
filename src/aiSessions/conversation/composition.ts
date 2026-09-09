@@ -29,6 +29,7 @@ import {
 import type { ConversationCommentStore } from './commentStore';
 import type { ProjectCommentStore } from './projectCommentStore';
 import type { MarkdownDocumentCommentStore } from './documentCommentStore';
+import type { MarkdownSuggestionStateStore } from './markdownSuggestionState';
 import type { ConversationBookmarkStore } from './bookmarkStore';
 import {
     ConversationCoordinator,
@@ -204,6 +205,7 @@ export interface ConversationCapabilityOptions {
     commentStore?: ConversationCommentStore;
     projectCommentStore?: ProjectCommentStore;
     documentCommentStore?: MarkdownDocumentCommentStore;
+    markdownSuggestionStateStore?: MarkdownSuggestionStateStore;
     bookmarkStore?: ConversationBookmarkStore;
     getShowThinking?: () => boolean;
     readSessionStatus?: ConversationViewerOptions['readSessionStatus'];
@@ -493,6 +495,7 @@ function createAvailableConversationCapability(
         commentStore: options.commentStore,
         projectCommentStore: options.projectCommentStore,
         documentCommentStore: options.documentCommentStore,
+        markdownSuggestionStateStore: options.markdownSuggestionStateStore,
         bookmarkStore: options.bookmarkStore,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         runCommandInTerminal: options.runCommandInTerminal,

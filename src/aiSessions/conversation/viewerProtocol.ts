@@ -103,6 +103,7 @@ export interface ConversationViewerApplyMarkdownSuggestionMessage {
         documentVersion: string;
     };
     payload: {
+        suggestionId: string;
         selectedText: string;
         prefix: string;
         suffix: string;
@@ -1001,8 +1002,10 @@ export function parseConversationViewerMessage(
             || !isConversationViewerTargetId(value.document.documentVersion)
             || !isRecord(value.payload)
             || !hasExactKeys(value.payload, [
-                'selectedText', 'prefix', 'suffix', 'replacement',
-            ]) || !isBoundedSuggestionText(value.payload.selectedText, 4000)
+                'suggestionId', 'selectedText', 'prefix', 'suffix', 'replacement',
+            ]) || (value.payload.suggestionId !== ''
+                && !isConversationViewerTargetId(value.payload.suggestionId))
+            || !isBoundedSuggestionText(value.payload.selectedText, 4000)
             || !isBoundedSuggestionText(value.payload.prefix, 480, true)
             || !isBoundedSuggestionText(value.payload.suffix, 480, true)
             || !isBoundedSuggestionText(value.payload.replacement, 12000)) {

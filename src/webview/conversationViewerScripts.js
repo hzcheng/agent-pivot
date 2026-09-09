@@ -1651,7 +1651,9 @@
             && typeof suggestion.selectedText === 'string' && suggestion.selectedText.length > 0
             && suggestion.selectedText.length <= 4000
             && typeof suggestion.replacement === 'string' && suggestion.replacement.length > 0
-            && suggestion.replacement.length <= 12000;
+            && suggestion.replacement.length <= 12000
+            && (suggestion.disposition === undefined || suggestion.disposition === 'dismissed'
+                || suggestion.disposition === 'applied' || suggestion.disposition === 'outdated');
     }
 
     function validMarkdownWorkspaceReply(reply) {
@@ -1758,10 +1760,12 @@
         if (!markdownWorkspaceCommentsAvailable) return;
         markdownWorkspaceSuggestionList.textContent = '';
         markdownWorkspaceSuggestions.filter(function (suggestion) {
-            var disposition = markdownWorkspaceSuggestionDisposition(suggestion.messageId);
+            var disposition = suggestion.disposition
+                || markdownWorkspaceSuggestionDisposition(suggestion.messageId);
             return disposition !== 'dismissed' && disposition !== 'applied';
         }).forEach(function (suggestion) {
-            var disposition = markdownWorkspaceSuggestionDisposition(suggestion.messageId);
+            var disposition = suggestion.disposition
+                || markdownWorkspaceSuggestionDisposition(suggestion.messageId);
             var card = document.createElement('article');
             card.className = 'conversation-document-suggestion-card';
             card.setAttribute('data-markdown-workspace-suggestion-id', suggestion.messageId);
@@ -2162,6 +2166,7 @@
             projectId: commentTarget.projectId, provider: commentTarget.provider,
             sessionId: commentTarget.sessionId, document: documentTarget,
             payload: {
+                suggestionId: markdownWorkspacePendingSuggestionSourceId || '',
                 selectedText: markdownWorkspaceSelection.selectedText,
                 prefix: markdownWorkspaceSelection.prefix,
                 suffix: markdownWorkspaceSelection.suffix,

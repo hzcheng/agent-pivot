@@ -21,6 +21,11 @@ import type {
     ProjectCommentStore,
 } from './projectCommentStore';
 import type { MarkdownDocumentCommentStore } from './documentCommentStore';
+import type {
+    MarkdownSuggestionDisposition,
+    MarkdownSuggestionState,
+    MarkdownSuggestionStateStore,
+} from './markdownSuggestionState';
 import { ConversationBookmarkController } from './bookmarkController';
 import { ConversationTelemetryController } from './conversationTelemetryController';
 import {
@@ -194,6 +199,7 @@ export interface ConversationViewerOptions {
     commentStore?: ConversationCommentStore;
     projectCommentStore?: ProjectCommentStore;
     documentCommentStore?: MarkdownDocumentCommentStore;
+    markdownSuggestionStateStore?: MarkdownSuggestionStateStore;
     bookmarkStore?: ConversationBookmarkStore;
     /**
      * Changes-panel wiring (changes-panel PRD); absent disables the
@@ -604,6 +610,14 @@ export class ConversationViewer implements ConversationViewerApi {
     private readonly commentController: ConversationCommentController;
     private readonly projectCommentController: ProjectCommentController;
     private readonly documentCommentController: MarkdownDocumentCommentController;
+    private readonly markdownSuggestionStateStore?: MarkdownSuggestionStateStore;
+    private markdownSuggestionStateTarget?: {
+        projectId: string;
+        workspaceRootId: string;
+        relativePath: string;
+    };
+    private markdownSuggestionStateRevision = 0;
+    private markdownSuggestionStates: MarkdownSuggestionState[] = [];
     private readonly bookmarkController: ConversationBookmarkController;
     private readonly outlineController = new ConversationOutlineController();
     private readonly telemetryController: ConversationTelemetryController;
@@ -611,6 +625,7 @@ export class ConversationViewer implements ConversationViewerApi {
     private readonly changesController?: ConversationChangesController;
 
     constructor(private readonly options: ConversationViewerOptions) {
+        this.markdownSuggestionStateStore = options.markdownSuggestionStateStore;
         this.telemetryController = new ConversationTelemetryController({
             readTelemetry: options.readTelemetry,
             getPanel: () => this.panel,
@@ -2248,10 +2263,26 @@ export class ConversationViewer implements ConversationViewerApi {
             viewerTarget: target,
             subscriptionGeneration: this.subscriptionGeneration,
         });
+        const suggestionTarget = {
+            projectId: target.projectId,
+            workspaceRootId: document.workspaceRootId,
+            relativePath: workspaceFile.relativePath,
+        };
+        let suggestionSnapshot = { revision: 0, suggestions: [] as MarkdownSuggestionState[] };
+        try {
+            suggestionSnapshot = await this.markdownSuggestionStateStore?.load(suggestionTarget)
+                || suggestionSnapshot;
+        } catch (_error) {
+            // A reader can still show source-derived suggestions when an
+            // optional decision history cannot be loaded.
+        }
         if (this.target !== target || this.panel !== panel
             || workspaceRequestId !== this.nextMarkdownWorkspaceRequestId) {
             return;
         }
+        this.markdownSuggestionStateTarget = suggestionTarget;
+        this.markdownSuggestionStateRevision = suggestionSnapshot.revision;
+        this.markdownSuggestionStates = suggestionSnapshot.suggestions;
         this.activeMarkdownWorkspace = {
             workspaceFile: { ...workspaceFile },
             workspaceRootId: document.workspaceRootId,
@@ -2295,6 +2326,7 @@ export class ConversationViewer implements ConversationViewerApi {
         messageId: string;
         selectedText: string;
         replacement: string;
+        disposition?: MarkdownSuggestionDisposition;
     }> {
         const suggestions: Array<{
             messageId: string;
@@ -2309,12 +2341,39 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!suggestion) {
                 continue;
             }
-            suggestions.push({ messageId: message.id, ...suggestion });
+            const state = this.markdownSuggestionStates.find(candidate =>
+                candidate.messageId === message.id
+            );
+            suggestions.push({
+                messageId: message.id,
+                ...suggestion,
+                ...(state ? { disposition: state.disposition } : {}),
+            });
             if (suggestions.length === 20) {
                 break;
             }
         }
         return suggestions;
+    }
+
+    private async rememberMarkdownSuggestionDisposition(
+        messageId: string,
+        disposition: MarkdownSuggestionDisposition
+    ): Promise<void> {
+        const target = this.markdownSuggestionStateTarget;
+        const store = this.markdownSuggestionStateStore;
+        if (!target || !store || !messageId) return;
+        const current = this.markdownSuggestionStates.filter(state =>
+            state.messageId !== messageId
+        );
+        current.unshift({ messageId, disposition, updatedAt: Date.now() });
+        const next = {
+            revision: this.markdownSuggestionStateRevision + 1,
+            suggestions: current.slice(0, 100),
+        };
+        await store.save(target, next);
+        this.markdownSuggestionStateRevision = next.revision;
+        this.markdownSuggestionStates = next.suggestions;
     }
 
     private markdownWorkspaceReplies(): Array<{
@@ -2421,6 +2480,22 @@ export class ConversationViewer implements ConversationViewerApi {
                 ) || 'failed');
             } catch (_error) {
                 result = 'failed';
+            }
+        }
+        if (message.payload.suggestionId
+            && this.markdownWorkspaceSuggestions().some(suggestion =>
+                suggestion.messageId === message.payload.suggestionId
+            )) {
+            const disposition = result === 'applied' ? 'applied'
+                : result === 'stale' ? 'outdated' : undefined;
+            if (disposition) {
+                try {
+                    await this.rememberMarkdownSuggestionDisposition(
+                        message.payload.suggestionId, disposition
+                    );
+                } catch (_error) {
+                    this.showNotice('Suggested change was applied, but its review state could not be saved.');
+                }
             }
         }
         const panel = this.panel;

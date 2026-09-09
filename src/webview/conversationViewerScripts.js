@@ -160,6 +160,9 @@
     var markdownWorkspaceCommentCount = document.querySelector(
         '[data-markdown-workspace-comment-count]'
     );
+    var markdownWorkspaceNewReplies = document.querySelector(
+        '[data-markdown-workspace-new-replies]'
+    );
     var markdownWorkspaceCommentFeedback = document.querySelector(
         '[data-markdown-workspace-comment-feedback]'
     );
@@ -205,7 +208,8 @@
         && markdownWorkspaceSelectionSummary && markdownWorkspaceCommentComposer
         && markdownWorkspaceCommentInput && markdownWorkspaceCommentList
         && markdownWorkspaceReplyList
-        && markdownWorkspaceCommentCount && markdownWorkspaceCommentFeedback
+        && markdownWorkspaceCommentCount && markdownWorkspaceNewReplies
+        && markdownWorkspaceCommentFeedback
         && markdownWorkspaceSuggestionComposer && markdownWorkspaceSuggestionInput
         && markdownWorkspaceSuggestionPreview && markdownWorkspaceSuggestionList);
     var markdownWorkspaceActiveAvailable = !!(markdownWorkspaceActive
@@ -2259,6 +2263,8 @@
             markdownWorkspaceSendAfterSave = false;
             renderMarkdownWorkspaceComments();
             renderMarkdownWorkspaceReplies();
+            markdownWorkspaceNewReplies.hidden = true;
+            markdownWorkspaceNewReplies.textContent = '';
             renderMarkdownWorkspaceSuggestions();
         }
         if (markdownWorkspaceActiveAvailable) {
@@ -2312,6 +2318,8 @@
         markdownWorkspaceContent.innerHTML = sanitizeConversationHtml(message.html);
         renderMarkdownWorkspaceComments();
         renderMarkdownWorkspaceReplies();
+        markdownWorkspaceNewReplies.hidden = true;
+        markdownWorkspaceNewReplies.textContent = '';
         renderMarkdownWorkspaceSuggestions();
         if (markdownWorkspaceActiveAvailable) {
             markdownWorkspaceActiveTitle.textContent = message.title;
@@ -2356,10 +2364,21 @@
             || message.documentVersion !== activeMarkdownWorkspaceDocument.documentVersion) {
             return true;
         }
+        var currentReplyIds = new Set(markdownWorkspaceReplies.map(function (reply) {
+            return reply.messageId;
+        }));
+        var newReplyCount = message.replies.filter(function (reply) {
+            return !currentReplyIds.has(reply.messageId);
+        }).length;
         markdownWorkspaceSuggestions = message.suggestions.slice();
         markdownWorkspaceReplies = message.replies.slice();
         renderMarkdownWorkspaceSuggestions();
         renderMarkdownWorkspaceReplies();
+        if (newReplyCount) {
+            markdownWorkspaceNewReplies.textContent = String(newReplyCount)
+                + (newReplyCount === 1 ? ' new AI reply' : ' new AI replies');
+            markdownWorkspaceNewReplies.hidden = false;
+        }
         return true;
     }
 

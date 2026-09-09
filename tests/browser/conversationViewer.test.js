@@ -5108,6 +5108,27 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps document-scoped AI replies in th
     assert.equal(await page.getByRole('heading', { name: 'AI reply' }).isVisible(), true);
     assert.match(await page.locator('[data-markdown-workspace-reply-list]').innerText(),
         /Test the restore command in staging before release\./);
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace-suggestions',
+        version: 1,
+        workspaceRootId: 'root-a',
+        relativePath: 'docs/architecture-plan.md',
+        documentVersion: 'sha256:architecture-a',
+        replies: [{
+            messageId: 'assistant-reply-a',
+            commentId: 'document-comment-a',
+            html: '<p>Test the restore command in staging before release.</p>',
+        }, {
+            messageId: 'assistant-reply-b',
+            commentId: 'document-comment-a',
+            html: '<p>The staging run completed successfully.</p>',
+        }],
+        suggestions: [],
+        subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+    });
+    assert.equal(await page.locator('[data-markdown-workspace-new-replies]').innerText(),
+        '1 new AI reply');
 });
 
 test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {

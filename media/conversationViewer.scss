@@ -132,6 +132,12 @@ body {
     justify-content: space-between;
 }
 
+[data-markdown-workspace-new-replies] {
+    margin-left: auto;
+    color: var(--vscode-textLink-foreground);
+    font-size: 0.85em;
+}
+
 .conversation-document-selection-actions,
 .conversation-document-comment-composer {
     margin: 0.8rem 0;

@@ -219,6 +219,7 @@ export function renderConversationViewerDocument(
             <div class="conversation-document-discussion-heading">
                 <strong>Document discussion</strong>
                 <span data-markdown-workspace-comment-count>0</span>
+                <span data-markdown-workspace-new-replies role="status" hidden></span>
             </div>
             <div class="conversation-document-selection-actions"
                 data-markdown-workspace-selection-actions hidden>

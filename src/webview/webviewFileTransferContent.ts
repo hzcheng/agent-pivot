@@ -36,16 +36,13 @@ function pane(side: 'left' | 'right'): string {
     const role = side === 'left' ? 'Source' : 'Target folder';
     return `<section class="file-transfer-pane" data-file-transfer-pane="${side}" aria-label="${label}">
         <header class="file-transfer-pane-header">
-            <div>
-                <span class="file-transfer-pane-role" data-file-transfer-pane-role>${role}</span>
-                <strong data-file-transfer-pane-name>Choose an endpoint</strong>
-                <nav class="file-transfer-pane-path" data-file-transfer-pane-path aria-label="Current directory">—</nav>
-                <label class="file-transfer-path-input">
-                    <span>Location</span>
-                    <input type="text" list="file-transfer-path-options-${side}" data-file-transfer-path-input="${side}" aria-label="Open or choose a path in ${label}" title="Type a path or choose a visited directory" disabled>
-                    <datalist id="file-transfer-path-options-${side}" data-file-transfer-path-options="${side}"></datalist>
-                </label>
-            </div>
+            <span class="file-transfer-pane-role" data-file-transfer-pane-role>${role}</span>
+            <strong data-file-transfer-pane-name>Choose an endpoint</strong>
+            <label class="file-transfer-path-input">
+                <span>Location</span>
+                <input type="text" list="file-transfer-path-options-${side}" data-file-transfer-path-input="${side}" aria-label="Open or choose a path in ${label}" title="Type a path or choose a visited directory" disabled>
+                <datalist id="file-transfer-path-options-${side}" data-file-transfer-path-options="${side}"></datalist>
+            </label>
             <div class="file-transfer-pane-actions">
                 <button type="button" data-file-transfer-refresh="${side}" aria-label="Refresh ${label}" title="Refresh" disabled>↻</button>
             </div>

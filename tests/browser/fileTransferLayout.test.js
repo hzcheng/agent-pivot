@@ -101,6 +101,70 @@ test('FILE-TRANSFER-EDITOR-001 FILE-TRANSFER-UI-011 keeps sorting controls reada
     }
 });
 
+test('FILE-TRANSFER-UI-024 keeps the endpoint bar and location headers dense without truncated breadcrumb controls', async t => {
+    const page = await openPage(t, 1600);
+    await page.evaluate(() => {
+        document.querySelectorAll('[data-file-transfer-pane-name]').forEach((name, index) => {
+            name.textContent = index === 0 ? 'home-book' : 'reddev';
+        });
+        document.querySelectorAll('[data-file-transfer-pane-path]').forEach(path => {
+            path.innerHTML = '<button class="file-transfer-breadcrumb">hzcheng</button>'
+                + '<span class="file-transfer-breadcrumb-separator">/</span>'
+                + '<span class="file-transfer-breadcrumb-current">Downloads</span>';
+        });
+        document.querySelectorAll('[data-file-transfer-path-input]').forEach((input, index) => {
+            input.disabled = false;
+            input.value = index === 0 ? '/home/hzcheng/Downloads' : '/home/deploy';
+        });
+        document.querySelectorAll('[data-file-transfer-endpoint]').forEach((selector, index) => {
+            selector.value = index === 0 ? 'managed:machine:build' : 'managed:machine:deploy';
+        });
+    });
+    const metrics = await page.evaluate(() => ({
+        workspaceHeaderHeight: document.querySelector('.file-transfer-workspace-header').getBoundingClientRect().height,
+        paneHeaderHeights: Array.from(document.querySelectorAll('.file-transfer-pane-header'))
+            .map(header => header.getBoundingClientRect().height),
+        breadcrumbCount: document.querySelectorAll('[data-file-transfer-pane-path]').length,
+        pathInputWidths: Array.from(document.querySelectorAll('[data-file-transfer-path-input]'))
+            .map(input => input.getBoundingClientRect().width),
+        paneWidths: Array.from(document.querySelectorAll('.file-transfer-pane'))
+            .map(pane => pane.getBoundingClientRect().width),
+    }));
+    assert.ok(metrics.workspaceHeaderHeight <= 42,
+        'the endpoint selectors must occupy one compact row');
+    assert.ok(metrics.paneHeaderHeights.every(height => height <= 56),
+        'each pane header must keep the endpoint and current location on one compact row');
+    assert.equal(metrics.breadcrumbCount, 0,
+        'the redundant history breadcrumb must not collapse into an unexplained H… control');
+    metrics.pathInputWidths.forEach((width, index) => {
+        assert.ok(width >= metrics.paneWidths[index] * .58,
+            'the explicit Location field must retain enough width to identify the current directory');
+    });
+    const narrowPage = await openPage(t, 280);
+    await narrowPage.evaluate(() => {
+        document.querySelectorAll('[data-file-transfer-path-input]').forEach(input => {
+            input.disabled = false;
+            input.value = '/home/hzcheng/Downloads';
+        });
+    });
+    const narrowMetrics = await narrowPage.evaluate(() => Array.from(document.querySelectorAll('.file-transfer-pane-header'))
+        .map(header => {
+            const location = header.querySelector('.file-transfer-path-input');
+            const input = location.querySelector('input');
+            return {
+                header: header.getBoundingClientRect(),
+                location: location.getBoundingClientRect(),
+                input: input.getBoundingClientRect(),
+            };
+        }));
+    narrowMetrics.forEach(metrics => {
+        assert.ok(metrics.location.top > metrics.header.top,
+            'on a narrow editor, Location must use its own row instead of collapsing into the endpoint title');
+        assert.ok(metrics.input.width >= metrics.header.width * .65,
+            'on a narrow editor, the Location input must remain readable');
+    });
+});
+
 test('FILE-TRANSFER-EDITOR-001 opens a directory with one click while preserving its copy checkbox', async t => {
     const page = await browser.newPage({ viewport: { width: 480, height: 320 } });
     t.after(() => page.close());

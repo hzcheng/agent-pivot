@@ -891,7 +891,6 @@ function initDashboard(options) {
         var pendingLocalRootTimeouts = { left: null, right: null };
         var selectedEntries = { left: new Set(), right: new Set() };
         var selectedEntryDirectoryIds = { left: null, right: null };
-        var directoryHistory = { left: [], right: [] };
         var pathSuggestions = { left: [], right: [] };
         var pendingDirectoryOperations = { left: null, right: null };
         var fileTransferSort = { left: 'name', right: 'name' };
@@ -1150,52 +1149,6 @@ function initDashboard(options) {
             }).filter(Boolean);
         }
 
-        function renderPaneBreadcrumbs(side, pathElement, directoryView, fallback) {
-            if (!pathElement) return;
-            pathElement.textContent = '';
-            if (!directoryView) {
-                pathElement.textContent = fallback;
-                return;
-            }
-            var trail = directoryHistory[side].concat([directoryView]).filter(function (directory, index, all) {
-                return index === 0 || directory.directoryId !== all[index - 1].directoryId;
-            });
-            trail.forEach(function (directory, index) {
-                if (index > 0) {
-                    var separator = document.createElement('span');
-                    separator.className = 'file-transfer-breadcrumb-separator';
-                    separator.textContent = '/';
-                    separator.setAttribute('aria-hidden', 'true');
-                    pathElement.appendChild(separator);
-                }
-                var displayPath = directory.displayPath || '.';
-                var segments = displayPath.split('/').filter(function (segment) {
-                    return segment && segment !== '.';
-                });
-                var label = segments.length ? segments[segments.length - 1] : 'Root';
-                if (index === trail.length - 1) {
-                    var current = document.createElement('span');
-                    current.className = 'file-transfer-breadcrumb-current';
-                    current.textContent = label;
-                    current.setAttribute('aria-current', 'page');
-                    current.title = displayPath;
-                    pathElement.appendChild(current);
-                    return;
-                }
-                var button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'file-transfer-breadcrumb';
-                button.textContent = label;
-                button.title = displayPath;
-                button.setAttribute('aria-label', 'Open ' + displayPath + ' in this endpoint');
-                button.addEventListener('click', function () {
-                    directoryHistory[side] = trail.slice(0, index);
-                    openDirectory(side, directory.directoryId, false);
-                });
-                pathElement.appendChild(button);
-            });
-        }
-
         function rememberPathSuggestion(side, displayPath) {
             if ((side !== 'left' && side !== 'right') || typeof displayPath !== 'string'
                 || !displayPath || displayPath.length > 1024 || /[\0\r\n]/.test(displayPath)) {
@@ -1224,7 +1177,6 @@ function initDashboard(options) {
                 return;
             }
             var name = pane.querySelector('[data-file-transfer-pane-name]');
-            var path = pane.querySelector('[data-file-transfer-pane-path]');
             var pathInput = pane.querySelector('[data-file-transfer-path-input]');
             var status = pane.querySelector('[data-file-transfer-pane-status]');
             var refresh = pane.querySelector('[data-file-transfer-refresh]');
@@ -1237,7 +1189,6 @@ function initDashboard(options) {
             var value = selector.value || '';
             if (!value) {
                 if (name) name.textContent = 'Choose an endpoint';
-                renderPaneBreadcrumbs(side, path, null, '—');
                 if (status) {
                     status.classList.remove('is-directory-ready');
                     status.textContent = 'Choose an endpoint to browse its files.';
@@ -1280,12 +1231,6 @@ function initDashboard(options) {
                 pathInput.value = directoryView ? directoryView.displayPath : '';
             }
             renderPathSuggestions(side, pane, directoryView);
-            renderPaneBreadcrumbs(
-                side,
-                path,
-                directoryView,
-                value === 'local' ? 'Choose a local folder' : 'Managed Machine',
-            );
             if (status) {
                 status.classList.toggle('is-directory-ready', !!directoryView);
                 status.textContent = paneFailures[side] || paneNavigationErrors[side]
@@ -1498,7 +1443,6 @@ function initDashboard(options) {
             pendingLocalRootRequests[side] = null;
             selectedEntries[side].clear();
             selectedEntryDirectoryIds[side] = null;
-            directoryHistory[side] = [];
             pathSuggestions[side] = [];
             lastRememberedPairKey = null;
             if (selector.value === 'local') {
@@ -1581,9 +1525,6 @@ function initDashboard(options) {
             var leftSelectionDirectoryId = selectedEntryDirectoryIds.left;
             selectedEntryDirectoryIds.left = selectedEntryDirectoryIds.right;
             selectedEntryDirectoryIds.right = leftSelectionDirectoryId;
-            var leftHistory = directoryHistory.left;
-            directoryHistory.left = directoryHistory.right;
-            directoryHistory.right = leftHistory;
             var leftPathSuggestions = pathSuggestions.left;
             pathSuggestions.left = pathSuggestions.right;
             pathSuggestions.right = leftPathSuggestions;
@@ -1616,16 +1557,6 @@ function initDashboard(options) {
             if ((message.type === 'file-transfer-local-root-selected'
                 || message.type === 'file-transfer-remote-directory-listed') && message.root) {
                 rememberPathSuggestion(message.side, message.root.displayPath);
-                if (operation && operation.previousDirectory) {
-                    directoryHistory[message.side].push(operation.previousDirectory);
-                } else if (operation && operation.navigationKind === 'parent') {
-                    var history = directoryHistory[message.side];
-                    if (history.length && history[history.length - 1].displayPath === message.root.displayPath) {
-                        history.pop();
-                    }
-                } else if (operation && operation.navigationKind === 'direct') {
-                    directoryHistory[message.side] = [];
-                }
                 localRoots[message.side] = message.root;
                 selectedEntries[message.side].clear();
                 selectedEntryDirectoryIds[message.side] = null;

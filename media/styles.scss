@@ -1797,7 +1797,7 @@ body .project {
     display: flex;
     flex: 1 1 auto;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     min-height: 0;
     padding: 0;
     color: var(--vscode-foreground);
@@ -1818,7 +1818,7 @@ body .project {
     flex: 0 0 auto;
     display: grid;
     gap: 0;
-    padding: 0 0 6px;
+    padding: 0 0 4px;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-editor-background);
 }
@@ -1842,7 +1842,6 @@ body .project {
 
 .file-transfer-header p,
 .file-transfer-pair-hint,
-.file-transfer-pane-path,
 .file-transfer-pane-status {
     margin: 3px 0 0;
     color: var(--vscode-descriptionForeground);
@@ -1936,7 +1935,9 @@ body .project {
 }
 
 .file-transfer-pair {
-    justify-content: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr);
+    align-items: center;
     gap: 7px;
     padding: 0;
     border: 0;
@@ -1988,10 +1989,10 @@ body .project {
 }
 
 .file-transfer-endpoint-picker {
-    display: grid;
-    flex: 1 1 0;
+    display: flex;
+    align-items: center;
     min-width: 0;
-    gap: 2px;
+    gap: 6px;
     color: var(--vscode-descriptionForeground);
     font-size: 11px;
     font-weight: 700;
@@ -1999,9 +2000,15 @@ body .project {
     text-transform: uppercase;
 }
 
+.file-transfer-endpoint-picker > span {
+    flex: 0 0 auto;
+}
+
 .file-transfer-endpoint-picker select {
+    min-width: 0;
+    flex: 1 1 auto;
     width: 100%;
-    min-height: 30px;
+    min-height: 28px;
     padding: 3px 6px;
     border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
     border-radius: 4px;
@@ -2044,8 +2051,7 @@ body .project {
 }
 
 .file-transfer-pane-role {
-    display: block;
-    margin-bottom: 2px;
+    min-width: 0;
     color: var(--vscode-focusBorder);
     font-size: 10px;
     font-weight: 700;
@@ -2074,16 +2080,17 @@ body .project {
 }
 
 .file-transfer-pane-header {
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: auto minmax(72px, max-content) minmax(0, 1fr) auto;
+    align-items: center;
     gap: 8px;
-    padding: 7px 8px 6px;
+    padding: 5px 8px;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-sideBarSectionHeader-background, transparent);
 }
 
-.file-transfer-pane-header strong,
-.file-transfer-pane-path {
-    display: block;
+.file-transfer-pane-header strong {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2094,7 +2101,7 @@ body .project {
     align-items: center;
     gap: 5px;
     min-width: 0;
-    margin-top: 4px;
+    margin: 0;
     color: var(--vscode-descriptionForeground);
     font-size: 10px;
 }
@@ -2109,11 +2116,6 @@ body .project {
     color: var(--vscode-input-foreground);
     background: var(--vscode-input-background);
     font: inherit;
-}
-
-.file-transfer-pane-header > div:first-child {
-    min-width: 0;
-    flex: 1 1 auto;
 }
 
 .file-transfer-pane-copy-state {
@@ -2147,47 +2149,6 @@ body .project {
     flex: 0 0 auto;
     display: flex;
     gap: 4px;
-}
-
-.file-transfer-pane-path {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    max-width: 100%;
-    overflow-x: auto;
-    overflow-y: hidden;
-    text-overflow: clip;
-}
-
-.file-transfer-breadcrumb,
-.file-transfer-breadcrumb-current,
-.file-transfer-breadcrumb-separator {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.file-transfer-breadcrumb {
-    max-width: 112px;
-    padding: 0;
-    border: 0;
-    color: var(--vscode-textLink-foreground, var(--vscode-foreground));
-    background: transparent;
-    font: inherit;
-    cursor: pointer;
-}
-
-.file-transfer-breadcrumb:focus-visible {
-    outline: 1px solid var(--vscode-focusBorder);
-    outline-offset: 1px;
-}
-
-.file-transfer-breadcrumb-separator {
-    flex: 0 0 auto;
-    color: var(--vscode-descriptionForeground);
 }
 
 .file-transfer-pane-toolbar {
@@ -2553,6 +2514,15 @@ body .project {
     .file-transfer-pane-toolbar {
         align-items: center;
         flex-direction: row;
+    }
+
+    .file-transfer-pane-header {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        row-gap: 4px;
+    }
+
+    .file-transfer-path-input {
+        grid-column: 1 / -1;
     }
 }
 

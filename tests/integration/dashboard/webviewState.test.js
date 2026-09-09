@@ -611,18 +611,17 @@ test('FILE-TRANSFER-UI-012 requires ready source and target directories before d
     assert.doesNotMatch(dashboardSource, /function openReview\(\)/);
 });
 
-test('FILE-TRANSFER-UI-013 navigates known directories through opaque breadcrumbs', () => {
+test('FILE-TRANSFER-UI-013 navigates directories through the explicit Location field and parent row', () => {
     const html = getFileTransferContent({
         revisionId: 'revision:abc', lifecycle: 'active', machineConflictCandidates: {},
         catalog: { machines: [], environments: [], projects: [],
             layout: { machineIds: [], environmentIdsByMachine: {}, projectIdsByEnvironment: {}, favoriteProjectIds: [] },
             conflicts: [] },
     });
-    assert.match(html, /data-file-transfer-pane-path aria-label="Current directory"/);
     assert.match(html, /data-file-transfer-path-input="left"/);
-    assert.match(dashboardSource, /function renderPaneBreadcrumbs/);
-    assert.match(dashboardSource, /directoryHistory\[side\] = trail\.slice\(0, index\);/);
-    assert.match(dashboardSource, /openDirectory\(side, directory\.directoryId, false\);/);
+    assert.doesNotMatch(html, /data-file-transfer-pane-path/);
+    assert.doesNotMatch(dashboardSource, /function renderPaneBreadcrumbs/);
+    assert.match(dashboardSource, /function goToParentDirectory\(side, parentPath\)/);
     assert.match(dashboardSource, /function openPath\(side, navigationPath, navigationKind\)/);
 });
 

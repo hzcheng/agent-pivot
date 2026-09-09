@@ -7449,6 +7449,21 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-UI-024",
+    "domain": "webview",
+    "title": "File Transfer keeps endpoint and location controls compact and removes truncated navigation breadcrumbs",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewFileTransferContent.ts",
+      "media/styles.scss",
+      "media/styles.css"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-REMOTE-BROWSE-002",
     "domain": "project",
     "title": "File Transfer opens a remote folder whose SFTP listing identifies it with an absolute path",

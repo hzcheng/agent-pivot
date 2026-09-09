@@ -5257,6 +5257,35 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 traps keyboard focus without hidden co
         '', 'Tab from the last visible control must wrap instead of entering a hidden composer');
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 ignores a replayed document-comment settlement', async t => {
+    const { page } = await openHostViewerDocument(t);
+    const document = {
+        workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+        documentVersion: 'sha256:architecture-a',
+    };
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: document.relativePath, relativePath: document.relativePath,
+        workspaceRootId: document.workspaceRootId, documentVersion: document.documentVersion,
+        commentSnapshot: { revision: 2, comments: [] }, replies: [], suggestions: [],
+        title: 'architecture-plan.md', html: '<p>Rollback strategy</p>',
+        workspaceRequestId: 1, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-document-comments-result', version: 1,
+        requestId: 'replayed-request', subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        operation: 'add', success: true, revision: 1, document,
+        comments: [{
+            id: 'replayed-comment', documentVersion: document.documentVersion,
+            anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: [] },
+            text: 'This must not appear.', status: 'draft', createdAt: 1,
+        }],
+    });
+    assert.equal(await page.locator('article[data-comment-id="replayed-comment"]').count(), 0);
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
     async function assertPanelViews(page, label) {
         await page.locator('[data-conversation-position]').click();

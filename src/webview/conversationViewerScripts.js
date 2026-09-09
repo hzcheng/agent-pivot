@@ -2288,14 +2288,19 @@
             || message.provider !== commentTarget.provider || message.sessionId !== commentTarget.sessionId) {
             return true;
         }
+        // Mutation snapshots are settlements, not an alternate publication
+        // channel. A delayed/replayed result must not replace newer document
+        // comments or close a newly opened composer.
+        if (message.requestId !== markdownWorkspacePendingRequestId
+            || message.revision < markdownWorkspaceCommentRevision) {
+            return true;
+        }
         markdownWorkspaceCommentRevision = message.revision;
         markdownWorkspaceComments = message.comments.slice();
         renderMarkdownWorkspaceComments();
-        if (message.requestId === markdownWorkspacePendingRequestId) {
-            markdownWorkspacePendingRequestId = '';
-            setMarkdownWorkspaceCommentPending(false, message.success
-                ? '' : 'Comment could not be saved. Please try again.');
-        }
+        markdownWorkspacePendingRequestId = '';
+        setMarkdownWorkspaceCommentPending(false, message.success
+            ? '' : 'Comment could not be saved. Please try again.');
         var sendAfterSave = message.success && message.operation === 'add'
             && markdownWorkspaceSendAfterSave;
         markdownWorkspaceSendAfterSave = false;

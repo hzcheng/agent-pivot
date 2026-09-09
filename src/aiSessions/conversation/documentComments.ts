@@ -25,6 +25,8 @@ export const DOCUMENT_COMMENT_LIMITS = Object.freeze({
     maxHeadingDepth: 20,
     maxHeadingGraphemes: 240,
     maxPromptGraphemes: 16_000,
+    maxDiscussionReplies: 20,
+    maxDiscussionReplyGraphemes: 12_000,
     maxLine: 10_000_000,
 });
 
@@ -52,6 +54,16 @@ export interface MarkdownDocumentCommentConversationRef {
     messageId?: string;
 }
 
+/** A bounded AI reply retained with its file comment. The transcript can page
+ * old cards out or be recreated; this is the durable document discussion. */
+export interface MarkdownDocumentCommentReply {
+    messageId: string;
+    markdown: string;
+    createdAt: number;
+    provider?: AiSessionProviderId;
+    sessionId?: string;
+}
+
 export interface MarkdownDocumentComment {
     id: string;
     documentVersion: string;
@@ -63,6 +75,7 @@ export interface MarkdownDocumentComment {
     sentAt?: number;
     resolvedAt?: number;
     conversationRef?: MarkdownDocumentCommentConversationRef;
+    discussion?: MarkdownDocumentCommentReply[];
 }
 
 export interface MarkdownDocumentCommentInput {
@@ -207,6 +220,9 @@ export function cloneMarkdownDocumentComment(
         },
         ...(comment.conversationRef
             ? { conversationRef: { ...comment.conversationRef } } : {}),
+        ...(comment.discussion ? {
+            discussion: comment.discussion.map(reply => ({ ...reply })),
+        } : {}),
     };
 }
 
@@ -261,7 +277,8 @@ export function validateMarkdownDocumentComment(
         || !isOptionalTimestamp(comment.sentAt)
         || !isOptionalTimestamp(comment.resolvedAt)
         || (comment.conversationRef !== undefined
-            && !isConversationRef(comment.conversationRef))) {
+            && !isConversationRef(comment.conversationRef))
+        || (comment.discussion !== undefined && !isDiscussion(comment.discussion))) {
         throw fail('invalid');
     }
     requireDocumentVersion(comment.documentVersion);
@@ -270,6 +287,23 @@ export function validateMarkdownDocumentComment(
         comment.text,
         DOCUMENT_COMMENT_LIMITS.maxCommentGraphemes
     );
+}
+
+function isDiscussion(value: unknown): value is MarkdownDocumentCommentReply[] {
+    if (!Array.isArray(value) || value.length > DOCUMENT_COMMENT_LIMITS.maxDiscussionReplies) {
+        return false;
+    }
+    const ids = new Set<string>();
+    return value.every(reply => isRecord(reply)
+        && isBoundedId(reply.messageId)
+        && !ids.has(reply.messageId)
+        && (ids.add(reply.messageId), true)
+        && typeof reply.markdown === 'string'
+        && graphemeLength(reply.markdown) > 0
+        && graphemeLength(reply.markdown) <= DOCUMENT_COMMENT_LIMITS.maxDiscussionReplyGraphemes
+        && (reply.provider === undefined || isAiSessionProvider(reply.provider))
+        && (reply.sessionId === undefined || isBoundedId(reply.sessionId))
+        && isTimestamp(reply.createdAt));
 }
 
 function requireDocumentVersion(value: unknown): string {

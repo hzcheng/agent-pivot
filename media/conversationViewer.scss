@@ -108,6 +108,26 @@ body {
     }
 }
 
+.conversation-document-workspace-mode {
+    display: none;
+    gap: 0.25rem;
+
+    button {
+        padding: 0.25rem 0.45rem;
+        border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+        border-radius: 3px;
+        background: transparent;
+        color: var(--vscode-foreground);
+        font: inherit;
+    }
+
+    button[aria-pressed="true"] {
+        border-color: var(--vscode-focusBorder);
+        background: var(--vscode-button-secondaryHoverBackground,
+            var(--vscode-list-activeSelectionBackground));
+    }
+}
+
 .conversation-document-workspace-scroll {
     grid-column: 1;
     grid-row: 2;
@@ -277,13 +297,33 @@ body {
 }
 
 @media (max-width: 680px) {
-    .conversation-document-workspace { display: block; overflow: auto; }
-    .conversation-document-workspace-scroll { min-height: 55vh; }
+    .conversation-document-workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+    .conversation-document-workspace-header {
+        position: relative;
+        z-index: 1;
+    }
+    .conversation-document-workspace-mode { display: flex; }
+    .conversation-document-workspace-scroll,
     .conversation-document-discussion {
+        grid-column: 1;
+        grid-row: 2;
+        min-height: 0;
+    }
+    .conversation-document-workspace-scroll { display: block; }
+    .conversation-document-discussion {
+        display: none;
         min-width: 0;
         border-top: 1px solid var(--vscode-panel-border);
         border-left: 0;
     }
+    .conversation-document-workspace[data-mobile-mode="discussion"]
+    .conversation-document-workspace-scroll { display: none; }
+    .conversation-document-workspace[data-mobile-mode="discussion"]
+    .conversation-document-discussion { display: block; }
 }
 
 .conversation-document-workspace-content {

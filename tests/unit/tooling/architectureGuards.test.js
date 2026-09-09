@@ -36,6 +36,7 @@ function copyGuardFixture(t, mutationPath, mutate = source => source) {
         'src/aiSessions/conversation/diffs.ts',
         'src/aiSessions/conversation/diffRenderer.ts',
         'src/aiSessions/conversation/markdown.ts',
+        'src/aiSessions/conversation/workspaceMarkdownFile.ts',
         'src/aiSessions/conversation/markdownSuggestions.ts',
         'src/aiSessions/conversation/markdownSuggestionState.ts',
         'src/aiSessions/conversation/subagentSessions.ts',

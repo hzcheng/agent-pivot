@@ -103,7 +103,7 @@ import {
     ConversationSessionRebindCoordinator,
     hasCommittedConversationSessionRuntimeRebind,
 } from './aiSessions/conversation/sessionRebindCoordinator';
-import { findUniqueMarkdownSuggestionAnchor } from './aiSessions/conversation/markdown';
+import { applyValidatedWorkspaceMarkdownSuggestion } from './aiSessions/conversation/workspaceMarkdownFile';
 import AiSessionWorkspaceStateStore from './aiSessions/workspaceStateStore';
 import ActiveAiSessionTerminalHighlighter from './aiSessions/activeTerminalHighlight';
 import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
@@ -2248,64 +2248,18 @@ async function initializeDashboard(
             if (!isWorkspaceHostPathContained(canonicalRoot, canonicalCandidate)) {
                 return 'stale';
             }
-            let document: vscode.TextDocument;
-            let openedStat;
-            try {
-                document = await vscode.workspace.openTextDocument(
-                    vscode.Uri.file(canonicalCandidate)
-                );
-                const openedPath = await realpathPath(document.uri.fsPath);
-                openedStat = await lstatPath(openedPath);
-                // WorkspaceEdit operates through VS Code rather than our
-                // descriptor, so bind that document back to the validated
-                // real path before inspecting or mutating its buffer.
-                if (openedPath !== canonicalCandidate
-                    || !isWorkspaceHostPathContained(canonicalRoot, openedPath)
-                    || !openedStat.isFile()) {
-                    return 'stale';
-                }
-            } catch (_error) {
-                return 'failed';
-            }
-            const source = document.getText();
-            if (createHash('sha256').update(Buffer.from(source, 'utf8')).digest('hex')
-                !== suggestion.documentVersion) {
+            // Never overwrite a user's in-memory editor buffer. A model
+            // change is allowed only from the verified disk version rendered
+            // in the workspace reader.
+            if (vscode.workspace.textDocuments.some(document =>
+                document.uri.scheme === 'file'
+                && document.uri.fsPath === canonicalCandidate
+                && document.isDirty)) {
                 return 'stale';
             }
-            const range = findUniqueMarkdownSuggestionAnchor(source, suggestion);
-            if (!range) {
-                return 'stale';
-            }
-            const edit = new vscode.WorkspaceEdit();
-            edit.replace(document.uri, new vscode.Range(
-                document.positionAt(range.start), document.positionAt(range.end)
-            ), suggestion.replacement);
-            try {
-                const currentPath = await realpathPath(document.uri.fsPath);
-                const currentStat = await lstatPath(currentPath);
-                if (currentPath !== canonicalCandidate
-                    || !isWorkspaceHostPathContained(canonicalRoot, currentPath)
-                    || !currentStat.isFile()
-                    || currentStat.dev !== openedStat.dev
-                    || currentStat.ino !== openedStat.ino) {
-                    return 'stale';
-                }
-                if (!await vscode.workspace.applyEdit(edit)) {
-                    return 'failed';
-                }
-                // The reading surface is rendered from the filesystem, not an
-                // unsaved editor buffer. Persist before reporting success or
-                // refreshing it, so the new document/version is authoritative
-                // and the operation participates in VS Code's native Undo.
-                if (!await document.save()) {
-                    return 'failed';
-                }
-                const savedPath = await realpathPath(document.uri.fsPath);
-                return isWorkspaceHostPathContained(canonicalRoot, savedPath)
-                    ? 'applied' : 'failed';
-            } catch (_error) {
-                return 'failed';
-            }
+            return applyValidatedWorkspaceMarkdownSuggestion(
+                canonicalRoot, canonicalCandidate, suggestion
+            );
         },
         changes: {
             // PRD §4.1 fallback identity: a valid telemetry worktree takes

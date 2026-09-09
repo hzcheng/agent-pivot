@@ -2,6 +2,7 @@
 
 import { randomBytes } from 'crypto';
 import type * as vscode from 'vscode';
+import type { AiSessionProviderId } from '../../models';
 import type { CommentErrorCode } from './commentPrimitives';
 import {
     buildMarkdownDocumentCommentPrompt,
@@ -47,6 +48,10 @@ export interface MarkdownDocumentCommentControllerOptions {
     getTarget: () => ConversationViewerTarget | undefined;
     getSubscriptionGeneration: () => number;
     getPanel: () => vscode.WebviewPanel | undefined;
+    /** A settlement that could not be delivered is recovered through the
+     * Host-authoritative workspace publication, never left pending in the
+     * Webview. */
+    onPublicationFailure?: (message: object) => PromiseLike<void> | Promise<void> | void;
     now?: () => number;
 }
 
@@ -130,6 +135,61 @@ export class MarkdownDocumentCommentController {
         return queued;
     }
 
+    /** Persist assistant cards with their document comment, rather than making
+     * the document discussion depend on whichever transcript page is live. */
+    recordReplies(replies: ReadonlyArray<{
+        commentId: string;
+        messageId: string;
+        markdown: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }>): Promise<void> {
+        const queued = this.operationQueue.then(
+            () => this.persistReplies(replies),
+            () => this.persistReplies(replies)
+        );
+        this.operationQueue = queued.catch(() => undefined);
+        return queued;
+    }
+
+    private async persistReplies(replies: ReadonlyArray<{
+        commentId: string;
+        messageId: string;
+        markdown: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }>): Promise<void> {
+        if (!this.context || !replies.length) { return; }
+        const next = cloneMarkdownDocumentComments(this.comments);
+        let changed = false;
+        for (const reply of replies) {
+            if (typeof reply.commentId !== 'string' || typeof reply.messageId !== 'string'
+                || typeof reply.markdown !== 'string' || !reply.markdown.trim()
+                || typeof reply.provider !== 'string' || typeof reply.sessionId !== 'string') {
+                continue;
+            }
+            const index = next.findIndex(comment => comment.id === reply.commentId);
+            if (index < 0) { continue; }
+            const comment = next[index];
+            const discussion = comment.discussion ? comment.discussion.map(item => ({ ...item })) : [];
+            if (discussion.some(item => item.messageId === reply.messageId)) { continue; }
+            discussion.push({
+                messageId: reply.messageId,
+                markdown: reply.markdown,
+                createdAt: this.now(),
+                provider: reply.provider,
+                sessionId: reply.sessionId,
+            });
+            // Validation is deliberately performed by commit(), including all
+            // bounds on model output and persisted discussion size.
+            comment.discussion = discussion.slice(-20);
+            changed = true;
+        }
+        if (changed) {
+            await this.commit(next, this.revision);
+        }
+    }
+
     private async handle(request: DocumentCommentRequest): Promise<void> {
         const key = this.settlementKey(request);
         const remembered = this.settlements.get(key);
@@ -208,6 +268,9 @@ export class MarkdownDocumentCommentController {
                 buildMarkdownDocumentCommentPrompt(context.target, next[index])
             ));
         } catch (error) {
+            // A rollback is a second durable write. Never display a draft
+            // only in memory when that write fails: the next reader would
+            // reopen the persisted sent state and contradict this settlement.
             await this.restorePrior(prior);
             throw error;
         }
@@ -240,19 +303,22 @@ export class MarkdownDocumentCommentController {
         this.revision = next.revision;
     }
 
-    private async restorePrior(snapshot: { revision: number; comments: MarkdownDocumentComment[] }): Promise<void> {
+    private async restorePrior(snapshot: { revision: number; comments: MarkdownDocumentComment[] }): Promise<boolean> {
         const context = this.context;
-        if (!context) { return; }
+        if (!context) { return false; }
         try {
             await this.options.documentCommentStore?.save(context.target, snapshot);
         } catch (_error) {
-            // The user sees a failure settlement; refresh will reflect the
-            // last durable state if a rollback itself fails.
+            // Keep the current sent snapshot in memory as well. This matches
+            // the only durable record and prevents a later autosave/reopen
+            // from silently disagreeing with the visible discussion state.
+            return false;
         }
         if (this.context === context) {
             this.comments = cloneMarkdownDocumentComments(snapshot.comments);
             this.revision = snapshot.revision;
         }
+        return this.context === context;
     }
 
     private matches(request: DocumentCommentRequest): boolean {
@@ -303,7 +369,10 @@ export class MarkdownDocumentCommentController {
     private async publish(message: object): Promise<void> {
         const panel = this.options.getPanel();
         if (!panel) { return; }
-        try { await panel.webview.postMessage(message); } catch (_error) { /* no-op */ }
+        try {
+            if (await panel.webview.postMessage(message)) { return; }
+        } catch (_error) { /* Recover below through the authoritative surface. */ }
+        try { await this.options.onPublicationFailure?.(message); } catch (_error) { /* no-op */ }
     }
 
     private settlementKey(request: DocumentCommentRequest): string {
@@ -340,7 +409,18 @@ function relocateMarkdownDocumentComment(
 }
 
 function normalizeAnchorText(value: string): string {
-    return value.replace(/\s+/g, ' ').trim();
+    // Webview anchors intentionally describe what the reader sees, not the
+    // Markdown delimiters that happened to produce it. Keep this conservative
+    // projection aligned with common inline/block Markdown so a harmless
+    // formatting change cannot strand a comment; ambiguity still fails closed.
+    return value
+        .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+        .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+        .replace(/^\s{0,3}>\s?/gm, '')
+        .replace(/^\s*(?:[-+*]|\d+[.)])\s+/gm, '')
+        .replace(/(\*\*|__|~~|`)/g, '')
+        .replace(/\s+/g, ' ').trim();
 }
 
 function matchingAnchorOccurrences(

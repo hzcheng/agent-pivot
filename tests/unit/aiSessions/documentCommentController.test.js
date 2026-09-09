@@ -182,3 +182,93 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 relocates duplicate quotes only 
     assert.equal(controller.snapshot.comments[1].status, 'sent');
     assert.equal(controller.snapshot.comments[1].documentVersion, 'sha256:document-next');
 });
+
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 keeps the durable sent state when a prompt rollback cannot persist', async () => {
+    let saves = 0;
+    const { controller, posted } = createHarness({
+        documentCommentStore: {
+            load: async () => ({ revision: 0, comments: [] }),
+            save: async () => {
+                saves += 1;
+                if (saves === 3) { throw new Error('rollback storage unavailable'); }
+            },
+        },
+        submitPrompt: async () => { throw new Error('prompt staging unavailable'); },
+    });
+    await activate(controller);
+    await controller.enqueue(request('add-for-failure', 'add', {
+        anchor: { selectedText: 'Keep this.', prefix: '', suffix: '', headingPath: [] },
+        text: 'Review it.',
+    }, 0));
+    const comment = controller.snapshot.comments[0];
+    await controller.enqueue(request('send-with-failed-rollback', 'sendDocumentComment', {
+        commentId: comment.id,
+    }, 1));
+    assert.equal(posted.at(-1).success, false);
+    assert.equal(controller.snapshot.comments[0].status, 'sent',
+        'memory must continue to reflect the durable pre-dispatch state');
+});
+
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 relocates reader text across safe Markdown formatting', async () => {
+    const { controller } = createHarness({
+        documentCommentStore: { load: async () => ({ revision: 1, comments: [{
+            id: 'comment-formatted', documentVersion: DOCUMENT.documentVersion,
+            anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: ['Release'] },
+            text: 'Keep the reader-visible wording anchored.', status: 'sent', createdAt: 1,
+        }] }), save: async () => undefined },
+    });
+    await controller.activate({
+        target: { projectId: 'project-a', workspaceRootId: 'workspace-root-a', relativePath: 'docs/plan.md' },
+        documentVersion: 'sha256:document-formatted',
+        markdown: '# Release\n\n**Rollback** [strategy](docs/restore.md)\n',
+        viewerTarget: VIEWER_TARGET, subscriptionGeneration: 7,
+    });
+    assert.equal(controller.snapshot.comments[0].status, 'sent');
+    assert.equal(controller.snapshot.comments[0].documentVersion, 'sha256:document-formatted');
+});
+
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 retains bounded AI replies with the durable file comment', async () => {
+    const { controller, saved } = createHarness();
+    await activate(controller);
+    await controller.enqueue(request('add-for-reply-history', 'add', {
+        anchor: { selectedText: 'Keep this.', prefix: '', suffix: '', headingPath: [] },
+        text: 'Explain the trade-off.',
+    }, 0));
+    const comment = controller.snapshot.comments[0];
+    await controller.enqueue(request('send-for-reply-history', 'sendDocumentComment', {
+        commentId: comment.id,
+    }, 1));
+
+    await controller.recordReplies([{
+        commentId: comment.id,
+        messageId: 'assistant-document-reply-a',
+        markdown: 'The safe fallback is to stop and restore the prior state.',
+        provider: 'codex', sessionId: 'session-a',
+    }]);
+
+    assert.deepEqual(controller.snapshot.comments[0].discussion, [{
+        messageId: 'assistant-document-reply-a',
+        markdown: 'The safe fallback is to stop and restore the prior state.',
+        createdAt: 1000,
+        provider: 'codex', sessionId: 'session-a',
+    }]);
+    assert.deepEqual(saved.at(-1).snapshot.comments[0].discussion,
+        controller.snapshot.comments[0].discussion,
+        'the reply must survive a viewer recreation rather than only a transcript cache');
+});
+
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 recovers a settlement that the Webview cannot receive', async () => {
+    const recoveries = [];
+    const { controller } = createHarness({
+        getPanel: () => ({ webview: { postMessage: async () => false } }),
+        onPublicationFailure: async settlement => recoveries.push(settlement),
+    });
+    await activate(controller);
+    await controller.enqueue(request('delivery-failure', 'add', {
+        anchor: { selectedText: 'Keep this.', prefix: '', suffix: '', headingPath: [] },
+        text: 'Persist this despite a transient Webview failure.',
+    }, 0));
+    assert.equal(recoveries.length, 1);
+    assert.equal(recoveries[0].requestId, 'delivery-failure');
+    assert.equal(recoveries[0].success, true);
+});

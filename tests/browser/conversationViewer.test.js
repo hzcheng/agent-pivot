@@ -12151,19 +12151,6 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.equal(draftIntent.payload.anchor.selectedText, 'Rollback strategy');
     assert.deepEqual(draftIntent.payload.anchor.headingPath, ['Architecture plan']);
     assert.equal(draftIntent.payload.text, 'Clarify the fallback.');
-    await page.getByRole('button', { name: 'Propose change' }).click();
-    await page.locator('[data-markdown-workspace-suggestion-input]').fill(
-        'Rollback strategy with an explicit restore command.'
-    );
-    assert.match(await page.locator('[data-markdown-workspace-suggestion-preview]').innerText(),
-        /\+ Rollback strategy with an explicit restore command\./);
-    await page.getByRole('button', { name: 'Apply change' }).click();
-    const suggestionIntent = (await postedIntents(page)).at(-1);
-    assert.equal(suggestionIntent.type, 'conversation-viewer-apply-markdown-suggestion');
-    assert.equal(suggestionIntent.document.documentVersion, 'sha256:architecture-a');
-    assert.equal(suggestionIntent.payload.selectedText, 'Rollback strategy');
-    assert.equal(suggestionIntent.payload.replacement,
-        'Rollback strategy with an explicit restore command.');
     await sendPage(page, {
         type: 'conversation-viewer-document-comments-result',
         version: 1,
@@ -12181,7 +12168,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
             text: 'Clarify the fallback.', status: 'draft', createdAt: 1,
         }],
     });
-    assert.equal(await page.locator('[data-comment-id="document-comment-a"]').isVisible(), true);
+    assert.equal(await page.locator('article[data-comment-id="document-comment-a"]').isVisible(), true);
     assert.equal(await page.locator('[data-markdown-workspace-comment-marker="document-comment-a"]').isVisible(), true,
         'a cross-format file comment remains locatable from a compact marker in the rendered document');
     await page.getByRole('button', { name: 'Locate commented passage' }).click();
@@ -12206,7 +12193,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         true, 'the active-document capsule survives a return to conversation');
     const savedScroll = await page.evaluate(() =>
         window.__webviewState.conversationMarkdownWorkspace[
-            'project-a\u0001codex\u0001session-host-document\u0001docs/architecture-plan.md'
+            'project-a\u0001codex\u0001session-host-document\u0001docs/architecture-plan.md\u0001sha256:architecture-a'
         ].scrollTop
     );
     assert.ok(savedScroll > 0, 'returning preserves the document reading position');
@@ -12275,12 +12262,64 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         sessionId: 'session-host-document',
     });
     const narrowReader = await page.locator('[data-markdown-workspace-scroll]').boundingBox();
+    assert.ok(narrowReader && narrowReader.width <= 360,
+        'the reader fits without horizontal overflow at the minimum width');
+    assert.equal(await page.locator('[data-markdown-workspace-discussion]').isHidden(), true,
+        'narrow readers keep the discussion out of the reading viewport by default');
+    await page.getByRole('button', { name: 'Discussion' }).click();
+    assert.equal(await page.getByRole('button', { name: 'Discussion' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.locator('[data-markdown-workspace-scroll]').isHidden(), true);
     const narrowDiscussion = await page.locator('[data-markdown-workspace-discussion]').boundingBox();
-    assert.ok(narrowReader && narrowDiscussion);
-    assert.ok(narrowReader.width <= 360 && narrowDiscussion.width <= 360,
-        'the reader and review discussion fit without horizontal overflow at the minimum width');
-    assert.ok(narrowDiscussion.y >= narrowReader.y + narrowReader.height,
-        'the narrow layout stacks discussion after the reading surface');
+    assert.ok(narrowDiscussion && narrowDiscussion.width <= 360,
+        'the discussion is a dedicated compact mode rather than a stacked tail');
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 settles a pending comment from an authoritative recovery publication', async t => {
+    const { page } = await openHostViewerDocument(t);
+    const base = {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/plan.md', relativePath: 'docs/plan.md', workspaceRootId: 'root-a',
+        documentVersion: 'sha256:plan-a', title: 'plan.md', html: '<p>Keep this paragraph.</p>',
+        subscriptionGeneration: 1, projectId: 'project-a', provider: 'codex',
+        sessionId: 'session-host-document',
+    };
+    await sendPage(page, {
+        ...base, workspaceRequestId: 1, commentSnapshot: { revision: 0, comments: [] },
+        replies: [], suggestions: [],
+    });
+    await page.evaluate(() => {
+        const paragraph = document.querySelector('[data-markdown-workspace-content] p');
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        paragraph.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.getByRole('button', { name: 'Add comment' }).click();
+    await page.locator('[data-markdown-workspace-comment-input]').fill('Keep this durable.');
+    await page.getByRole('button', { name: 'Save draft' }).click();
+    const intent = (await postedIntents(page)).at(-1);
+    const settlement = {
+        type: 'conversation-viewer-document-comments-result', version: 1,
+        requestId: intent.requestId, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        operation: 'add', success: true, revision: 1,
+        document: {
+            workspaceRootId: 'root-a', relativePath: 'docs/plan.md', documentVersion: 'sha256:plan-a',
+        },
+        comments: [{
+            id: 'recovered-comment-a', documentVersion: 'sha256:plan-a',
+            anchor: intent.payload.anchor, text: 'Keep this durable.', status: 'draft', createdAt: 1,
+        }],
+    };
+    await sendPage(page, {
+        ...base, workspaceRequestId: 2, commentSnapshot: { revision: 1, comments: settlement.comments },
+        replies: [], suggestions: [], commentSettlement: settlement,
+    });
+    assert.equal(await page.locator('article[data-comment-id="recovered-comment-a"]').isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: 'Save draft' }).isDisabled(), false,
+        'the full recovery publication cannot leave the composer permanently pending');
 });
 
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structured data, math, and charts at narrow widths', async t => {

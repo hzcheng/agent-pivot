@@ -5435,6 +5435,11 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
                 messageId: 'assistant-suggestion-a',
                 disposition: 'outdated',
                 updatedAt: 1000,
+            }, {
+                provider: 'codex', sessionId: 'session-a',
+                messageId: 'assistant-historic-suggestion-a',
+                disposition: 'dismissed',
+                updatedAt: 900,
             }],
         }),
         save: async () => undefined,
@@ -5446,6 +5451,11 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
                 id: 'document-comment-a', documentVersion: 'sha256:document-a',
                 anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: [] },
                 text: 'Improve the rollback guidance.', status: 'sent', createdAt: 1,
+                discussion: [{
+                    messageId: 'assistant-historic-suggestion-a', provider: 'codex', sessionId: 'session-a',
+                    createdAt: 900, markdown: '```markdown-suggestion\n'
+                        + '{"selectedText":"Rollback strategy","replacement":"Historic safe rollback."}\n```',
+                }],
             }] }),
             save: async () => undefined,
         },
@@ -5480,8 +5490,10 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
         message.type === 'conversation-viewer-markdown-workspace'
     );
     assert.deepEqual(workspace.suggestions.map(suggestion => suggestion.messageId),
-        ['assistant-suggestion-a']);
+        ['assistant-suggestion-a', 'assistant-historic-suggestion-a']);
     assert.equal(workspace.suggestions[0].disposition, 'outdated');
+    assert.equal(workspace.suggestions[1].disposition, 'dismissed',
+        'a previous document discussion keeps its AI change decision after transcript paging');
     viewer.dispose();
 });
 

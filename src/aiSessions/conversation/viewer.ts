@@ -619,16 +619,6 @@ export class ConversationViewer implements ConversationViewerApi {
     };
     private markdownSuggestionStateRevision = 0;
     private markdownSuggestionStates: MarkdownSuggestionState[] = [];
-    /** Retains document-scoped replies while conversation paging evicts older
-     * transcript cards. It is intentionally reset when document identity or
-     * session identity changes; durable comments remain the cross-restart
-     * record, while this cache keeps an open review surface coherent. */
-    private markdownWorkspaceReplyCacheKey = '';
-    private readonly markdownWorkspaceReplyCache = new Map<string, {
-        messageId: string;
-        commentId: string;
-        html: string;
-    }>();
     private readonly bookmarkController: ConversationBookmarkController;
     private readonly outlineController = new ConversationOutlineController();
     private readonly telemetryController: ConversationTelemetryController;
@@ -711,6 +701,13 @@ export class ConversationViewer implements ConversationViewerApi {
             getTarget: () => this.target,
             getSubscriptionGeneration: () => this.subscriptionGeneration,
             getPanel: () => this.panel,
+            onPublicationFailure: async settlement => {
+                const active = this.activeMarkdownWorkspace;
+                if (active && active.target === this.target
+                    && active.generation === this.subscriptionGeneration) {
+                    await this.openMarkdownWorkspace(active.workspaceFile, settlement);
+                }
+            },
             now: options.now,
         });
         this.bookmarkController = new ConversationBookmarkController({
@@ -2229,7 +2226,8 @@ export class ConversationViewer implements ConversationViewerApi {
     }
 
     private async openMarkdownWorkspace(
-        workspaceFile: ConversationWorkspaceFileTarget
+        workspaceFile: ConversationWorkspaceFileTarget,
+        commentSettlement?: object
     ): Promise<void> {
         const target = this.target;
         const panel = this.panel;
@@ -2298,12 +2296,6 @@ export class ConversationViewer implements ConversationViewerApi {
         this.markdownSuggestionStateTarget = suggestionTarget;
         this.markdownSuggestionStateRevision = suggestionSnapshot.revision;
         this.markdownSuggestionStates = suggestionSnapshot.suggestions;
-        const replyCacheKey = [target.projectId, target.provider, target.sessionId,
-            document.workspaceRootId, workspaceFile.relativePath].join('\u0001');
-        if (this.markdownWorkspaceReplyCacheKey !== replyCacheKey) {
-            this.markdownWorkspaceReplyCacheKey = replyCacheKey;
-            this.markdownWorkspaceReplyCache.clear();
-        }
         this.activeMarkdownWorkspace = {
             workspaceFile: { ...workspaceFile },
             workspaceRootId: document.workspaceRootId,
@@ -2311,6 +2303,10 @@ export class ConversationViewer implements ConversationViewerApi {
             target,
             generation: this.subscriptionGeneration,
         };
+        // Persist newly observed model replies before publishing the document
+        // surface. The transcript is pageable and not a durable discussion
+        // store, while the file comment store is.
+        await this.captureMarkdownWorkspaceReplies();
         try {
             await panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-workspace',
@@ -2327,6 +2323,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 workspaceRootId: document.workspaceRootId,
                 documentVersion: document.documentVersion,
                 commentSnapshot: this.documentCommentController.snapshot,
+                ...(commentSettlement ? { commentSettlement } : {}),
                 replies: this.markdownWorkspaceReplies(),
                 suggestions: this.markdownWorkspaceSuggestions(),
                 workspaceRequestId,
@@ -2343,21 +2340,24 @@ export class ConversationViewer implements ConversationViewerApi {
     /** Only the explicit envelope is promoted into an actionable document
      * suggestion. Keeping this translation in the Host means the Webview
      * never needs to interpret arbitrary model Markdown as a mutation. */
-    private markdownWorkspaceSuggestions(): Array<{
+    private markdownWorkspaceSuggestionRecords(): Array<{
         messageId: string;
         selectedText: string;
         replacement: string;
         disposition?: MarkdownSuggestionDisposition;
+        sourceProvider: AiSessionProviderId;
+        sourceSessionId: string;
     }> {
         const suggestions: Array<{
             messageId: string;
             selectedText: string;
             replacement: string;
+            sourceProvider: AiSessionProviderId;
+            sourceSessionId: string;
         }> = [];
+        const target = this.target;
+        if (!target) { return suggestions; }
         const commentInteractions = this.markdownWorkspaceCommentInteractions();
-        if (!commentInteractions.size) {
-            return suggestions;
-        }
         for (const message of this.messages()) {
             if (message.role !== 'assistant'
                 || !commentInteractions.has(message.interactionId)) {
@@ -2369,19 +2369,50 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             const state = this.markdownSuggestionStates.find(candidate =>
                 candidate.messageId === message.id
-                && candidate.provider === this.target?.provider
-                && candidate.sessionId === this.target?.sessionId
+                && candidate.provider === target.provider
+                && candidate.sessionId === target.sessionId
             );
             suggestions.push({
                 messageId: message.id,
                 ...suggestion,
+                sourceProvider: target.provider,
+                sourceSessionId: target.sessionId,
                 ...(state ? { disposition: state.disposition } : {}),
             });
-            if (suggestions.length === 20) {
-                break;
+        }
+        for (const comment of this.documentCommentController.snapshot.comments) {
+            for (const reply of comment.discussion || []) {
+                if (!reply.provider || !reply.sessionId) { continue; }
+                const suggestion = parseMarkdownSuggestionEnvelope(reply.markdown);
+                if (!suggestion || suggestions.some(candidate => candidate.messageId === reply.messageId
+                    && candidate.sourceProvider === reply.provider
+                    && candidate.sourceSessionId === reply.sessionId)) {
+                    continue;
+                }
+                const state = this.markdownSuggestionStates.find(candidate =>
+                    candidate.messageId === reply.messageId
+                    && candidate.provider === reply.provider
+                    && candidate.sessionId === reply.sessionId
+                );
+                suggestions.push({
+                    messageId: reply.messageId,
+                    ...suggestion,
+                    sourceProvider: reply.provider,
+                    sourceSessionId: reply.sessionId,
+                    ...(state ? { disposition: state.disposition } : {}),
+                });
             }
         }
-        return suggestions;
+        return suggestions.slice(-20);
+    }
+
+    private markdownWorkspaceSuggestions(): Array<{
+        messageId: string;
+        selectedText: string;
+        replacement: string;
+        disposition?: MarkdownSuggestionDisposition;
+    }> {
+        return this.markdownWorkspaceSuggestionRecords().map(({ sourceProvider, sourceSessionId, ...suggestion }) => suggestion);
     }
 
     /** Only assistant responses to a persisted document comment belong to the
@@ -2412,21 +2443,24 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private async rememberMarkdownSuggestionDisposition(
         messageId: string,
-        disposition: MarkdownSuggestionDisposition
+        disposition: MarkdownSuggestionDisposition,
+        sourceProvider = this.target?.provider,
+        sourceSessionId = this.target?.sessionId
     ): Promise<void> {
         const target = this.markdownSuggestionStateTarget;
         const store = this.markdownSuggestionStateStore;
         const viewerTarget = this.target;
-        if (!target || !store || !viewerTarget || !messageId) {
+        if (!target || !store || !viewerTarget || !messageId
+            || !sourceProvider || !sourceSessionId) {
             return;
         }
         const current = this.markdownSuggestionStates.filter(state =>
-            state.messageId !== messageId || state.provider !== viewerTarget.provider
-                || state.sessionId !== viewerTarget.sessionId
+            state.messageId !== messageId || state.provider !== sourceProvider
+                || state.sessionId !== sourceSessionId
         );
         current.unshift({
-            provider: viewerTarget.provider,
-            sessionId: viewerTarget.sessionId,
+            provider: sourceProvider,
+            sessionId: sourceSessionId,
             messageId,
             disposition,
             updatedAt: Date.now(),
@@ -2440,15 +2474,24 @@ export class ConversationViewer implements ConversationViewerApi {
         this.markdownSuggestionStates = next.suggestions;
     }
 
-    private markdownWorkspaceReplies(): Array<{
+    private markdownWorkspaceReplyRecords(): Array<{
         messageId: string;
         commentId: string;
-        html: string;
+        markdown: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
     }> {
         const commentByInteraction = this.markdownWorkspaceCommentInteractions();
-        if (!commentByInteraction.size) { return []; }
-        const messages = this.messages();
-        for (const message of messages) {
+        const target = this.target;
+        if (!commentByInteraction.size || !target) { return []; }
+        const replies: Array<{
+            messageId: string;
+            commentId: string;
+            markdown: string;
+            provider: AiSessionProviderId;
+            sessionId: string;
+        }> = [];
+        for (const message of this.messages()) {
             if (message.role !== 'assistant') {
                 continue;
             }
@@ -2456,18 +2499,52 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!commentId) {
                 continue;
             }
-            const html = renderConversationMarkdown(
-                stripMarkdownSuggestionEnvelope(message.markdown)
-            );
-            if (!html || Buffer.byteLength(html, 'utf8') > 1_000_000) {
+            const markdown = stripMarkdownSuggestionEnvelope(message.markdown);
+            if (!markdown || Buffer.byteLength(markdown, 'utf8') > 48_000) {
                 continue;
             }
-            this.markdownWorkspaceReplyCache.set(message.id, { messageId: message.id, commentId, html });
+            replies.push({
+                messageId: message.id, commentId, markdown,
+                provider: target.provider, sessionId: target.sessionId,
+            });
         }
-        const knownComments = new Set(commentByInteraction.values());
-        return [...this.markdownWorkspaceReplyCache.values()]
-            .filter(reply => knownComments.has(reply.commentId))
-            .slice(-40);
+        return replies.slice(-40);
+    }
+
+    private async captureMarkdownWorkspaceReplies(): Promise<void> {
+        try {
+            await this.documentCommentController.recordReplies(
+                this.markdownWorkspaceReplyRecords()
+            );
+        } catch (_error) {
+            // The live reply remains visible for this publication; a storage
+            // failure must not erase an already delivered AI response.
+        }
+    }
+
+    private markdownWorkspaceReplies(): Array<{
+        messageId: string;
+        commentId: string;
+        html: string;
+    }> {
+        const replies = new Map<string, { messageId: string; commentId: string; html: string }>();
+        for (const comment of this.documentCommentController.snapshot.comments) {
+            for (const reply of comment.discussion || []) {
+                const html = renderConversationMarkdown(reply.markdown);
+                if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
+                    replies.set(reply.messageId, {
+                        messageId: reply.messageId, commentId: comment.id, html,
+                    });
+                }
+            }
+        }
+        for (const reply of this.markdownWorkspaceReplyRecords()) {
+            const html = renderConversationMarkdown(reply.markdown);
+            if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
+                replies.set(reply.messageId, { ...reply, html });
+            }
+        }
+        return [...replies.values()].slice(-40);
     }
 
     /** Conversation refreshes may carry the assistant's reply to a document
@@ -2484,6 +2561,7 @@ export class ConversationViewer implements ConversationViewerApi {
             || generation !== this.subscriptionGeneration) {
             return false;
         }
+        await this.captureMarkdownWorkspaceReplies();
         try {
             return await panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-workspace-suggestions', version: 1,
@@ -2510,6 +2588,9 @@ export class ConversationViewer implements ConversationViewerApi {
     ): Promise<void> {
         const active = this.activeMarkdownWorkspace;
         const target = this.target;
+        const suggestedChange = this.markdownWorkspaceSuggestionRecords().find(suggestion =>
+            suggestion.messageId === message.payload.suggestionId
+        );
         let result: 'applied' | 'stale' | 'failed' = 'stale';
         if (active && target && active.target === target
             && active.generation === this.subscriptionGeneration
@@ -2520,21 +2601,18 @@ export class ConversationViewer implements ConversationViewerApi {
             && message.document.relativePath === active.workspaceFile.relativePath
             && message.document.documentVersion === active.documentVersion) {
             try {
-                const authoritative = this.markdownWorkspaceSuggestions().find(suggestion =>
-                    suggestion.messageId === message.payload.suggestionId
-                );
-                if (!authoritative) {
+                if (!suggestedChange) {
                     result = 'stale';
                 } else {
                     result = await Promise.resolve(this.options.applyWorkspaceMarkdownSuggestion?.(
                     active.workspaceFile, target, {
                         workspaceRootId: message.document.workspaceRootId,
                         documentVersion: message.document.documentVersion,
-                        selectedText: authoritative.selectedText,
+                        selectedText: suggestedChange.selectedText,
                         // The source envelope contains no source offsets. For
                         // duplicate text the dashboard therefore fails closed
                         // rather than trusting Webview-supplied context.
-                        prefix: '', suffix: '', replacement: authoritative.replacement,
+                        prefix: '', suffix: '', replacement: suggestedChange.replacement,
                     }
                     ) || 'failed');
                 }
@@ -2542,16 +2620,15 @@ export class ConversationViewer implements ConversationViewerApi {
                 result = 'failed';
             }
         }
-        if (message.payload.suggestionId
-            && this.markdownWorkspaceSuggestions().some(suggestion =>
-                suggestion.messageId === message.payload.suggestionId
-            )) {
+        if (message.payload.suggestionId && suggestedChange) {
             const disposition = result === 'applied' ? 'applied'
                 : result === 'stale' ? 'outdated' : undefined;
             if (disposition) {
                 try {
                     await this.rememberMarkdownSuggestionDisposition(
-                        message.payload.suggestionId, disposition
+                        message.payload.suggestionId, disposition,
+                        suggestedChange.sourceProvider,
+                        suggestedChange.sourceSessionId
                     );
                 } catch (_error) {
                     this.showNotice('Suggested change was applied, but its review state could not be saved.');
@@ -2584,6 +2661,9 @@ export class ConversationViewer implements ConversationViewerApi {
     ): Promise<void> {
         const active = this.activeMarkdownWorkspace;
         const target = this.target;
+        const suggestedChange = this.markdownWorkspaceSuggestionRecords().find(suggestion =>
+            suggestion.messageId === message.payload.suggestionId
+        );
         const matches = Boolean(active && target && active.target === target
             && active.generation === this.subscriptionGeneration
             && message.subscriptionGeneration === this.subscriptionGeneration
@@ -2592,14 +2672,13 @@ export class ConversationViewer implements ConversationViewerApi {
             && message.document.workspaceRootId === active.workspaceRootId
             && message.document.relativePath === active.workspaceFile.relativePath
             && message.document.documentVersion === active.documentVersion
-            && this.markdownWorkspaceSuggestions().some(suggestion =>
-                suggestion.messageId === message.payload.suggestionId
-            ));
+            && suggestedChange);
         let saved = false;
         if (matches) {
             try {
                 await this.rememberMarkdownSuggestionDisposition(
-                    message.payload.suggestionId, message.payload.disposition
+                    message.payload.suggestionId, message.payload.disposition,
+                    suggestedChange!.sourceProvider, suggestedChange!.sourceSessionId
                 );
                 saved = true;
             } catch (_error) {

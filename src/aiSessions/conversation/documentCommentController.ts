@@ -30,6 +30,7 @@ type DocumentCommentRequest = ConversationViewerDocumentCommentMutationMessage
 export interface MarkdownDocumentCommentContext {
     target: MarkdownDocumentCommentTarget;
     documentVersion: string;
+    markdown?: string;
     viewerTarget: ConversationViewerTarget;
     subscriptionGeneration: number;
 }
@@ -98,7 +99,7 @@ export class MarkdownDocumentCommentController {
         let comments = cloneMarkdownDocumentComments(snapshot.comments);
         const outdated = comments.map(comment => comment.documentVersion === context.documentVersion
             ? comment
-            : setMarkdownDocumentCommentStatus(comment, 'outdated', this.now()));
+            : relocateMarkdownDocumentComment(comment, context));
         const changed = JSON.stringify(outdated) !== JSON.stringify(comments);
         if (changed) {
             const next = { revision: snapshot.revision + 1, comments: outdated };
@@ -315,6 +316,30 @@ export class MarkdownDocumentCommentController {
     private errorCode(error: unknown): CommentErrorCode {
         return error instanceof MarkdownDocumentCommentError ? error.code : 'failed';
     }
+}
+
+function relocateMarkdownDocumentComment(
+    comment: MarkdownDocumentComment,
+    context: MarkdownDocumentCommentContext
+): MarkdownDocumentComment {
+    const source = String(context.markdown || '').replace(/\s+/g, ' ');
+    const quote = comment.anchor.selectedText;
+    let start = source.indexOf(quote);
+    let matches = 0;
+    while (start >= 0 && matches < 2) {
+        const before = source.slice(Math.max(0, start - comment.anchor.prefix.length), start);
+        const end = start + quote.length;
+        const after = source.slice(end, end + comment.anchor.suffix.length);
+        if ((!comment.anchor.prefix || before === comment.anchor.prefix)
+            && (!comment.anchor.suffix || after === comment.anchor.suffix)) {
+            matches += 1;
+        }
+        start = source.indexOf(quote, start + 1);
+    }
+    if (matches === 1) {
+        return { ...cloneMarkdownDocumentComments([comment])[0], documentVersion: context.documentVersion };
+    }
+    return setMarkdownDocumentCommentStatus(comment, 'outdated', Date.now());
 }
 
 function parseExistingPayload(request: ConversationViewerDocumentCommentMutationMessage): {

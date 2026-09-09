@@ -2240,6 +2240,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 relativePath: workspaceFile.relativePath,
             },
             documentVersion: document.documentVersion,
+            markdown: document.markdown,
             viewerTarget: target,
             subscriptionGeneration: this.subscriptionGeneration,
         });

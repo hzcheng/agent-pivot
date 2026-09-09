@@ -128,3 +128,21 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 rejects stale document identity 
     assert.equal(posted.at(-1).error, 'stale');
     assert.equal(controller.snapshot.comments.length, 1);
 });
+
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 preserves a uniquely relocated anchor after an unrelated edit', async () => {
+    const { controller } = createHarness({
+        documentCommentStore: { load: async () => ({ revision: 1, comments: [{
+            id: 'comment-relocate', documentVersion: DOCUMENT.documentVersion,
+            anchor: { selectedText: 'Keep this.', prefix: 'Before ', suffix: ' After', headingPath: [] },
+            text: 'Review it.', status: 'sent', createdAt: 1,
+        }] }), save: async () => undefined },
+    });
+    await controller.activate({
+        target: { projectId: 'project-a', workspaceRootId: 'workspace-root-a', relativePath: 'docs/plan.md' },
+        documentVersion: 'sha256:document-next',
+        markdown: 'New introduction. Before Keep this. After more text.',
+        viewerTarget: VIEWER_TARGET, subscriptionGeneration: 7,
+    });
+    assert.equal(controller.snapshot.comments[0].status, 'sent');
+    assert.equal(controller.snapshot.comments[0].documentVersion, 'sha256:document-next');
+});

@@ -233,6 +233,20 @@ function indexOfCall(calls, name, fromIndex = 0) {
     return calls.findIndex((call, index) => index >= fromIndex && call[0] === name);
 }
 
+test('ATTENTION-EXECUTION-STATE-SYNC-001 coalesces runtime refreshes instead of rebuilding the visible dashboard immediately', () => {
+    const { capability, calls } = createFixture({});
+
+    capability.refreshViewsIncrementally();
+    capability.refreshViewsIncrementally();
+
+    assert.deepEqual(calls.filter(call => call[0] === 'schedule-refresh'), [
+        ['schedule-refresh', 'execution'],
+        ['schedule-refresh', 'execution'],
+    ], 'runtime churn must enter the dashboard debounce path');
+    assert.equal(calls.some(call => call[0] === 'refresh'), false,
+        'runtime churn must not synchronously rebuild every visible AI session card');
+});
+
 test('ATTENTION-EXECUTION-STATE-SYNC-001 attention ownership probes fail open when the tmux store listing fails', async () => {
     const { capability, calls } = createFixture({ storeError: new Error('store offline') });
     assert.equal(await capability.hasLiveTmuxOwnership(), true,
@@ -354,11 +368,11 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 terminal handlers register exactly thre
     await flushAll();
     const syncIndex = indexOfCall(calls, 'highlight-sync');
     const monitorIndex = indexOfCall(calls, 'monitor-request');
-    const refreshIndex = indexOfCall(calls, 'refresh');
+    const refreshIndex = indexOfCall(calls, 'schedule-refresh');
     const taskIndex = indexOfCall(calls, 'lifecycle-task');
     const evaluateIndex = indexOfCall(calls, 'attention-evaluate');
     assert.ok(syncIndex >= 0 && monitorIndex > syncIndex && refreshIndex > monitorIndex,
-        'the active terminal change syncs, reconciles, then refreshes');
+        'the active terminal change syncs, reconciles, then schedules one coalesced refresh');
     assert.ok(taskIndex > refreshIndex
         && calls[taskIndex][1] === 'evaluate-attention-active-terminal',
     'the active terminal evaluation runs inside the guarded lifecycle task');
@@ -376,12 +390,13 @@ test('ATTENTION-RUNTIME-EXIT-NEUTRAL-001 a process-exit close runs the lifecycle
     const closeIndex = indexOfCall(calls, 'runtime-close');
     const tickIndex = indexOfCall(calls, 'lifecycle-tick');
     const highlightIndex = indexOfCall(calls, 'highlight-close');
-    const refreshIndex = indexOfCall(calls, 'refresh');
+    const refreshIndex = indexOfCall(calls, 'schedule-refresh');
     const closedTaskIndex = calls.findIndex(call =>
         call[0] === 'lifecycle-task' && call[1] === 'evaluate-attention-closed-terminal');
     assert.ok(closeIndex >= 0 && tickIndex > closeIndex && highlightIndex > tickIndex,
         'the close handler ticks the lifecycle right after runtime close handling');
-    assert.ok(refreshIndex > highlightIndex, 'the views refresh after the highlighter observes the close');
+    assert.ok(refreshIndex > highlightIndex,
+        'the views schedule a coalesced refresh after the highlighter observes the close');
     assert.ok(closedTaskIndex > refreshIndex,
         'the closed-terminal evaluation runs inside the guarded lifecycle task');
     assert.equal(calls.some(call => call[0] === 'local-acknowledge' || call[0] === 'bridge-acknowledge'), false,
@@ -390,7 +405,7 @@ test('ATTENTION-RUNTIME-EXIT-NEUTRAL-001 a process-exit close runs the lifecycle
         'a process exit must not run the user-close acknowledgement task');
 });
 
-test('ATTENTION-USER-TERMINAL-CLOSE-001 a user close acknowledges locally, refreshes, then awaits the bridge', async () => {
+test('ATTENTION-USER-TERMINAL-CLOSE-001 a user close acknowledges locally, schedules a refresh, then awaits the bridge', async () => {
     const runtime = makeRuntime({ backend: 'vscode' });
     const terminal = { name: 'closing', exitStatus: { code: undefined, reason: 3 } };
     runtime.terminal = terminal;
@@ -403,7 +418,7 @@ test('ATTENTION-USER-TERMINAL-CLOSE-001 a user close acknowledges locally, refre
     const acknowledgeTaskIndex = calls.findIndex(call =>
         call[0] === 'lifecycle-task' && call[1] === 'acknowledge-user-terminal-close');
     const localAcknowledgeIndex = indexOfCall(calls, 'local-acknowledge');
-    const refreshAfterAcknowledgeIndex = indexOfCall(calls, 'refresh', localAcknowledgeIndex);
+    const refreshAfterAcknowledgeIndex = indexOfCall(calls, 'schedule-refresh', localAcknowledgeIndex);
     const bridgeAcknowledgeIndex = indexOfCall(calls, 'bridge-acknowledge');
     assert.ok(acknowledgeTaskIndex >= 0 && acknowledgeTaskIndex > closeIndex,
         'the acknowledgement runs inside the guarded lifecycle task');
@@ -412,7 +427,7 @@ test('ATTENTION-USER-TERMINAL-CLOSE-001 a user close acknowledges locally, refre
     assert.ok(localAcknowledgeIndex > acknowledgeTaskIndex,
         'the acknowledgement follows the user close observation');
     assert.ok(refreshAfterAcknowledgeIndex > localAcknowledgeIndex,
-        'the local refresh lands before the bridge await');
+        'the local coalesced refresh is queued before the bridge await');
     assert.ok(bridgeAcknowledgeIndex > refreshAfterAcknowledgeIndex,
         'the cross-window bridge is awaited only after the local refresh');
 

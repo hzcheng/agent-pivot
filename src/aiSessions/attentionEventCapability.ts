@@ -316,7 +316,10 @@ export function createAiSessionAttentionEventCapability(
     }
 
     function refreshAiSessionViewsIncrementally() {
-        void refreshViewsNow();
+        // Runtime probes can report a burst of transitions while a terminal
+        // streams. Route them through the dashboard controller's coalescing
+        // queue instead of rebuilding every session card synchronously.
+        scheduleRefresh('execution');
     }
 
     function publishDeferredTmuxRestoreIfReady(): void {

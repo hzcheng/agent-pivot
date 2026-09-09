@@ -228,9 +228,13 @@ function restoreMachineProjectsFocus(panel, target) {
 }
 
 function focusProjectsPanelFallback(panel) {
-    var fallback = panel && panel.querySelector(
-        '[data-action="save-current-project"], [data-managed-operation="addMachine"], button:not(:disabled)'
-    );
+    if (!panel) {
+        return;
+    }
+    var fallback = panel.querySelector('[data-action="save-current-project"]:not(:disabled)')
+        || panel.querySelector('[data-action="show-add-machine-form"], [data-managed-operation="addMachine"]')
+        || panel.querySelector('[data-action="open-file-transfer"]')
+        || panel.querySelector('button:not(:disabled)');
     if (fallback && typeof fallback.focus === 'function') {
         fallback.focus({ preventScroll: true });
     }

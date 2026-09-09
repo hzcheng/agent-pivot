@@ -48,7 +48,10 @@ import {
     ConversationWorkspaceFileTarget,
 } from './markdown';
 import { renderConversationDiffs } from './diffRenderer';
-import { parseMarkdownSuggestionEnvelope } from './markdownSuggestions';
+import {
+    parseMarkdownSuggestionEnvelope,
+    stripMarkdownSuggestionEnvelope,
+} from './markdownSuggestions';
 import { parseConversationViewerMessage } from './viewerProtocol';
 import type {
     ConversationSessionSwitchDirection,
@@ -2351,7 +2354,9 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!commentId) {
                 continue;
             }
-            const html = renderConversationMarkdown(message.markdown);
+            const html = renderConversationMarkdown(
+                stripMarkdownSuggestionEnvelope(message.markdown)
+            );
             if (!html || Buffer.byteLength(html, 'utf8') > 1_000_000) {
                 continue;
             }

@@ -511,6 +511,36 @@ export interface ConversationWorkspaceFileTarget {
     column: number;
 }
 
+/**
+ * Locate an exact Markdown source fragment for a user-approved replacement.
+ * A suggestion may only apply when the selected text and its bounded context
+ * identify exactly one source range; ambiguity is a conflict, never a guess.
+ */
+export function findUniqueMarkdownSuggestionAnchor(
+    source: string,
+    anchor: { selectedText: string; prefix: string; suffix: string }
+): { start: number; end: number } | undefined {
+    if (typeof source !== 'string' || !anchor
+        || typeof anchor.selectedText !== 'string' || !anchor.selectedText
+        || typeof anchor.prefix !== 'string' || typeof anchor.suffix !== 'string') {
+        return undefined;
+    }
+    let match: { start: number; end: number } | undefined;
+    let start = source.indexOf(anchor.selectedText);
+    while (start >= 0) {
+        const end = start + anchor.selectedText.length;
+        const prefix = source.slice(Math.max(0, start - anchor.prefix.length), start);
+        const suffix = source.slice(end, end + anchor.suffix.length);
+        if ((!anchor.prefix || prefix === anchor.prefix)
+            && (!anchor.suffix || suffix === anchor.suffix)) {
+            if (match) return undefined;
+            match = { start, end };
+        }
+        start = source.indexOf(anchor.selectedText, start + 1);
+    }
+    return match;
+}
+
 function parseConversationFilePosition(value: string): {
     path: string;
     line: number;

@@ -1803,9 +1803,19 @@
     function openMarkdownWorkspaceSuggestion() {
         if (!markdownWorkspaceCommentsAvailable || !markdownWorkspaceSelection) return;
         markdownWorkspaceSuggestionComposer.hidden = false;
-        markdownWorkspaceSuggestionPreview.textContent = 'Replace: “'
-            + markdownWorkspaceSelection.selectedText.slice(0, 240) + '”';
+        markdownWorkspaceSuggestionPreview.textContent = '− '
+            + markdownWorkspaceSelection.selectedText.slice(0, 240)
+            + '\n+ Enter the replacement below to preview and apply it.';
         markdownWorkspaceSuggestionInput.focus();
+    }
+
+    function updateMarkdownWorkspaceSuggestionPreview() {
+        if (!markdownWorkspaceSelection || markdownWorkspaceSuggestionComposer.hidden) return;
+        var replacement = markdownWorkspaceSuggestionInput.value.trim();
+        markdownWorkspaceSuggestionPreview.textContent = '− '
+            + markdownWorkspaceSelection.selectedText.slice(0, 240)
+            + (replacement ? '\n+ ' + replacement.slice(0, 240)
+                : '\n+ Enter the replacement below to preview and apply it.');
     }
 
     function postMarkdownWorkspaceSuggestion() {
@@ -4327,6 +4337,8 @@
                 markdownWorkspaceSuggestionInput.value = '';
             }
         });
+        markdownWorkspaceSuggestionInput.addEventListener('input',
+            updateMarkdownWorkspaceSuggestionPreview);
     }
     messages.addEventListener('click', function (event) {
         var link = event.target && event.target.closest

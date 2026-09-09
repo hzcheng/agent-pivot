@@ -103,6 +103,7 @@ import {
     ConversationSessionRebindCoordinator,
     hasCommittedConversationSessionRuntimeRebind,
 } from './aiSessions/conversation/sessionRebindCoordinator';
+import { findUniqueMarkdownSuggestionAnchor } from './aiSessions/conversation/markdown';
 import AiSessionWorkspaceStateStore from './aiSessions/workspaceStateStore';
 import ActiveAiSessionTerminalHighlighter from './aiSessions/activeTerminalHighlight';
 import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
@@ -2257,25 +2258,11 @@ async function initializeDashboard(
             const source = document.getText();
             if (createHash('sha256').update(Buffer.from(source, 'utf8')).digest('hex')
                 !== suggestion.documentVersion) return 'stale';
-            const starts: number[] = [];
-            let offset = source.indexOf(suggestion.selectedText);
-            while (offset >= 0 && starts.length < 2) {
-                const before = source.slice(Math.max(0, offset - suggestion.prefix.length), offset);
-                const after = source.slice(
-                    offset + suggestion.selectedText.length,
-                    offset + suggestion.selectedText.length + suggestion.suffix.length
-                );
-                if ((!suggestion.prefix || before === suggestion.prefix)
-                    && (!suggestion.suffix || after === suggestion.suffix)) {
-                    starts.push(offset);
-                }
-                offset = source.indexOf(suggestion.selectedText, offset + 1);
-            }
-            if (starts.length !== 1) return 'stale';
+            const range = findUniqueMarkdownSuggestionAnchor(source, suggestion);
+            if (!range) return 'stale';
             const edit = new vscode.WorkspaceEdit();
             edit.replace(document.uri, new vscode.Range(
-                document.positionAt(starts[0]),
-                document.positionAt(starts[0] + suggestion.selectedText.length)
+                document.positionAt(range.start), document.positionAt(range.end)
             ), suggestion.replacement);
             try {
                 return await vscode.workspace.applyEdit(edit) ? 'applied' : 'failed';

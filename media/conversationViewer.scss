@@ -154,6 +154,18 @@ body {
     resize: vertical;
 }
 
+[data-markdown-workspace-suggestion-preview] {
+    margin: 0.35rem 0 0.6rem;
+    padding: 0.5rem;
+    overflow: auto;
+    border-radius: 3px;
+    background: var(--vscode-textCodeBlock-background);
+    color: var(--vscode-editor-foreground);
+    white-space: pre-wrap;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.9em;
+}
+
 .conversation-document-comment-list {
     display: grid;
     gap: 0.65rem;

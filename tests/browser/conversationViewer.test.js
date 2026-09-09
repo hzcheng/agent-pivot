@@ -11869,6 +11869,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     await page.locator('[data-markdown-workspace-suggestion-input]').fill(
         'Rollback strategy with an explicit restore command.'
     );
+    assert.match(await page.locator('[data-markdown-workspace-suggestion-preview]').innerText(),
+        /\+ Rollback strategy with an explicit restore command\./);
     await page.getByRole('button', { name: 'Apply change' }).click();
     const suggestionIntent = (await postedIntents(page)).at(-1);
     assert.equal(suggestionIntent.type, 'conversation-viewer-apply-markdown-suggestion');

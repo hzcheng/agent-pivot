@@ -1,7 +1,7 @@
 'use strict';
 import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { existsSync } from 'fs';
 import {
     access as accessPath,
@@ -2206,6 +2206,10 @@ async function initializeDashboard(
                 return {
                     markdown: new TextDecoder('utf-8', { fatal: true })
                         .decode(contents),
+                    workspaceRootId: createHash('sha256')
+                        .update(canonicalRoot).digest('hex'),
+                    documentVersion: createHash('sha256')
+                        .update(contents).digest('hex'),
                 };
             } catch (_error) {
                 return undefined;

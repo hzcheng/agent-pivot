@@ -155,9 +155,9 @@ export interface ConversationViewerOptions {
     readWorkspaceMarkdown?: (
         target: ConversationWorkspaceFileTarget,
         viewerTarget: ConversationViewerTarget
-    ) => PromiseLike<{ markdown: string } | undefined>
-        | Promise<{ markdown: string } | undefined>
-        | { markdown: string } | undefined;
+    ) => PromiseLike<{ markdown: string; workspaceRootId: string; documentVersion: string } | undefined>
+        | Promise<{ markdown: string; workspaceRootId: string; documentVersion: string } | undefined>
+        | { markdown: string; workspaceRootId: string; documentVersion: string } | undefined;
     mediaUri: (fileName: string) => vscode.Uri;
     showThinking?: () => boolean;
     submitPrompt: (
@@ -2150,7 +2150,7 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!target || !panel) {
             return;
         }
-        let document: { markdown: string } | undefined;
+        let document: { markdown: string; workspaceRootId: string; documentVersion: string } | undefined;
         try {
             document = await this.options.readWorkspaceMarkdown?.(
                 workspaceFile,
@@ -2193,6 +2193,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 relativePath: workspaceFile.relativePath,
                 title,
                 html,
+                workspaceRootId: document.workspaceRootId,
+                documentVersion: document.documentVersion,
                 workspaceRequestId,
                 subscriptionGeneration: this.subscriptionGeneration,
                 projectId: target.projectId,

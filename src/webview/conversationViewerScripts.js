@@ -1536,6 +1536,10 @@
             && typeof message.relativePath === 'string'
             && message.relativePath.length > 0
             && message.relativePath.length <= 4096
+            && typeof message.workspaceRootId === 'string'
+            && message.workspaceRootId.length > 0 && message.workspaceRootId.length <= 512
+            && typeof message.documentVersion === 'string'
+            && message.documentVersion.length > 0 && message.documentVersion.length <= 512
             && typeof message.title === 'string'
             && message.title.length > 0 && message.title.length <= 512
             && typeof message.html === 'string'

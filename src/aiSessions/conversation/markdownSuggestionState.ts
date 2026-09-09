@@ -1,6 +1,7 @@
 'use strict';
 
-import { isBoundedId, isTimestamp } from './commentPrimitives';
+import { isAiSessionProvider, isBoundedId, isTimestamp } from './commentPrimitives';
+import type { AiSessionProviderId } from '../../models';
 import {
     isMarkdownDocumentCommentTarget,
     MarkdownDocumentCommentTarget,
@@ -13,6 +14,8 @@ const MAX_SUGGESTION_STATES = 100;
 export type MarkdownSuggestionDisposition = 'dismissed' | 'applied' | 'outdated';
 
 export interface MarkdownSuggestionState {
+    provider: AiSessionProviderId;
+    sessionId: string;
     messageId: string;
     disposition: MarkdownSuggestionDisposition;
     updatedAt: number;
@@ -38,13 +41,15 @@ export function validateMarkdownSuggestionStates(states: unknown): asserts state
     const ids = new Set<string>();
     for (const state of states) {
         if (!state || typeof state !== 'object' || Array.isArray(state)
-            || !isBoundedId(state.messageId) || ids.has(state.messageId)
+            || !isAiSessionProvider(state.provider) || !isBoundedId(state.sessionId)
+            || !isBoundedId(state.messageId)
+            || ids.has([state.provider, state.sessionId, state.messageId].join('\u0001'))
             || (state.disposition !== 'dismissed' && state.disposition !== 'applied'
                 && state.disposition !== 'outdated')
             || !isTimestamp(state.updatedAt)) {
             throw new Error('Invalid Markdown suggestion state snapshot.');
         }
-        ids.add(state.messageId);
+        ids.add([state.provider, state.sessionId, state.messageId].join('\u0001'));
     }
 }
 

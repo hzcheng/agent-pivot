@@ -12016,7 +12016,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     const workspace = page.locator('[data-markdown-workspace]');
     const conversation = page.locator('[data-conversation-scroll]');
     const documentHtml = '<h1>Architecture plan</h1>'
-        + '<p>Rollback strategy</p>'
+        + '<p><strong>Rollback</strong> strategy</p>'
         + '<p><a href="docs/next-plan.md#L3">Open next plan</a></p>'
         + '<p>Rollback strategy</p>'
         + '<p>' + 'Detailed review context. '.repeat(800) + '</p>';
@@ -12088,6 +12088,20 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         /tested restore command/,
         'an AI reply refreshes cards without reopening or moving the reading surface');
     await page.getByRole('button', { name: 'Dismiss' }).click();
+    const dismissIntent = (await postedIntents(page)).at(-1);
+    assert.equal(dismissIntent.type, 'conversation-viewer-markdown-suggestion-status');
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-suggestion-status-result', version: 1,
+        requestId: dismissIntent.requestId, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        document: {
+            workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:architecture-a',
+        },
+        success: true,
+    });
+    assert.equal(await page.getByRole('button', { name: 'Dismiss' }).isDisabled(), true,
+        'a persistence acknowledgement alone cannot settle the pending card');
     await sendPage(page, {
         type: 'conversation-viewer-markdown-workspace-suggestions',
         version: 1,
@@ -12103,6 +12117,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         }],
         subscriptionGeneration: 1,
         projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        settlesRequestId: dismissIntent.requestId,
     });
     assert.equal(await page.getByRole('heading', { name: 'AI suggested change' }).count(), 0,
         'a rejected suggestion stays closed when the conversation refreshes');
@@ -12168,7 +12183,11 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     });
     assert.equal(await page.locator('[data-comment-id="document-comment-a"]').isVisible(), true);
     assert.equal(await page.locator('[data-markdown-workspace-comment-marker="document-comment-a"]').isVisible(), true,
-        'a file comment remains locatable from a compact marker in the rendered document');
+        'a cross-format file comment remains locatable from a compact marker in the rendered document');
+    await page.getByRole('button', { name: 'Locate commented passage' }).click();
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute(
+        'data-markdown-workspace-comment-marker'
+    )), 'document-comment-a', 'a document-scoped AI reply remains tied to its source comment');
     await page.getByRole('button', { name: 'Locate in document' }).click();
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute(
         'data-markdown-workspace-comment-marker'

@@ -5431,6 +5431,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
         load: async () => ({
             revision: 4,
             suggestions: [{
+                provider: 'codex', sessionId: 'session-a',
                 messageId: 'assistant-suggestion-a',
                 disposition: 'outdated',
                 updatedAt: 1000,
@@ -5528,6 +5529,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a rejected suggestion only fo
     assert.deepEqual(saved[0].snapshot, {
         revision: 1,
         suggestions: [{
+            provider: 'codex', sessionId: 'session-a',
             messageId: 'assistant-suggestion-a', disposition: 'dismissed',
             updatedAt: saved[0].snapshot.suggestions[0].updatedAt,
         }],

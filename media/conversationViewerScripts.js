@@ -1677,6 +1677,10 @@
             && message.relativePath.length > 0 && message.relativePath.length <= 4096
             && typeof message.documentVersion === 'string'
             && message.documentVersion.length > 0 && message.documentVersion.length <= 512
+            && (typeof message.settlesRequestId === 'undefined'
+                || (typeof message.settlesRequestId === 'string'
+                    && message.settlesRequestId.length > 0
+                    && message.settlesRequestId.length <= 256))
             && Number.isSafeInteger(message.subscriptionGeneration)
             && message.subscriptionGeneration >= 1
             && validCommentTarget({
@@ -1704,9 +1708,13 @@
         if (!markdownWorkspaceCommentsAvailable) return;
         markdownWorkspaceCommentList.textContent = '';
         var valid = markdownWorkspaceComments.filter(validMarkdownWorkspaceComment);
-        markdownWorkspaceCommentCount.textContent = valid.length
-            ? String(valid.length) : 'No comments';
-        valid.forEach(function (comment) {
+        // Resolved comments remain durable audit history, but are deliberately
+        // hidden from the working discussion so completed work does not bury
+        // new review threads.
+        var visible = valid.filter(function (comment) { return comment.status !== 'resolved'; });
+        markdownWorkspaceCommentCount.textContent = visible.length
+            ? String(visible.length) : 'No open comments';
+        visible.forEach(function (comment) {
             var card = document.createElement('article');
             card.className = 'conversation-document-comment-card';
             card.setAttribute('data-comment-id', comment.id);
@@ -1732,7 +1740,7 @@
             card.appendChild(footer);
             markdownWorkspaceCommentList.appendChild(card);
         });
-        renderMarkdownWorkspaceCommentMarkers(valid);
+        renderMarkdownWorkspaceCommentMarkers(visible);
     }
 
     function renderMarkdownWorkspaceReplies() {
@@ -1742,6 +1750,7 @@
             var card = document.createElement('article');
             card.className = 'conversation-document-reply-card';
             card.setAttribute('data-markdown-workspace-reply-id', reply.messageId);
+            card.setAttribute('data-comment-id', reply.commentId);
             var heading = document.createElement('h3');
             heading.textContent = 'AI reply';
             card.appendChild(heading);
@@ -1753,6 +1762,9 @@
             content.className = 'conversation-markdown';
             content.innerHTML = sanitizeConversationHtml(reply.html);
             card.appendChild(content);
+            card.appendChild(workspaceCommentButton(
+                'Locate commented passage', 'locate', reply.commentId
+            ));
             markdownWorkspaceReplyList.appendChild(card);
         });
     }
@@ -1975,7 +1987,8 @@
         comments.filter(function (comment) {
             return comment.status !== 'outdated' && comment.anchor.selectedText;
         }).forEach(function (comment, index) {
-            var target = findMarkdownWorkspaceCommentElement(comment.anchor);
+            var range = findMarkdownWorkspaceCommentRange(comment.anchor);
+            var target = range && markdownWorkspaceCommentMarkerContainer(range);
             if (!target) return;
             var marker = document.createElement('button');
             marker.type = 'button';
@@ -1987,37 +2000,68 @@
         });
     }
 
-    function findMarkdownWorkspaceCommentElement(anchor) {
-        var elements = markdownWorkspaceContent.querySelectorAll(
-            'p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6'
-        );
-        var matches = [];
-        Array.prototype.forEach.call(elements, function (element) {
-            var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-            var node;
-            while ((node = walker.nextNode())) {
-                var value = String(node.nodeValue || '');
-                var offset = value.indexOf(anchor.selectedText);
-                while (offset >= 0) {
-                    var beforeRange = document.createRange();
-                    beforeRange.selectNodeContents(markdownWorkspaceContent);
-                    beforeRange.setEnd(node, offset);
-                    var afterRange = document.createRange();
-                    afterRange.selectNodeContents(markdownWorkspaceContent);
-                    afterRange.setStart(node, offset + anchor.selectedText.length);
-                    var prefix = String(beforeRange.toString() || '').replace(/\s+/g, ' ');
-                    var suffix = String(afterRange.toString() || '').replace(/\s+/g, ' ');
-                    if ((!anchor.prefix || prefix.endsWith(anchor.prefix))
-                        && (!anchor.suffix || suffix.startsWith(anchor.suffix))) {
-                        matches.push(element);
+    function markdownWorkspaceTextModel() {
+        var text = '';
+        var positions = [];
+        var previousWhitespace = false;
+        var walker = document.createTreeWalker(markdownWorkspaceContent, NodeFilter.SHOW_TEXT);
+        var node;
+        while ((node = walker.nextNode())) {
+            if (node.parentElement && node.parentElement.closest(
+                '[data-markdown-workspace-comment-marker]'
+            )) continue;
+            var value = String(node.nodeValue || '');
+            for (var offset = 0; offset < value.length; offset += 1) {
+                var character = value.charAt(offset);
+                if (/\s/.test(character)) {
+                    if (!previousWhitespace) {
+                        text += ' ';
+                        positions.push({ node: node, offset: offset });
                     }
-                    offset = value.indexOf(anchor.selectedText, offset + 1);
+                    previousWhitespace = true;
+                } else {
+                    text += character;
+                    positions.push({ node: node, offset: offset });
+                    previousWhitespace = false;
                 }
             }
-        });
+        }
+        return { text: text.trim(), positions: positions };
+    }
+
+    function markdownWorkspaceCommentMarkerContainer(range) {
+        var node = range.startContainer.nodeType === 1
+            ? range.startContainer : range.startContainer.parentElement;
+        return node && node.closest && node.closest(
+            'p, li, blockquote, td, th, h1, h2, h3, h4, h5, h6'
+        );
+    }
+
+    function findMarkdownWorkspaceCommentRange(anchor) {
+        var model = markdownWorkspaceTextModel();
+        var quote = String(anchor && anchor.selectedText || '').replace(/\s+/g, ' ').trim();
+        if (!quote) return undefined;
+        var matches = [];
+        var offset = model.text.indexOf(quote);
+        while (offset >= 0 && matches.length < 2) {
+            var prefix = model.text.slice(0, offset);
+            var suffix = model.text.slice(offset + quote.length);
+            if ((!anchor.prefix || prefix.endsWith(anchor.prefix))
+                && (!anchor.suffix || suffix.startsWith(anchor.suffix))) {
+                matches.push(offset);
+            }
+            offset = model.text.indexOf(quote, offset + 1);
+        }
         // A marker must never guess between duplicate passages. Returning no
         // marker keeps “Locate” honest and lets the Host mark it stale later.
-        return matches.length === 1 ? matches[0] : undefined;
+        if (matches.length !== 1) return undefined;
+        var start = model.positions[matches[0]];
+        var end = model.positions[matches[0] + quote.length - 1];
+        if (!start || !end) return undefined;
+        var range = document.createRange();
+        range.setStart(start.node, start.offset);
+        range.setEnd(end.node, end.offset + 1);
+        return range;
     }
 
     function locateMarkdownWorkspaceComment(commentId) {
@@ -2231,7 +2275,10 @@
             || message.requestId !== markdownWorkspacePendingSuggestionStatusRequestId) return false;
         if (!message.success) {
             markdownWorkspacePendingSuggestionStatusRequestId = '';
-            setMarkdownWorkspaceCommentPending(false, 'Suggestion decision could not be saved.');
+            setMarkdownWorkspaceCommentPending(false,
+                message.error === 'refresh-unavailable'
+                    ? 'Suggestion was saved, but the reader could not refresh. Try again after reopening it.'
+                    : 'Suggestion decision could not be saved.');
         }
         return true;
     }
@@ -2469,6 +2516,8 @@
         markdownWorkspaceSelection = undefined;
         markdownWorkspacePendingRequestId = '';
         markdownWorkspacePendingSuggestionId = '';
+        markdownWorkspacePendingSuggestionSourceId = '';
+        markdownWorkspacePendingSuggestionStatusRequestId = '';
         setMarkdownWorkspaceCommentPending(false, '');
         markdownWorkspaceSendAfterSave = false;
         markdownWorkspaceTitle.textContent = message.title;
@@ -2532,7 +2581,8 @@
         markdownWorkspaceReplies = message.replies.slice();
         renderMarkdownWorkspaceSuggestions();
         renderMarkdownWorkspaceReplies();
-        if (markdownWorkspacePendingSuggestionStatusRequestId) {
+        if (markdownWorkspacePendingSuggestionStatusRequestId
+            && message.settlesRequestId === markdownWorkspacePendingSuggestionStatusRequestId) {
             markdownWorkspacePendingSuggestionStatusRequestId = '';
             setMarkdownWorkspaceCommentPending(false, 'Suggested change dismissed.');
         }
@@ -4762,6 +4812,14 @@
             } else if (action === 'locate') {
                 locateMarkdownWorkspaceCommentSource(commentId);
             }
+        });
+        markdownWorkspaceReplyList.addEventListener('click', function (event) {
+            var target = event.target && event.target.closest
+                ? event.target.closest('[data-markdown-workspace-existing-comment-action]') : null;
+            if (!target || target.getAttribute('data-markdown-workspace-existing-comment-action')
+                !== 'locate') return;
+            var commentId = target.getAttribute('data-comment-id');
+            if (commentId) locateMarkdownWorkspaceCommentSource(commentId);
         });
         markdownWorkspaceSuggestionComposer.addEventListener('submit', function (event) {
             event.preventDefault();

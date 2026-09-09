@@ -2353,6 +2353,8 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             const state = this.markdownSuggestionStates.find(candidate =>
                 candidate.messageId === message.id
+                && candidate.provider === this.target?.provider
+                && candidate.sessionId === this.target?.sessionId
             );
             suggestions.push({
                 messageId: message.id,
@@ -2398,13 +2400,21 @@ export class ConversationViewer implements ConversationViewerApi {
     ): Promise<void> {
         const target = this.markdownSuggestionStateTarget;
         const store = this.markdownSuggestionStateStore;
-        if (!target || !store || !messageId) {
+        const viewerTarget = this.target;
+        if (!target || !store || !viewerTarget || !messageId) {
             return;
         }
         const current = this.markdownSuggestionStates.filter(state =>
-            state.messageId !== messageId
+            state.messageId !== messageId || state.provider !== viewerTarget.provider
+                || state.sessionId !== viewerTarget.sessionId
         );
-        current.unshift({ messageId, disposition, updatedAt: Date.now() });
+        current.unshift({
+            provider: viewerTarget.provider,
+            sessionId: viewerTarget.sessionId,
+            messageId,
+            disposition,
+            updatedAt: Date.now(),
+        });
         const next = {
             revision: this.markdownSuggestionStateRevision + 1,
             suggestions: current.slice(0, 100),
@@ -2451,15 +2461,16 @@ export class ConversationViewer implements ConversationViewerApi {
     private async publishActiveMarkdownWorkspaceSuggestions(
         panel: vscode.WebviewPanel,
         target: ConversationViewerTarget,
-        generation: number
-    ): Promise<void> {
+        generation: number,
+        settlesRequestId?: string
+    ): Promise<boolean> {
         const active = this.activeMarkdownWorkspace;
         if (!active || active.target !== target || active.generation !== generation
             || generation !== this.subscriptionGeneration) {
-            return;
+            return false;
         }
         try {
-            await panel.webview.postMessage({
+            return await panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-workspace-suggestions', version: 1,
                 workspaceRootId: active.workspaceRootId,
                 relativePath: active.workspaceFile.relativePath,
@@ -2470,8 +2481,13 @@ export class ConversationViewer implements ConversationViewerApi {
                 projectId: target.projectId,
                 provider: target.provider,
                 sessionId: target.sessionId,
+                settlesRequestId,
             });
-        } catch (_error) { /* A rebuilding Webview receives suggestions later. */ }
+        } catch (_error) {
+            // A rebuilding Webview receives suggestions later. The caller must
+            // still settle a correlated mutation as a delivery failure.
+            return false;
+        }
     }
 
     private async applyMarkdownSuggestion(
@@ -2564,32 +2580,33 @@ export class ConversationViewer implements ConversationViewerApi {
             && this.markdownWorkspaceSuggestions().some(suggestion =>
                 suggestion.messageId === message.payload.suggestionId
             ));
-        let success = false;
+        let saved = false;
         if (matches) {
             try {
                 await this.rememberMarkdownSuggestionDisposition(
                     message.payload.suggestionId, message.payload.disposition
                 );
-                success = true;
+                saved = true;
             } catch (_error) {
                 this.showNotice('Suggestion decision could not be saved.');
             }
         }
         const panel = this.panel;
+        // A successful persistence acknowledgement is not enough to settle the
+        // Webview. It must first receive the exact authoritative replacement
+        // that contains the new disposition.
+        const refreshed = Boolean(saved && panel && target
+            && await this.publishActiveMarkdownWorkspaceSuggestions(
+                panel, target, this.subscriptionGeneration, message.requestId
+            ));
         if (panel) {
             await Promise.resolve(panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-suggestion-status-result', version: 1,
                 requestId: message.requestId, subscriptionGeneration: message.subscriptionGeneration,
                 projectId: message.projectId, provider: message.provider,
-                sessionId: message.sessionId, document: { ...message.document }, success,
+                sessionId: message.sessionId, document: { ...message.document }, success: refreshed,
+                error: saved && !refreshed ? 'refresh-unavailable' : undefined,
             })).catch(() => undefined);
-        }
-        if (success && panel && target) {
-            try {
-                await this.publishActiveMarkdownWorkspaceSuggestions(
-                    panel, target, this.subscriptionGeneration
-                );
-            } catch (_error) { /* authority refresh on the next conversation update */ }
         }
     }
 

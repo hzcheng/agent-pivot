@@ -149,3 +149,36 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 preserves a uniquely relocated a
     assert.equal(controller.snapshot.comments[0].status, 'sent');
     assert.equal(controller.snapshot.comments[0].documentVersion, 'sha256:document-next');
 });
+
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 relocates duplicate quotes only with a unique heading or line hint', async () => {
+    const { controller } = createHarness({
+        documentCommentStore: { load: async () => ({ revision: 1, comments: [
+            {
+                id: 'comment-heading', documentVersion: DOCUMENT.documentVersion,
+                anchor: { selectedText: 'Deploy carefully.', prefix: '', suffix: '', headingPath: ['Release'] },
+                text: 'Review the release advice.', status: 'sent', createdAt: 1,
+            },
+            {
+                id: 'comment-range', documentVersion: DOCUMENT.documentVersion,
+                anchor: {
+                    selectedText: 'Verify rollback.', prefix: '', suffix: '', headingPath: ['Missing'],
+                    rangeHint: { startLine: 7, endLine: 7 },
+                },
+                text: 'Keep this check.', status: 'sent', createdAt: 1,
+            },
+        ] }), save: async () => undefined },
+    });
+    await controller.activate({
+        target: { projectId: 'project-a', workspaceRootId: 'workspace-root-a', relativePath: 'docs/plan.md' },
+        documentVersion: 'sha256:document-next',
+        markdown: [
+            '# Draft', 'Deploy carefully.', 'Verify rollback.', '', '# Release',
+            'Deploy carefully.', 'Verify rollback.',
+        ].join('\n'),
+        viewerTarget: VIEWER_TARGET, subscriptionGeneration: 7,
+    });
+    assert.equal(controller.snapshot.comments[0].status, 'sent');
+    assert.equal(controller.snapshot.comments[0].documentVersion, 'sha256:document-next');
+    assert.equal(controller.snapshot.comments[1].status, 'sent');
+    assert.equal(controller.snapshot.comments[1].documentVersion, 'sha256:document-next');
+});

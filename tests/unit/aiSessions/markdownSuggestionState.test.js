@@ -17,6 +17,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists bounded suggestion decisions 
     const snapshot = {
         revision: 3,
         suggestions: [{
+            provider: 'codex',
+            sessionId: 'session-a',
             messageId: 'assistant-message-a',
             disposition: 'outdated',
             updatedAt: 1234,

@@ -322,24 +322,95 @@ function relocateMarkdownDocumentComment(
     comment: MarkdownDocumentComment,
     context: MarkdownDocumentCommentContext
 ): MarkdownDocumentComment {
-    const source = String(context.markdown || '').replace(/\s+/g, ' ');
+    const markdown = String(context.markdown || '');
+    const source = normalizeAnchorText(markdown);
     const quote = comment.anchor.selectedText;
+    // Relocation intentionally progresses from strongest to weaker evidence.
+    // Context must be exact first; a heading only disambiguates a unique quote
+    // within that section, then a persisted source-line hint does the same.
+    if (matchingAnchorOccurrences(source, quote, comment.anchor.prefix, comment.anchor.suffix).length === 1
+        || matchesUniqueHeadingSection(markdown, quote, comment.anchor.headingPath)
+        || matchesUniqueRangeHint(markdown, quote, comment.anchor.rangeHint)) {
+        return {
+            ...cloneMarkdownDocumentComments([comment])[0],
+            documentVersion: context.documentVersion,
+        };
+    }
+    return setMarkdownDocumentCommentStatus(comment, 'outdated', Date.now());
+}
+
+function normalizeAnchorText(value: string): string {
+    return value.replace(/\s+/g, ' ').trim();
+}
+
+function matchingAnchorOccurrences(
+    source: string,
+    quote: string,
+    prefix: string,
+    suffix: string
+): number[] {
+    if (!quote) { return []; }
+    const matches: number[] = [];
     let start = source.indexOf(quote);
-    let matches = 0;
-    while (start >= 0 && matches < 2) {
-        const before = source.slice(Math.max(0, start - comment.anchor.prefix.length), start);
+    while (start >= 0 && matches.length < 2) {
+        const before = source.slice(Math.max(0, start - prefix.length), start);
         const end = start + quote.length;
-        const after = source.slice(end, end + comment.anchor.suffix.length);
-        if ((!comment.anchor.prefix || before === comment.anchor.prefix)
-            && (!comment.anchor.suffix || after === comment.anchor.suffix)) {
-            matches += 1;
+        const after = source.slice(end, end + suffix.length);
+        if ((!prefix || before === prefix) && (!suffix || after === suffix)) {
+            matches.push(start);
         }
         start = source.indexOf(quote, start + 1);
     }
-    if (matches === 1) {
-        return { ...cloneMarkdownDocumentComments([comment])[0], documentVersion: context.documentVersion };
-    }
-    return setMarkdownDocumentCommentStatus(comment, 'outdated', Date.now());
+    return matches;
+}
+
+function matchesUniqueHeadingSection(
+    markdown: string,
+    quote: string,
+    headingPath: readonly string[]
+): boolean {
+    if (!quote || !headingPath.length) { return false; }
+    const lines = markdown.split(/\r?\n/);
+    const headings: Array<{ line: number; level: number; text: string }> = [];
+    lines.forEach((line, lineIndex) => {
+        const match = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
+        if (match) {
+            headings.push({ line: lineIndex, level: match[1].length, text: normalizeAnchorText(match[2]) });
+        }
+    });
+    const candidates = headings.filter(heading => {
+        if (heading.text !== headingPath[headingPath.length - 1]) { return false; }
+        const trail: string[] = [];
+        for (let index = headings.indexOf(heading); index >= 0 && trail.length < headingPath.length; index -= 1) {
+            const candidate = headings[index];
+            if (candidate.level <= heading.level - trail.length) {
+                trail.unshift(candidate.text);
+            }
+        }
+        return trail.join('\u0001') === headingPath.map(normalizeAnchorText).join('\u0001');
+    });
+    if (candidates.length !== 1) { return false; }
+    const section = candidates[0];
+    const end = headings.slice(headings.indexOf(section) + 1)
+        .find(heading => heading.level <= section.level)?.line ?? lines.length;
+    return matchingAnchorOccurrences(normalizeAnchorText(lines.slice(section.line, end).join('\n')),
+        quote, '', '').length === 1;
+}
+
+function matchesUniqueRangeHint(
+    markdown: string,
+    quote: string,
+    rangeHint: MarkdownDocumentComment['anchor']['rangeHint']
+): boolean {
+    if (!quote || !rangeHint) { return false; }
+    const matches: number[] = [];
+    const lines = markdown.split(/\r?\n/);
+    lines.forEach((line, index) => {
+        const lineNumber = index + 1;
+        if (lineNumber < rangeHint.startLine || lineNumber > rangeHint.endLine) { return; }
+        if (normalizeAnchorText(line).indexOf(quote) >= 0) { matches.push(lineNumber); }
+    });
+    return matches.length === 1;
 }
 
 function parseExistingPayload(request: ConversationViewerDocumentCommentMutationMessage): {

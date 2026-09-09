@@ -51,6 +51,42 @@ export interface ConversationViewerOpenMarkdownEditorMessage {
     sessionId: string;
 }
 
+export interface ConversationViewerDocumentCommentMutationMessage {
+    type: 'conversation-viewer-document-comment-mutation';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'add' | 'update' | 'delete' | 'setStatus';
+    expectedRevision: number;
+    document: {
+        workspaceRootId: string;
+        relativePath: string;
+        documentVersion: string;
+    };
+    payload: unknown;
+}
+
+export interface ConversationViewerSendDocumentCommentMessage {
+    type: 'conversation-viewer-send-document-comment';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'sendDocumentComment';
+    expectedRevision: number;
+    document: {
+        workspaceRootId: string;
+        relativePath: string;
+        documentVersion: string;
+    };
+    payload: { commentId: string };
+}
+
 export interface ConversationViewerCommentMutationMessage {
     type: 'conversation-viewer-comment-mutation';
     version: 1;
@@ -412,6 +448,8 @@ export type ConversationViewerMessage =
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerOpenMarkdownEditorMessage
+    | ConversationViewerDocumentCommentMutationMessage
+    | ConversationViewerSendDocumentCommentMessage
     | ConversationViewerSendSelectionMessage
     | ConversationViewerRunCommandMessage
     | ConversationViewerSwitchSessionMessage
@@ -879,6 +917,46 @@ export function parseConversationViewerMessage(
             return value as unknown as ConversationViewerCopyMessage;
         }
         return undefined;
+    }
+    if (value.type === 'conversation-viewer-document-comment-mutation'
+        || value.type === 'conversation-viewer-send-document-comment') {
+        if (keys.length !== 11
+            || !hasExactKeys(value, [
+                'type', 'version', 'requestId', 'subscriptionGeneration',
+                'projectId', 'provider', 'sessionId', 'operation',
+                'expectedRevision', 'document', 'payload',
+            ])
+            || !isRequestId(value.requestId)
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isConversationViewerTargetId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)
+            || !isNonnegativeSafeInteger(value.expectedRevision)
+            || !isRecord(value.document)
+            || !hasExactKeys(value.document, [
+                'workspaceRootId', 'relativePath', 'documentVersion',
+            ])
+            || !isConversationViewerTargetId(value.document.workspaceRootId)
+            || typeof value.document.relativePath !== 'string'
+            || value.document.relativePath.length < 1
+            || value.document.relativePath.length > 4096
+            || !isConversationViewerTargetId(value.document.documentVersion)
+            || !isRecord(value.payload)) {
+            return undefined;
+        }
+        if (value.type === 'conversation-viewer-document-comment-mutation') {
+            if (value.operation !== 'add' && value.operation !== 'update'
+                && value.operation !== 'delete' && value.operation !== 'setStatus') {
+                return undefined;
+            }
+            return value as unknown as ConversationViewerDocumentCommentMutationMessage;
+        }
+        if (value.operation !== 'sendDocumentComment'
+            || !hasExactKeys(value.payload, ['commentId'])
+            || !isConversationViewerTargetId(value.payload.commentId)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerSendDocumentCommentMessage;
     }
     if (value.type === 'conversation-viewer-project-comment-mutation'
         || value.type === 'conversation-viewer-send-project-comment') {

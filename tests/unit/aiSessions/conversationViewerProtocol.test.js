@@ -38,6 +38,22 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         provider: 'codex',
         sessionId: 'session-1',
     }, {
+        type: 'conversation-viewer-document-comment-mutation',
+        version: 1,
+        requestId: 'document-comment-1',
+        subscriptionGeneration: 1,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-1',
+        operation: 'add',
+        expectedRevision: 0,
+        document: {
+            workspaceRootId: 'root-1',
+            relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:document-1',
+        },
+        payload: { text: 'Review this selection.' },
+    }, {
         type: 'conversation-viewer-send-selection',
         version: 1,
         text: 'quoted selection',

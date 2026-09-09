@@ -25,8 +25,11 @@ export const DOCUMENT_COMMENT_LIMITS = Object.freeze({
     maxHeadingDepth: 20,
     maxHeadingGraphemes: 240,
     maxPromptGraphemes: 16_000,
-    maxDiscussionReplies: 20,
-    maxDiscussionReplyGraphemes: 12_000,
+    // The whole file-backed snapshot is capped at 2 MiB. Keep the per-comment
+    // envelope deliberately below that cap even with a full document of
+    // comments, rather than accepting values that persistence must reject.
+    maxDiscussionReplies: 8,
+    maxDiscussionReplyGraphemes: 2_000,
     maxLine: 10_000_000,
 });
 
@@ -38,7 +41,7 @@ export interface MarkdownDocumentCommentTarget {
 }
 
 export type MarkdownDocumentCommentStatus =
-    | 'draft' | 'sent' | 'resolved' | 'outdated';
+    | 'draft' | 'sending' | 'sent' | 'resolved' | 'outdated';
 
 export interface MarkdownDocumentCommentAnchor {
     selectedText: string;
@@ -157,7 +160,7 @@ export function setMarkdownDocumentCommentStatus(
         delete next.resolvedAt;
     } else if (status === 'resolved') {
         next.resolvedAt = at;
-    } else if (status === 'draft') {
+    } else if (status === 'draft' || status === 'sending') {
         delete next.sentAt;
         delete next.resolvedAt;
     } else {
@@ -296,14 +299,18 @@ function isDiscussion(value: unknown): value is MarkdownDocumentCommentReply[] {
     const ids = new Set<string>();
     return value.every(reply => isRecord(reply)
         && isBoundedId(reply.messageId)
-        && !ids.has(reply.messageId)
-        && (ids.add(reply.messageId), true)
+        && !ids.has(discussionReplyIdentity(reply))
+        && (ids.add(discussionReplyIdentity(reply)), true)
         && typeof reply.markdown === 'string'
         && graphemeLength(reply.markdown) > 0
         && graphemeLength(reply.markdown) <= DOCUMENT_COMMENT_LIMITS.maxDiscussionReplyGraphemes
         && (reply.provider === undefined || isAiSessionProvider(reply.provider))
         && (reply.sessionId === undefined || isBoundedId(reply.sessionId))
         && isTimestamp(reply.createdAt));
+}
+
+function discussionReplyIdentity(reply: Record<string, unknown>): string {
+    return [reply.provider || '', reply.sessionId || '', reply.messageId || ''].join('\u0001');
 }
 
 function requireDocumentVersion(value: unknown): string {
@@ -367,7 +374,7 @@ function isBoundedLine(value: unknown): value is number {
 function isDocumentCommentStatus(
     value: unknown
 ): value is MarkdownDocumentCommentStatus {
-    return value === 'draft' || value === 'sent'
+    return value === 'draft' || value === 'sending' || value === 'sent'
         || value === 'resolved' || value === 'outdated';
 }
 

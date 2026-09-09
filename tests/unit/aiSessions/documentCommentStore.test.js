@@ -49,7 +49,8 @@ test('MARKDOWN-DOCUMENT-COMMENTS-PERSISTENCE-001 isolates snapshots by root and 
         revision: 0, comments: [],
     });
     await store.save(target, { revision: 4, comments: [] });
-    assert.deepEqual(await store.load(target), { revision: 0, comments: [] });
+    assert.deepEqual(await store.load(target), { revision: 4, comments: [] },
+        'an empty snapshot retains its revision so another window cannot resurrect deleted comments');
 });
 
 test('MARKDOWN-DOCUMENT-COMMENTS-PERSISTENCE-001 degrades corrupt persisted records to an empty snapshot', async t => {
@@ -63,4 +64,16 @@ test('MARKDOWN-DOCUMENT-COMMENTS-PERSISTENCE-001 degrades corrupt persisted reco
         comments: [{ id: 'broken' }],
     }), 'utf8');
     assert.deepEqual(await store.load(target), { revision: 0, comments: [] });
+});
+
+test('MARKDOWN-DOCUMENT-COMMENTS-PERSISTENCE-001 rejects a stale concurrent snapshot instead of losing comments', async t => {
+    const root = makeTempDirectory(t, 'agent-pivot-document-comments-cas-');
+    const first = new MarkdownDocumentCommentFileStore(root);
+    const second = new MarkdownDocumentCommentFileStore(root);
+    await first.save(target, snapshot());
+    await assert.rejects(() => second.save(target, {
+        revision: 3,
+        comments: [{ ...snapshot().comments[0], id: 'comment-b' }],
+    }), /changed in another window/);
+    assert.deepEqual(await first.load(target), snapshot());
 });

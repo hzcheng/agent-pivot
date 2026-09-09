@@ -2,11 +2,18 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const Module = require('node:module');
 const childProcess = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+
+function markdownSuggestionWireId(provider, sessionId, messageId) {
+    return crypto.createHash('sha256').update(JSON.stringify([
+        provider, sessionId, messageId,
+    ])).digest('hex');
+}
 
 function fakeUri(value) {
     return {
@@ -5491,8 +5498,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion de
     );
     assert.deepEqual(workspace.suggestions.map(suggestion => suggestion.messageId),
         [
-            'codex\u0001session-a\u0001assistant-suggestion-a',
-            'codex\u0001session-a\u0001assistant-historic-suggestion-a',
+            markdownSuggestionWireId('codex', 'session-a', 'assistant-suggestion-a'),
+            markdownSuggestionWireId('codex', 'session-a', 'assistant-historic-suggestion-a'),
         ]);
     assert.equal(workspace.suggestions[0].disposition, 'outdated');
     assert.equal(workspace.suggestions[1].disposition, 'dismissed',
@@ -5545,7 +5552,10 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a rejected suggestion only fo
             workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
             documentVersion: 'sha256:document-a',
         },
-        payload: { suggestionId: 'assistant-suggestion-a', disposition: 'dismissed' },
+        payload: {
+            suggestionId: markdownSuggestionWireId('codex', 'session-a', 'assistant-suggestion-a'),
+            disposition: 'dismissed',
+        },
     });
     assert.equal(saved.length, 1, 'the Host must persist a recognized dismissal');
     assert.deepEqual(saved[0].storeTarget, {

@@ -12077,7 +12077,11 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         workspaceRootId: 'root-a',
         relativePath: 'docs/architecture-plan.md',
         documentVersion: 'sha256:architecture-a',
-        replies: [],
+        replies: [{
+            messageId: 'assistant-reply-a',
+            commentId: 'document-comment-a',
+            html: '<p>Test the restore command in staging before release.</p>',
+        }],
         suggestions: [{
             messageId: 'assistant-suggestion-b',
             selectedText: 'Rollback strategy',
@@ -12112,7 +12116,11 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         workspaceRootId: 'root-a',
         relativePath: 'docs/architecture-plan.md',
         documentVersion: 'sha256:architecture-a',
-        replies: [],
+        replies: [{
+            messageId: 'assistant-reply-a',
+            commentId: 'document-comment-a',
+            html: '<p>Test the restore command in staging before release.</p>',
+        }],
         suggestions: [{
             messageId: 'assistant-suggestion-b',
             selectedText: 'Rollback strategy',
@@ -12270,12 +12278,29 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         'the reader fits without horizontal overflow at the minimum width');
     assert.equal(await page.locator('[data-markdown-workspace-discussion]').isHidden(), true,
         'narrow readers keep the discussion out of the reading viewport by default');
-    await page.getByRole('button', { name: 'Discussion' }).click();
+    const narrowHeader = page.locator('.conversation-document-workspace-header');
+    assert.equal(await narrowHeader.evaluate(element => element.scrollWidth <= element.clientWidth), true,
+        'the fixed compact header wraps controls instead of overflowing the viewport');
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace-suggestions', version: 1,
+        workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+        documentVersion: 'sha256:architecture-a', suggestions: [],
+        replies: [{ messageId: 'assistant-reply-narrow', commentId: 'document-comment-a',
+            html: '<p>A later reply.</p>' }], subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+    });
+    assert.equal(await page.getByRole('button', { name: /Discussion/ }).getAttribute('data-new-replies'), '1',
+        'a hidden discussion still advertises new replies from the mode control');
+    assert.equal(await page.getByRole('button', { name: /Discussion, 1 new AI reply/ }).count(), 1,
+        'the compact unread indicator is exposed to assistive technology');
+    await page.getByRole('button', { name: /Discussion/ }).click();
     assert.equal(await page.getByRole('button', { name: 'Discussion' }).getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('[data-markdown-workspace-scroll]').isHidden(), true);
     const narrowDiscussion = await page.locator('[data-markdown-workspace-discussion]').boundingBox();
     assert.ok(narrowDiscussion && narrowDiscussion.width <= 360,
         'the discussion is a dedicated compact mode rather than a stacked tail');
+    assert.equal(await page.getByRole('button', { name: 'Discussion' }).getAttribute('data-new-replies'), null,
+        'opening the discussion acknowledges the compact new-reply indicator');
 });
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 settles a pending comment from an authoritative recovery publication', async t => {

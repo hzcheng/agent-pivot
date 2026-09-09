@@ -218,7 +218,7 @@ export function renderConversationViewerDocument(
         </header>
         <div class="conversation-document-workspace-scroll"
             data-markdown-workspace-scroll tabindex="0">
-            <section class="conversation-markdown conversation-document-workspace-content"
+            <section class="conversation-document-workspace-content"
                 data-markdown-workspace-content></section>
         </div>
         <aside class="conversation-document-discussion"

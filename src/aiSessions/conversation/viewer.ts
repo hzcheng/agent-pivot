@@ -1,5 +1,6 @@
 'use strict';
 
+import { createHash } from 'crypto';
 import { URL } from 'url';
 import * as vscode from 'vscode';
 import { AGENT_PIVOT_CONVERSATION_VIEW_TYPE } from '../../constants';
@@ -2530,7 +2531,10 @@ export class ConversationViewer implements ConversationViewerApi {
             );
         } catch (_error) {
             // The live reply remains visible for this publication; a storage
-            // failure must not erase an already delivered AI response.
+            // failure must not erase an already delivered AI response. Make
+            // the durability gap visible rather than silently losing it on
+            // the next session/page handoff.
+            this.showNotice('Document discussion history could not be saved.');
         }
     }
 
@@ -2546,7 +2550,9 @@ export class ConversationViewer implements ConversationViewerApi {
                     stripMarkdownSuggestionEnvelope(reply.markdown)
                 );
                 if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
-                    replies.set(reply.messageId, {
+                    replies.set(markdownReplyWireId(
+                        reply.provider, reply.sessionId, reply.messageId
+                    ), {
                         messageId: reply.messageId, commentId: comment.id, html,
                     });
                 }
@@ -2557,7 +2563,9 @@ export class ConversationViewer implements ConversationViewerApi {
                 stripMarkdownSuggestionEnvelope(reply.markdown)
             );
             if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
-                replies.set(reply.messageId, { ...reply, html });
+                replies.set(markdownReplyWireId(
+                    reply.provider, reply.sessionId, reply.messageId
+                ), { ...reply, html });
             }
         }
         return [...replies.values()].slice(-40);
@@ -2656,8 +2664,9 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!panel) {
             return;
         }
+        let settled = false;
         try {
-            await panel.webview.postMessage({
+            settled = await panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-suggestion-result', version: 1,
                 requestId: message.requestId, subscriptionGeneration: message.subscriptionGeneration,
                 projectId: message.projectId, provider: message.provider,
@@ -2668,7 +2677,7 @@ export class ConversationViewer implements ConversationViewerApi {
         // Settle the exact request before replacing workspace UI. Otherwise
         // the replacement clears its local pending id and loses the success
         // acknowledgement, leaving stale composer state visible.
-        if (result === 'applied' && this.target === target) {
+        if ((result === 'applied' || !settled) && this.target === target) {
             await this.openMarkdownWorkspace(active!.workspaceFile);
         }
     }
@@ -2711,13 +2720,16 @@ export class ConversationViewer implements ConversationViewerApi {
                 panel, target, this.subscriptionGeneration, message.requestId
             ));
         if (panel) {
-            await Promise.resolve(panel.webview.postMessage({
+            const settled = await Promise.resolve(panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-suggestion-status-result', version: 1,
                 requestId: message.requestId, subscriptionGeneration: message.subscriptionGeneration,
                 projectId: message.projectId, provider: message.provider,
                 sessionId: message.sessionId, document: { ...message.document }, success: refreshed,
                 error: saved && !refreshed ? 'refresh-unavailable' : undefined,
-            })).catch(() => undefined);
+            })).catch(() => false);
+            if (!settled && target && this.target === target && active) {
+                await this.openMarkdownWorkspace(active.workspaceFile);
+            }
         }
     }
 
@@ -5807,7 +5819,22 @@ function markdownSuggestionWireId(
     sessionId: string,
     messageId: string
 ): string {
-    return [provider, sessionId, messageId].join('\u0001');
+    // This id crosses the strict Webview protocol, which deliberately rejects
+    // control characters. A bounded digest remains opaque to the renderer yet
+    // retains the full provider/session/message identity in Host memory.
+    return createHash('sha256').update(JSON.stringify([
+        provider, sessionId, messageId,
+    ])).digest('hex');
+}
+
+function markdownReplyWireId(
+    provider: AiSessionProviderId | undefined,
+    sessionId: string | undefined,
+    messageId: string
+): string {
+    return createHash('sha256').update(JSON.stringify([
+        provider || '', sessionId || '', messageId,
+    ])).digest('hex');
 }
 
 function sumMessageBytes(

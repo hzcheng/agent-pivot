@@ -42,6 +42,8 @@ export interface KeyedSnapshotStoreHooks<TTarget, TItem, TSnap> {
     invalidPersistedMessage: string;
     /** Persisted files larger than this are treated as corrupt. */
     maxSnapshotBytes: number;
+    /** Retain an empty envelope when its revision is a cross-window CAS token. */
+    retainEmptySnapshot?: boolean;
 }
 
 export class KeyedSnapshotFileStore<
@@ -85,7 +87,7 @@ export class KeyedSnapshotFileStore<
         const items = this.hooks.itemsOf(snapshot);
         this.hooks.validateItems(items);
         const snapshotPath = this.getSnapshotPath(target);
-        if (items.length === 0) {
+        if (items.length === 0 && !this.hooks.retainEmptySnapshot) {
             try {
                 await fs.promises.unlink(snapshotPath);
             } catch (error) {
@@ -214,9 +216,13 @@ export class KeyedSnapshotFileStore<
         const temporaryPath = `${snapshotPath}.${process.pid}.${
             randomBytes(8).toString('hex')
         }.tmp`;
+        const serialized = JSON.stringify(persisted);
+        if (Buffer.byteLength(serialized, 'utf8') > this.hooks.maxSnapshotBytes) {
+            throw new Error(this.hooks.invalidSnapshotMessage);
+        }
         await fs.promises.writeFile(
             temporaryPath,
-            JSON.stringify(persisted),
+            serialized,
             { encoding: 'utf8', flag: 'wx', mode: 0o600 }
         );
         return temporaryPath;

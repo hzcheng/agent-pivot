@@ -100,7 +100,7 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 persists file-anchored drafts, s
 
     await controller.enqueue(request('resolve-a', 'setStatus', {
         commentId: comment.id, status: 'resolved',
-    }, 2));
+    }, 3));
     assert.equal(controller.snapshot.comments[0].status, 'resolved');
 });
 
@@ -205,8 +205,8 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 keeps an interrupted outbox stat
         commentId: comment.id,
     }, 1));
     assert.equal(posted.at(-1).success, false);
-    assert.equal(controller.snapshot.comments[0].status, 'sent',
-        'memory must continue to reflect the durable pre-dispatch state');
+    assert.equal(controller.snapshot.comments[0].status, 'sending',
+        'a failed dispatch must retain the durable outbox state, never a false sent result');
 });
 
 test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 relocates reader text across safe Markdown formatting', async () => {

@@ -172,7 +172,10 @@ export class MarkdownDocumentCommentController {
             if (index < 0) { continue; }
             const comment = next[index];
             const discussion = comment.discussion ? comment.discussion.map(item => ({ ...item })) : [];
-            if (discussion.some(item => item.messageId === reply.messageId)) { continue; }
+            if (discussion.some(item => item.messageId === reply.messageId
+                && item.provider === reply.provider && item.sessionId === reply.sessionId)) {
+                continue;
+            }
             discussion.push({
                 messageId: reply.messageId,
                 markdown: reply.markdown,
@@ -256,10 +259,10 @@ export class MarkdownDocumentCommentController {
             throw new MarkdownDocumentCommentError('stale');
         }
         const next = cloneMarkdownDocumentComments(this.comments);
-        next[index] = setMarkdownDocumentCommentStatus(comment, 'sent', this.now(), {
-            provider: context.viewerTarget.provider,
-            sessionId: context.viewerTarget.sessionId,
-        });
+        // Persist an explicit outbox state before handing the prompt to the
+        // provider. A provider failure can never leave a durable "sent"
+        // record for a prompt it did not receive.
+        next[index] = setMarkdownDocumentCommentStatus(comment, 'sending', this.now());
         const prior = this.snapshot;
         await this.commit(next, request.expectedRevision);
         try {
@@ -268,12 +271,21 @@ export class MarkdownDocumentCommentController {
                 buildMarkdownDocumentCommentPrompt(context.target, next[index])
             ));
         } catch (error) {
-            // A rollback is a second durable write. Never display a draft
-            // only in memory when that write fails: the next reader would
-            // reopen the persisted sent state and contradict this settlement.
+            // A rollback is a second durable write. If it also fails, retain
+            // the truthful outbox state rather than inventing a sent result.
             await this.restorePrior(prior);
             throw error;
         }
+        const sent = cloneMarkdownDocumentComments(this.comments);
+        const sentIndex = sent.findIndex(candidate => candidate.id === comment.id);
+        if (sentIndex < 0 || sent[sentIndex].status !== 'sending') {
+            throw new MarkdownDocumentCommentError('stale');
+        }
+        sent[sentIndex] = setMarkdownDocumentCommentStatus(sent[sentIndex], 'sent', this.now(), {
+            provider: context.viewerTarget.provider,
+            sessionId: context.viewerTarget.sessionId,
+        });
+        await this.commit(sent, this.revision);
         try {
             await Promise.resolve(this.options.focusSession?.(context.viewerTarget));
         } catch (_error) {
@@ -307,16 +319,23 @@ export class MarkdownDocumentCommentController {
         const context = this.context;
         if (!context) { return false; }
         try {
-            await this.options.documentCommentStore?.save(context.target, snapshot);
+            // The outbox transition already advanced the shared revision.
+            // Roll back the contents through a newer revision so another
+            // window's CAS cannot mistake recovery for a stale overwrite.
+            const restored = {
+                revision: this.revision + 1,
+                comments: snapshot.comments,
+            };
+            await this.options.documentCommentStore?.save(context.target, restored);
+            if (this.context === context) {
+                this.comments = cloneMarkdownDocumentComments(restored.comments);
+                this.revision = restored.revision;
+            }
         } catch (_error) {
-            // Keep the current sent snapshot in memory as well. This matches
-            // the only durable record and prevents a later autosave/reopen
-            // from silently disagreeing with the visible discussion state.
+            // Keep the durable outbox state visible too. It is the only
+            // authoritative record and is intentionally not a false sent
+            // result.
             return false;
-        }
-        if (this.context === context) {
-            this.comments = cloneMarkdownDocumentComments(snapshot.comments);
-            this.revision = snapshot.revision;
         }
         return this.context === context;
     }

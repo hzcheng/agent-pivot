@@ -126,6 +126,27 @@ body {
         background: var(--vscode-button-secondaryHoverBackground,
             var(--vscode-list-activeSelectionBackground));
     }
+
+    button[data-new-replies] {
+        box-shadow: inset 0 -2px 0 var(--vscode-notificationsInfoIcon-foreground,
+            var(--vscode-textLink-foreground));
+    }
+
+    button[data-new-replies]::after {
+        content: attr(data-new-replies);
+        display: inline-flex;
+        min-width: 1.1em;
+        height: 1.1em;
+        margin-left: 0.25rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: var(--vscode-notificationsInfoIcon-foreground,
+            var(--vscode-textLink-foreground));
+        color: var(--vscode-editor-background);
+        font-size: 0.75em;
+        line-height: 1;
+    }
 }
 
 .conversation-document-workspace-scroll {
@@ -221,8 +242,8 @@ body {
         color: var(--vscode-descriptionForeground);
         font-size: 0.85em;
     }
-    .conversation-markdown > :first-child { margin-top: 0; }
-    .conversation-markdown > :last-child { margin-bottom: 0; }
+    .conversation-document-reply-content > :first-child { margin-top: 0; }
+    .conversation-document-reply-content > :last-child { margin-bottom: 0; }
 }
 
 .conversation-document-suggestion-list {
@@ -305,7 +326,14 @@ body {
     .conversation-document-workspace-header {
         position: relative;
         z-index: 1;
+        flex-wrap: wrap;
+        gap: 0.45rem;
     }
+    .conversation-document-workspace-identity {
+        order: 4;
+        flex: 1 1 calc(100% - 7rem);
+    }
+    .conversation-document-workspace-editor { margin-left: auto; }
     .conversation-document-workspace-mode { display: flex; }
     .conversation-document-workspace-scroll,
     .conversation-document-discussion {
@@ -964,7 +992,9 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 }
 
 /* Outspecific .conversation-markdown pre: the card supplies the chrome. */
-.conversation-markdown .conversation-code-block > pre {
+.conversation-markdown .conversation-code-block > pre,
+.conversation-document-workspace-content .conversation-code-block > pre,
+.conversation-document-reply-content .conversation-code-block > pre {
     margin: 0;
     padding: 0.75rem;
     border: none;
@@ -1929,7 +1959,9 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     overflow-wrap: anywhere;
 }
 
-.conversation-markdown {
+.conversation-markdown,
+.conversation-document-workspace-content,
+.conversation-document-reply-content {
     overflow-wrap: anywhere;
 
     > :first-child {
@@ -3818,7 +3850,9 @@ body[data-viewing-subagent="true"] .conversation-outline-bookmarks-only {
     white-space: pre-wrap;
 }
 
-.conversation-markdown pre code.hljs {
+.conversation-markdown pre code.hljs,
+.conversation-document-workspace-content pre code.hljs,
+.conversation-document-reply-content pre code.hljs {
     display: block;
     background: transparent;
     padding: 0;

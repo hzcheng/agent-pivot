@@ -1661,7 +1661,7 @@
             && comment.anchor && !Array.isArray(comment.anchor)
             && typeof comment.anchor.selectedText === 'string'
             && typeof comment.text === 'string'
-            && (comment.status === 'draft' || comment.status === 'sent'
+            && (comment.status === 'draft' || comment.status === 'sending' || comment.status === 'sent'
                 || comment.status === 'resolved' || comment.status === 'outdated');
     }
 
@@ -1754,6 +1754,8 @@
             footer.appendChild(workspaceCommentButton('Locate in document', 'locate', comment.id));
             if (comment.status === 'draft') {
                 footer.appendChild(workspaceCommentButton('Send to AI', 'send', comment.id));
+            } else if (comment.status === 'sending') {
+                state.textContent = 'delivery needs reconciliation';
             }
             if (comment.status !== 'resolved') {
                 footer.appendChild(workspaceCommentButton('Resolve', 'resolve', comment.id));
@@ -1772,16 +1774,25 @@
             var card = document.createElement('article');
             card.className = 'conversation-document-reply-card';
             card.setAttribute('data-markdown-workspace-reply-id', reply.messageId);
-            card.setAttribute('data-comment-id', reply.commentId);
+            card.setAttribute('data-reply-comment-id', reply.commentId);
             var heading = document.createElement('h3');
             heading.textContent = 'AI reply';
             card.appendChild(heading);
             var replyFor = document.createElement('p');
             replyFor.className = 'conversation-document-reply-meta';
-            replyFor.textContent = 'Reply to document comment';
+            var source = markdownWorkspaceComments.find(function (comment) {
+                return comment.id === reply.commentId;
+            });
+            var headingPath = source && source.anchor && Array.isArray(source.anchor.headingPath)
+                ? source.anchor.headingPath.filter(function (heading) { return typeof heading === 'string' && heading; })
+                : [];
+            var selectedText = source && source.anchor && typeof source.anchor.selectedText === 'string'
+                ? source.anchor.selectedText.replace(/\s+/g, ' ').trim() : '';
+            replyFor.textContent = (headingPath.length ? headingPath.join(' › ') : 'Document comment')
+                + (selectedText ? ' · “' + selectedText.slice(0, 160) + (selectedText.length > 160 ? '…' : '') + '”' : '');
             card.appendChild(replyFor);
             var content = document.createElement('div');
-            content.className = 'conversation-markdown';
+            content.className = 'conversation-document-reply-content';
             content.innerHTML = sanitizeConversationHtml(reply.html);
             card.appendChild(content);
             card.appendChild(workspaceCommentButton(
@@ -2243,7 +2254,7 @@
         var sourceId = markdownWorkspacePendingSuggestionSourceId;
         var stale = !message.success && message.error === 'stale';
         setMarkdownWorkspaceCommentPending(false, message.success
-            ? 'Suggested change applied. You can undo it in VS Code.'
+            ? 'Suggested change applied.'
             : stale
                 ? 'Suggested change is outdated because the document changed.'
                 : 'Suggested change could not be applied. Please try again.');
@@ -2457,6 +2468,12 @@
         if (markdownWorkspaceModeDiscussion) {
             markdownWorkspaceModeDiscussion.setAttribute('aria-pressed',
                 mode === 'discussion' ? 'true' : 'false');
+            if (mode === 'discussion') {
+                markdownWorkspaceModeDiscussion.removeAttribute('data-new-replies');
+                markdownWorkspaceModeDiscussion.setAttribute('aria-label', 'Discussion');
+                markdownWorkspaceNewReplies.hidden = true;
+                markdownWorkspaceNewReplies.textContent = '';
+            }
         }
         if (focus) {
             (mode === 'document' ? markdownWorkspaceScroll : markdownWorkspaceDiscussion).focus();
@@ -2624,6 +2641,12 @@
         }).length;
         markdownWorkspaceSuggestions = message.suggestions.slice();
         markdownWorkspaceReplies = message.replies.slice();
+        if (message.commentSnapshot
+            && message.commentSnapshot.revision >= markdownWorkspaceCommentRevision) {
+            markdownWorkspaceCommentRevision = message.commentSnapshot.revision;
+            markdownWorkspaceComments = message.commentSnapshot.comments.slice();
+            renderMarkdownWorkspaceComments();
+        }
         renderMarkdownWorkspaceSuggestions();
         renderMarkdownWorkspaceReplies();
         if (markdownWorkspacePendingSuggestionStatusRequestId
@@ -2635,6 +2658,12 @@
             markdownWorkspaceNewReplies.textContent = String(newReplyCount)
                 + (newReplyCount === 1 ? ' new AI reply' : ' new AI replies');
             markdownWorkspaceNewReplies.hidden = false;
+            if (markdownWorkspaceModeDiscussion
+                && markdownWorkspace.getAttribute('data-mobile-mode') !== 'discussion') {
+                markdownWorkspaceModeDiscussion.setAttribute('data-new-replies', String(newReplyCount));
+                markdownWorkspaceModeDiscussion.setAttribute('aria-label', 'Discussion, '
+                    + String(newReplyCount) + (newReplyCount === 1 ? ' new AI reply' : ' new AI replies'));
+            }
         }
         return true;
     }
@@ -4846,6 +4875,10 @@
             if (!commentId) return;
             if (action === 'send') {
                 postMarkdownWorkspaceComment('sendDocumentComment', { commentId: commentId });
+            } else if (action === 'draft') {
+                postMarkdownWorkspaceComment('setStatus', {
+                    commentId: commentId, status: 'draft',
+                });
             } else if (action === 'resolve') {
                 postMarkdownWorkspaceComment('setStatus', {
                     commentId: commentId, status: 'resolved',

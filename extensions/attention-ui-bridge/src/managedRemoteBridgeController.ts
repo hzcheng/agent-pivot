@@ -1575,8 +1575,22 @@ export class ManagedRemoteBridgeController {
                 } catch (_error) {
                     throw new Error(`The selected source is no longer readable: ${path.basename(entry.path)}.`);
                 }
-            } else if (!await remotePathExists(coordinator.getExecutable(), source.alias, entry.path)) {
-                throw new Error(`The selected source is no longer readable: ${path.basename(entry.path)}.`);
+            } else {
+                // The entry was already supplied by a successful SFTP directory
+                // listing. Do not reclassify it with `lstat`: several SFTP
+                // servers omit type details for that command, making a listed
+                // regular file look as if it vanished. `ls -l` is the same
+                // path-specific format used for post-copy verification and
+                // refreshes the size that the progress UI will report.
+                try {
+                    entry.size = await remoteFileSize(coordinator.getExecutable(), source.alias, entry.path);
+                } catch (error) {
+                    const reason = boundedFileTransferFailureMessage(error);
+                    this.reportDiagnostic?.(
+                        `File Transfer source probe failed: item=${path.basename(entry.path)} reason=${reason}`,
+                    );
+                    throw new Error(`File Transfer could not read the selected source: ${path.basename(entry.path)}. Refresh Source and choose it again.`);
+                }
             }
             if (entryTree) {
                 reviewedTrees.set(entry.id, entryTree);

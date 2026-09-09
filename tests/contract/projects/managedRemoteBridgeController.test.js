@@ -351,6 +351,74 @@ esac
         'pwd\nls -la "/home/hzcheng"\nls -la "/home/hzcheng/.config"\n');
 });
 
+test('FILE-TRANSFER-PREFLIGHT-006 accepts a listed remote file when SFTP lstat cannot classify it', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-readable-source-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const ssh = path.join(root, 'ssh');
+    const sftp = path.join(root, 'sftp');
+    const selectedName = 'ubuntu-24.04.4-desktop-amd64.iso';
+    fs.writeFileSync(ssh, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+    fs.writeFileSync(sftp, `#!/bin/sh
+IFS= read -r command
+case "$command" in
+  'pwd')
+    printf '%s\\n' 'Remote working directory: /remote/source'
+    ;;
+  'ls -la "/remote/source"')
+    if [ ! -f "${root}/listed-once" ]; then
+      : > "${root}/listed-once"
+      printf '%s\\n' '-rw-r--r--    1 user     group     123456789 Jan 01 2026 ${selectedName}'
+    fi
+    ;;
+  'ls -la "/remote/target"'|'-lstat "/remote/target/'*)
+    ;;
+  'ls -l "/remote/source/'*)
+    printf '%s\\n' '-rw-r--r--    1 user     group     123456789 Jan 01 2026 ${selectedName}'
+    ;;
+  '-lstat "/remote/source/'*)
+    printf '%s\\n' 'Remote server did not return stat details'
+    ;;
+  *)
+    printf 'unexpected SFTP command: %s\\n' "$command" >&2
+    exit 1
+    ;;
+esac
+`, { mode: 0o700 });
+    const { envelope, slot } = activeEnvelope();
+    const controller = new ManagedRemoteBridgeController({
+        readManagedCatalogEnvelope() { return envelope; },
+    }, {
+        async create() { return { getExecutable() { return ssh; } }; },
+    }, 'session-12345678', undefined, {
+        schedule() {}, async ensureReady() {},
+    });
+
+    const source = await controller.execute({
+        ...request('listFileTransferRemoteDirectory', slot.revisionId),
+        targetId: 'machine:one', fileTransfer: { kind: 'managedMachine' },
+    });
+    const entry = source.value.entries.find(candidate => candidate.name === selectedName);
+    assert.ok(entry, 'the runtime-reported selected file must originate from the remote listing');
+    const destination = await controller.execute({
+        ...request('listFileTransferRemoteDirectory', slot.revisionId),
+        requestId: 'request-readable-target-123456', targetId: 'machine:one',
+        fileTransfer: { kind: 'managedMachine', path: '/remote/target' },
+    });
+    assert.equal(destination.status, 'ok', destination.message);
+
+    const preflight = await controller.execute({
+        ...request('preflightFileTransfer', slot.revisionId),
+        requestId: 'request-readable-preflight-123456',
+        fileTransfer: {
+            kind: 'preflight',
+            source: { kind: 'managedMachine', machineId: 'machine:one', directoryId: source.value.directoryId },
+            destination: { kind: 'managedMachine', machineId: 'machine:one', directoryId: destination.value.directoryId },
+            entryIds: [entry.id],
+        },
+    });
+    assert.equal(preflight.status, 'ok', preflight.message);
+});
+
 test('FILE-TRANSFER-COPY-001 rejects local-to-local copy even with approved handles', async t => {
     const sourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-source-'));
     const destinationRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-destination-'));

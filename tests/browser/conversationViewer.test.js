@@ -5321,6 +5321,22 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        .replace(
+            "    var markdownWorkspaceOnly = document.body.getAttribute(\n"
+                + "        'data-markdown-workspace-only'\n"
+                + "    ) === 'true';\n",
+            ''
+        )
+        .replace(
+            "        if (markdownWorkspaceOnly) {\n"
+                + "            post({\n"
+                + "                type: 'conversation-viewer-close-markdown-workspace',\n"
+                + "                version: 1,\n"
+                + "            });\n"
+                + "            return;\n"
+                + "        }\n",
+            ''
+        )
         // Markdown workspace opening is a later optional enhancement. The
         // frozen fixture must remain an actual pre-workspace Viewer script,
         // not merely a newer script applied to older document markup.
@@ -5349,7 +5365,7 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             '        if (findController &&'
         )
         .replace(
-            /\n    if \(markdownWorkspaceAvailable\) \{\n        markdownWorkspaceBack\.addEventListener\('click',[\s\S]*?\n    \}\n\n    window\.addEventListener\('message'/,
+            /\n    if \(markdownWorkspaceAvailable\) \{\n        (?:if \(markdownWorkspaceModeDocument\)|markdownWorkspaceBack\.addEventListener)[\s\S]*?\n    \}\n+    window\.addEventListener\('message'/,
             "\n    window.addEventListener('message'"
         )
         .replace(
@@ -5366,6 +5382,10 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         )
         .replace(
             "        if (applyMarkdownWorkspaceSuggestionResult(event.data)) return;\n",
+            ''
+        )
+        .replace(
+            "        if (applyMarkdownWorkspaceSuggestionStatusResult(event.data)) return;\n",
             ''
         )
         .replace(

@@ -2550,11 +2550,10 @@ export class ConversationViewer implements ConversationViewerApi {
                     stripMarkdownSuggestionEnvelope(reply.markdown)
                 );
                 if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
-                    replies.set(markdownReplyWireId(
+                    const wireId = markdownReplyWireId(
                         reply.provider, reply.sessionId, reply.messageId
-                    ), {
-                        messageId: reply.messageId, commentId: comment.id, html,
-                    });
+                    );
+                    replies.set(wireId, { messageId: wireId, commentId: comment.id, html });
                 }
             }
         }
@@ -2565,7 +2564,11 @@ export class ConversationViewer implements ConversationViewerApi {
             if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
                 replies.set(markdownReplyWireId(
                     reply.provider, reply.sessionId, reply.messageId
-                ), { ...reply, html });
+                ), {
+                    messageId: markdownReplyWireId(reply.provider, reply.sessionId, reply.messageId),
+                    commentId: reply.commentId,
+                    html,
+                });
             }
         }
         return [...replies.values()].slice(-40);

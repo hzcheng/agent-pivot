@@ -121,6 +121,13 @@ export class MarkdownSuggestionStateFileStore extends KeyedSnapshotFileStore<
                 };
             } catch (error) {
                 if (!isAlreadyExists(error)) { throw error; }
+                try {
+                    const stat = await fs.promises.stat(lockPath);
+                    if (Date.now() - stat.mtimeMs > 30_000) {
+                        await fs.promises.unlink(lockPath).catch(() => undefined);
+                        continue;
+                    }
+                } catch (_error) { /* The lock was released; retry below. */ }
                 await new Promise<void>(resolve => setTimeout(resolve, 25));
             }
         }

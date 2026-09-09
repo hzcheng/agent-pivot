@@ -526,7 +526,8 @@ function parseExistingPayload(request: ConversationViewerDocumentCommentMutation
     } else if (request.operation === 'update') {
         if (!hasExactKeys(payload, ['commentId', 'text'])) { throw new MarkdownDocumentCommentError('invalid'); }
     } else if (!hasExactKeys(payload, ['commentId', 'status'])
-        || (payload.status !== 'draft' && payload.status !== 'resolved' && payload.status !== 'outdated')) {
+        || (payload.status !== 'draft' && payload.status !== 'sent'
+            && payload.status !== 'resolved' && payload.status !== 'outdated')) {
         throw new MarkdownDocumentCommentError('invalid');
     }
     return payload as { commentId: string; text?: unknown; status?: MarkdownDocumentCommentStatus };

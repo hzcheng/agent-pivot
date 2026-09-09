@@ -1756,6 +1756,7 @@
                 footer.appendChild(workspaceCommentButton('Send to AI', 'send', comment.id));
             } else if (comment.status === 'sending') {
                 state.textContent = 'delivery needs reconciliation';
+                footer.appendChild(workspaceCommentButton('Mark delivered', 'sent', comment.id));
             }
             if (comment.status !== 'resolved') {
                 footer.appendChild(workspaceCommentButton('Resolve', 'resolve', comment.id));
@@ -4879,6 +4880,10 @@
                 postMarkdownWorkspaceComment('setStatus', {
                     commentId: commentId, status: 'draft',
                 });
+            } else if (action === 'sent') {
+                postMarkdownWorkspaceComment('setStatus', {
+                    commentId: commentId, status: 'sent',
+                });
             } else if (action === 'resolve') {
                 postMarkdownWorkspaceComment('setStatus', {
                     commentId: commentId, status: 'resolved',
@@ -4965,6 +4970,10 @@
                     if (current.hidden || current.getAttribute('aria-hidden') === 'true') {
                         return false;
                     }
+                }
+                if (typeof node.getClientRects === 'function'
+                    && node.getClientRects().length === 0) {
+                    return false;
                 }
                 return !markdownWorkspace.hidden
                     && markdownWorkspace.getAttribute('aria-hidden') !== 'true';

@@ -90,6 +90,10 @@ function writeClientWrapper(root, binary, clientConfig) {
     return wrapper;
 }
 
+function findRemoteEntry(entries, name) {
+    return entries.find(entry => path.posix.basename(entry.name) === name);
+}
+
 async function startTemporarySshd(root, keyPath) {
     const port = await freePort();
     const hostKey = path.join(root, `host-${port}`);
@@ -269,9 +273,9 @@ exec /bin/mv "$@"
     assert.equal(destinationRoot.value.displayPath, os.homedir(),
         'FILE-TRANSFER-REMOTE-BROWSE-003 must open the target at its authenticated login home');
     assert.equal(sourceByAbsolutePath.value.displayPath, remoteOne);
-    assert.ok(sourceByAbsolutePath.value.entries.some(entry => entry.name === remoteSpecialFile));
-    const sourceDirectory = sourceRoot.value.entries.find(entry => entry.name === path.basename(remoteOne));
-    const destinationDirectory = destinationRoot.value.entries.find(entry => entry.name === path.basename(remoteTwo));
+    assert.ok(findRemoteEntry(sourceByAbsolutePath.value.entries, remoteSpecialFile));
+    const sourceDirectory = findRemoteEntry(sourceRoot.value.entries, path.basename(remoteOne));
+    const destinationDirectory = findRemoteEntry(destinationRoot.value.entries, path.basename(remoteTwo));
     assert.ok(sourceDirectory);
     assert.ok(destinationDirectory);
     const source = await controller.execute({
@@ -286,7 +290,7 @@ exec /bin/mv "$@"
     });
     assert.equal(source.status, 'ok', source.message);
     assert.equal(destination.status, 'ok', destination.message);
-    const linkedRemoteFolder = source.value.entries.find(entry => entry.name === 'remote folder with relative link');
+    const linkedRemoteFolder = findRemoteEntry(source.value.entries, 'remote folder with relative link');
     const localFile = local.value.entries.find(entry => entry.name === 'local.txt');
     const swapProtectedLocal = local.value.entries.find(entry => entry.name === swappedLocalFile);
     const localSpecial = local.value.entries.find(entry => entry.name === localSpecialFile);
@@ -296,8 +300,8 @@ exec /bin/mv "$@"
     const publishRaceFolder = local.value.entries.find(entry => entry.name === 'publish-race-folder');
     const emptyDirectoryConflict = local.value.entries.find(entry => entry.name === 'empty-directory-conflict');
     const linkedLocalFolder = local.value.entries.find(entry => entry.name === 'folder with relative link');
-    const remoteFile = source.value.entries.find(entry => entry.name === remoteSpecialFile);
-    const remoteFolderEntry = source.value.entries.find(entry => entry.name === remoteFolder);
+    const remoteFile = findRemoteEntry(source.value.entries, remoteSpecialFile);
+    const remoteFolderEntry = findRemoteEntry(source.value.entries, remoteFolder);
     assert.ok(localFile);
     assert.ok(swapProtectedLocal);
     assert.ok(localSpecial);

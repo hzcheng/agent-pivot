@@ -87,6 +87,29 @@ export interface ConversationViewerSendDocumentCommentMessage {
     payload: { commentId: string };
 }
 
+/** A user-approved local replacement. The Host revalidates both the file
+ * version and the anchored source text before using a WorkspaceEdit. */
+export interface ConversationViewerApplyMarkdownSuggestionMessage {
+    type: 'conversation-viewer-apply-markdown-suggestion';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    document: {
+        workspaceRootId: string;
+        relativePath: string;
+        documentVersion: string;
+    };
+    payload: {
+        selectedText: string;
+        prefix: string;
+        suffix: string;
+        replacement: string;
+    };
+}
+
 export interface ConversationViewerCommentMutationMessage {
     type: 'conversation-viewer-comment-mutation';
     version: 1;
@@ -450,6 +473,7 @@ export type ConversationViewerMessage =
     | ConversationViewerOpenMarkdownEditorMessage
     | ConversationViewerDocumentCommentMutationMessage
     | ConversationViewerSendDocumentCommentMessage
+    | ConversationViewerApplyMarkdownSuggestionMessage
     | ConversationViewerSendSelectionMessage
     | ConversationViewerRunCommandMessage
     | ConversationViewerSwitchSessionMessage
@@ -958,6 +982,34 @@ export function parseConversationViewerMessage(
         }
         return value as unknown as ConversationViewerSendDocumentCommentMessage;
     }
+    if (value.type === 'conversation-viewer-apply-markdown-suggestion') {
+        if (keys.length !== 9 || !hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'document', 'payload',
+        ]) || !isRequestId(value.requestId)
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isConversationViewerTargetId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)
+            || !isRecord(value.document)
+            || !hasExactKeys(value.document, [
+                'workspaceRootId', 'relativePath', 'documentVersion',
+            ]) || !isConversationViewerTargetId(value.document.workspaceRootId)
+            || typeof value.document.relativePath !== 'string'
+            || value.document.relativePath.length < 1
+            || value.document.relativePath.length > 4096
+            || !isConversationViewerTargetId(value.document.documentVersion)
+            || !isRecord(value.payload)
+            || !hasExactKeys(value.payload, [
+                'selectedText', 'prefix', 'suffix', 'replacement',
+            ]) || !isBoundedSuggestionText(value.payload.selectedText, 4000)
+            || !isBoundedSuggestionText(value.payload.prefix, 480, true)
+            || !isBoundedSuggestionText(value.payload.suffix, 480, true)
+            || !isBoundedSuggestionText(value.payload.replacement, 12000)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerApplyMarkdownSuggestionMessage;
+    }
     if (value.type === 'conversation-viewer-project-comment-mutation'
         || value.type === 'conversation-viewer-send-project-comment') {
         if (keys.length !== 10
@@ -1126,6 +1178,14 @@ function isRunnableTerminalCommand(value: unknown): value is string {
         && !!value.trim()
         // Keep newlines and tabs, but reject non-printing controls that
         // cannot be meaningfully typed into a terminal command.
+        && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
+}
+
+function isBoundedSuggestionText(
+    value: unknown, maxLength: number, allowEmpty = false
+): value is string {
+    return typeof value === 'string' && (allowEmpty || value.length > 0)
+        && value.length <= maxLength
         && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
 }
 

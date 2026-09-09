@@ -11865,6 +11865,17 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.equal(draftIntent.payload.anchor.selectedText, 'Rollback strategy');
     assert.deepEqual(draftIntent.payload.anchor.headingPath, ['Architecture plan']);
     assert.equal(draftIntent.payload.text, 'Clarify the fallback.');
+    await page.getByRole('button', { name: 'Propose change' }).click();
+    await page.locator('[data-markdown-workspace-suggestion-input]').fill(
+        'Rollback strategy with an explicit restore command.'
+    );
+    await page.getByRole('button', { name: 'Apply change' }).click();
+    const suggestionIntent = (await postedIntents(page)).at(-1);
+    assert.equal(suggestionIntent.type, 'conversation-viewer-apply-markdown-suggestion');
+    assert.equal(suggestionIntent.document.documentVersion, 'sha256:architecture-a');
+    assert.equal(suggestionIntent.payload.selectedText, 'Rollback strategy');
+    assert.equal(suggestionIntent.payload.replacement,
+        'Rollback strategy with an explicit restore command.');
     await sendPage(page, {
         type: 'conversation-viewer-document-comments-result',
         version: 1,

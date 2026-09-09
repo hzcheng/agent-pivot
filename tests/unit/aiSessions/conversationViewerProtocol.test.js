@@ -54,6 +54,23 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         },
         payload: { text: 'Review this selection.' },
     }, {
+        type: 'conversation-viewer-apply-markdown-suggestion',
+        version: 1,
+        requestId: 'markdown-suggestion-1',
+        subscriptionGeneration: 1,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-1',
+        document: {
+            workspaceRootId: 'root-1',
+            relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:document-1',
+        },
+        payload: {
+            selectedText: 'Old paragraph.', prefix: '', suffix: '',
+            replacement: 'New paragraph.',
+        },
+    }, {
         type: 'conversation-viewer-send-selection',
         version: 1,
         text: 'quoted selection',

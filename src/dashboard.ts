@@ -2216,6 +2216,73 @@ async function initializeDashboard(
                 return undefined;
             }
         },
+        applyWorkspaceMarkdownSuggestion: async (targetFile, viewerTarget, suggestion) => {
+            if (!targetFile.relativePath.toLocaleLowerCase().endsWith('.md')) {
+                return 'stale';
+            }
+            const actionTarget = getCurrentWorkspaceActionTarget(viewerTarget.projectId);
+            const activeSession = (actionTarget?.sessions.activeSessions || [])
+                .find(session => session.provider === viewerTarget.provider
+                    && session.sessionId === viewerTarget.sessionId);
+            const historySession = (
+                actionTarget?.sessions.sessionsByProvider[viewerTarget.provider] || []
+            ).find(session => session.id === viewerTarget.sessionId);
+            const root = activeSession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.cwd ?? historySession?.workDir;
+            if (typeof root !== 'string' || !root) return 'stale';
+            let canonicalRoot: string;
+            let canonicalCandidate: string;
+            try {
+                canonicalRoot = await realpathPath(root);
+                if (createHash('sha256').update(canonicalRoot).digest('hex')
+                    !== suggestion.workspaceRootId) return 'stale';
+                canonicalCandidate = await realpathPath(path.resolve(
+                    canonicalRoot, targetFile.relativePath
+                ));
+            } catch (_error) {
+                return 'stale';
+            }
+            if (!isWorkspaceHostPathContained(canonicalRoot, canonicalCandidate)) {
+                return 'stale';
+            }
+            let document: vscode.TextDocument;
+            try {
+                document = await vscode.workspace.openTextDocument(
+                    vscode.Uri.file(canonicalCandidate)
+                );
+            } catch (_error) {
+                return 'failed';
+            }
+            const source = document.getText();
+            if (createHash('sha256').update(Buffer.from(source, 'utf8')).digest('hex')
+                !== suggestion.documentVersion) return 'stale';
+            const starts: number[] = [];
+            let offset = source.indexOf(suggestion.selectedText);
+            while (offset >= 0 && starts.length < 2) {
+                const before = source.slice(Math.max(0, offset - suggestion.prefix.length), offset);
+                const after = source.slice(
+                    offset + suggestion.selectedText.length,
+                    offset + suggestion.selectedText.length + suggestion.suffix.length
+                );
+                if ((!suggestion.prefix || before === suggestion.prefix)
+                    && (!suggestion.suffix || after === suggestion.suffix)) {
+                    starts.push(offset);
+                }
+                offset = source.indexOf(suggestion.selectedText, offset + 1);
+            }
+            if (starts.length !== 1) return 'stale';
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(document.uri, new vscode.Range(
+                document.positionAt(starts[0]),
+                document.positionAt(starts[0] + suggestion.selectedText.length)
+            ), suggestion.replacement);
+            try {
+                return await vscode.workspace.applyEdit(edit) ? 'applied' : 'failed';
+            } catch (_error) {
+                return 'failed';
+            }
+        },
         changes: {
             // PRD §4.1 fallback identity: a valid telemetry worktree takes
             // precedence in the live Changes view; this persisted session

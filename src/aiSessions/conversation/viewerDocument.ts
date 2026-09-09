@@ -227,6 +227,7 @@ export function renderConversationViewerDocument(
                     <button type="button" data-markdown-workspace-comment-action="comment">Add comment</button>
                     <button type="button" data-markdown-workspace-comment-action="ask">Ask AI</button>
                     <button type="button" data-markdown-workspace-comment-action="explain">Explain</button>
+                    <button type="button" data-markdown-workspace-comment-action="suggest">Propose change</button>
                 </div>
             </div>
             <form class="conversation-document-comment-composer"
@@ -239,6 +240,18 @@ export function renderConversationViewerDocument(
                     <button type="button" data-markdown-workspace-comment-cancel>Cancel</button>
                     <button type="submit" data-markdown-workspace-comment-save>Save draft</button>
                     <button type="button" data-markdown-workspace-comment-send>Send to AI</button>
+                </div>
+            </form>
+            <form class="conversation-document-comment-composer"
+                data-markdown-workspace-suggestion-composer hidden>
+                <label for="markdown-workspace-suggestion-input">Suggested replacement</label>
+                <textarea id="markdown-workspace-suggestion-input"
+                    data-markdown-workspace-suggestion-input rows="5"
+                    maxlength="12000"></textarea>
+                <p data-markdown-workspace-suggestion-preview></p>
+                <div>
+                    <button type="button" data-markdown-workspace-suggestion-reject>Reject</button>
+                    <button type="submit">Apply change</button>
                 </div>
             </form>
             <div class="conversation-document-comment-list"

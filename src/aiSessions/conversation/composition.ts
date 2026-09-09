@@ -154,6 +154,7 @@ export interface ConversationCapabilityOptions {
     openExternal: typeof vscode.env.openExternal;
     openLocalFile?: ConversationViewerOptions['openLocalFile'];
     readWorkspaceMarkdown?: ConversationViewerOptions['readWorkspaceMarkdown'];
+    applyWorkspaceMarkdownSuggestion?: ConversationViewerOptions['applyWorkspaceMarkdownSuggestion'];
     spawnCodex: typeof childProcess.spawn;
     now: () => number;
     setTimer: typeof setTimeout;
@@ -479,6 +480,7 @@ function createAvailableConversationCapability(
         openExternal: options.openExternal,
         openLocalFile: options.openLocalFile,
         readWorkspaceMarkdown: options.readWorkspaceMarkdown,
+        applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
         mediaUri: getConversationMediaUri,
         showThinking: options.getShowThinking,
         readSessionStatus: options.readSessionStatus,

@@ -160,6 +160,15 @@
     var markdownWorkspaceCommentFeedback = document.querySelector(
         '[data-markdown-workspace-comment-feedback]'
     );
+    var markdownWorkspaceSuggestionComposer = document.querySelector(
+        '[data-markdown-workspace-suggestion-composer]'
+    );
+    var markdownWorkspaceSuggestionInput = document.querySelector(
+        '[data-markdown-workspace-suggestion-input]'
+    );
+    var markdownWorkspaceSuggestionPreview = document.querySelector(
+        '[data-markdown-workspace-suggestion-preview]'
+    );
     var markdownWorkspaceActive = document.querySelector(
         '[data-markdown-workspace-active]'
     );
@@ -176,6 +185,7 @@
     var markdownWorkspaceCommentRequestSerial = 0;
     var markdownWorkspacePendingRequestId = '';
     var markdownWorkspaceSendAfterSave = false;
+    var markdownWorkspacePendingSuggestionId = '';
     var markdownWorkspaceReturnFocus;
     var markdownWorkspaceAvailable = !!(markdownWorkspace
         && markdownWorkspaceBack && markdownWorkspaceTitle
@@ -185,7 +195,9 @@
         && markdownWorkspaceDiscussion && markdownWorkspaceSelectionActions
         && markdownWorkspaceSelectionSummary && markdownWorkspaceCommentComposer
         && markdownWorkspaceCommentInput && markdownWorkspaceCommentList
-        && markdownWorkspaceCommentCount && markdownWorkspaceCommentFeedback);
+        && markdownWorkspaceCommentCount && markdownWorkspaceCommentFeedback
+        && markdownWorkspaceSuggestionComposer && markdownWorkspaceSuggestionInput
+        && markdownWorkspaceSuggestionPreview);
     var markdownWorkspaceActiveAvailable = !!(markdownWorkspaceActive
         && markdownWorkspaceActiveTitle);
     var conversationDisplayName = document.querySelector(
@@ -1788,6 +1800,54 @@
         markdownWorkspaceCommentInput.focus();
     }
 
+    function openMarkdownWorkspaceSuggestion() {
+        if (!markdownWorkspaceCommentsAvailable || !markdownWorkspaceSelection) return;
+        markdownWorkspaceSuggestionComposer.hidden = false;
+        markdownWorkspaceSuggestionPreview.textContent = 'Replace: “'
+            + markdownWorkspaceSelection.selectedText.slice(0, 240) + '”';
+        markdownWorkspaceSuggestionInput.focus();
+    }
+
+    function postMarkdownWorkspaceSuggestion() {
+        var documentTarget = workspaceCommentTarget();
+        if (!documentTarget || !markdownWorkspaceSelection || markdownWorkspacePendingSuggestionId
+            || !validCommentTarget(commentTarget)) return;
+        var replacement = markdownWorkspaceSuggestionInput.value;
+        if (!replacement.trim()) return;
+        var requestId = 'markdown-suggestion-' + (++markdownWorkspaceCommentRequestSerial)
+            + '-' + String(Date.now());
+        markdownWorkspacePendingSuggestionId = requestId;
+        setMarkdownWorkspaceCommentPending(true, 'Applying suggested change…');
+        post({
+            type: 'conversation-viewer-apply-markdown-suggestion', version: 1,
+            requestId: requestId, subscriptionGeneration: state.subscriptionGeneration,
+            projectId: commentTarget.projectId, provider: commentTarget.provider,
+            sessionId: commentTarget.sessionId, document: documentTarget,
+            payload: {
+                selectedText: markdownWorkspaceSelection.selectedText,
+                prefix: markdownWorkspaceSelection.prefix,
+                suffix: markdownWorkspaceSelection.suffix,
+                replacement: replacement,
+            },
+        });
+    }
+
+    function applyMarkdownWorkspaceSuggestionResult(message) {
+        if (!message || message.type !== 'conversation-viewer-markdown-suggestion-result'
+            || message.version !== 1 || message.requestId !== markdownWorkspacePendingSuggestionId) {
+            return false;
+        }
+        markdownWorkspacePendingSuggestionId = '';
+        setMarkdownWorkspaceCommentPending(false, message.success
+            ? 'Suggested change applied. You can undo it in VS Code.'
+            : 'Suggested change was not applied because the document changed.');
+        if (message.success) {
+            markdownWorkspaceSuggestionComposer.hidden = true;
+            markdownWorkspaceSuggestionInput.value = '';
+        }
+        return true;
+    }
+
     function postMarkdownWorkspaceComment(operation, payload) {
         var documentTarget = workspaceCommentTarget();
         if (!documentTarget || !validCommentTarget(commentTarget)
@@ -1955,6 +2015,7 @@
         markdownWorkspaceComments = [];
         markdownWorkspaceSelection = undefined;
         markdownWorkspacePendingRequestId = '';
+        markdownWorkspacePendingSuggestionId = '';
         if (markdownWorkspaceCommentsAvailable) {
             markdownWorkspaceCommentComposer.hidden = true;
             markdownWorkspaceCommentInput.value = '';
@@ -2004,6 +2065,7 @@
             ? message.commentSnapshot.comments.slice() : [];
         markdownWorkspaceSelection = undefined;
         markdownWorkspacePendingRequestId = '';
+        markdownWorkspacePendingSuggestionId = '';
         setMarkdownWorkspaceCommentPending(false, '');
         markdownWorkspaceSendAfterSave = false;
         markdownWorkspaceTitle.textContent = message.title;
@@ -4204,7 +4266,9 @@
         markdownWorkspaceSelectionActions.addEventListener('click', function (event) {
             var action = event.target && event.target.getAttribute
                 ? event.target.getAttribute('data-markdown-workspace-comment-action') : '';
-            if (action === 'comment' || action === 'ask' || action === 'explain') {
+            if (action === 'suggest') {
+                openMarkdownWorkspaceSuggestion();
+            } else if (action === 'comment' || action === 'ask' || action === 'explain') {
                 openMarkdownWorkspaceComposer(action);
             }
         });
@@ -4250,6 +4314,17 @@
                 postMarkdownWorkspaceComment('delete', { commentId: commentId });
             } else if (action === 'locate') {
                 locateMarkdownWorkspaceCommentSource(commentId);
+            }
+        });
+        markdownWorkspaceSuggestionComposer.addEventListener('submit', function (event) {
+            event.preventDefault();
+            postMarkdownWorkspaceSuggestion();
+        });
+        markdownWorkspaceSuggestionComposer.addEventListener('click', function (event) {
+            if (event.target && event.target.hasAttribute
+                && event.target.hasAttribute('data-markdown-workspace-suggestion-reject')) {
+                markdownWorkspaceSuggestionComposer.hidden = true;
+                markdownWorkspaceSuggestionInput.value = '';
             }
         });
     }
@@ -4488,6 +4563,7 @@
     window.addEventListener('message', function (event) {
         if (applyMarkdownWorkspace(event.data)) return;
         if (applyMarkdownWorkspaceCommentsResult(event.data)) return;
+        if (applyMarkdownWorkspaceSuggestionResult(event.data)) return;
         if (applyCopyResult(event.data)) return;
         if (outlineController.applyBookmarksResult(event.data)) return;
         if (commentsController.applyCommentsResult(event.data)) return;

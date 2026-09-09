@@ -58,6 +58,7 @@ import type {
     ConversationViewerOpenMarkdownEditorMessage,
     ConversationViewerDocumentCommentMutationMessage,
     ConversationViewerSendDocumentCommentMessage,
+    ConversationViewerApplyMarkdownSuggestionMessage,
 } from './viewerProtocol';
 import type { ConversationViewerTarget } from './viewerTarget';
 export type { ConversationViewerTarget } from './viewerTarget';
@@ -162,6 +163,18 @@ export interface ConversationViewerOptions {
     ) => PromiseLike<{ markdown: string; workspaceRootId: string; documentVersion: string } | undefined>
         | Promise<{ markdown: string; workspaceRootId: string; documentVersion: string } | undefined>
         | { markdown: string; workspaceRootId: string; documentVersion: string } | undefined;
+    applyWorkspaceMarkdownSuggestion?: (
+        target: ConversationWorkspaceFileTarget,
+        viewerTarget: ConversationViewerTarget,
+        suggestion: {
+            workspaceRootId: string;
+            documentVersion: string;
+            selectedText: string;
+            prefix: string;
+            suffix: string;
+            replacement: string;
+        }
+    ) => PromiseLike<'applied' | 'stale' | 'failed'> | 'applied' | 'stale' | 'failed';
     mediaUri: (fileName: string) => vscode.Uri;
     showThinking?: () => boolean;
     submitPrompt: (
@@ -447,6 +460,13 @@ export class ConversationViewer implements ConversationViewerApi {
     // Link reads are asynchronous. This monotonic intent makes a late read
     // from an earlier click unable to cover the document the user chose last.
     private nextMarkdownWorkspaceRequestId = 0;
+    private activeMarkdownWorkspace?: {
+        workspaceFile: ConversationWorkspaceFileTarget;
+        workspaceRootId: string;
+        documentVersion: string;
+        target: ConversationViewerTarget;
+        generation: number;
+    };
     private stale = false;
     private latestPublication?: ConversationViewerPageMessage;
     // The tail split of latestPublication's render: lets a refresh that
@@ -1455,6 +1475,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.commentController.reset();
         this.projectCommentController.reset();
         this.documentCommentController.reset();
+        this.activeMarkdownWorkspace = undefined;
         this.bookmarkController.reset();
         this.target = {
             ...target,
@@ -1575,6 +1596,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.commentController.reset();
         this.projectCommentController.reset();
         this.documentCommentController.reset();
+        this.activeMarkdownWorkspace = undefined;
         this.bookmarkController.reset();
         this.publishKeyboardFocus(false);
         this.suspended = false;
@@ -1889,6 +1911,10 @@ export class ConversationViewer implements ConversationViewerApi {
             );
             return;
         }
+        if (parsed.type === 'conversation-viewer-apply-markdown-suggestion') {
+            await this.applyMarkdownSuggestion(parsed);
+            return;
+        }
         if (parsed.type === 'conversation-viewer-bookmark-mutation') {
             await this.bookmarkController.enqueue(parsed);
             return;
@@ -2045,6 +2071,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.commentController.reset();
         this.projectCommentController.reset();
         this.documentCommentController.reset();
+        this.activeMarkdownWorkspace = undefined;
         this.bookmarkController.reset();
         this.target = { ...target };
         this.suspended = false;
@@ -2220,6 +2247,13 @@ export class ConversationViewer implements ConversationViewerApi {
             || workspaceRequestId !== this.nextMarkdownWorkspaceRequestId) {
             return;
         }
+        this.activeMarkdownWorkspace = {
+            workspaceFile: { ...workspaceFile },
+            workspaceRootId: document.workspaceRootId,
+            documentVersion: document.documentVersion,
+            target,
+            generation: this.subscriptionGeneration,
+        };
         try {
             await panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-workspace',
@@ -2245,6 +2279,48 @@ export class ConversationViewer implements ConversationViewerApi {
         } catch (_error) {
             this.showNotice('Markdown document could not be opened.');
         }
+    }
+
+    private async applyMarkdownSuggestion(
+        message: ConversationViewerApplyMarkdownSuggestionMessage
+    ): Promise<void> {
+        const active = this.activeMarkdownWorkspace;
+        const target = this.target;
+        let result: 'applied' | 'stale' | 'failed' = 'stale';
+        if (active && target && active.target === target
+            && active.generation === this.subscriptionGeneration
+            && message.subscriptionGeneration === this.subscriptionGeneration
+            && message.projectId === target.projectId
+            && message.provider === target.provider && message.sessionId === target.sessionId
+            && message.document.workspaceRootId === active.workspaceRootId
+            && message.document.relativePath === active.workspaceFile.relativePath
+            && message.document.documentVersion === active.documentVersion) {
+            try {
+                result = await Promise.resolve(this.options.applyWorkspaceMarkdownSuggestion?.(
+                    active.workspaceFile, target, {
+                        workspaceRootId: message.document.workspaceRootId,
+                        documentVersion: message.document.documentVersion,
+                        ...message.payload,
+                    }
+                ) || 'failed');
+            } catch (_error) {
+                result = 'failed';
+            }
+            if (result === 'applied') {
+                await this.openMarkdownWorkspace(active.workspaceFile);
+            }
+        }
+        const panel = this.panel;
+        if (!panel) return;
+        try {
+            await panel.webview.postMessage({
+                type: 'conversation-viewer-markdown-suggestion-result', version: 1,
+                requestId: message.requestId, subscriptionGeneration: message.subscriptionGeneration,
+                projectId: message.projectId, provider: message.provider,
+                sessionId: message.sessionId, document: { ...message.document },
+                success: result === 'applied', error: result === 'applied' ? undefined : result,
+            });
+        } catch (_error) { /* no-op */ }
     }
 
     private async openMarkdownEditor(

@@ -226,7 +226,7 @@ export function validateMarkdownDocumentComments(
     const ids = new Set<string>();
     comments.forEach(comment => {
         validateMarkdownDocumentComment(comment);
-        if (ids.has(comment.id)) throw fail('invalid');
+        if (ids.has(comment.id)) { throw fail('invalid'); }
         ids.add(comment.id);
     });
 }
@@ -234,7 +234,7 @@ export function validateMarkdownDocumentComments(
 export function validateMarkdownDocumentCommentTarget(
     target: unknown
 ): asserts target is MarkdownDocumentCommentTarget {
-    if (!isMarkdownDocumentCommentTarget(target)) throw fail('invalid');
+    if (!isMarkdownDocumentCommentTarget(target)) { throw fail('invalid'); }
 }
 
 export function isMarkdownDocumentCommentTarget(

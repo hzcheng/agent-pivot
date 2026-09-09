@@ -84,7 +84,7 @@ export class MarkdownDocumentCommentController {
         this.revision = 0;
         this.settlements.clear();
         const store = this.options.documentCommentStore;
-        if (!store) return;
+        if (!store) { return; }
         let snapshot: { revision: number; comments: MarkdownDocumentComment[] };
         try {
             snapshot = await store.load(context.target);
@@ -95,7 +95,7 @@ export class MarkdownDocumentCommentController {
         } catch (_error) {
             return;
         }
-        if (!this.isContextCurrent(context, activation)) return;
+        if (!this.isContextCurrent(context, activation)) { return; }
         let comments = cloneMarkdownDocumentComments(snapshot.comments);
         const outdated = comments.map(comment => comment.documentVersion === context.documentVersion
             ? comment
@@ -108,12 +108,12 @@ export class MarkdownDocumentCommentController {
             } catch (_error) {
                 // Preserve the original, valid snapshot when status repair
                 // cannot be made durable. The user can still read it.
-                if (!this.isContextCurrent(context, activation)) return;
+                if (!this.isContextCurrent(context, activation)) { return; }
                 this.comments = comments;
                 this.revision = snapshot.revision;
                 return;
             }
-            if (!this.isContextCurrent(context, activation)) return;
+            if (!this.isContextCurrent(context, activation)) { return; }
             comments = outdated;
             snapshot = next;
         }
@@ -156,7 +156,7 @@ export class MarkdownDocumentCommentController {
     private async mutate(request: ConversationViewerDocumentCommentMutationMessage): Promise<void> {
         const next = cloneMarkdownDocumentComments(this.comments);
         if (request.operation === 'add') {
-            if (next.length >= 100) throw new MarkdownDocumentCommentError('limit');
+            if (next.length >= 100) { throw new MarkdownDocumentCommentError('limit'); }
             if (!hasExactKeys(request.payload as object, ['anchor', 'text'])) {
                 throw new MarkdownDocumentCommentError('invalid');
             }
@@ -171,7 +171,7 @@ export class MarkdownDocumentCommentController {
         } else {
             const payload = parseExistingPayload(request);
             const index = next.findIndex(comment => comment.id === payload.commentId);
-            if (index < 0) throw new MarkdownDocumentCommentError('stale');
+            if (index < 0) { throw new MarkdownDocumentCommentError('stale'); }
             if (request.operation === 'delete') {
                 next.splice(index, 1);
             } else if (request.operation === 'update') {
@@ -242,7 +242,7 @@ export class MarkdownDocumentCommentController {
 
     private async restorePrior(snapshot: { revision: number; comments: MarkdownDocumentComment[] }): Promise<void> {
         const context = this.context;
-        if (!context) return;
+        if (!context) { return; }
         try {
             await this.options.documentCommentStore?.save(context.target, snapshot);
         } catch (_error) {
@@ -294,7 +294,7 @@ export class MarkdownDocumentCommentController {
         this.settlements.set(this.settlementKey(request), message);
         while (this.settlements.size > 100) {
             const oldest = this.settlements.keys().next().value;
-            if (typeof oldest !== 'string') break;
+            if (typeof oldest !== 'string') { break; }
             this.settlements.delete(oldest);
         }
         await this.publish(message);
@@ -302,7 +302,7 @@ export class MarkdownDocumentCommentController {
 
     private async publish(message: object): Promise<void> {
         const panel = this.options.getPanel();
-        if (!panel) return;
+        if (!panel) { return; }
         try { await panel.webview.postMessage(message); } catch (_error) { /* no-op */ }
     }
 
@@ -352,9 +352,9 @@ function parseExistingPayload(request: ConversationViewerDocumentCommentMutation
         throw new MarkdownDocumentCommentError('invalid');
     }
     if (request.operation === 'delete') {
-        if (!hasExactKeys(payload, ['commentId'])) throw new MarkdownDocumentCommentError('invalid');
+        if (!hasExactKeys(payload, ['commentId'])) { throw new MarkdownDocumentCommentError('invalid'); }
     } else if (request.operation === 'update') {
-        if (!hasExactKeys(payload, ['commentId', 'text'])) throw new MarkdownDocumentCommentError('invalid');
+        if (!hasExactKeys(payload, ['commentId', 'text'])) { throw new MarkdownDocumentCommentError('invalid'); }
     } else if (!hasExactKeys(payload, ['commentId', 'status'])
         || (payload.status !== 'draft' && payload.status !== 'resolved' && payload.status !== 'outdated')) {
         throw new MarkdownDocumentCommentError('invalid');

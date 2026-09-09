@@ -16,7 +16,7 @@ function parseMarkdownSuggestionPayload(payload: string): MarkdownSuggestionEnve
             || typeof value.selectedText !== 'string' || !value.selectedText
             || value.selectedText.length > 4000
             || typeof value.replacement !== 'string' || !value.replacement
-            || value.replacement.length > 12000) return undefined;
+            || value.replacement.length > 12000) { return undefined; }
         return { selectedText: value.selectedText, replacement: value.replacement };
     } catch (_error) {
         return undefined;
@@ -26,7 +26,7 @@ function parseMarkdownSuggestionPayload(payload: string): MarkdownSuggestionEnve
 export function parseMarkdownSuggestionEnvelope(
     markdown: unknown
 ): MarkdownSuggestionEnvelope | undefined {
-    if (typeof markdown !== 'string' || markdown.length > 64_000) return undefined;
+    if (typeof markdown !== 'string' || markdown.length > 64_000) { return undefined; }
     MARKDOWN_SUGGESTION_FENCE.lastIndex = 0;
     const match = MARKDOWN_SUGGESTION_FENCE.exec(markdown);
     return match ? parseMarkdownSuggestionPayload(match[1]) : undefined;
@@ -35,11 +35,11 @@ export function parseMarkdownSuggestionEnvelope(
 /** The fence is a Host/Webview protocol detail, not reader-facing prose.
  * Remove only validated envelopes so ordinary fenced Markdown is preserved. */
 export function stripMarkdownSuggestionEnvelope(markdown: unknown): string {
-    if (typeof markdown !== 'string' || markdown.length > 64_000) return '';
+    if (typeof markdown !== 'string' || markdown.length > 64_000) { return ''; }
     let removed = false;
     MARKDOWN_SUGGESTION_FENCE.lastIndex = 0;
     const withoutEnvelope = markdown.replace(MARKDOWN_SUGGESTION_FENCE, (match, payload) => {
-        if (!parseMarkdownSuggestionPayload(payload)) return match;
+        if (!parseMarkdownSuggestionPayload(payload)) { return match; }
         removed = true;
         return '';
     });

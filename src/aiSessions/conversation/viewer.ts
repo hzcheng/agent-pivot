@@ -2367,7 +2367,9 @@ export class ConversationViewer implements ConversationViewerApi {
     ): Promise<void> {
         const target = this.markdownSuggestionStateTarget;
         const store = this.markdownSuggestionStateStore;
-        if (!target || !store || !messageId) return;
+        if (!target || !store || !messageId) {
+            return;
+        }
         const current = this.markdownSuggestionStates.filter(state =>
             state.messageId !== messageId
         );

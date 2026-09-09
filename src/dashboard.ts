@@ -2191,7 +2191,7 @@ async function initializeDashboard(
                     const read = await handle.read(
                         contents, offset, contents.length - offset, offset
                     );
-                    if (!read.bytesRead) break;
+                    if (!read.bytesRead) { break; }
                     offset += read.bytesRead;
                 }
                 contents = contents.subarray(0, offset);
@@ -2232,13 +2232,13 @@ async function initializeDashboard(
             const root = activeSession?.worktreeKey?.canonicalWorktreePath
                 ?? historySession?.worktreeKey?.canonicalWorktreePath
                 ?? historySession?.cwd ?? historySession?.workDir;
-            if (typeof root !== 'string' || !root) return 'stale';
+            if (typeof root !== 'string' || !root) { return 'stale'; }
             let canonicalRoot: string;
             let canonicalCandidate: string;
             try {
                 canonicalRoot = await realpathPath(root);
                 if (createHash('sha256').update(canonicalRoot).digest('hex')
-                    !== suggestion.workspaceRootId) return 'stale';
+                    !== suggestion.workspaceRootId) { return 'stale'; }
                 canonicalCandidate = await realpathPath(path.resolve(
                     canonicalRoot, targetFile.relativePath
                 ));
@@ -4418,9 +4418,9 @@ async function initializeDashboard(
             remoteSSH: false,
             remoteContainers: false,
         },
-        get config() { return getAgentPivotConfiguration() },
-        get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
-        get skills() { return skillPanel.getRecords() },
+        get config() { return getAgentPivotConfiguration(); },
+        get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed(); },
+        get skills() { return skillPanel.getRecords(); },
     };
     const renderProjectsPanel = (
         _groups: import('./models').Group[],

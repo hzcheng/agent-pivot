@@ -7689,6 +7689,19 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-COPY-010",
+    "domain": "runtime",
+    "title": "File Transfer streams directly into the visible final target path without creating a hidden sibling staging item",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteFileTransferSshE2e.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-UI-023",
     "domain": "webview",
     "title": "The direct Transfer action completes one correlated safety preflight before it queues a copy, without exposing a separate review surface",

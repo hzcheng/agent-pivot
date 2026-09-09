@@ -3,7 +3,7 @@
 import { createHash, randomBytes } from 'crypto';
 import { ChildProcess, spawn } from 'child_process';
 import { constants, Stats } from 'fs';
-import { access, FileHandle, lstat, mkdir, open, opendir, realpath, rename, rm, stat } from 'fs/promises';
+import { access, FileHandle, lstat, mkdir, open, opendir, realpath, stat } from 'fs/promises';
 import * as path from 'path';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
@@ -444,14 +444,6 @@ function remotePathKind(
             return listRemoteDirectory(sshExecutable, alias, parent)
                 .then(rows => rows.find(row => remoteChildPath(parent, row.name) === targetPath)?.kind || null);
         });
-}
-
-function remotePathExists(
-    sshExecutable: string,
-    alias: string,
-    targetPath: string,
-): Promise<boolean> {
-    return remotePathKind(sshExecutable, alias, targetPath).then(Boolean);
 }
 
 function addKnownFileTransferBytes(
@@ -1035,153 +1027,6 @@ async function createFileTransferDirectory(
     await createRemoteFileTransferDirectory(sshExecutable, destination.alias, destination.path, active);
 }
 
-type FileTransferPathEndpoint = { kind: 'local'; path: string } | { kind: 'managedMachine'; alias: string; path: string };
-
-function fileTransferTemporaryPath(finalPath: string, remote: boolean): string {
-    // Keep this independently bounded: appending a suffix to a valid 255-byte
-    // filename makes the staging path invalid on common filesystems.
-    const pathApi = remote ? path.posix : path;
-    return pathApi.join(pathApi.dirname(finalPath), `.agent-pivot-transfer-${randomBytes(12).toString('hex')}`);
-}
-
-function runRemoteFileTransferCommand(
-    sshExecutable: string,
-    alias: string,
-    command: string,
-    active?: ActiveFileTransferCopy,
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        const child = spawn(sshExecutable, [...fileTransferSshOptions(), alias, command], {
-            stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32',
-        });
-        if (active) {
-            active.process = child;
-            active.processes = [child];
-        }
-        const stderr: Buffer[] = [];
-        child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
-        const clearActiveProcess = () => {
-            if (active?.process === child) {
-                active.process = undefined;
-                active.processes = undefined;
-            }
-        };
-        child.on('error', error => {
-            clearActiveProcess();
-            reject(new Error(`Could not finalize copy destination: ${error.message}`));
-        });
-        child.on('close', code => {
-            clearActiveProcess();
-            if (active?.cancelled) { reject(new Error('File copy was cancelled.')); return; }
-            if (code === 0) { resolve(); return; }
-            const message = Buffer.concat(stderr).toString('utf8').trim();
-            reject(new Error(message ? `Could not finalize copy destination: ${message.slice(0, 320)}`
-                : 'Could not finalize copy destination.'));
-        });
-    });
-}
-
-function publishLocalFileTransferTemporaryPath(
-    temporaryPath: string,
-    destinationPath: string,
-    active: ActiveFileTransferCopy,
-): Promise<void> {
-    return new Promise((resolve, reject) => {
-        // GNU mv's -T -n is an atomic no-clobber publication on the local
-        // filesystem: it neither overwrites a concurrent destination nor
-        // treats a concurrently-created directory as a parent. Do not fall
-        // back to check-then-rename on platforms without this guarantee.
-        const child = spawn('mv', ['-Tn', '--', temporaryPath, destinationPath], {
-            stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32',
-        });
-        active.process = child;
-        active.processes = [child];
-        const stderr: Buffer[] = [];
-        child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)));
-        const clearActiveProcess = () => {
-            if (active.process === child) {
-                active.process = undefined;
-                active.processes = undefined;
-            }
-        };
-        child.on('error', error => {
-            clearActiveProcess();
-            reject(new Error(`Could not finalize copy destination: ${error.message}`));
-        });
-        child.on('close', async code => {
-            clearActiveProcess();
-            if (active.cancelled) { reject(new Error('File copy was cancelled.')); return; }
-            if (code !== 0) {
-                const message = Buffer.concat(stderr).toString('utf8').trim();
-                reject(new Error(message ? `Could not finalize copy destination: ${message.slice(0, 320)}`
-                    : 'Could not finalize copy destination.'));
-                return;
-            }
-            if (await localPathKind(temporaryPath)) {
-                reject(new Error('Copy target appeared while the folder was transferring. Refresh Target and try again.'));
-                return;
-            }
-            resolve();
-        });
-    });
-}
-
-async function publishFileTransferTemporaryPath(
-    sshExecutable: string,
-    temporary: FileTransferPathEndpoint,
-    destination: FileTransferPathEndpoint,
-    active: ActiveFileTransferCopy,
-    replaceExisting: boolean,
-): Promise<void> {
-    if (temporary.kind === 'local' && destination.kind === 'local') {
-        // POSIX rename replaces atomically. Platforms that prohibit replacing
-        // an open file fail before touching the original, which is safer than
-        // deleting it before the verified replacement is ready.
-        if (replaceExisting) {
-            await rename(temporary.path, destination.path);
-        } else {
-            await publishLocalFileTransferTemporaryPath(temporary.path, destination.path, active);
-        }
-        return;
-    }
-    if (temporary.kind !== 'managedMachine' || destination.kind !== 'managedMachine'
-        || temporary.alias !== destination.alias) {
-        throw new Error('Could not finalize copy destination.');
-    }
-    const temporaryPath = quoteRemoteShellArgument(temporary.path);
-    const destinationPath = quoteRemoteShellArgument(destination.path);
-    // -n is available on the OpenSSH-supported POSIX hosts and prevents a
-    // concurrent file from being overwritten. Without GNU `-T`, a concurrent
-    // directory may receive the staging item as a child; detect and remove
-    // only that opaque child, then fail instead of reporting false success.
-    const nestedTemporaryPath = quoteRemoteShellArgument(
-        remoteChildPath(destination.path, path.posix.basename(temporary.path)),
-    );
-    const command = replaceExisting
-        ? `mv -Tf -- ${temporaryPath} ${destinationPath}`
-        : `mv -n ${temporaryPath} ${destinationPath} && ! test -e ${temporaryPath} && ! test -L ${temporaryPath}`
-            + ` && ! test -e ${nestedTemporaryPath} && ! test -L ${nestedTemporaryPath}`
-            + ` || { rm -rf -- ${nestedTemporaryPath}; exit 3; }`;
-    await runRemoteFileTransferCommand(sshExecutable, temporary.alias, command, active);
-}
-
-async function discardFileTransferTemporaryPath(
-    sshExecutable: string,
-    temporary: FileTransferPathEndpoint,
-): Promise<void> {
-    try {
-        if (temporary.kind === 'local') {
-            await rm(temporary.path, { recursive: true, force: true });
-            return;
-        }
-        await runRemoteFileTransferCommand(sshExecutable, temporary.alias,
-            `rm -rf -- ${quoteRemoteShellArgument(temporary.path)}`);
-    } catch {
-        // Preserve the original transfer error. The temporary name is opaque
-        // and unique, so a later cleanup cannot address user content.
-    }
-}
-
 /**
  * A machine-to-machine copy must always pass through the UI Bridge computer.
  * OpenSSH's `scp -3` provides a bounded stream between two independently
@@ -1697,15 +1542,9 @@ export class ManagedRemoteBridgeController {
                         throw new Error(`File Transfer cannot safely replace an existing folder or non-file: ${path.basename(entry.path)}. Choose Skip existing or another folder.`);
                     }
                 }
-                // Never stream into the visible destination. A verified
-                // sibling is published only after copy completion, so Replace
-                // cannot corrupt the original on interruption and a failed
-                // folder copy leaves no collision that blocks retry.
-                const temporaryPath = fileTransferTemporaryPath(destinationPath, destination.kind === 'managedMachine');
-                const temporaryDestination: FileTransferPathEndpoint = destination.kind === 'local'
-                    ? { kind: 'local', path: temporaryPath }
-                    : { kind: 'managedMachine', alias: destination.alias, path: temporaryPath };
-                try {
+                // Stream directly into the destination requested by the user.
+                // A failed or cancelled transfer deliberately leaves its
+                // partial target in place so it is visible and inspectable.
                 const stableLocalSource = source.kind === 'local'
                     ? await openStableLocalFileTransferSource(
                         entry.localRootPath!, entry.localRootIdentity!, entry.path, entry.kind,
@@ -1715,11 +1554,13 @@ export class ManagedRemoteBridgeController {
                 const copySource = source.kind === 'managedMachine'
                     ? scpRemotePath(source.alias, entry.path, legacyScp) : stableLocalSource!.path;
                 const copyDestination = destination.kind === 'managedMachine'
-                    ? scpRemotePath(destination.alias, temporaryPath, legacyScp) : temporaryPath;
+                    ? scpRemotePath(destination.alias, destinationPath, legacyScp) : destinationPath;
                 const archiveSource = source.kind === 'local'
                     ? { kind: 'local' as const, path: entry.path, sourceFd: stableLocalSource!.fd }
                     : { kind: 'managedMachine' as const, alias: source.alias, path: entry.path };
-                const archiveDestination = temporaryDestination;
+                const archiveDestination = destination.kind === 'local'
+                    ? { kind: 'local' as const, path: destinationPath }
+                    : { kind: 'managedMachine' as const, alias: destination.alias, path: destinationPath };
                 if (entry.kind === 'directory') {
                     // A single tar producer/consumer pair preserves symbolic
                     // links and avoids recursively launching SFTP once for
@@ -1739,7 +1580,7 @@ export class ManagedRemoteBridgeController {
                     await relayFileTransferEntry(
                         coordinator.getExecutable(), false, copySource,
                         copyDestination, active, totalBytes,
-                        () => remoteFileSize(coordinator.getExecutable(), destination.alias, temporaryPath),
+                        () => remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath),
                     );
                 } else {
                     active.phase = source.kind === 'managedMachine' ? 'downloading' : 'uploading';
@@ -1750,8 +1591,8 @@ export class ManagedRemoteBridgeController {
                         coordinator.getExecutable(), false, copySource,
                         copyDestination, active, totalBytes,
                         destination.kind === 'local'
-                            ? () => localFileTransferProgressBytes(temporaryPath)
-                            : () => remoteFileSize(coordinator.getExecutable(), destination.alias, temporaryPath),
+                            ? () => localFileTransferProgressBytes(destinationPath)
+                            : () => remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath),
                         false, stableLocalSource?.fd,
                     );
                 }
@@ -1759,67 +1600,30 @@ export class ManagedRemoteBridgeController {
                 noteFileTransferActivity(active, 'verifying');
                 if (entry.kind === 'directory' && entryTree) {
                     await verifyCopiedFileTransferTree(
-                        entryTree, temporaryDestination, temporaryPath, coordinator.getExecutable(),
+                        entryTree, archiveDestination, destinationPath, coordinator.getExecutable(),
                     );
                 } else if (entry.kind === 'directory') {
                     const copiedKind = destination.kind === 'local'
-                        ? await localPathKind(temporaryPath)
+                        ? await localPathKind(destinationPath)
                         : await remotePathKind(
-                            coordinator.getExecutable(), destination.alias, temporaryPath,
+                            coordinator.getExecutable(), destination.alias, destinationPath,
                         );
                     if (copiedKind !== 'directory') {
                         throw new Error(`File copy did not create the target folder: ${path.basename(entry.path)}.`);
                     }
                 } else if (entry.kind === 'file') {
                     const copiedSize = destination.kind === 'local'
-                        ? await localFileSize(temporaryPath)
+                        ? await localFileSize(destinationPath)
                         : await remoteFileSize(
-                            coordinator.getExecutable(), destination.alias, temporaryPath,
+                            coordinator.getExecutable(), destination.alias, destinationPath,
                         );
                     if (Number.isSafeInteger(entry.size) && copiedSize !== entry.size) {
                         throw new Error(`File copy did not pass size verification: ${path.basename(entry.path)}.`);
                     }
                 }
                 if (active.cancelled) { throw new Error('File copy was cancelled.'); }
-                await publishFileTransferTemporaryPath(
-                    coordinator.getExecutable(), temporaryDestination,
-                    destination.kind === 'local'
-                        ? { kind: 'local', path: destinationPath }
-                        : { kind: 'managedMachine', alias: destination.alias, path: destinationPath },
-                    active,
-                    collisionKind === 'file' && request.conflictPolicy === 'replace',
-                );
-                // Publishing is a separate race boundary. Verify the visible
-                // result too; a remote command must never turn a staged copy
-                // into an apparently successful write at another path.
-                const publishedDestination: FileTransferPathEndpoint = destination.kind === 'local'
-                    ? { kind: 'local', path: destinationPath }
-                    : { kind: 'managedMachine', alias: destination.alias, path: destinationPath };
-                if (entry.kind === 'directory' && entryTree) {
-                    await verifyCopiedFileTransferTree(
-                        entryTree, publishedDestination, destinationPath, coordinator.getExecutable(),
-                    );
-                } else if (entry.kind === 'directory') {
-                    const publishedKind = destination.kind === 'local'
-                        ? await localPathKind(destinationPath)
-                        : await remotePathKind(coordinator.getExecutable(), destination.alias, destinationPath);
-                    if (publishedKind !== 'directory') {
-                        throw new Error(`File copy was not published to the target folder: ${path.basename(entry.path)}.`);
-                    }
-                } else if (Number.isSafeInteger(entry.size)) {
-                    const publishedSize = destination.kind === 'local'
-                        ? await localFileSize(destinationPath)
-                        : await remoteFileSize(coordinator.getExecutable(), destination.alias, destinationPath);
-                    if (publishedSize !== entry.size) {
-                        throw new Error(`File copy did not pass final size verification: ${path.basename(entry.path)}.`);
-                    }
-                }
                 } finally {
                     await stableLocalSource?.close();
-                }
-                } catch (error) {
-                    await discardFileTransferTemporaryPath(coordinator.getExecutable(), temporaryDestination);
-                    throw error;
                 }
                 completedItems += 1;
                 active.completedItems = completedItems;

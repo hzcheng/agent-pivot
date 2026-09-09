@@ -7520,6 +7520,21 @@
     ]
   },
   {
+    "id": "FILE-TRANSFER-LOCAL-DISPLAY-001",
+    "domain": "runtime",
+    "title": "This Computer displays its home-rooted absolute Location while retaining opaque browsing handles",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/contract/projects/managedRemoteBridgeController.test.js",
+      "tests/browser/fileTransferLayout.test.js"
+    ],
+    "evidence": [
+      "extensions/attention-ui-bridge/src/managedRemoteBridgeController.ts",
+      "src/webview/webviewDashboardScripts.js"
+    ]
+  },
+  {
     "id": "FILE-TRANSFER-LOCAL-HOME-001",
     "domain": "runtime",
     "title": "File Transfer refuses a UI Bridge that would open a native picker for This Computer",

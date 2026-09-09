@@ -907,6 +907,7 @@ function initDashboard(options) {
         var clearHistory = panel.querySelector('[data-file-transfer-clear-history]');
         var startCopy = panel.querySelector('[data-file-transfer-start-copy]');
         var localRoots = { left: null, right: null };
+        var localRootDisplayPaths = { left: null, right: null };
         var paneFailures = { left: null, right: null };
         var paneNavigationErrors = { left: null, right: null };
         var pendingLocalRootRequests = { left: null, right: null };
@@ -1201,7 +1202,7 @@ function initDashboard(options) {
                 }).map(function (entry) {
                     return { entry: entry, directoryId: root.directoryId };
                 });
-            var parentPath = fileTransferParentPath(root.displayPath);
+            var parentPath = fileTransferParentPathForSide(side, root.displayPath);
             if (parentPath) {
                 entries.unshift({
                     parentDirectory: true,
@@ -1211,6 +1212,41 @@ function initDashboard(options) {
                 });
             }
             return entries;
+        }
+
+        function comparableFileTransferPath(value) {
+            var normalized = String(value || '').replace(/\\/g, '/').replace(/\/+$/, '');
+            if (!normalized) return '/';
+            return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
+        }
+
+        function fileTransferParentPathForSide(side, displayPath) {
+            var parentPath = fileTransferParentPath(displayPath);
+            var selector = selectorFor(side);
+            if (parentPath && selector && selector.value === 'local'
+                && localRootDisplayPaths[side]
+                && comparableFileTransferPath(displayPath)
+                    === comparableFileTransferPath(localRootDisplayPaths[side])) {
+                return null;
+            }
+            return parentPath;
+        }
+
+        function localFileTransferNavigationPath(side, displayPath) {
+            var normalizedPath = String(displayPath).replace(/\\/g, '/');
+            var rootDisplayPath = localRootDisplayPaths[side];
+            if (!rootDisplayPath) return normalizedPath;
+            var normalizedRoot = String(rootDisplayPath).replace(/\\/g, '/').replace(/\/+$/, '') || '/';
+            if (comparableFileTransferPath(normalizedPath) === comparableFileTransferPath(normalizedRoot)) {
+                return '.';
+            }
+            var prefix = normalizedRoot === '/' ? '/' : normalizedRoot + '/';
+            var comparablePath = comparableFileTransferPath(normalizedPath);
+            var comparablePrefix = comparableFileTransferPath(prefix);
+            if (comparablePath.indexOf(comparablePrefix) === 0) {
+                return normalizedPath.slice(prefix.length);
+            }
+            return normalizedPath;
         }
 
         function selectedDirectoryEntries(side) {
@@ -1310,7 +1346,7 @@ function initDashboard(options) {
                 status.textContent = paneFailures[side] || paneNavigationErrors[side]
                     ? (paneFailures[side] || paneNavigationErrors[side]) + ' Select Refresh to try again.'
                     : directoryView
-                    ? Math.max(0, directoryEntries.length - (fileTransferParentPath(directoryView.displayPath) ? 1 : 0)) + ' items loaded'
+                    ? Math.max(0, directoryEntries.length - (fileTransferParentPathForSide(side, directoryView.displayPath) ? 1 : 0)) + ' items loaded'
                         + (directoryView.hasMore ? ' · first 1,000 shown' : '')
                     : value === 'local' && pendingLocalRootRequests[side]
                         ? 'Opening local folder…'
@@ -1490,8 +1526,11 @@ function initDashboard(options) {
             if (!selector || !root || !navigationPath) return;
             var normalizedPath = String(navigationPath).replace(/\\/g, '/');
             var isLocalPath = selector.value === 'local';
+            var requestPath = isLocalPath
+                ? localFileTransferNavigationPath(side, normalizedPath)
+                : normalizedPath;
             var validPath = isLocalPath
-                ? (normalizedPath === '.' || (!normalizedPath.startsWith('/') && normalizedPath.split('/').every(function (part) {
+                ? (requestPath === '.' || (!requestPath.startsWith('/') && requestPath.split('/').every(function (part) {
                     return part && part !== '.' && part !== '..';
                 })))
                 : (normalizedPath === '.' || normalizedPath === '/' || (normalizedPath.startsWith('/') && normalizedPath.split('/').every(function (part, index) {
@@ -1520,13 +1559,14 @@ function initDashboard(options) {
             if (!endpoint) return;
             options.postMessage({
                 type: 'file-transfer-open-directory', version: 1, requestId: requestId,
-                side: side, endpoint: endpoint, path: normalizedPath,
+                side: side, endpoint: endpoint, path: requestPath,
             });
             updatePair();
         }
 
         function resetEndpointState(side) {
             localRoots[side] = null;
+            localRootDisplayPaths[side] = null;
             paneFailures[side] = null;
             paneNavigationErrors[side] = null;
             clearPendingDirectoryRequest(side);
@@ -1614,6 +1654,9 @@ function initDashboard(options) {
             var leftRoot = localRoots.left;
             localRoots.left = localRoots.right;
             localRoots.right = leftRoot;
+            var leftRootDisplayPath = localRootDisplayPaths.left;
+            localRootDisplayPaths.left = localRootDisplayPaths.right;
+            localRootDisplayPaths.right = leftRootDisplayPath;
             var leftSelection = selectedEntries.left;
             selectedEntries.left = selectedEntries.right;
             selectedEntries.right = leftSelection;
@@ -1651,6 +1694,11 @@ function initDashboard(options) {
             pendingLocalRootRequests[message.side] = null;
             if ((message.type === 'file-transfer-local-root-selected'
                 || message.type === 'file-transfer-remote-directory-listed') && message.root) {
+                var endpointSelector = selectorFor(message.side);
+                if (endpointSelector && endpointSelector.value === 'local'
+                    && operation && operation.mode === 'root') {
+                    localRootDisplayPaths[message.side] = message.root.displayPath;
+                }
                 rememberPathSuggestion(message.side, message.root.displayPath);
                 localRoots[message.side] = message.root;
                 selectedEntries[message.side].clear();

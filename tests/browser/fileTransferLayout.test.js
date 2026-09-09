@@ -292,6 +292,63 @@ test('FILE-TRANSFER-UI-017 enters one directory at a time, updates Path, and exp
         'the copy-source indicator must stay out of the layout until a file is selected');
 });
 
+test('FILE-TRANSFER-LOCAL-DISPLAY-001 displays This Computer home in Location while navigating with root-relative handles', async t => {
+    const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
+    t.after(() => page.close());
+    await page.setContent(`<!doctype html><body>
+        <section id="dashboard-tab-file-transfer" class="dashboard-tab-panel">
+            ${getFileTransferContent(snapshot())}
+        </section>
+    </body>`);
+    await page.addScriptTag({ content: dashboardBundle });
+    await page.evaluate(() => {
+        window.__fileTransferMessages = [];
+        window.__fileTransferDashboard = initDashboard({
+            enabledTabs: ['file-transfer'],
+            postMessage: message => window.__fileTransferMessages.push(message),
+        });
+    });
+    const endpoint = page.locator('[data-file-transfer-endpoint="left"]');
+    await endpoint.selectOption('local');
+    const initialRequest = await page.evaluate(() => window.__fileTransferMessages.find(message =>
+        message.type === 'file-transfer-select-local-root' && message.side === 'left'
+    ));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-local-root-selected', version: 1,
+        requestId: initialRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: 'fedcba9876543210fedcba9876543210', label: 'hzcheng',
+            displayPath: '/home/hzcheng', entries: [
+                { id: '11111111111111111111111111111111', name: 'Downloads', kind: 'directory' },
+            ],
+        },
+    });
+    assert.equal(await page.locator('[data-file-transfer-path-input="left"]').inputValue(), '/home/hzcheng');
+    assert.equal(await page.locator('[data-file-transfer-parent-directory="left"]').count(), 0,
+        'the approved home root must not offer a .. row outside its local scope');
+
+    await page.locator('[data-file-transfer-entry-id="11111111111111111111111111111111"] [data-file-transfer-directory-name]').click();
+    const childRequest = await page.evaluate(() => window.__fileTransferMessages.filter(message =>
+        message.type === 'file-transfer-open-directory' && message.side === 'left'
+    ).at(-1));
+    await page.evaluate(message => window.dispatchEvent(new MessageEvent('message', { data: message })), {
+        type: 'file-transfer-local-root-selected', version: 1,
+        requestId: childRequest.requestId, side: 'left',
+        root: {
+            rootId: '0123456789abcdef0123456789abcdef',
+            directoryId: '11111111111111111111111111111111', label: 'hzcheng',
+            displayPath: '/home/hzcheng/Downloads', entries: [],
+        },
+    });
+    assert.equal(await page.locator('[data-file-transfer-path-input="left"]').inputValue(), '/home/hzcheng/Downloads');
+    await page.locator('button[data-file-transfer-parent-directory="left"]').click();
+    const parentRequest = await page.evaluate(() => window.__fileTransferMessages.filter(message =>
+        message.type === 'file-transfer-open-directory' && message.side === 'left'
+    ).at(-1));
+    assert.equal(parentRequest.path, '.', 'the displayed absolute home path must be converted before it leaves the Webview');
+});
+
 test('FILE-TRANSFER-UI-017 exposes .. for the filesystem parent of an initial directory', async t => {
     const page = await browser.newPage({ viewport: { width: 720, height: 520 } });
     t.after(() => page.close());

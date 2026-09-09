@@ -4,6 +4,20 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-09-09
+
+### Changed
+
+- Publish this File Transfer update through the VS Code Marketplace while
+  retaining the existing Workspace Trust declaration and progressively
+  rendered AI Conversation experience.
+
+### Fixed
+
+- Show the resolved absolute local directory in File Transfer Location for
+  This Computer while keeping browser-to-bridge navigation root-relative and
+  capability-bound.
+
 ## [1.4.5] - 2026-09-09
 
 ### Changed

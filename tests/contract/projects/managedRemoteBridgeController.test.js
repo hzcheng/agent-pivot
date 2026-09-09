@@ -195,7 +195,7 @@ test('MANAGED-REMOTE-NAVIGATION-001 resolves Machine and Project identities insi
     assert.doesNotMatch(`${windows[0]} ${folders[0]}`, /build\.example\.com|dev@/u);
 });
 
-test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never accepts paths', async t => {
+test('FILE-TRANSFER-LOCAL-BROWSE-001 FILE-TRANSFER-LOCAL-DISPLAY-001 mints opaque local-root handles and displays the local path', async t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pivot-file-transfer-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
     fs.mkdirSync(path.join(root, 'folder'));
@@ -215,11 +215,10 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
     assert.equal(selected.status, 'ok');
     assert.equal(coordinatorCreates, 0);
     assert.equal(selected.value.label, path.basename(root));
-    assert.equal(selected.value.displayPath, '.');
+    assert.equal(selected.value.displayPath, root);
     assert.deepEqual(selected.value.entries.map(entry => [entry.name, entry.kind]), [
         ['folder', 'directory'], ['notes.txt', 'file'],
     ]);
-    assert.doesNotMatch(JSON.stringify(selected.value), new RegExp(root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
     const listed = await controller.execute({
         ...request('listFileTransferLocalDirectory'),
@@ -230,7 +229,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
         },
     });
     assert.equal(listed.status, 'ok');
-    assert.equal(listed.value.displayPath, '.');
+    assert.equal(listed.value.displayPath, root);
     const rejected = await controller.execute({
         ...request('listFileTransferLocalDirectory'),
         fileTransfer: {
@@ -244,7 +243,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 mints opaque local-root handles and never a
         fileTransfer: { kind: 'localRoot', rootId: selected.value.rootId, path: 'folder' },
     });
     assert.equal(byPath.status, 'ok');
-    assert.equal(byPath.value.displayPath, 'folder');
+    assert.equal(byPath.value.displayPath, path.join(root, 'folder'));
 });
 
 test('FILE-TRANSFER-LOCAL-BROWSE-001 opens This Computer at the local home directory without invoking a picker', async t => {

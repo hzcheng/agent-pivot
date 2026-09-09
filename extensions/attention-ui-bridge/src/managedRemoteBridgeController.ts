@@ -1546,10 +1546,12 @@ export class ManagedRemoteBridgeController {
             if (left.kind !== 'directory' && right.kind === 'directory') { return 1; }
             return left.name.localeCompare(right.name);
         });
-        const relativePath = path.relative(root.path, currentPath).split(path.sep).join('/') || '.';
         return {
             rootId, directoryId: resolvedDirectoryId, label: root.label,
-            displayPath: relativePath, entries: entries.slice(0, 1_000),
+            // This value is display-only. The Webview must retain opaque
+            // handles for authority and convert any typed local path back to
+            // a root-relative request before it leaves the browser.
+            displayPath: currentPath, entries: entries.slice(0, 1_000),
             ...(hasMore ? { hasMore: true } : {}),
         };
     }

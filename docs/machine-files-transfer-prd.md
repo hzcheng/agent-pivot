@@ -142,7 +142,10 @@ local user's home directory; it is never synchronized to another computer.
 ### 7.2 Browse and select
 
 The two-pane browser has clear Source and Target folder headers: endpoint name,
-current location, an editable bounded path field, and Refresh. A `..` row
+current location, an editable bounded path field, and Refresh. For **This
+Computer**, Location displays the resolved absolute home/current directory
+(for example, `/home/hzcheng`); navigation remains bound to the approved root
+through opaque handles or root-relative requests. A `..` row
 navigates to the parent directory. Both panes
 may be navigated independently. A local pane starts at the local user's home
 directory and can navigate only within that approved root.

@@ -148,7 +148,11 @@ export interface FileTransferLocalRootResponse {
     rootId: string;
     directoryId: string;
     label: string;
-    /** A bounded display-only path relative to the approved endpoint root. */
+    /**
+     * A bounded display-only current path. Local roots use the absolute path
+     * shown by the UI host; requests still navigate through opaque handles or
+     * root-relative paths.
+     */
     displayPath: string;
     entries: FileTransferDirectoryEntry[];
     /** The current bounded listing omitted additional entries. */

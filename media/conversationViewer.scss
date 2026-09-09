@@ -226,6 +226,10 @@ body {
     }
     p { margin: 0.4rem 0; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
     footer { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+
+    &[data-status="outdated"] {
+        border-left-color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+    }
 }
 
 .conversation-document-comment-marker {

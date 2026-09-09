@@ -1758,13 +1758,18 @@
         if (!markdownWorkspaceCommentsAvailable) return;
         markdownWorkspaceSuggestionList.textContent = '';
         markdownWorkspaceSuggestions.filter(function (suggestion) {
-            return !markdownWorkspaceSuggestionDisposition(suggestion.messageId);
+            var disposition = markdownWorkspaceSuggestionDisposition(suggestion.messageId);
+            return disposition !== 'dismissed' && disposition !== 'applied';
         }).forEach(function (suggestion) {
+            var disposition = markdownWorkspaceSuggestionDisposition(suggestion.messageId);
             var card = document.createElement('article');
             card.className = 'conversation-document-suggestion-card';
             card.setAttribute('data-markdown-workspace-suggestion-id', suggestion.messageId);
+            card.setAttribute('data-status', disposition || 'active');
             var heading = document.createElement('h3');
-            heading.textContent = 'AI suggested change';
+            heading.textContent = disposition === 'outdated'
+                ? 'AI suggested change · outdated'
+                : 'AI suggested change';
             card.appendChild(heading);
             var quote = document.createElement('blockquote');
             quote.textContent = suggestion.selectedText;
@@ -1774,15 +1779,39 @@
                 + suggestion.replacement;
             card.appendChild(preview);
             var note = document.createElement('p');
-            note.textContent = 'Select the quoted source text, then apply this change.';
+            note.textContent = disposition === 'outdated'
+                ? 'The document changed before this suggestion could be applied. '
+                    + 'Regenerate it from a reliable current selection.'
+                : 'Select the quoted source text, then apply this change.';
             card.appendChild(note);
             var actions = document.createElement('footer');
-            var apply = document.createElement('button');
-            apply.type = 'button';
-            apply.textContent = 'Use suggestion';
-            apply.setAttribute('data-markdown-workspace-suggestion-action', 'use');
-            apply.setAttribute('data-suggestion-id', suggestion.messageId);
-            actions.appendChild(apply);
+            if (disposition === 'outdated') {
+                var regenerate = document.createElement('button');
+                regenerate.type = 'button';
+                regenerate.textContent = 'Regenerate from current document';
+                regenerate.setAttribute('data-markdown-workspace-suggestion-action', 'regenerate');
+                regenerate.setAttribute('data-suggestion-id', suggestion.messageId);
+                actions.appendChild(regenerate);
+            } else {
+                var locate = document.createElement('button');
+                locate.type = 'button';
+                locate.textContent = 'Locate source';
+                locate.setAttribute('data-markdown-workspace-suggestion-action', 'locate');
+                locate.setAttribute('data-suggestion-id', suggestion.messageId);
+                actions.appendChild(locate);
+                var apply = document.createElement('button');
+                apply.type = 'button';
+                apply.textContent = 'Use suggestion';
+                apply.setAttribute('data-markdown-workspace-suggestion-action', 'use');
+                apply.setAttribute('data-suggestion-id', suggestion.messageId);
+                actions.appendChild(apply);
+                var continueDiscussion = document.createElement('button');
+                continueDiscussion.type = 'button';
+                continueDiscussion.textContent = 'Continue discussion';
+                continueDiscussion.setAttribute('data-markdown-workspace-suggestion-action', 'continue');
+                continueDiscussion.setAttribute('data-suggestion-id', suggestion.messageId);
+                actions.appendChild(continueDiscussion);
+            }
             var dismiss = document.createElement('button');
             dismiss.type = 'button';
             dismiss.textContent = 'Dismiss';
@@ -1808,7 +1837,8 @@
             var all = saved && saved.conversationMarkdownWorkspaceSuggestions;
             var entries = all && all[markdownWorkspaceSuggestionStateKey()];
             var value = entries && entries[messageId];
-            return value === 'dismissed' || value === 'applied' ? value : '';
+            return value === 'dismissed' || value === 'applied' || value === 'outdated'
+                ? value : '';
         } catch (_error) {
             return '';
         }
@@ -1851,6 +1881,85 @@
         updateMarkdownWorkspaceSuggestionPreview();
         markdownWorkspacePendingSuggestionSourceId = suggestion.messageId;
         postMarkdownWorkspaceSuggestion();
+    }
+
+    /** The reader may select a source passage for the user only when it is
+     * unique in the current rendered document. Duplicate prose stays manual
+     * so an action card can never silently attach to the wrong paragraph. */
+    function selectMarkdownWorkspaceSuggestionSource(suggestion) {
+        if (!suggestion || !markdownWorkspaceAvailable) return false;
+        var matches = [];
+        var walker = document.createTreeWalker(markdownWorkspaceContent, NodeFilter.SHOW_TEXT);
+        var node;
+        while ((node = walker.nextNode())) {
+            var text = String(node.nodeValue || '');
+            var offset = text.indexOf(suggestion.selectedText);
+            while (offset >= 0) {
+                matches.push({ node: node, offset: offset });
+                if (matches.length > 1) return false;
+                offset = text.indexOf(suggestion.selectedText, offset + 1);
+            }
+        }
+        if (matches.length !== 1 || !window.getSelection) return false;
+        var range = document.createRange();
+        range.setStart(matches[0].node, matches[0].offset);
+        range.setEnd(matches[0].node, matches[0].offset + suggestion.selectedText.length);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        updateMarkdownWorkspaceSelection();
+        return !!markdownWorkspaceSelection;
+    }
+
+    function locateMarkdownWorkspaceSuggestionSource(messageId) {
+        var suggestion = markdownWorkspaceSuggestions.find(function (candidate) {
+            return candidate.messageId === messageId;
+        });
+        if (!selectMarkdownWorkspaceSuggestionSource(suggestion)) {
+            markdownWorkspaceCommentFeedback.textContent =
+                'This suggestion no longer has one reliable source location. Select current text instead.';
+            return;
+        }
+        var selection = window.getSelection && window.getSelection();
+        if (selection && selection.anchorNode && selection.anchorNode.parentElement
+            && typeof selection.anchorNode.parentElement.scrollIntoView === 'function') {
+            selection.anchorNode.parentElement.scrollIntoView({ block: 'center' });
+        }
+        markdownWorkspaceCommentFeedback.textContent = 'Source selected in the document.';
+    }
+
+    function continueMarkdownWorkspaceSuggestion(messageId) {
+        var suggestion = markdownWorkspaceSuggestions.find(function (candidate) {
+            return candidate.messageId === messageId;
+        });
+        if (!selectMarkdownWorkspaceSuggestionSource(suggestion)) {
+            markdownWorkspaceCommentFeedback.textContent =
+                'Select the current source text before continuing this discussion.';
+            return;
+        }
+        markdownWorkspaceCommentComposer.hidden = false;
+        markdownWorkspaceCommentInput.value = 'Please continue discussing this suggested change:\n\n'
+            + suggestion.replacement.slice(0, 3000);
+        markdownWorkspaceCommentInput.focus();
+    }
+
+    function regenerateMarkdownWorkspaceSuggestion(messageId) {
+        var suggestion = markdownWorkspaceSuggestions.find(function (candidate) {
+            return candidate.messageId === messageId;
+        });
+        if (!selectMarkdownWorkspaceSuggestionSource(suggestion)) {
+            markdownWorkspaceCommentFeedback.textContent =
+                'Select the current source text before regenerating this suggestion.';
+            return;
+        }
+        markdownWorkspaceCommentInput.value = '请基于当前文件内容重新生成此处的局部修改建议。'
+            + '原建议的替换内容如下，请先检查它是否仍然合适：\n\n'
+            + suggestion.replacement.slice(0, 3000);
+        markdownWorkspaceSendAfterSave = true;
+        postMarkdownWorkspaceComment('add', {
+            anchor: markdownWorkspaceSelection,
+            text: markdownWorkspaceCommentInput.value,
+        });
     }
 
     function renderMarkdownWorkspaceCommentMarkers(comments) {
@@ -2067,16 +2176,25 @@
             return false;
         }
         markdownWorkspacePendingSuggestionId = '';
+        var sourceId = markdownWorkspacePendingSuggestionSourceId;
+        var stale = !message.success && message.error === 'stale';
         setMarkdownWorkspaceCommentPending(false, message.success
             ? 'Suggested change applied. You can undo it in VS Code.'
-            : 'Suggested change was not applied because the document changed.');
+            : stale
+                ? 'Suggested change is outdated because the document changed.'
+                : 'Suggested change could not be applied. Please try again.');
         if (message.success) {
-            if (markdownWorkspacePendingSuggestionSourceId) {
+            if (sourceId) {
                 rememberMarkdownWorkspaceSuggestionDisposition(
-                    markdownWorkspacePendingSuggestionSourceId, 'applied'
+                    sourceId, 'applied'
                 );
                 renderMarkdownWorkspaceSuggestions();
             }
+            markdownWorkspaceSuggestionComposer.hidden = true;
+            markdownWorkspaceSuggestionInput.value = '';
+        } else if (stale && sourceId) {
+            rememberMarkdownWorkspaceSuggestionDisposition(sourceId, 'outdated');
+            renderMarkdownWorkspaceSuggestions();
             markdownWorkspaceSuggestionComposer.hidden = true;
             markdownWorkspaceSuggestionInput.value = '';
         }
@@ -4623,6 +4741,12 @@
             if (!suggestionId) return;
             if (action === 'use') {
                 useMarkdownWorkspaceSuggestion(suggestionId);
+            } else if (action === 'locate') {
+                locateMarkdownWorkspaceSuggestionSource(suggestionId);
+            } else if (action === 'continue') {
+                continueMarkdownWorkspaceSuggestion(suggestionId);
+            } else if (action === 'regenerate') {
+                regenerateMarkdownWorkspaceSuggestion(suggestionId);
             } else if (action === 'dismiss') {
                 rememberMarkdownWorkspaceSuggestionDisposition(suggestionId, 'dismissed');
                 markdownWorkspaceSuggestions = markdownWorkspaceSuggestions.filter(function (item) {

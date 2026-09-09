@@ -5131,6 +5131,63 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps document-scoped AI replies in th
         '1 new AI reply');
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps a stale suggestion visible and can regenerate it from a reliable current anchor', async t => {
+    const { page } = await openHostViewerDocument(t);
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace',
+        version: 1,
+        href: 'docs/architecture-plan.md',
+        relativePath: 'docs/architecture-plan.md',
+        workspaceRootId: 'root-a',
+        documentVersion: 'sha256:architecture-a',
+        commentSnapshot: { revision: 0, comments: [] },
+        replies: [],
+        suggestions: [{
+            messageId: 'assistant-suggestion-stale',
+            selectedText: 'Rollback strategy',
+            replacement: 'Rollback strategy with a tested restore command.',
+        }],
+        title: 'architecture-plan.md',
+        html: '<h1>Architecture plan</h1><p>Rollback strategy</p>',
+        workspaceRequestId: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+    });
+    await page.evaluate(() => {
+        const paragraph = document.querySelector('[data-markdown-workspace-content] p');
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        paragraph.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.getByRole('button', { name: 'Use suggestion' }).click();
+    const applyIntent = (await postedIntents(page)).at(-1);
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-suggestion-result',
+        version: 1,
+        requestId: applyIntent.requestId,
+        subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        document: {
+            workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:architecture-a',
+        },
+        success: false,
+        error: 'stale',
+    });
+    const card = page.locator('[data-markdown-workspace-suggestion-id="assistant-suggestion-stale"]');
+    assert.equal(await card.getAttribute('data-status'), 'outdated');
+    assert.match(await card.innerText(), /outdated/i);
+    await page.getByRole('button', { name: 'Regenerate from current document' }).click();
+    const regenerateIntent = (await postedIntents(page)).at(-1);
+    assert.equal(regenerateIntent.type, 'conversation-viewer-document-comment-mutation');
+    assert.equal(regenerateIntent.operation, 'add');
+    assert.equal(regenerateIntent.payload.anchor.selectedText, 'Rollback strategy');
+    assert.match(regenerateIntent.payload.text, /重新生成/);
+});
+
 test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable across adjacent document and script generations', async t => {
     async function assertPanelViews(page, label) {
         await page.locator('[data-conversation-position]').click();

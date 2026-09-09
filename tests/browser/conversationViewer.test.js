@@ -5149,6 +5149,14 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
             ''
         )
         .replace(
+            "        if (applyMarkdownWorkspaceSuggestions(event.data)) return;\n",
+            ''
+        )
+        .replace(
+            "        if (applyMarkdownWorkspaceSuggestionResult(event.data)) return;\n",
+            ''
+        )
+        .replace(
             "        if (applyMarkdownWorkspaceCommentsResult(event.data)) return;\n",
             ''
         )

@@ -166,13 +166,13 @@
         ],
         "menus": {
             "editor/title": [
-                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme == file && resourceExtname =~ /\\.md$/i", "group": "navigation@90" }
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i", "group": "navigation@90" }
             ],
             "editor/context": [
-                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme == file && resourceExtname =~ /\\.md$/i", "group": "navigation@90" }
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i", "group": "navigation@90" }
             ],
             "explorer/context": [
-                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme == file && resourceExtname =~ /\\.md$/i && !explorerResourceIsFolder", "group": "navigation@90" }
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i && !explorerResourceIsFolder", "group": "navigation@90" }
             ]
         },
         "keybindings": [

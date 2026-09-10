@@ -406,8 +406,23 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 exposes Markdown review from editor ti
     const command = 'agentPivot.reviewMarkdownInConversation';
     assert.ok(manifest.contributes.commands.some(entry => entry.command === command));
     for (const menu of ['editor/title', 'editor/context', 'explorer/context']) {
-        assert.ok(manifest.contributes.menus[menu].some(entry => entry.command === command
-            && entry.when.includes('resourceExtname')));
+        const entry = manifest.contributes.menus[menu].find(entry => entry.command === command);
+        assert.ok(entry, menu);
+        const folderGuard = menu === 'explorer/context' ? ' && !explorerResourceIsFolder' : '';
+        assert.equal(entry.when,
+            'resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i' + folderGuard);
+        const [, schemePattern, extensionPattern] = entry.when.match(
+            /^resourceScheme =~ \/(.+)\/ && resourceExtname =~ \/(.+)\/i/);
+        const visible = resource => new RegExp(schemePattern).test(resource.protocol.slice(0, -1))
+            && new RegExp(extensionPattern, 'i').test(require('node:path').extname(resource.pathname));
+        for (const scheme of ['file', 'vscode-remote']) {
+            assert.equal(visible(new URL(`${scheme}://host/home/hzcheng/projects/repos/reddb/.worktrees/task-ce92dd/docs/coord/14-coord-solution-briefing.md`)), true);
+            assert.equal(visible(new URL(`${scheme}://host/docs/REVIEW.MD`)), true);
+            assert.equal(visible(new URL(`${scheme}://host/docs/review.ts`)), false);
+        }
+        for (const scheme of ['git', 'untitled', 'https', 'vscode-remote-other']) {
+            assert.equal(visible(new URL(`${scheme}://host/docs/review.md`)), false);
+        }
     }
     assert.equal((manifest.contributes.keybindings || []).some(entry => entry.command === command), false);
 });

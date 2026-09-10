@@ -51,6 +51,17 @@ export interface ConversationViewerOpenMarkdownEditorMessage {
     sessionId: string;
 }
 
+/** Opens a Host-owned Markdown file picker for the current conversation's
+ * authoritative worktree. */
+export interface ConversationViewerPickMarkdownWorkspaceMessage {
+    type: 'conversation-viewer-pick-markdown-workspace';
+    version: 1;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+}
+
 /** Requests disposal of the dedicated Markdown reader panel. The message is
  * intentionally identity-free: the receiving Host resolves its own panel and
  * accepts it only when that Viewer was created in workspace-only mode. */
@@ -498,6 +509,7 @@ export type ConversationViewerMessage =
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerOpenMarkdownEditorMessage
+    | ConversationViewerPickMarkdownWorkspaceMessage
     | ConversationViewerCloseMarkdownWorkspaceMessage
     | ConversationViewerDocumentCommentMutationMessage
     | ConversationViewerSendDocumentCommentMessage
@@ -598,6 +610,19 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerOpenMarkdownEditorMessage;
+    }
+    if (value.type === 'conversation-viewer-pick-markdown-workspace') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId',
+        ])
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isBoundedId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isBoundedId(value.sessionId)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerPickMarkdownWorkspaceMessage;
     }
     if (value.type === 'conversation-viewer-close-markdown-workspace') {
         if (!hasExactKeys(value, ['type', 'version'])) {

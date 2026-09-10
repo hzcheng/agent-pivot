@@ -166,6 +166,11 @@ export interface ConversationViewerOptions {
         target: ConversationLocalFileTarget | ConversationWorkspaceFileTarget,
         viewerTarget: ConversationViewerTarget
     ) => PromiseLike<void> | Promise<void> | void;
+    pickWorkspaceMarkdown?: (
+        viewerTarget: ConversationViewerTarget
+    ) => PromiseLike<ConversationWorkspaceFileTarget | undefined>
+        | Promise<ConversationWorkspaceFileTarget | undefined>
+        | ConversationWorkspaceFileTarget | undefined;
     /** Read a workspace Markdown file only after the Host has resolved it
      * within the conversation's authoritative worktree. */
     readWorkspaceMarkdown?: (
@@ -1752,6 +1757,33 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         if (parsed.type === 'conversation-viewer-open-markdown-editor') {
             await this.openMarkdownEditor(parsed);
+            return;
+        }
+        if (parsed.type === 'conversation-viewer-pick-markdown-workspace') {
+            const target = this.target;
+            if (target && parsed.subscriptionGeneration === this.subscriptionGeneration
+                && parsed.projectId === target.projectId
+                && parsed.provider === target.provider
+                && parsed.sessionId === target.sessionId) {
+                const generation = this.subscriptionGeneration;
+                let workspaceFile: ConversationWorkspaceFileTarget | undefined;
+                try {
+                    workspaceFile = await this.options.pickWorkspaceMarkdown?.(target);
+                } catch (_error) {
+                    this.showNotice('Markdown document picker could not be opened.');
+                    return;
+                }
+                if (this.target !== target || this.subscriptionGeneration !== generation) {
+                    return;
+                }
+                if (workspaceFile) {
+                    if (this.options.openMarkdownWorkspaceInPanel) {
+                        await this.options.openMarkdownWorkspaceInPanel(target, workspaceFile);
+                    } else {
+                        await this.openMarkdownWorkspace(workspaceFile);
+                    }
+                }
+            }
             return;
         }
         if (parsed.type === 'conversation-viewer-close-markdown-workspace') {

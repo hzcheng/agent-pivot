@@ -43,6 +43,11 @@ const CONVERSATION_SESSION_NAV_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none"
 const CONVERSATION_FIND_ICON_PREVIOUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg>';
 const CONVERSATION_FIND_ICON_NEXT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
 const CONVERSATION_FIND_ICON_CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>';
+const CONVERSATION_DOCUMENT_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h6"/></svg>';
+const CONVERSATION_QUESTION_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.7 2.7 0 1 1 4.5 2c-1.2.8-2 1.2-2 2.5"/><path d="M12 17h.01"/></svg>';
+const CONVERSATION_EXPLAIN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14.5A6 6 0 1 1 15.5 14.5C14.6 15.2 14 16 14 17h-4c0-1-.6-1.8-1.5-2.5Z"/></svg>';
+const CONVERSATION_EDITOR_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>';
+const CONVERSATION_UNDO_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v3"/></svg>';
 const CONVERSATION_VIEWER_ASSET_ACTIVATION = randomBytes(8).toString('hex');
 let conversationViewerAssetRevision = 0;
 
@@ -177,6 +182,9 @@ export function renderConversationViewerDocument(
                 target.displayName + duplicateId
             )}</button>
         </div>
+        <button type="button" class="conversation-icon-button"
+            data-markdown-workspace-picker title="Open Markdown document"
+            aria-label="Open Markdown document">${CONVERSATION_DOCUMENT_ICON}</button>
         <button type="button" data-action="toggle-sidebar" hidden
             aria-hidden="true" tabindex="-1"></button>
     </header>
@@ -188,12 +196,6 @@ export function renderConversationViewerDocument(
     <div class="conversation-status" data-conversation-status aria-live="polite">${escapeHtml(
         initialStatus
     )}</div>
-    <button type="button" class="conversation-active-document"
-        data-markdown-workspace-active hidden>
-        <span aria-hidden="true">▤</span>
-        <span data-markdown-workspace-active-title></span>
-        <span class="conversation-active-document-return">Return to document</span>
-    </button>
     <div class="conversation-subagent-banner" data-subagent-banner hidden>
         Viewing subagent <strong data-subagent-banner-label></strong>
         <button type="button" data-action="close-subagent">Back to conversation</button>
@@ -202,23 +204,27 @@ export function renderConversationViewerDocument(
         role="dialog" aria-modal="true" aria-labelledby="markdown-workspace-title"
         hidden>
         <header class="conversation-document-workspace-header">
-            <button type="button" class="conversation-document-workspace-back"
-                data-markdown-workspace-back>${options.markdownWorkspaceOnly === true
-                    ? 'Close document'
-                    : '← Conversation'}</button>
+            <button type="button" class="conversation-icon-button conversation-document-workspace-back"
+                data-markdown-workspace-back title="${options.markdownWorkspaceOnly === true
+                    ? 'Close document' : 'Back to conversation'}"
+                aria-label="${options.markdownWorkspaceOnly === true
+                    ? 'Close document' : 'Back to conversation'}">${CONVERSATION_FIND_ICON_CLOSE}</button>
             <div class="conversation-document-workspace-identity">
                 <strong id="markdown-workspace-title" data-markdown-workspace-title></strong>
                 <span data-markdown-workspace-path></span>
             </div>
             <div class="conversation-document-workspace-mode" role="group"
                 aria-label="Document workspace view">
-                <button type="button" data-markdown-workspace-mode="document"
-                    aria-pressed="true">Document</button>
-                <button type="button" data-markdown-workspace-mode="discussion"
-                    aria-pressed="false">Discussion</button>
+                <button type="button" class="conversation-icon-button"
+                    data-markdown-workspace-mode="document" aria-pressed="true"
+                    title="Document" aria-label="Document">${CONVERSATION_DOCUMENT_ICON}</button>
+                <button type="button" class="conversation-icon-button"
+                    data-markdown-workspace-mode="discussion" aria-pressed="false"
+                    title="Discussion" aria-label="Discussion">${CONVERSATION_COMMENT_ICON_COMMENT}</button>
             </div>
-            <button type="button" class="conversation-document-workspace-editor"
-                data-markdown-workspace-open-editor>Open in editor</button>
+            <button type="button" class="conversation-icon-button conversation-document-workspace-editor"
+                data-markdown-workspace-open-editor title="Open in editor"
+                aria-label="Open in editor">${CONVERSATION_EDITOR_ICON}</button>
         </header>
         <div class="conversation-document-workspace-scroll"
             data-markdown-workspace-scroll tabindex="0">
@@ -232,15 +238,6 @@ export function renderConversationViewerDocument(
                 <span data-markdown-workspace-comment-count>0</span>
                 <span data-markdown-workspace-new-replies role="status" hidden></span>
             </div>
-            <div class="conversation-document-selection-actions"
-                data-markdown-workspace-selection-actions hidden>
-                <p data-markdown-workspace-selection-summary></p>
-                <div>
-                    <button type="button" data-markdown-workspace-comment-action="comment">Add comment</button>
-                    <button type="button" data-markdown-workspace-comment-action="ask">Ask AI</button>
-                    <button type="button" data-markdown-workspace-comment-action="explain">Explain</button>
-                </div>
-            </div>
             <form class="conversation-document-comment-composer"
                 data-markdown-workspace-comment-composer hidden>
                 <label for="markdown-workspace-comment-input">Comment</label>
@@ -248,9 +245,15 @@ export function renderConversationViewerDocument(
                     data-markdown-workspace-comment-input rows="4"
                     maxlength="4000"></textarea>
                 <div>
-                    <button type="button" data-markdown-workspace-comment-cancel>Cancel</button>
-                    <button type="submit" data-markdown-workspace-comment-save>Save draft</button>
-                    <button type="button" data-markdown-workspace-comment-send>Send to AI</button>
+                    <button type="button" class="conversation-comment-icon-button"
+                        data-markdown-workspace-comment-cancel title="Cancel comment"
+                        aria-label="Cancel comment">${CONVERSATION_COMMENT_ICON_X}</button>
+                    <button type="submit" class="conversation-comment-icon-button"
+                        data-markdown-workspace-comment-save title="Save draft"
+                        aria-label="Save draft">${CONVERSATION_COMMENT_ICON_CHECK}</button>
+                    <button type="button" class="conversation-comment-icon-button accent"
+                        data-markdown-workspace-comment-send title="Send to AI"
+                        aria-label="Send to AI">${CONVERSATION_COMMENT_ICON_SEND}</button>
                 </div>
             </form>
             <form class="conversation-document-comment-composer"
@@ -261,8 +264,12 @@ export function renderConversationViewerDocument(
                     maxlength="12000" readonly></textarea>
                 <p data-markdown-workspace-suggestion-preview></p>
                 <div>
-                    <button type="button" data-markdown-workspace-suggestion-reject>Reject</button>
-                    <button type="submit">Apply AI suggestion</button>
+                    <button type="button" class="conversation-comment-icon-button"
+                        data-markdown-workspace-suggestion-reject title="Reject suggestion"
+                        aria-label="Reject suggestion">${CONVERSATION_COMMENT_ICON_X}</button>
+                    <button type="submit" class="conversation-comment-icon-button accent"
+                        title="Apply AI suggestion" aria-label="Apply AI suggestion"
+                        >${CONVERSATION_COMMENT_ICON_CHECK}</button>
                 </div>
             </form>
             <div class="conversation-document-comment-list"
@@ -271,10 +278,28 @@ export function renderConversationViewerDocument(
                 data-markdown-workspace-reply-list aria-label="AI replies" aria-live="polite"></div>
             <div class="conversation-document-suggestion-list"
                 data-markdown-workspace-suggestion-list aria-label="AI suggestions"></div>
-            <button type="button" data-markdown-workspace-undo hidden>Undo last AI change</button>
+            <button type="button" class="conversation-comment-icon-button"
+                data-markdown-workspace-undo hidden title="Undo last AI change"
+                aria-label="Undo last AI change">${CONVERSATION_UNDO_ICON}</button>
             <p class="conversation-document-comment-feedback"
                 data-markdown-workspace-comment-feedback role="status"></p>
         </aside>
+        <div class="conversation-document-selection-actions"
+            data-markdown-workspace-selection-actions hidden role="toolbar"
+            aria-label="Selected text actions">
+            <p class="conversation-visually-hidden" data-markdown-workspace-selection-summary></p>
+            <div>
+                <button type="button" class="conversation-comment-icon-button"
+                    data-markdown-workspace-comment-action="comment" title="Add comment"
+                    aria-label="Add comment">${CONVERSATION_COMMENT_ICON_COMMENT}</button>
+                <button type="button" class="conversation-comment-icon-button"
+                    data-markdown-workspace-comment-action="ask" title="Ask AI"
+                    aria-label="Ask AI">${CONVERSATION_QUESTION_ICON}</button>
+                <button type="button" class="conversation-comment-icon-button"
+                    data-markdown-workspace-comment-action="explain" title="Explain"
+                    aria-label="Explain">${CONVERSATION_EXPLAIN_ICON}</button>
+            </div>
+        </div>
     </section>
     <div class="conversation-follow-notice" data-conversation-notice
         role="status" hidden>

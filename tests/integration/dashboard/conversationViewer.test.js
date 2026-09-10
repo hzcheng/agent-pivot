@@ -2994,6 +2994,7 @@ function createViewer(options = {}) {
             return true;
         },
         openLocalFile: options.openLocalFile,
+        pickWorkspaceMarkdown: options.pickWorkspaceMarkdown,
         readWorkspaceMarkdown: options.readWorkspaceMarkdown,
         applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
         openMarkdownWorkspaceInPanel: options.openMarkdownWorkspaceInPanel,
@@ -5461,6 +5462,31 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps the primary conversation untouch
     assert.equal(panel.postedMessages.some(message =>
         message.type === 'conversation-viewer-markdown-workspace'), false,
     'the primary conversation must never be covered or replaced by the reader');
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a picked Markdown file beside the authoritative conversation', async () => {
+    const opened = [];
+    const { viewer, panel } = createViewer({
+        pickWorkspaceMarkdown: async () => ({
+            relativePath: 'docs/picked-plan.md', line: 1, column: 1,
+        }),
+        openMarkdownWorkspaceInPanel: async (viewerTarget, workspaceFile) => {
+            opened.push({ viewerTarget, workspaceFile });
+        },
+    });
+    await viewer.open(target('session-a'));
+
+    await panel.receive({
+        type: 'conversation-viewer-pick-markdown-workspace', version: 1,
+        subscriptionGeneration: 1, projectId: 'project-a', provider: 'codex',
+        sessionId: 'session-a',
+    });
+
+    assert.equal(opened.length, 1);
+    assert.deepEqual(opened[0].workspaceFile, {
+        relativePath: 'docs/picked-plan.md', line: 1, column: 1,
+    });
     viewer.dispose();
 });
 

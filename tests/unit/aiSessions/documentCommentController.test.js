@@ -104,6 +104,55 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 persists file-anchored drafts, s
     assert.equal(controller.snapshot.comments[0].status, 'resolved');
 });
 
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 rebases a new draft after another window advances the file revision', async () => {
+    let persisted = { revision: 0, comments: [] };
+    let saveAttempts = 0;
+    const { controller, posted } = createHarness({
+        documentCommentStore: {
+            load: async () => ({
+                revision: persisted.revision,
+                comments: persisted.comments.map(comment => ({
+                    ...comment,
+                    anchor: { ...comment.anchor, headingPath: [...comment.anchor.headingPath] },
+                })),
+            }),
+            save: async (_target, next) => {
+                saveAttempts += 1;
+                if (saveAttempts === 1) {
+                    persisted = {
+                        revision: 1,
+                        comments: [{
+                            id: 'other-window-comment',
+                            documentVersion: DOCUMENT.documentVersion,
+                            anchor: {
+                                selectedText: 'Existing note.', prefix: '', suffix: '', headingPath: [],
+                            },
+                            text: 'Saved elsewhere.', status: 'draft', createdAt: 500,
+                        }],
+                    };
+                    throw new Error('Markdown document comments changed in another window.');
+                }
+                persisted = next;
+            },
+        },
+    });
+    await activate(controller);
+
+    await controller.enqueue(request('add-after-concurrent-save', 'add', {
+        anchor: {
+            selectedText: 'Ship the rollback plan.', prefix: '', suffix: '', headingPath: [],
+        },
+        text: 'Keep this comment too.',
+    }, 0));
+
+    assert.equal(posted.at(-1).success, true,
+        'a safe additive mutation should not make the user retry after another window saves first');
+    assert.equal(persisted.revision, 2);
+    assert.deepEqual(persisted.comments.map(comment => comment.text), [
+        'Keep this comment too.', 'Saved elsewhere.',
+    ]);
+});
+
 test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 rejects stale document identity and marks version-mismatched anchors outdated', async () => {
     const stored = {
         revision: 3,

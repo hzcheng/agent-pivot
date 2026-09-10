@@ -1961,6 +1961,21 @@ async function initializeDashboard(
         conversationCapability?.cancelPendingNavigation(options);
         return conversationNavigationIntent;
     };
+    const getConversationAuthoritativeRoot = (
+        viewerTarget: { projectId: string; provider: AiSessionProviderId; sessionId: string }
+    ): string | undefined => {
+        const actionTarget = getCurrentWorkspaceActionTarget(viewerTarget.projectId);
+        const activeSession = (actionTarget?.sessions.activeSessions || [])
+            .find(session => session.provider === viewerTarget.provider
+                && session.sessionId === viewerTarget.sessionId);
+        const historySession = (
+            actionTarget?.sessions.sessionsByProvider[viewerTarget.provider] || []
+        ).find(session => session.id === viewerTarget.sessionId);
+        return activeSession?.worktreeKey?.canonicalWorktreePath
+            ?? historySession?.worktreeKey?.canonicalWorktreePath
+            ?? historySession?.cwd
+            ?? historySession?.workDir;
+    };
     conversationCapability = ownResource(() => createConversationCapability({
         services: aiSessionServices,
         cycleLocalSessionStatus: (kind, currentTarget) =>
@@ -2053,6 +2068,41 @@ async function initializeDashboard(
         publish: message => provider.postMessage(message),
         createPanel: vscode.window.createWebviewPanel,
         openExternal: vscode.env.openExternal,
+        pickWorkspaceMarkdown: async viewerTarget => {
+            const root = getConversationAuthoritativeRoot(viewerTarget);
+            if (!root) { return undefined; }
+            let canonicalRoot: string;
+            try {
+                canonicalRoot = await realpathPath(root);
+            } catch (_error) {
+                return undefined;
+            }
+            const selected = await vscode.window.showOpenDialog({
+                defaultUri: vscode.Uri.file(canonicalRoot),
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: { Markdown: ['md'] },
+                title: 'Open Markdown for review',
+            });
+            const picked = selected?.[0];
+            if (!picked || picked.scheme !== 'file') { return undefined; }
+            let canonicalCandidate: string;
+            try {
+                canonicalCandidate = await realpathPath(picked.fsPath);
+            } catch (_error) {
+                return undefined;
+            }
+            if (!isWorkspaceHostPathContained(canonicalRoot, canonicalCandidate)
+                || !canonicalCandidate.toLowerCase().endsWith('.md')) {
+                return undefined;
+            }
+            const relativePath = path.relative(canonicalRoot, canonicalCandidate)
+                .split(path.sep).join('/');
+            return relativePath && !relativePath.startsWith('../') ? {
+                relativePath, line: 1, column: 1,
+            } : undefined;
+        },
         openLocalFile: async (targetFile, viewerTarget) => {
             const actionTarget = getCurrentWorkspaceActionTarget(
                 viewerTarget.projectId

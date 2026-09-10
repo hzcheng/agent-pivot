@@ -12325,8 +12325,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     await page.locator('[data-markdown-workspace-back]').click();
     assert.equal(await workspace.isHidden(), true);
     assert.equal(await page.locator('.conversation-workspace').getAttribute('aria-hidden'), null);
-    assert.equal(await page.locator('[data-markdown-workspace-active]').isVisible(),
-        true, 'the active-document capsule survives a return to conversation');
+    assert.equal(await page.locator('[data-markdown-workspace-active]').count(),
+        0, 'returning leaves no redundant document capsule in the conversation');
     const savedScroll = await page.evaluate(() =>
         window.__webviewState.conversationMarkdownWorkspace[
             'project-a\u0001codex\u0001session-host-document\u0001docs/architecture-plan.md\u0001sha256:architecture-a'
@@ -12475,6 +12475,67 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 settles a pending comment from an auth
         'the recovered authoritative success closes the draft composer');
     assert.equal(await page.getByRole('button', { name: 'Locate in document' }).isDisabled(), false,
         'the full recovery publication cannot leave the remaining discussion controls pending');
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 offers direct document review and compact selection controls', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 360, height: 560 },
+    });
+
+    const openDocument = page.getByRole('button', { name: 'Open Markdown document' });
+    await openDocument.click();
+    assert.deepEqual((await postedIntents(page)).at(-1), {
+        type: 'conversation-viewer-pick-markdown-workspace',
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-host-document',
+    }, 'opening a review document must not depend on an AI-authored Markdown link');
+    assert.equal(await page.locator('[data-markdown-workspace-active]').count(), 0,
+        'the conversation must not retain a redundant Return to document capsule');
+
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'README.md', relativePath: 'README.md', workspaceRootId: 'root-a',
+        documentVersion: 'sha256:readme-a', title: 'README.md',
+        html: '<h1>Agent Pivot</h1><p>Review this narrow-screen paragraph.</p>',
+        workspaceRequestId: 1, commentSnapshot: { revision: 0, comments: [] },
+        replies: [], suggestions: [], subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+    });
+    await page.evaluate(() => {
+        const paragraph = document.querySelector('[data-markdown-workspace-content] p');
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        paragraph.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+
+    const selectionToolbar = page.locator('[data-markdown-workspace-selection-actions]');
+    assert.equal(await selectionToolbar.isVisible(), true,
+        'selecting rendered Markdown exposes a local action bubble even when the discussion pane is hidden');
+    for (const label of ['Add comment', 'Ask AI', 'Explain']) {
+        const action = page.getByRole('button', { name: label });
+        assert.equal((await action.textContent()).trim(), '',
+            `${label} is an icon action with an accessible label, not a row of button text`);
+    }
+
+    await page.getByRole('button', { name: 'Add comment' }).click();
+    assert.equal(await page.getByRole('button', { name: 'Discussion' }).getAttribute('aria-pressed'), 'true',
+        'starting a comment reveals the compact discussion mode automatically');
+    assert.equal(await page.locator('[data-markdown-workspace-comment-composer]').isVisible(), true);
+    for (const label of ['Cancel comment', 'Save draft', 'Send to AI']) {
+        const action = page.getByRole('button', { name: label });
+        assert.equal((await action.textContent()).trim(), '',
+            `${label} is an icon action with a tooltip and accessible name`);
+    }
+    assert.equal(await page.getByRole('button', { name: 'Undo last AI change' }).isHidden(), true,
+        'an unavailable icon action must not override the native hidden state');
 });
 
 test('CONVERSATION-VIEWER-RICH-MARKDOWN-003 safely renders interactive structured data, math, and charts at narrow widths', async t => {

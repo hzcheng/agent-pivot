@@ -98,6 +98,17 @@ export class MarkdownDocumentCommentFileStore
         for (let attempt = 0; attempt < 80; attempt += 1) {
             try {
                 const handle = await fs.promises.open(lockPath, 'wx', 0o600);
+                try {
+                    await handle.writeFile(JSON.stringify({
+                        pid: process.pid,
+                        createdAt: Date.now(),
+                    }), 'utf8');
+                    await handle.sync();
+                } catch (error) {
+                    await handle.close().catch(() => undefined);
+                    await fs.promises.unlink(lockPath).catch(() => undefined);
+                    throw error;
+                }
                 return async () => {
                     await handle.close().catch(() => undefined);
                     await fs.promises.unlink(lockPath).catch(() => undefined);
@@ -108,7 +119,13 @@ export class MarkdownDocumentCommentFileStore
                 // forever. Locks are only held for one small atomic rename.
                 try {
                     const stat = await fs.promises.stat(lockPath);
-                    if (Date.now() - stat.mtimeMs > 30_000) {
+                    const owner = await readLockOwner(lockPath, stat.size);
+                    const ownerExited = owner !== undefined
+                        && !isProcessAlive(owner);
+                    const legacyReloadLock = owner === undefined
+                        && Date.now() - stat.mtimeMs > 2_000;
+                    if (ownerExited || legacyReloadLock
+                        || Date.now() - stat.mtimeMs > 30_000) {
                         await fs.promises.unlink(lockPath).catch(() => undefined);
                         continue;
                     }
@@ -117,6 +134,28 @@ export class MarkdownDocumentCommentFileStore
             }
         }
         throw new Error('Markdown document comments are busy in another window.');
+    }
+}
+
+async function readLockOwner(lockPath: string, size: number): Promise<number | undefined> {
+    if (size < 2 || size > 512) { return undefined; }
+    try {
+        const parsed: unknown = JSON.parse(await fs.promises.readFile(lockPath, 'utf8'));
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const pid = (parsed as { pid?: unknown }).pid;
+            return Number.isSafeInteger(pid) && (pid as number) > 0
+                ? pid as number : undefined;
+        }
+    } catch (_error) { /* Legacy/partially-written locks use age recovery. */ }
+    return undefined;
+}
+
+function isProcessAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        return (error as NodeJS.ErrnoException).code === 'EPERM';
     }
 }
 

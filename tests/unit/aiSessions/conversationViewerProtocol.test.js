@@ -38,6 +38,13 @@ test('CONVERSATION-PROTOCOL-VALIDATOR-001 accepts every exact version-1 viewer i
         provider: 'codex',
         sessionId: 'session-1',
     }, {
+        type: 'conversation-viewer-pick-markdown-workspace',
+        version: 1,
+        subscriptionGeneration: 1,
+        projectId: 'project-1',
+        provider: 'codex',
+        sessionId: 'session-1',
+    }, {
         type: 'conversation-viewer-close-markdown-workspace',
         version: 1,
     }, {

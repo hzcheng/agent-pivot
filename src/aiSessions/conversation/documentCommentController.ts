@@ -201,7 +201,9 @@ export class MarkdownDocumentCommentController {
             await this.publish(remembered);
             return;
         }
-        if (!this.matches(request) || request.expectedRevision !== this.revision) {
+        if (!this.matches(request)
+            || (request.expectedRevision !== this.revision
+                && request.operation !== 'add')) {
             await this.settle(request, false, 'stale');
             return;
         }
@@ -218,40 +220,82 @@ export class MarkdownDocumentCommentController {
     }
 
     private async mutate(request: ConversationViewerDocumentCommentMutationMessage): Promise<void> {
-        const next = cloneMarkdownDocumentComments(this.comments);
         if (request.operation === 'add') {
-            if (next.length >= 100) { throw new MarkdownDocumentCommentError('limit'); }
-            if (!hasExactKeys(request.payload as object, ['anchor', 'text'])) {
-                throw new MarkdownDocumentCommentError('invalid');
-            }
-            const created = createMarkdownDocumentComment(
-                randomBytes(16).toString('hex'),
-                {
-                    documentVersion: request.document.documentVersion,
-                    ...(request.payload as { anchor: unknown; text: unknown }),
-                },
-                this.now()
-            );
-            next.unshift(withDerivedRangeHint(created, this.context?.markdown));
+            await this.addWithRebase(request);
+            return;
+        }
+        const next = cloneMarkdownDocumentComments(this.comments);
+        const payload = parseExistingPayload(request);
+        const index = next.findIndex(comment => comment.id === payload.commentId);
+        if (index < 0) { throw new MarkdownDocumentCommentError('stale'); }
+        if (request.operation === 'delete') {
+            next.splice(index, 1);
+        } else if (request.operation === 'update') {
+            next[index] = updateMarkdownDocumentComment(next[index], payload.text, this.now());
         } else {
-            const payload = parseExistingPayload(request);
-            const index = next.findIndex(comment => comment.id === payload.commentId);
-            if (index < 0) { throw new MarkdownDocumentCommentError('stale'); }
-            if (request.operation === 'delete') {
-                next.splice(index, 1);
-            } else if (request.operation === 'update') {
-                next[index] = updateMarkdownDocumentComment(next[index], payload.text, this.now());
-            } else {
-                next[index] = setMarkdownDocumentCommentStatus(
-                    next[index], payload.status, this.now(),
-                    payload.status === 'sent' && this.context ? {
-                        provider: this.context.viewerTarget.provider,
-                        sessionId: this.context.viewerTarget.sessionId,
-                    } : undefined
-                );
-            }
+            next[index] = setMarkdownDocumentCommentStatus(
+                next[index], payload.status, this.now(),
+                payload.status === 'sent' && this.context ? {
+                    provider: this.context.viewerTarget.provider,
+                    sessionId: this.context.viewerTarget.sessionId,
+                } : undefined
+            );
         }
         await this.commit(next, request.expectedRevision);
+    }
+
+    private async addWithRebase(
+        request: ConversationViewerDocumentCommentMutationMessage
+    ): Promise<void> {
+        if (!hasExactKeys(request.payload as object, ['anchor', 'text'])) {
+            throw new MarkdownDocumentCommentError('invalid');
+        }
+        const created = withDerivedRangeHint(createMarkdownDocumentComment(
+            randomBytes(16).toString('hex'),
+            {
+                documentVersion: request.document.documentVersion,
+                ...(request.payload as { anchor: unknown; text: unknown }),
+            },
+            this.now()
+        ), this.context?.markdown);
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            if (this.comments.length >= DOCUMENT_COMMENT_LIMITS.maxComments) {
+                throw new MarkdownDocumentCommentError('limit');
+            }
+            const expectedRevision = this.revision;
+            const next = cloneMarkdownDocumentComments(this.comments);
+            next.unshift(created);
+            try {
+                await this.commit(next, expectedRevision);
+                return;
+            } catch (error) {
+                if (!(error instanceof MarkdownDocumentCommentError)
+                    || error.code !== 'failed'
+                    || !await this.reloadAdvancedSnapshot(expectedRevision)) {
+                    throw error;
+                }
+            }
+        }
+        throw new MarkdownDocumentCommentError('failed');
+    }
+
+    private async reloadAdvancedSnapshot(expectedRevision: number): Promise<boolean> {
+        const context = this.context;
+        const store = this.options.documentCommentStore;
+        if (!context || !store) { return false; }
+        try {
+            const snapshot = await store.load(context.target);
+            validateMarkdownDocumentComments(snapshot.comments);
+            if (!this.isContextCurrent(context, this.activation)
+                || snapshot.revision <= expectedRevision) {
+                return false;
+            }
+            this.comments = cloneMarkdownDocumentComments(snapshot.comments);
+            this.revision = snapshot.revision;
+            return true;
+        } catch (_error) {
+            return false;
+        }
     }
 
     private async send(request: ConversationViewerSendDocumentCommentMessage): Promise<void> {

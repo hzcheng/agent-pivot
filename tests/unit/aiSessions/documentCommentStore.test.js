@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const test = require('node:test');
 const { makeTempDirectory } = require('../../helpers/tempDirectory');
 const {
@@ -76,4 +77,23 @@ test('MARKDOWN-DOCUMENT-COMMENTS-PERSISTENCE-001 rejects a stale concurrent snap
         comments: [{ ...snapshot().comments[0], id: 'comment-b' }],
     }), /changed in another window/);
     assert.deepEqual(await first.load(target), snapshot());
+});
+
+test('MARKDOWN-DOCUMENT-COMMENTS-PERSISTENCE-001 recovers a lock abandoned by a reloaded extension host', async t => {
+    const root = makeTempDirectory(t, 'agent-pivot-document-comments-abandoned-lock-');
+    const directory = path.join(root, 'markdown-document-comments', 'v1');
+    await fs.promises.mkdir(directory, { recursive: true });
+    const digest = createHash('sha256').update(JSON.stringify([
+        target.projectId, target.workspaceRootId, target.relativePath,
+    ])).digest('hex');
+    const lockPath = path.join(directory, `${digest}.json.lock`);
+    await fs.promises.writeFile(lockPath, '', 'utf8');
+    const abandonedAt = new Date(Date.now() - 3_000);
+    await fs.promises.utimes(lockPath, abandonedAt, abandonedAt);
+
+    const store = new MarkdownDocumentCommentFileStore(root);
+    await store.save(target, snapshot());
+
+    assert.deepEqual(await store.load(target), snapshot(),
+        'Reload must not leave comments unsavable behind a lock owned by the dead Host');
 });

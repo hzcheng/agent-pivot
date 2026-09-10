@@ -188,7 +188,6 @@ body[data-markdown-workspace-only="true"] > :not([data-markdown-workspace]) {
     font-size: 0.85em;
 }
 
-.conversation-document-selection-actions,
 .conversation-document-comment-composer {
     margin: 0.8rem 0;
     padding: 0.7rem;
@@ -197,10 +196,33 @@ body[data-markdown-workspace-only="true"] > :not([data-markdown-workspace]) {
     background: var(--vscode-editor-background);
 }
 
-.conversation-document-selection-actions p {
-    margin: 0 0 0.6rem;
-    color: var(--vscode-descriptionForeground);
-    font-size: 0.9em;
+.conversation-document-selection-actions {
+    position: fixed;
+    z-index: 30;
+    display: flex;
+    padding: 3px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 7px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 4px 16px var(--vscode-widget-shadow);
+
+    &[hidden] { display: none; }
+
+    > div {
+        gap: 2px;
+        justify-content: flex-start;
+    }
+}
+
+.conversation-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 .conversation-document-comment-composer textarea {
@@ -363,43 +385,6 @@ body[data-markdown-workspace-only="true"] > :not([data-markdown-workspace]) {
     margin: 0 auto;
     font-size: max(1em, 13px);
     line-height: 1.6;
-}
-
-.conversation-active-document {
-    display: inline-flex;
-    gap: 0.4rem;
-    align-items: center;
-    align-self: flex-start;
-    max-width: calc(100% - 1.5rem);
-    margin: 0.35rem 0.75rem 0;
-    padding: 0.3rem 0.5rem;
-    overflow: hidden;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 3px;
-    background: var(--vscode-editor-inactiveSelectionBackground);
-    color: var(--vscode-editor-foreground);
-    font: inherit;
-    cursor: pointer;
-
-    [data-markdown-workspace-active-title] {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .conversation-active-document-return {
-        flex: 0 0 auto;
-        color: var(--vscode-textLink-foreground);
-    }
-
-    &:hover {
-        background: var(--vscode-list-hoverBackground);
-    }
-
-    &:focus-visible {
-        outline: 1px solid var(--vscode-focusBorder);
-        outline-offset: 1px;
-    }
 }
 
 .conversation-identity {
@@ -2675,6 +2660,11 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
             background: var(--vscode-button-hoverBackground);
         }
     }
+}
+
+.conversation-comment-icon-button[hidden],
+.conversation-icon-button[hidden] {
+    display: none;
 }
 
 .conversation-comment-drag-handle {

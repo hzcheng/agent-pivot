@@ -4650,6 +4650,7 @@ async function initializeDashboard(
             placeHolder: 'Choose the AI session for this document review', matchOnDescription: true,
         }),
         open: (candidate, isCurrent) => conversationCapability.openMarkdownReview(candidate.target, candidate.file, isCurrent),
+        reportFailure: (stage, error) => logError(`Markdown review failed at ${stage}`, error || new Error(stage)),
         inform: message => vscode.window.showInformationMessage(message),
     });
 

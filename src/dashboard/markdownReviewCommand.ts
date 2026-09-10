@@ -1,7 +1,7 @@
 'use strict';
 
 import * as path from 'path';
-import type { ConversationSessionOpenTarget } from '../aiSessions/conversation/composition';
+import type { ConversationSessionOpenTarget, MarkdownReviewOpenResult } from '../aiSessions/conversation/composition';
 import type { ConversationWorkspaceFileTarget } from '../aiSessions/conversation/markdown';
 
 /** Canonical paths must share a root without crossing a nested repository. */
@@ -40,7 +40,8 @@ export interface MarkdownReviewCommandOptions {
     confirmSave(): Promise<boolean>;
     candidates(fsPath: string): Promise<MarkdownReviewCandidate[]>;
     choose(candidates: MarkdownReviewCandidate[]): Promise<MarkdownReviewCandidate | undefined>;
-    open(candidate: MarkdownReviewCandidate, isCurrent: () => boolean): Promise<boolean>;
+    open(candidate: MarkdownReviewCandidate, isCurrent: () => boolean): Promise<MarkdownReviewOpenResult>;
+    reportFailure?(stage: string, error?: unknown): void;
     inform(message: string): unknown;
 }
 
@@ -83,8 +84,23 @@ export class MarkdownReviewCommandController {
             this.options.inform('The document changed while choosing a session. Save it and reopen review.');
             return;
         }
-        if (!await this.options.open({ ...selected, file: { ...selected.file, ...position } }, current) && current()) {
-            this.options.inform('The selected AI session is not available for document review. Refresh its conversation and try again.');
+        let result: MarkdownReviewOpenResult;
+        try {
+            result = await this.options.open({ ...selected, file: { ...selected.file, ...position } }, current);
+        } catch (error) {
+            this.options.reportFailure?.('open-exception', error);
+            if (current()) {
+                this.options.inform('Document review could not be opened. See the Agent Pivot output for details.');
+            }
+            return;
         }
+        if (!current() || result === true || result === 'cancelled') { return; }
+        this.options.reportFailure?.(result);
+        const messages = {
+            'session-unavailable': 'The selected AI session is not available for document review. Refresh its conversation and try again.',
+            'conversation-unavailable': 'The AI conversation could not be opened. See the Agent Pivot output for details.',
+            'document-unavailable': 'The document could not be opened for review. Check that it still exists in the session worktree. See the Agent Pivot output for details.',
+        };
+        this.options.inform(messages[result]);
     }
 }

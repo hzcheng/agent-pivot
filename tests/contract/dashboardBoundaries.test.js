@@ -471,6 +471,16 @@ function markdownReviewFixture(overrides = {}) {
     return { controller: new MarkdownReviewCommandController(options), options, candidate, document, opened, notices };
 }
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 review reports the failed stage but not superseded navigation', async () => {
+    for (const [result, message] of [['cancelled', undefined], ['document-unavailable', /document could not be opened/i],
+        ['conversation-unavailable', /conversation could not be opened/i]]) {
+        const fixture = markdownReviewFixture({ open: async () => result });
+        await fixture.controller.review();
+        if (message) assert.match(fixture.notices[0], message);
+        else assert.deepEqual(fixture.notices, []);
+    }
+});
+
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 review command preserves editor position and never sends a prompt', async () => {
     const fixture = markdownReviewFixture();
     await fixture.controller.review();

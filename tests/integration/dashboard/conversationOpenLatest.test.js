@@ -45,7 +45,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 a newer navigation cancels pending edi
         await waitFor(() => reading, 'review resolution');
         harness.capability.cancelPendingNavigation();
         gate.resolve();
-        assert.equal(await opening, false);
+        assert.equal(await opening, 'cancelled');
         assert.equal(documentOpened, false);
         assert.deepEqual(harness.viewerTargets, []);
     } finally { gate.resolve(); harness.capability.dispose(); }
@@ -54,6 +54,42 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 a newer navigation cancels pending edi
 function hashSessionId(value) {
     return createHash('sha256').update(value).digest('hex').slice(0, 12);
 }
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 consecutive editor commands keep the newest document without a false session notice', async t => {
+    const { ConversationViewer } = require('../../../out/aiSessions/conversation/viewer');
+    const { MarkdownReviewCommandController } = require('../../../out/dashboard/markdownReviewCommand');
+    const gate = deferred();
+    const documents = [];
+    const notices = [];
+    let reads = 0;
+    t.mock.method(ConversationViewer.prototype, 'openMarkdownWorkspaceDocument', async (_target, file, current) => {
+        if (!current()) return false;
+        documents.push(file.relativePath);
+        return true;
+    });
+    t.mock.method(ConversationViewer.prototype, 'focus', () => true);
+    const harness = createHarness({ readOutline: async (provider, sessionId) => {
+        if (++reads === 1) await gate.promise;
+        return makeOutline(provider, sessionId, ['input-a']);
+    } });
+    const controller = new MarkdownReviewCommandController({
+        getDocument: async file => ({ fsPath: file, isDirty: false, position: () => ({ line: 1, column: 1 }) }),
+        candidates: async file => [{ target: { projectId: 'project-a', provider: 'codex', sessionId: 'session-a' }, file: { relativePath: file } }],
+        open: (candidate, current) => harness.capability.openMarkdownReview(candidate.target, candidate.file, current),
+        inform: message => notices.push(message),
+    });
+    try {
+        const first = controller.review('docs/first.md');
+        await waitFor(() => reads === 1, 'first review resolution');
+        harness.capability.cancelPendingNavigation();
+        gate.resolve();
+        await first;
+        assert.deepEqual(notices, [], 'navigation cancellation must not claim the session is unavailable');
+        await controller.review('docs/second.md');
+        assert.deepEqual(documents, ['docs/second.md']);
+        assert.deepEqual(notices, []);
+    } finally { gate.resolve(); harness.capability.dispose(); }
+});
 
 function fakeUri(value) {
     return {
@@ -1970,13 +2006,15 @@ test('CONVERSATION-OPEN-LATEST-001 reports unknownSession when the target is not
     capability.dispose();
 });
 
-test('CONVERSATION-OPEN-LATEST-001 unavailable capability rejects openLatestConversation', async () => {
+test('CONVERSATION-OPEN-LATEST-001 CONVERSATION-MARKDOWN-WORKSPACE-001 unavailable capability reports conversation failure, not an invalid session', async () => {
     const { capability, viewerTargets } = createHarness({
         createCodexClient: () => {
             throw new Error('construction failed');
         },
     });
     assert.equal(capability.availability, 'unavailable');
+    assert.equal(await capability.openMarkdownReview({ projectId: 'project-a', provider: 'codex', sessionId: 'session-a' },
+        { relativePath: 'docs/review.md' }), 'conversation-unavailable');
     const result = await capability.openLatestConversation({
         projectId: 'project-a',
         provider: 'codex',

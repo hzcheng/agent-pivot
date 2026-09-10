@@ -98,6 +98,9 @@ export interface PreparedActiveConversationNavigation {
     cancel(): void;
 }
 
+export type MarkdownReviewOpenResult = true | 'cancelled' | 'session-unavailable'
+    | 'conversation-unavailable' | 'document-unavailable';
+
 export interface ConversationCapability {
     viewer: ConversationViewerApi;
     availability: 'available' | 'unavailable';
@@ -105,7 +108,7 @@ export interface ConversationCapability {
         target: ConversationSessionOpenTarget,
         file: import('./markdown').ConversationWorkspaceFileTarget,
         isCurrent?: () => boolean
-    ): Promise<boolean>;
+    ): Promise<MarkdownReviewOpenResult>;
     /**
      * Cancels an in-flight foreground resolution as soon as a newer
      * user-visible navigation intent wins, before that later intent reaches
@@ -894,12 +897,13 @@ function createAvailableConversationCapability(
     return {
         viewer,
         availability: 'available',
-        async openMarkdownReview(target, file, isCurrent = () => true): Promise<boolean> {
+        async openMarkdownReview(target, file, isCurrent = () => true): Promise<MarkdownReviewOpenResult> {
             const generation = ++markdownReviewGeneration;
             const intent = beginViewerIntent();
             const current = () => intent.isCurrent() && generation === markdownReviewGeneration && isCurrent();
             const resolution = await resolveLatestConversationTarget(options, coordinator, target);
-            if (!current() || resolution.result !== 'opened') { return false; }
+            if (!current()) { return 'cancelled'; }
+            if (resolution.result !== 'opened') { return 'session-unavailable'; }
             // Editor commands start outside Conversation: reveal its matching
             // session first, then open the reader beside that panel. Reuse the
             // resolution so the two panels cannot select different snapshots.
@@ -907,8 +911,11 @@ function createAvailableConversationCapability(
                 options, coordinator, viewer, target, current, snapshotWarmup,
                 intent.signal, Promise.resolve(resolution)
             );
-            if (opened !== 'opened' || !current()) { return false; }
-            return await openMarkdownWorkspaceInPanel(resolution.viewerTarget, file, current) && current();
+            if (!current()) { return 'cancelled'; }
+            if (opened !== 'opened') { return 'conversation-unavailable'; }
+            const documentOpened = await openMarkdownWorkspaceInPanel(resolution.viewerTarget, file, current);
+            if (!current()) { return 'cancelled'; }
+            return documentOpened ? true : 'document-unavailable';
         },
         cancelPendingNavigation: navigationOptions => {
             if (!disposed) {
@@ -1144,7 +1151,7 @@ function createUnavailableConversationCapability(): ConversationCapability {
     return {
         viewer,
         availability: 'unavailable',
-        async openMarkdownReview(): Promise<boolean> { return false; },
+        async openMarkdownReview(): Promise<MarkdownReviewOpenResult> { return 'conversation-unavailable'; },
         cancelPendingNavigation(): void {},
         prepareActiveConversation(): PreparedActiveConversationNavigation {
             return {

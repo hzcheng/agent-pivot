@@ -12137,29 +12137,46 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders rich document blocks and activ
     assert.equal(await content.locator('.conversation-mermaid-image').count(), 1);
 });
 
-test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders the reported Coord pool flowchart and state diagram', async t => {
-    const { renderConversationMarkdown } = require('../../out/aiSessions/conversation/markdown');
-    const { page } = await openHostViewerDocument(t, {
-        markdownWorkspaceOnly: true, includeStyles: true, themeFixture: viewerThemeFixtures[0],
-    });
-    const markdown = fs.readFileSync(path.join(__dirname, '../fixtures/coord-pool-mermaid.md'), 'utf8');
-    await sendPage(page, {
-        type: 'conversation-viewer-markdown-workspace', version: 1,
-        href: 'docs/coord/design.md', relativePath: 'docs/coord/design.md',
-        workspaceRootId: 'root-a', documentVersion: 'v1', title: 'design.md',
-        html: renderConversationMarkdown(markdown), workspaceRequestId: 1, subscriptionGeneration: 1,
-        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
-        commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
-    });
-    await page.waitForFunction(() => document.querySelectorAll('.conversation-mermaid-image, .conversation-mermaid-error').length === 2);
-    assert.equal(await page.locator('.conversation-mermaid-error').count(), 0);
-    assert.equal(await page.locator('.conversation-mermaid-image').evaluateAll(images =>
-        images.length === 2 && images.every(image => image.naturalWidth > 0)), true);
-    await page.locator('.conversation-mermaid').first().click();
-    assert.equal(await page.locator('.conversation-mermaid-preview').isVisible(), true);
-    await page.keyboard.press('Escape');
-    assert.equal(await page.locator('.conversation-mermaid-preview').count(), 0);
-});
+for (const fixture of [
+    { file: 'coord-pool-mermaid.md', count: 2 },
+    { file: 'coord-briefing-mermaid.md', count: 3 },
+]) {
+    for (const scenario of [{ width: 700, theme: 0 }, { width: 360, theme: 1 }]) {
+        test(`CONVERSATION-MARKDOWN-WORKSPACE-001 renders the reported diagrams in ${fixture.file} at ${scenario.width}px`, async t => {
+            const { renderConversationMarkdown } = require('../../out/aiSessions/conversation/markdown');
+            const { page } = await openHostViewerDocument(t, {
+                markdownWorkspaceOnly: true, includeStyles: true, themeFixture: viewerThemeFixtures[scenario.theme],
+                viewport: { width: scenario.width, height: 700 },
+            });
+            const diagnostics = [];
+            page.on('console', message => {
+                if (message.type() === 'warning' || message.type() === 'error') diagnostics.push(message.text());
+            });
+            const markdown = fs.readFileSync(path.join(__dirname, '../fixtures', fixture.file), 'utf8');
+            await sendPage(page, {
+                type: 'conversation-viewer-markdown-workspace', version: 1,
+                href: 'docs/coord/design.md', relativePath: 'docs/coord/design.md',
+                workspaceRootId: 'root-a', documentVersion: 'v1', title: 'design.md',
+                html: renderConversationMarkdown(markdown), workspaceRequestId: 1, subscriptionGeneration: 1,
+                projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+                commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
+            });
+            await page.waitForFunction(count => document.querySelectorAll('.conversation-mermaid-image, .conversation-mermaid-error').length === count, fixture.count);
+            assert.equal(await page.locator('.conversation-mermaid-error').count(), 0, diagnostics.join('\n'));
+            assert.equal(await page.locator('.conversation-mermaid-image').evaluateAll((images, count) =>
+                images.length === count && images.every(image => image.naturalWidth > 0), fixture.count), true);
+            assert.equal(await page.locator('body > svg').count(), 0, 'temporary text-measurement SVGs must be removed');
+            if (process.env.AGENT_PIVOT_CAPTURE_MERMAID === '1') {
+                await page.locator('.conversation-mermaid').last().scrollIntoViewIfNeeded();
+                await page.screenshot({ path: path.join(os.tmpdir(), `agent-pivot-${fixture.file}-${scenario.width}.png`) });
+            }
+            await page.locator('.conversation-mermaid').first().click();
+            assert.equal(await page.locator('.conversation-mermaid-preview').isVisible(), true);
+            await page.keyboard.press('Escape');
+            assert.equal(await page.locator('.conversation-mermaid-preview').count(), 0);
+        });
+    }
+}
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders the dedicated document tab without a duplicate conversation', async t => {
     const { page } = await openHostViewerDocument(t, {

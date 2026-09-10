@@ -34,8 +34,26 @@ body {
 // A dedicated Markdown tab reuses the proven reader DOM without laying out a
 // second conversation behind it. The in-conversation form remains supported
 // for restored/older surfaces.
-body[data-markdown-workspace-only="true"] > :not([data-markdown-workspace]) {
-    display: none !important;
+body[data-markdown-workspace-only="true"] {
+    // Hide only our conversation chrome, not library-owned measurement nodes.
+    > .conversation-header,
+    > .conversation-telemetry,
+    > .conversation-status,
+    > .conversation-subagent-banner,
+    > .conversation-follow-notice,
+    > .conversation-workspace,
+    > .conversation-add-comment {
+        display: none !important;
+    }
+
+    // Sequence diagrams measure text in a temporary body-level SVG even when
+    // render() receives a container. Keep it measurable but out of view/flow.
+    > svg {
+        position: fixed;
+        left: -100000px;
+        visibility: hidden;
+        pointer-events: none;
+    }
 }
 
 .conversation-document-workspace {

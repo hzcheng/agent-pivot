@@ -243,6 +243,11 @@
                 event.preventDefault();
                 closePreview(figure);
             });
+            dialog.addEventListener('keydown', function (event) {
+                // The native dialog owns Escape and Tab while open. Do not
+                // let the document reader handle the same keystroke too.
+                event.stopPropagation();
+            });
             dialog.addEventListener('click', function (event) {
                 if (event.target === dialog) closePreview(figure);
             });

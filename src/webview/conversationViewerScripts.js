@@ -208,6 +208,8 @@
     var markdownWorkspaceReplies = [];
     var markdownWorkspaceSuggestions = [];
     var markdownWorkspaceSelection;
+    var markdownWorkspaceMermaidRenderer;
+    var markdownWorkspaceMermaidGeneration = 0;
     var markdownWorkspaceCommentRequestSerial = 0;
     var markdownWorkspacePendingRequestId = '';
     var markdownWorkspaceCommentWatchdog;
@@ -1662,6 +1664,23 @@
                     && message.undoSuggestionId.length > 0 && message.undoSuggestionId.length <= 256));
     }
 
+    function renderMarkdownWorkspaceRichContent() {
+        if (!markdownWorkspaceMermaidRenderer) {
+            markdownWorkspaceMermaidRenderer = window.__agentPivotConversation.mermaid.create({
+                source: mermaidSource,
+                nonce: scriptNonce,
+                messages: markdownWorkspace,
+                scroll: markdownWorkspaceScroll,
+                maxDiagrams: maxMermaidDiagrams,
+                captureAnchor: function () { return undefined; },
+                restoreAnchor: function (_anchor, previousScrollTop) {
+                    markdownWorkspaceScroll.scrollTop = previousScrollTop;
+                },
+            });
+        }
+        markdownWorkspaceMermaidRenderer.render('document-' + (++markdownWorkspaceMermaidGeneration));
+    }
+
     function validMarkdownWorkspaceSnapshot(snapshot) {
         return !!snapshot && !Array.isArray(snapshot)
             && Number.isSafeInteger(snapshot.revision) && snapshot.revision >= 0
@@ -1801,6 +1820,7 @@
 
     function renderMarkdownWorkspaceReplies() {
         if (!markdownWorkspaceCommentsAvailable) return;
+        if (markdownWorkspaceMermaidRenderer) markdownWorkspaceMermaidRenderer.release(markdownWorkspaceReplyList);
         markdownWorkspaceReplyList.textContent = '';
         markdownWorkspaceReplies.forEach(function (reply) {
             var card = document.createElement('article');
@@ -1832,6 +1852,7 @@
             ));
             markdownWorkspaceReplyList.appendChild(card);
         });
+        if (!markdownWorkspace.hidden) renderMarkdownWorkspaceRichContent();
     }
 
     function renderMarkdownWorkspaceSuggestions() {
@@ -2628,6 +2649,7 @@
 
     function closeMarkdownWorkspace() {
         if (!markdownWorkspaceAvailable || markdownWorkspace.hidden) return;
+        if (markdownWorkspaceMermaidRenderer) markdownWorkspaceMermaidRenderer.closePreview();
         saveMarkdownWorkspaceScroll();
         if (markdownWorkspaceOnly) {
             post({
@@ -2797,6 +2819,7 @@
         }
         markdownWorkspaceTitle.textContent = message.title;
         markdownWorkspacePath.textContent = message.relativePath;
+        if (markdownWorkspaceMermaidRenderer) markdownWorkspaceMermaidRenderer.release(markdownWorkspaceContent);
         markdownWorkspaceContent.innerHTML = sanitizeConversationHtml(message.html);
         renderMarkdownWorkspaceComments();
         renderMarkdownWorkspaceReplies();
@@ -2819,6 +2842,7 @@
         markdownWorkspace.hidden = false;
         document.body.classList.add('conversation-markdown-workspace-open');
         setMarkdownWorkspaceBackgroundDisabled(true);
+        renderMarkdownWorkspaceRichContent();
         var restorePosition = function () {
             markdownWorkspaceScroll.scrollTop = markdownWorkspaceScrollTop(
                 markdownWorkspaceKey(
@@ -5038,7 +5062,11 @@
         });
     });
     if (markdownWorkspaceAvailable) {
-        markdownWorkspaceContent.addEventListener('click', function (event) {
+        markdownWorkspaceContent.addEventListener('click', handleMarkdownWorkspaceRichClick);
+        if (markdownWorkspaceReplyList) {
+            markdownWorkspaceReplyList.addEventListener('click', handleMarkdownWorkspaceRichClick);
+        }
+        function handleMarkdownWorkspaceRichClick(event) {
             var marker = event.target && event.target.closest
                 ? event.target.closest('[data-markdown-workspace-comment-marker]') : null;
             if (marker && markdownWorkspaceContent.contains(marker)) {
@@ -5048,9 +5076,46 @@
                 );
                 return;
             }
+            var copy = event.target.closest && event.target.closest('.conversation-code-copy');
+            if (copy) {
+                var block = copy.closest('.conversation-code-block');
+                var code = block && block.querySelector('pre code');
+                if (code) postCopyRequest(copy, { kind: 'code', text: codeBlockText(code) });
+                return;
+            }
+            var run = event.target.closest && event.target.closest('[data-conversation-run-command]');
+            if (run) {
+                var runBlock = run.closest('.conversation-code-block');
+                var runCode = runBlock && runBlock.querySelector('pre code');
+                if (runCode) postRunCommand(codeBlockText(runCode));
+                return;
+            }
+            var wrap = event.target.closest && event.target.closest('[data-conversation-diff-wrap-toggle]');
+            if (wrap) {
+                var file = wrap.closest('.conversation-diff-file');
+                if (file) applyDiffWrap(file, !file.classList.contains('conversation-diff-wrap'));
+                return;
+            }
+            var context = event.target.closest && event.target.closest('[data-conversation-diff-context-toggle]');
+            if (context) {
+                var diff = context.closest('.conversation-diff-file');
+                if (!diff) return;
+                var changesOnly = diff.classList.toggle('conversation-diff-changes-only');
+                context.setAttribute('aria-pressed', String(changesOnly));
+                context.textContent = changesOnly ? 'Show context' : 'Changes only';
+                return;
+            }
+            var sort = event.target.closest && event.target.closest('[data-conversation-sort-column]');
+            if (sort) {
+                applyTableSort(sort.closest('table.conversation-data-table'),
+                    Number(sort.getAttribute('data-conversation-sort-column')),
+                    sort.getAttribute('data-conversation-sort-direction') === 'ascending'
+                        ? 'descending' : 'ascending');
+                return;
+            }
             var link = event.target && event.target.closest
                 ? event.target.closest('a[href]') : null;
-            if (!link || !markdownWorkspaceContent.contains(link)) return;
+            if (!link || !markdownWorkspace.contains(link)) return;
             var href = link.getAttribute('href');
             if (isHttps(href)) return;
             event.preventDefault();
@@ -5060,9 +5125,12 @@
                 version: 1,
                 href: href,
             });
-        });
+        }
         markdownWorkspaceContent.addEventListener('mouseup', updateMarkdownWorkspaceSelection);
         markdownWorkspaceContent.addEventListener('keyup', updateMarkdownWorkspaceSelection);
+        window.addEventListener('unload', function () {
+            if (markdownWorkspaceMermaidRenderer) markdownWorkspaceMermaidRenderer.release();
+        });
     }
     if (markdownWorkspaceCommentsAvailable) {
         markdownWorkspaceDiscussionClose.addEventListener('click', function () {

@@ -332,7 +332,7 @@ function renderChartRows(chart: ConversationChartData): string {
 }
 
 function renderMath(value: string, displayMode: boolean): string {
-    if (!value || value.length > 10_000 || /[\u0000-\u001f\u007f]/.test(value)) {
+    if (!value || value.length > 10_000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) {
         return renderMathFallback(value, displayMode);
     }
     if (renderedMathExpressions >= MAX_CONVERSATION_MATH_EXPRESSIONS

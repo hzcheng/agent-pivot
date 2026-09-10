@@ -12094,6 +12094,49 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 saves a rendered selection through the
     assert.equal(await page.locator('article[data-comment-id]').count(), 1);
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders rich document blocks and activates their controls', async t => {
+    const { renderConversationMarkdown } = require('../../out/aiSessions/conversation/markdown');
+    const { page } = await openHostViewerDocument(t, { markdownWorkspaceOnly: true });
+    const html = renderConversationMarkdown([
+        '# Rich document', '```mermaid', 'graph TD', 'A-->B', '```',
+        '```math', 'x^2 + y^2', '```',
+        '| Name | Count |', '| --- | --- |', '| Zebra | 2 |', '| Alpha | 1 |',
+        '', '- [x] Done', '', '```json', '{"ready":true}', '```',
+        '```javascript', 'const ready = true;', '```',
+        '```diff', '--- a/a.txt', '+++ b/a.txt', '@@ -1 +1 @@', '-old', '+new', '```',
+        '```chart', '{"type":"bar","labels":["A","B"],"values":[1,2]}', '```',
+    ].join('\n'));
+    const publication = {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/rich.md', relativePath: 'docs/rich.md',
+        workspaceRootId: 'root-a', documentVersion: 'v1',
+        title: 'rich.md', html, workspaceRequestId: 1, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
+    };
+    await sendPage(page, publication);
+    const content = page.locator('[data-markdown-workspace-content]');
+    await content.locator('.conversation-mermaid-image').waitFor();
+    assert.equal(await content.locator('.conversation-mermaid-image').evaluate(img => img.naturalWidth > 0), true);
+    assert.equal(await content.locator('.katex').count(), 1);
+    assert.equal(await content.locator('.conversation-task-checkbox-checked').count(), 1);
+    assert.equal(await content.locator('.conversation-chart').count(), 1);
+    await content.locator('[data-conversation-sort-column="0"]').click();
+    assert.match(await content.locator('tbody tr').first().innerText(), /Alpha/);
+    await content.locator('.conversation-code-copy').click();
+    assert.equal((await postedIntents(page)).at(-1).type, 'conversation-viewer-copy');
+    await content.locator('[data-conversation-diff-wrap-toggle]').click();
+    assert.equal(await content.locator('.conversation-diff-wrap').count(), 1);
+    await content.locator('.conversation-mermaid').click();
+    await page.keyboard.press('Escape');
+    assert.equal((await postedIntents(page)).some(message =>
+        message.type === 'conversation-viewer-close-markdown-workspace'), false,
+    'closing a diagram preview must not close its document');
+    await sendPage(page, { ...publication, workspaceRequestId: 2 });
+    await content.locator('.conversation-mermaid-image').waitFor();
+    assert.equal(await content.locator('.conversation-mermaid-image').count(), 1);
+});
+
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders the dedicated document tab without a duplicate conversation', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,

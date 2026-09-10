@@ -1695,6 +1695,7 @@
       "tests/contract/dashboardBoundaries.test.js",
       "tests/unit/aiSessions/documentComments.test.js",
       "tests/browser/conversationViewer.test.js",
+      "tests/integration/dashboard/conversationOpenLatest.test.js",
       "tests/integration/dashboard/conversationViewer.test.js"
     ],
     "evidence": [

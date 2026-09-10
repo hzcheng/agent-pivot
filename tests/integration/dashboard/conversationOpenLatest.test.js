@@ -7,6 +7,50 @@ const Module = require('node:module');
 const path = require('node:path');
 const test = require('node:test');
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 editor review reveals the matching conversation before focusing its document', async t => {
+    const { ConversationViewer } = require('../../../out/aiSessions/conversation/viewer');
+    const events = [];
+    t.mock.method(ConversationViewer.prototype, 'openMarkdownWorkspaceDocument', async target => {
+        events.push(`document:${target.sessionId}`);
+        return true;
+    });
+    t.mock.method(ConversationViewer.prototype, 'focus', () => { events.push('document-focus'); return true; });
+    for (const initialViewerTarget of [undefined, { projectId: 'project-a', provider: 'codex', sessionId: 'old-session', interactionId: 'old' }]) {
+        events.length = 0;
+        const harness = createHarness({ initialViewerTarget, openViewer: async target => events.push(`conversation:${target.sessionId}`) });
+        try {
+            assert.equal(await harness.capability.openMarkdownReview(
+                { projectId: 'project-a', provider: 'codex', sessionId: 'session-a' },
+                { relativePath: 'docs/review.md' }
+            ), true);
+            assert.deepEqual(events, ['conversation:session-a', 'document:session-a', 'document-focus']);
+        } finally { harness.capability.dispose(); }
+    }
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 a newer navigation cancels pending editor review', async t => {
+    const { ConversationViewer } = require('../../../out/aiSessions/conversation/viewer');
+    const gate = deferred();
+    let reading = false;
+    let documentOpened = false;
+    t.mock.method(ConversationViewer.prototype, 'openMarkdownWorkspaceDocument', async () => { documentOpened = true; return true; });
+    const harness = createHarness({ readOutline: async (provider, sessionId) => {
+        reading = true;
+        await gate.promise;
+        return makeOutline(provider, sessionId, ['input-a']);
+    } });
+    try {
+        const opening = harness.capability.openMarkdownReview(
+            { projectId: 'project-a', provider: 'codex', sessionId: 'session-a' }, { relativePath: 'docs/review.md' });
+        await waitFor(() => reading, 'review resolution');
+        harness.capability.cancelPendingNavigation();
+        gate.resolve();
+        assert.equal(await opening, false);
+        assert.equal(documentOpened, false);
+        assert.deepEqual(harness.viewerTargets, []);
+    } finally { gate.resolve(); harness.capability.dispose(); }
+});
+
 function hashSessionId(value) {
     return createHash('sha256').update(value).digest('hex').slice(0, 12);
 }

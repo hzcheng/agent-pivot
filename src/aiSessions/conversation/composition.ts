@@ -896,9 +896,18 @@ function createAvailableConversationCapability(
         availability: 'available',
         async openMarkdownReview(target, file, isCurrent = () => true): Promise<boolean> {
             const generation = ++markdownReviewGeneration;
-            const current = () => !disposed && generation === markdownReviewGeneration && isCurrent();
+            const intent = beginViewerIntent();
+            const current = () => intent.isCurrent() && generation === markdownReviewGeneration && isCurrent();
             const resolution = await resolveLatestConversationTarget(options, coordinator, target);
             if (!current() || resolution.result !== 'opened') { return false; }
+            // Editor commands start outside Conversation: reveal its matching
+            // session first, then open the reader beside that panel. Reuse the
+            // resolution so the two panels cannot select different snapshots.
+            const opened = await openLatestConversation(
+                options, coordinator, viewer, target, current, snapshotWarmup,
+                intent.signal, Promise.resolve(resolution)
+            );
+            if (opened !== 'opened' || !current()) { return false; }
             return await openMarkdownWorkspaceInPanel(resolution.viewerTarget, file, current) && current();
         },
         cancelPendingNavigation: navigationOptions => {

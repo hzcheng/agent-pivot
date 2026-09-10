@@ -255,8 +255,9 @@ export function renderConversationViewerDocument(
                 aria-label="Send all drafts to AI">${CONVERSATION_COMMENT_ICON_SEND} Send drafts (0)</button>
             <p class="conversation-document-recipient" data-markdown-workspace-recipient>AI session: ${escapeHtml(target.displayName + duplicateId)} · ${escapeHtml(target.provider)}</p>
             <form class="conversation-document-comment-composer"
-                data-markdown-workspace-comment-composer hidden>
+                data-markdown-workspace-comment-composer hidden role="dialog" aria-label="Add document comment">
                 <label for="markdown-workspace-comment-input">Comment</label>
+                <blockquote data-markdown-workspace-comment-quote></blockquote>
                 <textarea id="markdown-workspace-comment-input"
                     data-markdown-workspace-comment-input rows="4"
                     maxlength="4000" required></textarea>

@@ -12213,6 +12213,57 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 review polish names the recipient and 
     assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').innerText(), /could not be saved/i);
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 inline composer stays beside the selection without opening discussion', async t => {
+    for (const width of [1000, 360]) {
+        const { page } = await openReviewInteractionFixture(t);
+        await page.setViewportSize({ width, height: 700 });
+        await page.locator('[data-markdown-workspace-content] p').evaluate(el => {
+            const range = document.createRange(); range.selectNodeContents(el);
+            window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        });
+        const selected = await page.locator('[data-markdown-workspace-content] p').boundingBox();
+        await page.getByRole('button', { name: 'Add comment', exact: true }).click();
+        assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), false);
+        const composer = page.locator('[data-markdown-workspace-comment-composer]');
+        assert.equal(await composer.isVisible(), true);
+        let box = await composer.boundingBox();
+        assert.ok(box.width > Math.min(300, width - 20));
+        assert.ok(box.y >= selected.y + selected.height && box.y < selected.y + selected.height + 32);
+        assert.ok(box.x >= 0 && box.x + box.width <= width && box.y + box.height <= 700);
+        await page.locator('[data-markdown-workspace-comment-input]').fill('Inline draft');
+        await page.locator('[data-markdown-workspace-content] p').evaluate(el => {
+            const range = document.createRange(); range.setStart(el.firstChild, 0); range.setEnd(el.firstChild, 6);
+            window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            const extra = document.createElement('p'); extra.textContent = 'Extra content'; extra.style.height = '1500px';
+            el.parentElement.appendChild(extra);
+        });
+        await page.locator('[data-markdown-workspace-scroll]').evaluate(el => {
+            el.scrollTop = 200; el.dispatchEvent(new Event('scroll'));
+        });
+        await page.setViewportSize({ width, height: 420 });
+        box = await composer.boundingBox();
+        assert.ok(box.y >= 0 && box.y + box.height <= 420, 'scroll and resize keep the draft onscreen');
+        await page.locator('[data-markdown-workspace-comment-input]').focus();
+        await page.keyboard.press('Control+Enter');
+        const request = (await postedIntents(page)).at(-1);
+        assert.equal(request.payload.anchor.selectedText, 'Review this passage.');
+        assert.equal(await page.locator('[data-markdown-workspace-comment-input]').isDisabled(), true);
+        await sendPage(page, { ...request, type: 'conversation-viewer-document-comments-result',
+            success: false, error: 'failed', revision: 0, comments: [] });
+        assert.equal(await page.locator('[data-markdown-workspace-comment-input]').inputValue(), 'Inline draft');
+        assert.equal(await page.locator('[data-markdown-workspace-comment-feedback]').isVisible(), true);
+        assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), false);
+        await page.keyboard.press('Escape');
+        assert.equal(await composer.isVisible(), true);
+        await page.screenshot({ path: path.join(os.tmpdir(), `markdown-inline-${width}.png`) });
+        await page.locator('[data-markdown-workspace-comment-cancel]').click();
+        assert.equal(await composer.isVisible(), false);
+        assert.equal(await page.locator('[data-markdown-workspace]').isVisible(), true);
+    }
+});
+
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 review feedback Escape keeps document open', async t => {
     const { page } = await openReviewInteractionFixture(t);
     await page.keyboard.press('Escape');
@@ -12322,6 +12373,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 review feedback batch preserves an uns
     });
     await page.getByRole('button', { name: 'Add comment', exact: true }).click();
     await page.locator('[data-markdown-workspace-comment-input]').fill('Not saved yet');
+    await page.locator('[data-markdown-workspace-mode="discussion"]').click();
     await page.getByRole('button', { name: /Send \d+ saved comments to/ }).click();
     const request = (await postedIntents(page)).at(-1);
     assert.deepEqual(request.payload, { commentIds: ['comment-0', 'comment-1'] });
@@ -12385,9 +12437,9 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps a refreshed document draft recov
             assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').textContent(),
                 /select a passage in the current document/);
 
-            if (fixture.compact) {
-                await page.getByRole('button', { name: 'Document', exact: true }).click();
-            }
+            assert.equal(await page.locator('[data-markdown-workspace-content]').isVisible(), true);
+            assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), false,
+                'refresh recovery keeps the inline draft over the document');
             await page.locator('[data-markdown-workspace-content] p').evaluate(element => {
                 const range = document.createRange();
                 range.selectNodeContents(element);
@@ -12395,9 +12447,6 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps a refreshed document draft recov
                 window.getSelection().addRange(range);
                 element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
             });
-            if (fixture.compact) {
-                await page.getByRole('button', { name: 'Discussion', exact: true }).click();
-            }
             const save = page.getByRole('button', { name: 'Save comment', exact: true });
             assert.equal(await save.isDisabled(), false);
             await save.click();
@@ -12994,8 +13043,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 offers direct document review and comp
     }
 
     await page.getByRole('button', { name: 'Add comment' }).click();
-    assert.equal(await page.getByRole('button', { name: 'Discussion', exact: true }).getAttribute('aria-pressed'), 'true',
-        'starting a comment reveals the compact discussion mode automatically');
+    assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), false,
+        'starting a comment keeps the reader visible and uses the inline composer');
     assert.equal(await page.locator('[data-markdown-workspace-comment-composer]').isVisible(), true);
     const saveDraft = page.getByRole('button', { name: 'Save comment' });
     assert.equal(await saveDraft.isDisabled(), true,

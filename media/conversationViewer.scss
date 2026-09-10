@@ -286,6 +286,53 @@ body[data-markdown-workspace-only="true"] {
     background: var(--vscode-editor-background);
 }
 
+[data-markdown-workspace-comment-composer] {
+    position: fixed;
+    z-index: 35;
+    width: 560px;
+    max-width: calc(100vw - 16px);
+    margin: 0;
+    overflow: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.4rem 0.65rem;
+    box-shadow: 0 4px 18px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+    &[hidden] { display: none; }
+    > label { grid-column: 1 / -1; grid-row: 1; }
+    > blockquote {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        margin: 0;
+        padding-left: 0.5rem;
+        border-left: 2px solid var(--vscode-textLink-foreground);
+        color: var(--vscode-descriptionForeground);
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+    }
+    > textarea { grid-column: 1; grid-row: 3; margin: 0; }
+    > div { grid-column: 2; grid-row: 3; flex-direction: column; justify-content: flex-end; }
+    > .conversation-document-draft-state { grid-column: 1 / -1; grid-row: 4; margin: 0; }
+    > .conversation-document-comment-feedback { grid-column: 1 / -1; grid-row: 5; margin: 0; }
+}
+.conversation-document-comment-feedback:empty { display: none; }
+.conversation-document-workspace-header > .conversation-document-comment-feedback {
+    flex: 0 1 18rem;
+    font-size: 0.9em;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+@media (max-width: 680px) {
+    [data-markdown-workspace-comment-composer] {
+        > textarea { grid-column: 1 / -1; }
+        > div { grid-column: 1 / -1; grid-row: 4; flex-direction: row; }
+        > .conversation-document-draft-state { grid-row: 5; }
+        > .conversation-document-comment-feedback { grid-row: 6; }
+    }
+}
+
 .conversation-document-selection-actions {
     position: fixed;
     z-index: 30;

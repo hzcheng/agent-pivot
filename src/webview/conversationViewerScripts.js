@@ -243,6 +243,7 @@
         && markdownWorkspaceSuggestionComposer && markdownWorkspaceSuggestionInput
         && markdownWorkspaceSuggestionPreview && markdownWorkspaceSuggestionList
         && markdownWorkspaceUndo);
+    var markdownWorkspaceComposerRange;
     var markdownWorkspaceRecipientName = String((document.querySelector(
         '[data-conversation-display-name]') || {}).textContent || 'Current session');
     var conversationDisplayName = document.querySelector(
@@ -2042,10 +2043,9 @@
                 'Select the current source text before continuing this discussion.';
             return;
         }
-        markdownWorkspaceCommentComposer.hidden = false;
         markdownWorkspaceCommentInput.value = 'Please continue discussing this suggested change:\n\n'
             + suggestion.replacement.slice(0, 3000);
-        markdownWorkspaceCommentInput.focus();
+        openMarkdownWorkspaceComposer('comment');
     }
 
     function regenerateMarkdownWorkspaceSuggestion(messageId) {
@@ -2279,9 +2279,14 @@
 
     function updateMarkdownWorkspaceSelection() {
         if (!markdownWorkspaceCommentsAvailable) return;
+        if (markdownWorkspacePendingRequestId || (!markdownWorkspaceCommentComposer.hidden
+            && !markdownWorkspaceDraftRecoveryPending)) return;
         markdownWorkspaceSelection = selectedMarkdownWorkspaceAnchor();
         markdownWorkspaceSelectionActions.hidden = !markdownWorkspaceSelection;
         if (markdownWorkspaceSelection) {
+            var selection = window.getSelection && window.getSelection();
+            markdownWorkspaceComposerRange = selection && selection.rangeCount === 1
+                ? selection.getRangeAt(0).cloneRange() : undefined;
             markdownWorkspaceSelectionSummary.textContent = 'Selected: “'
                 + markdownWorkspaceSelection.selectedText.slice(0, 120) + '”';
             positionMarkdownWorkspaceSelectionActions();
@@ -2316,11 +2321,36 @@
         markdownWorkspaceSelectionActions.style.top = Math.round(top) + 'px';
     }
 
+    function positionMarkdownWorkspaceComposer() {
+        if (!markdownWorkspaceCommentsAvailable) return;
+        var header = markdownWorkspace.querySelector('.conversation-document-workspace-header');
+        var feedbackParent = markdownWorkspaceCommentComposer.hidden ? header : markdownWorkspaceCommentComposer;
+        if (feedbackParent && markdownWorkspaceCommentFeedback.parentElement !== feedbackParent) {
+            feedbackParent.appendChild(markdownWorkspaceCommentFeedback);
+        }
+        if (markdownWorkspaceCommentComposer.hidden) return;
+        var rect;
+        if (markdownWorkspaceComposerRange && markdownWorkspaceContent.contains(markdownWorkspaceComposerRange.commonAncestorContainer)) {
+            rect = markdownWorkspaceComposerRange.getBoundingClientRect();
+        }
+        var margin = 8;
+        var floor = header ? Math.max(margin, header.getBoundingClientRect().bottom + margin) : margin;
+        markdownWorkspaceCommentComposer.style.maxHeight = Math.max(80, window.innerHeight - floor - margin) + 'px';
+        var width = markdownWorkspaceCommentComposer.offsetWidth;
+        var height = markdownWorkspaceCommentComposer.offsetHeight;
+        var left = rect ? rect.left : (window.innerWidth - width) / 2;
+        var top = rect ? rect.bottom + margin : floor;
+        if (rect && top + height > window.innerHeight - margin) top = rect.top - height - margin;
+        markdownWorkspaceCommentComposer.style.left = Math.max(margin, Math.min(left, window.innerWidth - width - margin)) + 'px';
+        markdownWorkspaceCommentComposer.style.top = Math.max(floor, Math.min(top, window.innerHeight - height - margin)) + 'px';
+    }
+
     function openMarkdownWorkspaceComposer(kind) {
         if (!markdownWorkspaceCommentsAvailable || !markdownWorkspaceSelection) return;
+        var selection = window.getSelection && window.getSelection();
+        markdownWorkspaceComposerRange = selection && selection.rangeCount === 1
+            ? selection.getRangeAt(0).cloneRange() : undefined;
         markdownWorkspaceSelectionActions.hidden = true;
-        setMarkdownWorkspaceDiscussionCollapsed(false);
-        setMarkdownWorkspaceMobileMode('discussion', false);
         markdownWorkspaceCommentComposer.hidden = false;
         markdownWorkspaceDraftRecoveryPending = false;
         if (kind === 'ask' && !markdownWorkspaceCommentInput.value) {
@@ -2338,6 +2368,12 @@
         var unavailable = empty || !markdownWorkspaceSelection || !!markdownWorkspacePendingRequestId || !!markdownWorkspaceRefreshPending;
         markdownWorkspaceCommentSave.disabled = unavailable;
         markdownWorkspaceCommentSend.disabled = unavailable;
+        var quote = document.querySelector('[data-markdown-workspace-comment-quote]');
+        if (quote) {
+            quote.textContent = markdownWorkspaceSelection ? markdownWorkspaceSelection.selectedText : 'Select a passage to reattach this draft.';
+            quote.title = quote.textContent;
+        }
+        positionMarkdownWorkspaceComposer();
         var draftState = document.querySelector('[data-markdown-workspace-draft-state]');
         if (draftState) draftState.textContent = markdownWorkspacePendingRequestId
             ? 'Operation in progress…'
@@ -2551,8 +2587,9 @@
     function setMarkdownWorkspaceCommentPending(pending, message) {
         if (!markdownWorkspaceCommentsAvailable) return;
         pending = pending || !!markdownWorkspaceRefreshPending;
-        var controls = markdownWorkspaceDiscussion.querySelectorAll(
-            'button, textarea'
+        var controls = markdownWorkspace.querySelectorAll(
+            '[data-markdown-workspace-discussion] button, [data-markdown-workspace-discussion] textarea, '
+            + '[data-markdown-workspace-comment-composer] button, [data-markdown-workspace-comment-composer] textarea'
         );
         Array.prototype.forEach.call(controls, function (control) {
             control.disabled = pending;
@@ -2563,6 +2600,7 @@
         markdownWorkspaceCommentFeedback.textContent = message || '';
         var draftState = document.querySelector('[data-markdown-workspace-draft-state]');
         if (draftState && pending) draftState.textContent = message || 'Operation in progress…';
+        positionMarkdownWorkspaceComposer();
     }
 
     function markdownWorkspaceCommentFailureMessage(error) {
@@ -2620,6 +2658,8 @@
             markdownWorkspaceCommentInput.value = '';
             markdownWorkspaceSelection = undefined;
             markdownWorkspaceSelectionActions.hidden = true;
+            positionMarkdownWorkspaceComposer();
+            markdownWorkspaceScroll.focus({ preventScroll: true });
         }
         if (sendAfterSave) {
             var created = markdownWorkspaceComments[0];
@@ -2938,8 +2978,7 @@
         if (preservesUnsentDraft) {
             markdownWorkspaceDraftRecoveryPending = true;
             markdownWorkspaceCommentComposer.hidden = false;
-            setMarkdownWorkspaceDiscussionCollapsed(false, false);
-            setMarkdownWorkspaceMobileMode('discussion', false);
+            markdownWorkspaceComposerRange = undefined;
             markdownWorkspaceSelectionSummary.textContent =
                 'Select a passage in the current document to continue.';
             markdownWorkspaceCommentFeedback.textContent =
@@ -2963,9 +3002,7 @@
                 'The document changed, but its suggestion review state could not be saved.';
         }
         markdownWorkspaceReturnFocus = document.activeElement;
-        setMarkdownWorkspaceMobileMode(
-            preservesUnsentDraft ? 'discussion' : 'document', false
-        );
+        setMarkdownWorkspaceMobileMode('document', false);
         markdownWorkspace.hidden = false;
         document.body.classList.add('conversation-markdown-workspace-open');
         setMarkdownWorkspaceBackgroundDisabled(true);
@@ -2979,6 +3016,7 @@
                 )
             );
             if (preservesUnsentDraft) {
+                positionMarkdownWorkspaceComposer();
                 markdownWorkspaceCommentInput.focus();
             } else {
                 (markdownWorkspaceOnly ? markdownWorkspaceOpenEditor : markdownWorkspaceBack).focus();
@@ -5293,6 +5331,8 @@
         });
     }
     if (markdownWorkspaceCommentsAvailable) {
+        markdownWorkspace.appendChild(markdownWorkspaceCommentComposer);
+        window.addEventListener('resize', positionMarkdownWorkspaceComposer);
         markdownWorkspaceDiscussionClose.addEventListener('click', function () {
             if (isCompactMarkdownWorkspace()) {
                 setMarkdownWorkspaceMobileMode('document', true);
@@ -5331,6 +5371,8 @@
                 markdownWorkspaceCommentInput.value = '';
                 markdownWorkspaceDraftRecoveryPending = false;
                 syncMarkdownWorkspaceCommentDraftActions();
+                markdownWorkspaceCommentFeedback.textContent = '';
+                markdownWorkspaceScroll.focus({ preventScroll: true });
                 return;
             }
             if (target && target.hasAttribute('data-markdown-workspace-comment-send')) {
@@ -5729,6 +5771,7 @@
             });
         });
         markdownWorkspaceScroll.addEventListener('scroll', function () {
+            positionMarkdownWorkspaceComposer();
             if (markdownWorkspaceSelectionActions) {
                 markdownWorkspaceSelectionActions.hidden = true;
             }

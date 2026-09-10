@@ -54,6 +54,12 @@ body[data-markdown-workspace-only="true"] > :not([data-markdown-workspace]) {
     display: none;
 }
 
+.conversation-document-workspace[data-discussion-collapsed="true"] {
+    grid-template-columns: minmax(0, 1fr);
+
+    .conversation-document-discussion { display: none; }
+}
+
 .conversation-document-workspace-header {
     display: flex;
     gap: 0.65rem;
@@ -113,7 +119,7 @@ body[data-markdown-workspace-only="true"] > :not([data-markdown-workspace]) {
 }
 
 .conversation-document-workspace-mode {
-    display: none;
+    display: flex;
     gap: 0.25rem;
 
     button {
@@ -151,6 +157,8 @@ body[data-markdown-workspace-only="true"] > :not([data-markdown-workspace]) {
         font-size: 0.75em;
         line-height: 1;
     }
+
+    [data-markdown-workspace-mode="document"] { display: none; }
 }
 
 .conversation-document-workspace-scroll {
@@ -361,6 +369,9 @@ body[data-markdown-workspace-only="true"] > :not([data-markdown-workspace]) {
     }
     .conversation-document-workspace-editor { margin-left: auto; }
     .conversation-document-workspace-mode { display: flex; }
+    .conversation-document-workspace-mode [data-markdown-workspace-mode="document"] {
+        display: inline-grid;
+    }
     .conversation-document-workspace-scroll,
     .conversation-document-discussion {
         grid-column: 1;

@@ -5258,7 +5258,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 traps keyboard focus without hidden co
         workspaceRequestId: 1, subscriptionGeneration: 1,
         projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
     });
-    await page.locator('[data-markdown-workspace-scroll]').focus();
+    await page.getByRole('button', { name: 'Hide discussion' }).focus();
     await page.keyboard.press('Tab');
     assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-markdown-workspace-back')),
         '', 'Tab from the last visible control must wrap instead of entering a hidden composer');
@@ -12064,8 +12064,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders the dedicated document tab wit
         'true');
     assert.equal(await page.locator('.conversation-workspace').isVisible(), false,
         'the dedicated tab never lays out a second conversation behind the reader');
-    const close = page.getByRole('button', { name: 'Close document' });
-    assert.equal(await close.isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: 'Close document' }).count(), 0,
+        'a dedicated editor tab relies on the native tab close affordance instead of duplicating it');
 
     const stateWritesBeforeScroll = await page.evaluate(() => window.__webviewSetStateCount);
     await page.locator('[data-markdown-workspace-scroll]').evaluate(element => {
@@ -12078,16 +12078,16 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders the dedicated document tab wit
         stateWritesBeforeScroll,
         'scrolling never serializes the full Webview state on every frame');
 
-    await close.click();
-    assert.deepEqual((await postedIntents(page)).at(-1), {
-        type: 'conversation-viewer-close-markdown-workspace',
-        version: 1,
-    });
+    assert.equal(await page.getByRole('button', { name: 'Open in editor' }).evaluate(
+        element => element === document.activeElement
+    ), true,
+        'the dedicated reader opens on its first useful action');
     assert.equal(await page.locator('[data-markdown-workspace]').isVisible(), true,
         'the Webview waits for the Host to dispose the dedicated tab');
+    await page.evaluate(() => window.dispatchEvent(new Event('unload')));
     assert.equal(await page.evaluate(() => window.__webviewSetStateCount),
         stateWritesBeforeScroll + 1,
-        'closing flushes the final document reading position exactly once');
+        'native tab disposal flushes the final document reading position exactly once');
 });
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading surface without losing the conversation', async t => {
@@ -12142,6 +12142,13 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.equal(await workspace.locator('h1').innerText(), 'Architecture plan');
     assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), true,
         'the document reader keeps file-specific discussion beside the rendered Markdown');
+    await page.getByRole('button', { name: 'Hide discussion' }).click();
+    assert.equal(await page.locator('[data-markdown-workspace-discussion]').isHidden(), true,
+        'wide readers can dismiss the discussion pane when they only want the document');
+    assert.equal(await page.getByRole('button', { name: 'Show discussion' }).getAttribute('aria-pressed'), 'false');
+    await page.getByRole('button', { name: 'Show discussion' }).click();
+    assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), true,
+        'the header discussion action restores the pane after dismissal');
     assert.equal(await page.getByRole('heading', { name: 'AI reply' }).isVisible(), true,
         'document-scoped AI replies remain readable beside the Markdown');
     assert.match(await page.locator('[data-markdown-workspace-reply-list]').innerText(),
@@ -12418,12 +12425,12 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     assert.equal(await page.getByRole('button', { name: /Discussion, 1 new AI reply/ }).count(), 1,
         'the compact unread indicator is exposed to assistive technology');
     await page.getByRole('button', { name: /Discussion/ }).click();
-    assert.equal(await page.getByRole('button', { name: 'Discussion' }).getAttribute('aria-pressed'), 'true');
+    assert.equal(await page.getByRole('button', { name: 'Discussion', exact: true }).getAttribute('aria-pressed'), 'true');
     assert.equal(await page.locator('[data-markdown-workspace-scroll]').isHidden(), true);
     const narrowDiscussion = await page.locator('[data-markdown-workspace-discussion]').boundingBox();
     assert.ok(narrowDiscussion && narrowDiscussion.width <= 360,
         'the discussion is a dedicated compact mode rather than a stacked tail');
-    assert.equal(await page.getByRole('button', { name: 'Discussion' }).getAttribute('data-new-replies'), null,
+    assert.equal(await page.getByRole('button', { name: 'Discussion', exact: true }).getAttribute('data-new-replies'), null,
         'opening the discussion acknowledges the compact new-reply indicator');
 });
 
@@ -12526,9 +12533,20 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 offers direct document review and comp
     }
 
     await page.getByRole('button', { name: 'Add comment' }).click();
-    assert.equal(await page.getByRole('button', { name: 'Discussion' }).getAttribute('aria-pressed'), 'true',
+    assert.equal(await page.getByRole('button', { name: 'Discussion', exact: true }).getAttribute('aria-pressed'), 'true',
         'starting a comment reveals the compact discussion mode automatically');
     assert.equal(await page.locator('[data-markdown-workspace-comment-composer]').isVisible(), true);
+    const saveDraft = page.getByRole('button', { name: 'Save draft' });
+    assert.equal(await saveDraft.isDisabled(), true,
+        'an empty comment cannot be submitted as an invalid selection error');
+    await page.locator('[data-markdown-workspace-comment-input]').fill('Keep this reviewer note.');
+    assert.equal(await saveDraft.isDisabled(), false);
+    await saveDraft.click();
+    const addIntent = (await postedIntents(page)).at(-1);
+    assert.equal(addIntent.type, 'conversation-viewer-document-comment-mutation');
+    assert.equal(addIntent.operation, 'add');
+    assert.equal(addIntent.payload.text, 'Keep this reviewer note.');
+    assert.equal(addIntent.payload.anchor.selectedText, 'Review this narrow-screen paragraph.');
     for (const label of ['Cancel comment', 'Save draft', 'Send to AI']) {
         const action = page.getByRole('button', { name: label });
         assert.equal((await action.textContent()).trim(), '',

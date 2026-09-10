@@ -204,11 +204,10 @@ export function renderConversationViewerDocument(
         role="dialog" aria-modal="true" aria-labelledby="markdown-workspace-title"
         hidden>
         <header class="conversation-document-workspace-header">
-            <button type="button" class="conversation-icon-button conversation-document-workspace-back"
-                data-markdown-workspace-back title="${options.markdownWorkspaceOnly === true
-                    ? 'Close document' : 'Back to conversation'}"
-                aria-label="${options.markdownWorkspaceOnly === true
-                    ? 'Close document' : 'Back to conversation'}">${CONVERSATION_FIND_ICON_CLOSE}</button>
+            ${options.markdownWorkspaceOnly === true ? '' : `<button type="button"
+                class="conversation-icon-button conversation-document-workspace-back"
+                data-markdown-workspace-back title="Back to conversation"
+                aria-label="Back to conversation">${CONVERSATION_FIND_ICON_CLOSE}</button>`}
             <div class="conversation-document-workspace-identity">
                 <strong id="markdown-workspace-title" data-markdown-workspace-title></strong>
                 <span data-markdown-workspace-path></span>
@@ -237,23 +236,26 @@ export function renderConversationViewerDocument(
                 <strong>Document discussion</strong>
                 <span data-markdown-workspace-comment-count>0</span>
                 <span data-markdown-workspace-new-replies role="status" hidden></span>
+                <button type="button" class="conversation-comment-icon-button"
+                    data-markdown-workspace-discussion-close title="Hide discussion"
+                    aria-label="Hide discussion">${CONVERSATION_COMMENT_ICON_X}</button>
             </div>
             <form class="conversation-document-comment-composer"
                 data-markdown-workspace-comment-composer hidden>
                 <label for="markdown-workspace-comment-input">Comment</label>
                 <textarea id="markdown-workspace-comment-input"
                     data-markdown-workspace-comment-input rows="4"
-                    maxlength="4000"></textarea>
+                    maxlength="4000" required></textarea>
                 <div>
                     <button type="button" class="conversation-comment-icon-button"
                         data-markdown-workspace-comment-cancel title="Cancel comment"
                         aria-label="Cancel comment">${CONVERSATION_COMMENT_ICON_X}</button>
                     <button type="submit" class="conversation-comment-icon-button"
                         data-markdown-workspace-comment-save title="Save draft"
-                        aria-label="Save draft">${CONVERSATION_COMMENT_ICON_CHECK}</button>
+                        aria-label="Save draft" disabled>${CONVERSATION_COMMENT_ICON_CHECK}</button>
                     <button type="button" class="conversation-comment-icon-button accent"
                         data-markdown-workspace-comment-send title="Send to AI"
-                        aria-label="Send to AI">${CONVERSATION_COMMENT_ICON_SEND}</button>
+                        aria-label="Send to AI" disabled>${CONVERSATION_COMMENT_ICON_SEND}</button>
                 </div>
             </form>
             <form class="conversation-document-comment-composer"

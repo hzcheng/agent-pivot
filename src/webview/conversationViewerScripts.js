@@ -148,6 +148,9 @@
     var markdownWorkspaceDiscussion = document.querySelector(
         '[data-markdown-workspace-discussion]'
     );
+    var markdownWorkspaceDiscussionClose = document.querySelector(
+        '[data-markdown-workspace-discussion-close]'
+    );
     var markdownWorkspaceSelectionActions = document.querySelector(
         '[data-markdown-workspace-selection-actions]'
     );
@@ -159,6 +162,12 @@
     );
     var markdownWorkspaceCommentInput = document.querySelector(
         '[data-markdown-workspace-comment-input]'
+    );
+    var markdownWorkspaceCommentSave = document.querySelector(
+        '[data-markdown-workspace-comment-save]'
+    );
+    var markdownWorkspaceCommentSend = document.querySelector(
+        '[data-markdown-workspace-comment-send]'
     );
     var markdownWorkspaceCommentList = document.querySelector(
         '[data-markdown-workspace-comment-list]'
@@ -210,17 +219,19 @@
     var markdownWorkspaceSuggestionWritesSupported = true;
     var markdownWorkspaceSuggestionWatchdog;
     var markdownWorkspaceReturnFocus;
-    var markdownWorkspaceAvailable = !!(markdownWorkspace
-        && markdownWorkspaceBack && markdownWorkspaceTitle
-        && markdownWorkspacePath && markdownWorkspaceOpenEditor
-        && markdownWorkspaceScroll && markdownWorkspaceContent);
     var markdownWorkspaceOnly = document.body.getAttribute(
         'data-markdown-workspace-only'
     ) === 'true';
+    var markdownWorkspaceAvailable = !!(markdownWorkspace
+        && (markdownWorkspaceOnly || markdownWorkspaceBack) && markdownWorkspaceTitle
+        && markdownWorkspacePath && markdownWorkspaceOpenEditor
+        && markdownWorkspaceScroll && markdownWorkspaceContent);
     var markdownWorkspaceCommentsAvailable = !!(markdownWorkspaceAvailable
         && markdownWorkspaceDiscussion && markdownWorkspaceSelectionActions
         && markdownWorkspaceSelectionSummary && markdownWorkspaceCommentComposer
-        && markdownWorkspaceCommentInput && markdownWorkspaceCommentList
+        && markdownWorkspaceCommentInput && markdownWorkspaceCommentSave
+        && markdownWorkspaceCommentSend && markdownWorkspaceDiscussionClose
+        && markdownWorkspaceCommentList
         && markdownWorkspaceReplyList
         && markdownWorkspaceCommentCount && markdownWorkspaceNewReplies
         && markdownWorkspaceCommentFeedback
@@ -2271,6 +2282,7 @@
     function openMarkdownWorkspaceComposer(kind) {
         if (!markdownWorkspaceCommentsAvailable || !markdownWorkspaceSelection) return;
         markdownWorkspaceSelectionActions.hidden = true;
+        setMarkdownWorkspaceDiscussionCollapsed(false);
         setMarkdownWorkspaceMobileMode('discussion', false);
         markdownWorkspaceCommentComposer.hidden = false;
         if (kind === 'ask' && !markdownWorkspaceCommentInput.value) {
@@ -2278,7 +2290,15 @@
         } else if (kind === 'explain' && !markdownWorkspaceCommentInput.value) {
             markdownWorkspaceCommentInput.value = '请解释这段内容，并说明需要补充什么：';
         }
+        syncMarkdownWorkspaceCommentDraftActions();
         markdownWorkspaceCommentInput.focus();
+    }
+
+    function syncMarkdownWorkspaceCommentDraftActions() {
+        if (!markdownWorkspaceCommentsAvailable) return;
+        var empty = !String(markdownWorkspaceCommentInput.value || '').trim();
+        markdownWorkspaceCommentSave.disabled = empty || !!markdownWorkspacePendingRequestId;
+        markdownWorkspaceCommentSend.disabled = empty || !!markdownWorkspacePendingRequestId;
     }
 
     function updateMarkdownWorkspaceSuggestionPreview() {
@@ -2470,6 +2490,7 @@
         Array.prototype.forEach.call(controls, function (control) {
             control.disabled = pending;
         });
+        if (!pending) syncMarkdownWorkspaceCommentDraftActions();
         markdownWorkspaceCommentFeedback.textContent = message || '';
     }
 
@@ -2481,7 +2502,7 @@
             return 'This document has reached its saved comment limit.';
         }
         if (error === 'invalid') {
-            return 'This selection cannot be saved as a comment. Select a shorter passage and try again.';
+            return 'This comment could not be saved because its text or selected passage is no longer valid. Your draft is still here.';
         }
         return 'Comment could not be saved. Your text is still here; please try again.';
     }
@@ -2631,14 +2652,18 @@
         if (mode !== 'document' && mode !== 'discussion') return;
         if (!markdownWorkspace) return;
         markdownWorkspace.setAttribute('data-mobile-mode', mode);
+        var compact = isCompactMarkdownWorkspace();
         if (markdownWorkspaceModeDocument) {
             markdownWorkspaceModeDocument.setAttribute('aria-pressed',
-                mode === 'document' ? 'true' : 'false');
+                compact && mode === 'document' ? 'true' : 'false');
         }
         if (markdownWorkspaceModeDiscussion) {
+            var discussionActive = compact
+                ? mode === 'discussion'
+                : markdownWorkspace.getAttribute('data-discussion-collapsed') !== 'true';
             markdownWorkspaceModeDiscussion.setAttribute('aria-pressed',
-                mode === 'discussion' ? 'true' : 'false');
-            if (mode === 'discussion') {
+                discussionActive ? 'true' : 'false');
+            if (discussionActive) {
                 markdownWorkspaceModeDiscussion.removeAttribute('data-new-replies');
                 markdownWorkspaceModeDiscussion.setAttribute('aria-label', 'Discussion');
                 markdownWorkspaceNewReplies.hidden = true;
@@ -2646,8 +2671,29 @@
             }
         }
         if (focus) {
-            (mode === 'document' ? markdownWorkspaceScroll : markdownWorkspaceDiscussion).focus();
+            (mode === 'document' ? markdownWorkspaceScroll
+                : markdownWorkspaceDiscussion).focus();
         }
+    }
+
+    function isCompactMarkdownWorkspace() {
+        return Number(window.innerWidth) <= 680;
+    }
+
+    function setMarkdownWorkspaceDiscussionCollapsed(collapsed, focus) {
+        if (!markdownWorkspace || !markdownWorkspaceDiscussion) return;
+        markdownWorkspace.setAttribute(
+            'data-discussion-collapsed', collapsed ? 'true' : 'false'
+        );
+        if (markdownWorkspaceModeDiscussion) {
+            markdownWorkspaceModeDiscussion.setAttribute(
+                'aria-pressed', collapsed ? 'false' : 'true'
+            );
+            var label = collapsed ? 'Show discussion' : 'Discussion';
+            markdownWorkspaceModeDiscussion.title = label;
+            markdownWorkspaceModeDiscussion.setAttribute('aria-label', label);
+        }
+        if (!collapsed && focus) markdownWorkspaceDiscussion.focus();
     }
 
     function setMarkdownWorkspaceBackgroundDisabled(disabled) {
@@ -2781,7 +2827,7 @@
                     activeMarkdownWorkspaceDocument && activeMarkdownWorkspaceDocument.documentVersion
                 )
             );
-            markdownWorkspaceBack.focus();
+            (markdownWorkspaceOnly ? markdownWorkspaceOpenEditor : markdownWorkspaceBack).focus();
         };
         if (typeof requestAnimationFrame === 'function') {
             requestAnimationFrame(restorePosition);
@@ -5019,6 +5065,18 @@
         markdownWorkspaceContent.addEventListener('keyup', updateMarkdownWorkspaceSelection);
     }
     if (markdownWorkspaceCommentsAvailable) {
+        markdownWorkspaceDiscussionClose.addEventListener('click', function () {
+            if (isCompactMarkdownWorkspace()) {
+                setMarkdownWorkspaceMobileMode('document', true);
+            } else {
+                setMarkdownWorkspaceDiscussionCollapsed(true, false);
+                markdownWorkspaceScroll.focus();
+            }
+        });
+        markdownWorkspaceCommentInput.addEventListener(
+            'input', syncMarkdownWorkspaceCommentDraftActions
+        );
+        syncMarkdownWorkspaceCommentDraftActions();
         markdownWorkspaceSelectionActions.addEventListener('click', function (event) {
             var target = event.target && event.target.closest
                 ? event.target.closest('[data-markdown-workspace-comment-action]') : null;
@@ -5038,10 +5096,12 @@
             });
         });
         markdownWorkspaceCommentComposer.addEventListener('click', function (event) {
-            var target = event.target;
+            var target = event.target && event.target.closest
+                ? event.target.closest('button') : event.target;
             if (target && target.hasAttribute('data-markdown-workspace-comment-cancel')) {
                 markdownWorkspaceCommentComposer.hidden = true;
                 markdownWorkspaceCommentInput.value = '';
+                syncMarkdownWorkspaceCommentDraftActions();
                 return;
             }
             if (target && target.hasAttribute('data-markdown-workspace-comment-send')) {
@@ -5339,15 +5399,26 @@
     if (markdownWorkspaceAvailable) {
         if (markdownWorkspaceModeDocument) {
             markdownWorkspaceModeDocument.addEventListener('click', function () {
-                setMarkdownWorkspaceMobileMode('document', true);
+                if (isCompactMarkdownWorkspace()) {
+                    setMarkdownWorkspaceMobileMode('document', true);
+                } else {
+                    setMarkdownWorkspaceDiscussionCollapsed(true, false);
+                    markdownWorkspaceScroll.focus();
+                }
             });
         }
         if (markdownWorkspaceModeDiscussion) {
             markdownWorkspaceModeDiscussion.addEventListener('click', function () {
-                setMarkdownWorkspaceMobileMode('discussion', true);
+                if (isCompactMarkdownWorkspace()) {
+                    setMarkdownWorkspaceMobileMode('discussion', true);
+                } else {
+                    setMarkdownWorkspaceDiscussionCollapsed(false, true);
+                }
             });
         }
-        markdownWorkspaceBack.addEventListener('click', closeMarkdownWorkspace);
+        if (markdownWorkspaceBack) {
+            markdownWorkspaceBack.addEventListener('click', closeMarkdownWorkspace);
+        }
         markdownWorkspaceOpenEditor.addEventListener('click', function () {
             if (!activeMarkdownWorkspaceHref
                 || !validCommentTarget(commentTarget)) return;

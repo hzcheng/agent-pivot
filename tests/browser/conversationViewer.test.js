@@ -2475,7 +2475,8 @@ async function renderHostViewerDocument(options = {}) {
                 listeners.message.add(listener);
                 return { dispose: () => listeners.message.delete(listener) };
             },
-            postMessage() {
+            postMessage(message) {
+                options.onHostMessage?.(message);
                 return Promise.resolve(true);
             },
             asWebviewUri(uri) {
@@ -2551,6 +2552,9 @@ async function renderHostViewerDocument(options = {}) {
         bookmarkStore: options.bookmarkStore,
         commentStore: options.commentStore,
         projectCommentStore: options.projectCommentStore,
+        documentCommentStore: options.documentCommentStore,
+        readWorkspaceMarkdown: options.readWorkspaceMarkdown,
+        now: options.now,
     });
     await viewer.open({
         projectId: 'project-a',
@@ -2566,6 +2570,11 @@ async function renderHostViewerDocument(options = {}) {
         ...(options.taskName !== undefined
             ? { taskName: options.taskName }
             : {}),
+    });
+    options.onHostReady?.({
+        viewer,
+        receive: message => Promise.all(Array.from(listeners.message,
+            listener => listener(message))),
     });
     return panel.webview.html;
 }
@@ -12033,6 +12042,56 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps rendered absolute file links click
         version: 1,
         href: workspaceHref,
     });
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 saves a rendered selection through the Host to disk with a performance clock', async t => {
+    const { MarkdownDocumentCommentFileStore } = require('../../out/aiSessions/conversation/documentCommentStore');
+    const storageRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'markdown-comment-journey-'));
+    t.after(() => fs.rmSync(storageRoot, { recursive: true, force: true }));
+    const store = new MarkdownDocumentCommentFileStore(storageRoot);
+    const outgoing = [];
+    let host;
+    const { page } = await openHostViewerDocument(t, {
+        markdownWorkspaceOnly: true,
+        now: () => 1234.5,
+        documentCommentStore: store,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Review\n\n请完善 **回滚方案**，并说明验证步骤。',
+            workspaceRootId: 'root-a', documentVersion: 'version-a',
+        }),
+        onHostMessage: message => outgoing.push(message),
+        onHostReady: value => { host = value; },
+    });
+    t.after(() => host.viewer.dispose());
+    await host.receive({ type: 'conversation-viewer-open-link', version: 1, href: 'docs/review.md' });
+    await sendPage(page, outgoing.find(message => message.type === 'conversation-viewer-markdown-workspace'));
+    await page.locator('[data-markdown-workspace-content] p').evaluate(element => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.getByRole('button', { name: 'Add comment', exact: true }).click();
+    await page.locator('[data-markdown-workspace-comment-input]').fill('请补充失败后的恢复步骤。');
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    const intent = (await postedIntents(page)).at(-1);
+    await host.receive(intent);
+    const settlement = outgoing.find(message => message.requestId === intent.requestId
+        && message.type === 'conversation-viewer-document-comments-result');
+    assert.equal(settlement.success, true);
+    await sendPage(page, settlement);
+    assert.equal(await page.locator('article[data-comment-id]').count(), 1);
+    assert.equal(await page.locator('[data-markdown-workspace-comment-composer]').isVisible(), false);
+    const persisted = await new MarkdownDocumentCommentFileStore(storageRoot).load({
+        projectId: 'project-a', workspaceRootId: 'root-a', relativePath: 'docs/review.md',
+    });
+    assert.equal(persisted.comments[0].text, '请补充失败后的恢复步骤。');
+    assert.equal(persisted.comments[0].anchor.selectedText, '请完善 回滚方案，并说明验证步骤。');
+    assert.ok(persisted.comments[0].createdAt > 1_700_000_000_000);
+    await host.receive({ type: 'conversation-viewer-open-link', version: 1, href: 'docs/review.md' });
+    await sendPage(page, outgoing.filter(message => message.type === 'conversation-viewer-markdown-workspace').at(-1));
+    assert.equal(await page.locator('article[data-comment-id]').count(), 1);
 });
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders the dedicated document tab without a duplicate conversation', async t => {

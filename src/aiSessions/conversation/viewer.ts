@@ -747,7 +747,9 @@ export class ConversationViewer implements ConversationViewerApi {
                     await this.openMarkdownWorkspace(active.workspaceFile, settlement);
                 }
             },
-            now: options.now,
+            // Viewer.now is a monotonic performance clock supplied by the
+            // composition root. Persisted comment timestamps must use the
+            // controller's wall-clock default instead.
         });
         this.bookmarkController = new ConversationBookmarkController({
             bookmarkStore: options.bookmarkStore,

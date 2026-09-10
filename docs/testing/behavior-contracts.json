@@ -1692,7 +1692,8 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/browser/conversationViewer.test.js"
+      "tests/browser/conversationViewer.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js"
     ],
     "evidence": [
       "src/dashboard.ts",

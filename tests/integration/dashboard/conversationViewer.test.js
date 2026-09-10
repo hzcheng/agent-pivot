@@ -49,6 +49,9 @@ const {
 const {
     CommitsCollector,
 } = require('../../../out/worktrees/commitsCollector');
+const {
+    MarkdownDocumentCommentFileStore,
+} = require('../../../out/aiSessions/conversation/documentCommentStore');
 
 function git(cwd, args) {
     return childProcess.execFileSync('git', ['-C', cwd, ...args], {
@@ -5487,6 +5490,59 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a picked Markdown file beside th
     assert.deepEqual(opened[0].workspaceFile, {
         relativePath: 'docs/picked-plan.md', line: 1, column: 1,
     });
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a document comment with a fractional performance clock', async t => {
+    const storageRoot = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'agent-pivot-viewer-document-comments-'));
+    t.after(() => fs.promises.rm(storageRoot, { recursive: true, force: true }));
+    const documentCommentStore = new MarkdownDocumentCommentFileStore(storageRoot);
+    const { viewer, panel } = createViewer({
+        now: () => 1234.5,
+        documentCommentStore,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Architecture\n\nRollback strategy',
+            workspaceRootId: 'root-a',
+            documentVersion: 'sha256:document-a',
+        }),
+    });
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-document-comment-mutation', version: 1,
+        requestId: 'add-document-comment-a', subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+        operation: 'add', expectedRevision: 0,
+        document: {
+            workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:document-a',
+        },
+        payload: {
+            anchor: {
+                selectedText: 'Rollback strategy', prefix: '', suffix: '',
+                headingPath: ['Architecture'],
+            },
+            text: 'Explain the operational fallback.',
+        },
+    });
+
+    const settlement = panel.postedMessages.find(message =>
+        message.type === 'conversation-viewer-document-comments-result'
+            && message.requestId === 'add-document-comment-a'
+    );
+    assert.equal(settlement.success, true,
+        'performance.now() must never become an invalid persisted comment timestamp');
+    const persisted = await documentCommentStore.load({
+        projectId: 'project-a', workspaceRootId: 'root-a',
+        relativePath: 'docs/architecture-plan.md',
+    });
+    assert.equal(persisted.revision, 1,
+        'the accepted Webview intent must reach the real file-backed store');
+    assert.equal(Number.isSafeInteger(persisted.comments[0].createdAt), true);
     viewer.dispose();
 });
 

@@ -5519,6 +5519,34 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 routes authorized absolute Markdown li
     viewer.dispose();
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 refresh rereads the active document and rejects a stale session', async () => {
+    let markdown = '# Before';
+    let unreadable = false;
+    const { viewer, panel } = createViewer({ markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: async () => {
+            if (unreadable) throw new Error('file removed');
+            return { markdown, workspaceRootId: 'root', documentVersion: markdown };
+        } });
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), { relativePath: 'docs/review.md', line: 1, column: 1 });
+    const first = panel.postedMessages.find(m => m.type === 'conversation-viewer-markdown-workspace');
+    const refresh = { type: 'conversation-viewer-refresh-markdown-workspace', version: 1, requestId: 'refresh-1', href: 'docs/review.md',
+        projectId: first.projectId, provider: first.provider, sessionId: first.sessionId,
+        subscriptionGeneration: first.subscriptionGeneration };
+    markdown = '# After';
+    await panel.receive({ ...refresh, sessionId: 'wrong-session' });
+    assert.equal(panel.postedMessages.filter(m => m.type === 'conversation-viewer-markdown-workspace').length, 1);
+    await panel.receive(refresh);
+    assert.match(panel.postedMessages.filter(m => m.type === 'conversation-viewer-markdown-workspace').at(-1).html, /After/);
+    assert.equal(panel.postedMessages.at(-1).success, true);
+    unreadable = true;
+    await panel.receive({ ...refresh, requestId: 'refresh-failed' });
+    assert.equal(panel.postedMessages.at(-1).type, 'conversation-viewer-refresh-markdown-result');
+    assert.equal(panel.postedMessages.at(-1).requestId, 'refresh-failed');
+    assert.equal(panel.postedMessages.at(-1).success, false);
+    assert.match(panel.postedMessages.filter(m => m.type === 'conversation-viewer-markdown-workspace').at(-1).html, /After/);
+    viewer.dispose();
+});
+
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 reuses an unchanged document without replacing its draft surface', async () => {
     let documentVersion = 'v1';
     const { viewer, panel } = createViewer({
@@ -5664,6 +5692,67 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 closes a dedicated document panel only
         'the dedicated panel is disposed instead of revealing a duplicate conversation');
     assert.equal(restoredTargets.at(-1).sessionId, 'session-a',
         'disposing the document panel restores its authoritative conversation target');
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps one batch reply associated with every sent document comment', async () => {
+    const saved = [];
+    const comments = ['a', 'b'].map((suffix, index) => ({
+        id: `document-comment-${suffix}`,
+        documentVersion: 'sha256:document-a',
+        anchor: {
+            selectedText: `Passage ${index + 1}`,
+            prefix: '', suffix: '', headingPath: [],
+        },
+        text: `Review passage ${index + 1}.`,
+        status: 'sent',
+        createdAt: index + 1,
+    }));
+    const { viewer, panel } = createViewer({
+        documentCommentStore: {
+            load: async () => ({ revision: 2, comments }),
+            save: async (_target, snapshot) => saved.push(snapshot),
+        },
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Review\n\nPassage 1\n\nPassage 2',
+            workspaceRootId: 'root-a',
+            documentVersion: 'sha256:document-a',
+        }),
+        readPage: async request => ({
+            ...page(request.sessionId, request.anchorInteractionId),
+            messages: [{
+                id: 'user-document-comment-batch', interactionId: request.anchorInteractionId,
+                role: 'user', markdown: [
+                    'markdown-document-comment-id:document-comment-a',
+                    'markdown-document-comment-id:document-comment-b',
+                ].join('\n'),
+            }, {
+                id: 'assistant-document-comment-batch', interactionId: request.anchorInteractionId,
+                role: 'assistant', markdown: 'Batch review response.',
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md',
+    });
+
+    const workspace = panel.postedMessages.find(message =>
+        message.type === 'conversation-viewer-markdown-workspace'
+    );
+    assert.deepEqual(workspace.replies.map(reply => reply.commentId).sort(),
+        ['document-comment-a', 'document-comment-b'],
+        'a single AI turn must remain reachable from every comment sent in its batch');
+    assert.equal(new Set(workspace.replies.map(reply => reply.messageId)).size, 2,
+        'per-comment reply cards need distinct Webview identities even when they share one provider message');
+    assert.deepEqual(saved.at(-1).comments.map(comment =>
+        (comment.discussion || []).map(reply => reply.messageId)
+    ), [
+        ['assistant-document-comment-batch'],
+        ['assistant-document-comment-batch'],
+    ], 'the durable document discussion must retain the shared response for both comments');
+    viewer.dispose();
 });
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion decisions with the rendered document', async () => {

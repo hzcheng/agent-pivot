@@ -66,6 +66,43 @@ async function activate(controller, version = DOCUMENT.documentVersion) {
     });
 }
 
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 sends a bounded batch in one prompt and rolls back provider failures', async () => {
+    for (const fails of [false, true]) {
+        const h = createHarness(fails ? { submitPrompt: async () => { throw new Error('offline'); } } : {});
+        await activate(h.controller);
+        for (let i = 0; i < 2; i++) {
+            await h.controller.enqueue(request('batch-add-' + i, 'add', {
+                anchor: { selectedText: 'Passage ' + i, prefix: '', suffix: '', headingPath: [] }, text: 'Comment ' + i,
+            }, i));
+        }
+        const ids = h.controller.snapshot.comments.map(c => c.id);
+        const send = request('batch-send', 'sendDocumentComment', { commentIds: ids }, 2);
+        await h.controller.enqueue(send);
+        assert.equal(h.posted.at(-1).success, !fails);
+        assert.ok(h.controller.snapshot.comments.every(c => c.status === (fails ? 'draft' : 'sent')));
+        if (!fails) {
+            assert.equal(h.submitted.length, 1);
+            assert.match(h.submitted[0].prompt, /Comment 0/);
+            assert.match(h.submitted[0].prompt, /Comment 1/);
+            await h.controller.enqueue(send);
+            assert.equal(h.submitted.length, 1);
+        }
+    }
+});
+
+test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 rejects invalid batch identities before dispatch', async () => {
+    const { parseConversationViewerMessage } = require('../../../out/aiSessions/conversation/viewerProtocol');
+    for (const ids of [[], ['same', 'same'], Array.from({ length: 21 }, (_, i) => 'id-' + i), [null]]) {
+        assert.equal(parseConversationViewerMessage(request('invalid-batch', 'sendDocumentComment', { commentIds: ids }, 0)), undefined);
+    }
+    const h = createHarness();
+    await activate(h.controller);
+    await h.controller.enqueue(request('unknown-batch', 'sendDocumentComment', { commentIds: ['unknown'] }, 0));
+    assert.equal(h.submitted.length, 0);
+    assert.equal(h.posted.at(-1).success, false);
+    assert.equal(h.controller.snapshot.revision, 0);
+});
+
 test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 persists file-anchored drafts, settlements, and AI dispatches', async () => {
     const { controller, posted, saved, submitted, setNow } = createHarness();
     await activate(controller);

@@ -201,6 +201,7 @@ export function renderConversationViewerDocument(
         <button type="button" data-action="close-subagent">Back to conversation</button>
     </div>
     <section class="conversation-document-workspace" data-markdown-workspace
+        data-discussion-collapsed="true"
         role="dialog" aria-modal="true" aria-labelledby="markdown-workspace-title"
         hidden>
         <header class="conversation-document-workspace-header">
@@ -212,6 +213,7 @@ export function renderConversationViewerDocument(
                 <strong id="markdown-workspace-title" data-markdown-workspace-title></strong>
                 <span data-markdown-workspace-path></span>
             </div>
+            <span class="conversation-document-refresh-notice" data-markdown-workspace-notice role="status" hidden></span>
             <div class="conversation-document-workspace-mode" role="group"
                 aria-label="Document workspace view">
                 <button type="button" class="conversation-icon-button"
@@ -222,6 +224,10 @@ export function renderConversationViewerDocument(
                     title="Discussion" aria-label="Discussion">${CONVERSATION_COMMENT_ICON_COMMENT}</button>
             </div>
             <button type="button" class="conversation-icon-button conversation-document-workspace-editor"
+                data-markdown-workspace-refresh title="Refresh document" aria-label="Refresh document">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2 6"/></svg>
+            </button>
+            <button type="button" class="conversation-icon-button conversation-document-workspace-editor"
                 data-markdown-workspace-open-editor title="Open in editor"
                 aria-label="Open in editor">${CONVERSATION_EDITOR_ICON}</button>
         </header>
@@ -230,6 +236,9 @@ export function renderConversationViewerDocument(
             <section class="conversation-document-workspace-content"
                 data-markdown-workspace-content></section>
         </div>
+        <div class="conversation-document-resize" data-markdown-workspace-resize
+            role="separator" aria-label="Resize discussion" aria-orientation="vertical"
+            aria-valuemin="260" aria-valuemax="700" aria-valuenow="360" tabindex="0"></div>
         <aside class="conversation-document-discussion"
             data-markdown-workspace-discussion aria-label="Document discussion">
             <div class="conversation-document-discussion-heading">
@@ -240,6 +249,9 @@ export function renderConversationViewerDocument(
                     data-markdown-workspace-discussion-close title="Hide discussion"
                     aria-label="Hide discussion">${CONVERSATION_COMMENT_ICON_X}</button>
             </div>
+            <button type="button" class="conversation-document-batch-send"
+                data-markdown-workspace-send-all disabled title="Send all drafts to AI"
+                aria-label="Send all drafts to AI">${CONVERSATION_COMMENT_ICON_SEND} Send drafts (0)</button>
             <form class="conversation-document-comment-composer"
                 data-markdown-workspace-comment-composer hidden>
                 <label for="markdown-workspace-comment-input">Comment</label>

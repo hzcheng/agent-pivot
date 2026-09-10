@@ -1829,6 +1829,23 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             return;
         }
+        if (parsed.type === 'conversation-viewer-refresh-markdown-workspace') {
+            const target = this.target;
+            const active = this.activeMarkdownWorkspace;
+            const panel = this.panel;
+            let success = false;
+            try {
+                if (target && active && parsed.projectId === target.projectId
+                && parsed.provider === target.provider && parsed.sessionId === target.sessionId
+                && parsed.subscriptionGeneration === this.subscriptionGeneration
+                && parseConversationWorkspaceFileLink(parsed.href)?.relativePath === active.workspaceFile.relativePath) {
+                    success = await this.openMarkdownWorkspace({ ...active.workspaceFile, selectionText: undefined, line: 1, column: 1 });
+                }
+            } finally {
+                await panel?.webview.postMessage({ ...parsed, type: 'conversation-viewer-refresh-markdown-result', success });
+            }
+            return;
+        }
         if (parsed.type === 'conversation-viewer-run-command'
             || parsed.type === 'conversation-viewer-changes-refresh'
             || parsed.type === 'conversation-viewer-changes-select'
@@ -2590,7 +2607,7 @@ export class ConversationViewer implements ConversationViewerApi {
     /** Only assistant responses to a persisted document comment belong to the
      * currently opened file. Session transcript messages alone are never a
      * document identity. */
-    private markdownWorkspaceCommentInteractions(): Map<string, string> {
+    private markdownWorkspaceCommentInteractions(): Map<string, string[]> {
         const comments = this.documentCommentController.snapshot.comments.filter(comment =>
             comment.status === 'sent' || comment.status === 'resolved'
                 || comment.status === 'outdated'
@@ -2598,15 +2615,16 @@ export class ConversationViewer implements ConversationViewerApi {
         const commentByMarker = new Map(comments.map(comment => [
             `markdown-document-comment-id:${comment.id}`, comment.id,
         ]));
-        const interactions = new Map<string, string>();
+        const interactions = new Map<string, string[]>();
         for (const message of this.messages()) {
             if (message.role !== 'user') {
                 continue;
             }
             for (const [marker, commentId] of commentByMarker) {
                 if (message.markdown.includes(marker)) {
-                    interactions.set(message.interactionId, commentId);
-                    break;
+                    const commentIds = interactions.get(message.interactionId) || [];
+                    commentIds.push(commentId);
+                    interactions.set(message.interactionId, commentIds);
                 }
             }
         }
@@ -2667,8 +2685,8 @@ export class ConversationViewer implements ConversationViewerApi {
             if (message.role !== 'assistant') {
                 continue;
             }
-            const commentId = commentByInteraction.get(message.interactionId);
-            if (!commentId) {
+            const commentIds = commentByInteraction.get(message.interactionId);
+            if (!commentIds?.length) {
                 continue;
             }
             // Persist the full assistant response, including a bounded
@@ -2679,10 +2697,12 @@ export class ConversationViewer implements ConversationViewerApi {
             if (!markdown || Buffer.byteLength(markdown, 'utf8') > 48_000) {
                 continue;
             }
-            replies.push({
-                messageId: message.id, commentId, markdown,
-                provider: target.provider, sessionId: target.sessionId,
-            });
+            for (const commentId of commentIds) {
+                replies.push({
+                    messageId: message.id, commentId, markdown,
+                    provider: target.provider, sessionId: target.sessionId,
+                });
+            }
         }
         return replies.slice(-40);
     }
@@ -2715,7 +2735,8 @@ export class ConversationViewer implements ConversationViewerApi {
                 );
                 if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
                     const wireId = markdownReplyWireId(
-                        reply.provider, reply.sessionId, reply.messageId
+                        reply.provider, reply.sessionId, reply.messageId,
+                        comment.id
                     );
                     replies.set(wireId, { messageId: wireId, commentId: comment.id, html });
                 }
@@ -2727,9 +2748,13 @@ export class ConversationViewer implements ConversationViewerApi {
             );
             if (html && Buffer.byteLength(html, 'utf8') <= 1_000_000) {
                 replies.set(markdownReplyWireId(
-                    reply.provider, reply.sessionId, reply.messageId
+                    reply.provider, reply.sessionId, reply.messageId,
+                    reply.commentId
                 ), {
-                    messageId: markdownReplyWireId(reply.provider, reply.sessionId, reply.messageId),
+                    messageId: markdownReplyWireId(
+                        reply.provider, reply.sessionId, reply.messageId,
+                        reply.commentId
+                    ),
                     commentId: reply.commentId,
                     html,
                 });
@@ -6037,10 +6062,11 @@ function markdownSuggestionWireId(
 function markdownReplyWireId(
     provider: AiSessionProviderId | undefined,
     sessionId: string | undefined,
-    messageId: string
+    messageId: string,
+    commentId: string
 ): string {
     return createHash('sha256').update(JSON.stringify([
-        provider || '', sessionId || '', messageId,
+        provider || '', sessionId || '', messageId, commentId,
     ])).digest('hex');
 }
 

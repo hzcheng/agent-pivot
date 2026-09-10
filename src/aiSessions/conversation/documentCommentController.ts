@@ -299,26 +299,36 @@ export class MarkdownDocumentCommentController {
     }
 
     private async send(request: ConversationViewerSendDocumentCommentMessage): Promise<void> {
-        if (!hasExactKeys(request.payload, ['commentId'])) {
+        const ids = 'commentIds' in request.payload ? request.payload.commentIds : [request.payload.commentId];
+        if (!(hasExactKeys(request.payload, ['commentId']) || hasExactKeys(request.payload, ['commentIds']))
+            || !Array.isArray(ids) || ids.length < 1 || ids.length > 20
+            || ids.some(id => typeof id !== 'string') || new Set(ids).size !== ids.length) {
             throw new MarkdownDocumentCommentError('invalid');
         }
-        const index = this.comments.findIndex(comment => comment.id === request.payload.commentId);
-        const comment = this.comments[index];
+        const selected = ids.map(id => this.comments.find(comment => comment.id === id));
         const context = this.context;
-        if (!context || !comment || comment.status !== 'draft') {
+        if (!context || selected.some(comment => !comment || comment.status !== 'draft')) {
             throw new MarkdownDocumentCommentError('stale');
         }
         const next = cloneMarkdownDocumentComments(this.comments);
         // Persist an explicit outbox state before handing the prompt to the
         // provider. A provider failure can never leave a durable "sent"
         // record for a prompt it did not receive.
-        next[index] = setMarkdownDocumentCommentStatus(comment, 'sending', this.now());
+        for (let index = 0; index < next.length; index++) {
+            if (ids.includes(next[index].id)) {
+                next[index] = setMarkdownDocumentCommentStatus(next[index], 'sending', this.now());
+            }
+        }
+        const prompt = (ids.length > 1 ? '请逐项处理以下 Markdown 批注，在每项回复中保留对应的 markdown-document-comment-id。\n\n' : '')
+            + next.filter(comment => ids.includes(comment.id))
+            .map(comment => buildMarkdownDocumentCommentPrompt(context.target, comment)).join('\n\n---\n\n');
+        if (prompt.length > 120000) { throw new MarkdownDocumentCommentError('limit'); }
         const prior = this.snapshot;
         await this.commit(next, request.expectedRevision);
         try {
             await Promise.resolve(this.options.submitPrompt(
                 { ...context.viewerTarget },
-                buildMarkdownDocumentCommentPrompt(context.target, next[index])
+                prompt
             ));
         } catch (error) {
             // A rollback is a second durable write. If it also fails, retain
@@ -327,14 +337,16 @@ export class MarkdownDocumentCommentController {
             throw error;
         }
         const sent = cloneMarkdownDocumentComments(this.comments);
-        const sentIndex = sent.findIndex(candidate => candidate.id === comment.id);
-        if (sentIndex < 0 || sent[sentIndex].status !== 'sending') {
-            throw new MarkdownDocumentCommentError('stale');
+        for (const id of ids) {
+            const sentIndex = sent.findIndex(candidate => candidate.id === id);
+            if (sentIndex < 0 || sent[sentIndex].status !== 'sending') {
+                throw new MarkdownDocumentCommentError('stale');
+            }
+            sent[sentIndex] = setMarkdownDocumentCommentStatus(sent[sentIndex], 'sent', this.now(), {
+                provider: context.viewerTarget.provider,
+                sessionId: context.viewerTarget.sessionId,
+            });
         }
-        sent[sentIndex] = setMarkdownDocumentCommentStatus(sent[sentIndex], 'sent', this.now(), {
-            provider: context.viewerTarget.provider,
-            sessionId: context.viewerTarget.sessionId,
-        });
         await this.commit(sent, this.revision);
         try {
             await Promise.resolve(this.options.focusSession?.(context.viewerTarget));

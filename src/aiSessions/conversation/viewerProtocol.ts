@@ -62,6 +62,11 @@ export interface ConversationViewerPickMarkdownWorkspaceMessage {
     sessionId: string;
 }
 
+export interface ConversationViewerRefreshMarkdownWorkspaceMessage extends Omit<ConversationViewerOpenMarkdownEditorMessage, 'type'> {
+    type: 'conversation-viewer-refresh-markdown-workspace';
+    requestId: string;
+}
+
 /** Requests disposal of the dedicated Markdown reader panel. The message is
  * intentionally identity-free: the receiving Host resolves its own panel and
  * accepts it only when that Viewer was created in workspace-only mode. */
@@ -103,7 +108,7 @@ export interface ConversationViewerSendDocumentCommentMessage {
         relativePath: string;
         documentVersion: string;
     };
-    payload: { commentId: string };
+    payload: { commentId: string } | { commentIds: string[] };
 }
 
 /** A user-approved local replacement. The Host revalidates both the file
@@ -509,6 +514,7 @@ export type ConversationViewerMessage =
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
     | ConversationViewerOpenMarkdownEditorMessage
+    | ConversationViewerRefreshMarkdownWorkspaceMessage
     | ConversationViewerPickMarkdownWorkspaceMessage
     | ConversationViewerCloseMarkdownWorkspaceMessage
     | ConversationViewerDocumentCommentMutationMessage
@@ -592,8 +598,10 @@ export function parseConversationViewerMessage(
         }
         return value as unknown as ConversationViewerOpenLinkMessage;
     }
-    if (value.type === 'conversation-viewer-open-markdown-editor') {
-        if (keys.length !== 7
+    if (value.type === 'conversation-viewer-open-markdown-editor'
+        || value.type === 'conversation-viewer-refresh-markdown-workspace') {
+        if (keys.length !== (value.type === 'conversation-viewer-refresh-markdown-workspace' ? 8 : 7)
+            || (value.type === 'conversation-viewer-refresh-markdown-workspace' && !isRequestId(value.requestId))
             || !hasOwn(value, 'type')
             || !hasOwn(value, 'version')
             || !hasOwn(value, 'href')
@@ -609,7 +617,7 @@ export function parseConversationViewerMessage(
             || !isBoundedId(value.sessionId)) {
             return undefined;
         }
-        return value as unknown as ConversationViewerOpenMarkdownEditorMessage;
+        return value as unknown as ConversationViewerOpenMarkdownEditorMessage | ConversationViewerRefreshMarkdownWorkspaceMessage;
     }
     if (value.type === 'conversation-viewer-pick-markdown-workspace') {
         if (!hasExactKeys(value, [
@@ -1036,8 +1044,13 @@ export function parseConversationViewerMessage(
             return value as unknown as ConversationViewerDocumentCommentMutationMessage;
         }
         if (value.operation !== 'sendDocumentComment'
-            || !hasExactKeys(value.payload, ['commentId'])
-            || !isConversationViewerTargetId(value.payload.commentId)) {
+            || !(hasExactKeys(value.payload, ['commentId'])
+                && isConversationViewerTargetId(value.payload.commentId)
+                || hasExactKeys(value.payload, ['commentIds'])
+                && Array.isArray(value.payload.commentIds)
+                && value.payload.commentIds.length > 0 && value.payload.commentIds.length <= 20
+                && value.payload.commentIds.every(isConversationViewerTargetId)
+                && new Set(value.payload.commentIds).size === value.payload.commentIds.length)) {
             return undefined;
         }
         return value as unknown as ConversationViewerSendDocumentCommentMessage;

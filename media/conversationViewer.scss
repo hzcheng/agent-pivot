@@ -61,7 +61,7 @@ body[data-markdown-workspace-only="true"] {
     z-index: 20;
     inset: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.6fr);
+    grid-template-columns: minmax(0, 1fr) 5px var(--document-discussion-width, minmax(18rem, 0.6fr));
     grid-template-rows: auto minmax(0, 1fr);
     min-width: 0;
     min-height: 0;
@@ -75,7 +75,39 @@ body[data-markdown-workspace-only="true"] {
 .conversation-document-workspace[data-discussion-collapsed="true"] {
     grid-template-columns: minmax(0, 1fr);
 
-    .conversation-document-discussion { display: none; }
+    .conversation-document-discussion, .conversation-document-resize { display: none; }
+}
+
+.conversation-document-resize {
+    grid-column: 2;
+    grid-row: 2;
+    cursor: col-resize;
+    touch-action: none;
+    background: var(--vscode-panel-border);
+    &:hover, &:focus { background: var(--vscode-focusBorder); }
+}
+
+.conversation-document-refresh-notice {
+    flex: 0 1 16rem;
+    font-size: 0.9em;
+    color: var(--vscode-descriptionForeground);
+    overflow-wrap: anywhere;
+    &[hidden] { display: none; }
+}
+
+.conversation-document-batch-send {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.5rem 0;
+    padding: 0.35rem 0.6rem;
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 3px;
+    cursor: pointer;
+    svg { width: 16px; height: 16px; }
+    &:disabled { opacity: 0.5; cursor: default; }
 }
 
 .conversation-document-workspace-header {
@@ -189,7 +221,7 @@ body[data-markdown-workspace-only="true"] {
 }
 
 .conversation-document-discussion {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 2;
     flex: 0 0 min(22rem, 34vw);
     min-width: 15rem;
@@ -370,6 +402,7 @@ body[data-markdown-workspace-only="true"] {
 }
 
 @media (max-width: 680px) {
+    .conversation-document-resize { display: none; }
     .conversation-document-workspace {
         display: grid;
         grid-template-columns: minmax(0, 1fr);

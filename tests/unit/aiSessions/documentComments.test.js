@@ -44,6 +44,35 @@ test('MARKDOWN-DOCUMENT-COMMENTS-001 creates file-anchored drafts and builds bou
     assert.match(prompt, /markdown-document-comment-id:comment-a/);
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 sends compact context without repeating or truncating the selection', () => {
+    const selectedText = 'Unique selected passage. '.repeat(50);
+    const comment = createMarkdownDocumentComment('comment-a', input({
+        anchor: { ...input().anchor, selectedText,
+            prefix: 'DISTANT_PREFIX' + '前'.repeat(400) + 'NEAR_PREFIX',
+            suffix: 'NEAR_SUFFIX' + '后'.repeat(400) + 'DISTANT_SUFFIX' },
+    }), 1000);
+    const before = JSON.stringify(comment);
+    const prompt = buildMarkdownDocumentCommentPrompt(target, comment);
+    assert.equal(prompt.split(comment.anchor.selectedText).length - 1, 1);
+    assert.match(prompt, /NEAR_PREFIX/);
+    assert.match(prompt, /NEAR_SUFFIX/);
+    assert.doesNotMatch(prompt, /DISTANT_PREFIX|DISTANT_SUFFIX/);
+    assert.ok(Array.from(prompt).length - Array.from(comment.anchor.selectedText).length < 650);
+    assert.equal(JSON.stringify(comment), before, 'saved re-anchoring context must remain intact');
+    assert.match(prompt, /markdown-document-comment-id:comment-a/);
+    assert.match(prompt, /```markdown-suggestion/);
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 omits empty context and keeps short comments compact', () => {
+    const comment = createMarkdownDocumentComment('comment-a', input({
+        anchor: { ...input().anchor, prefix: '', suffix: '' },
+    }), 1000);
+    const prompt = buildMarkdownDocumentCommentPrompt(target, comment);
+    assert.doesNotMatch(prompt, /前文：|后文：/);
+    assert.ok(Array.from(prompt).length < 450);
+    assert.ok(prompt.includes(comment.text));
+});
+
 test('MARKDOWN-DOCUMENT-COMMENTS-001 records sent, resolved, and outdated states without losing the anchor', () => {
     const draft = createMarkdownDocumentComment('comment-a', input(), 1000);
     const sent = setMarkdownDocumentCommentStatus(draft, 'sent', 2000, {

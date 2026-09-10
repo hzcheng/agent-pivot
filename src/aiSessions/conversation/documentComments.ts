@@ -182,28 +182,25 @@ export function buildMarkdownDocumentCommentPrompt(
     const heading = comment.anchor.headingPath.length
         ? comment.anchor.headingPath.join(' > ')
         : '（未解析章节）';
+    // Keep full context in storage for re-anchoring, but send only nearby text.
+    // Slice code points so truncation cannot split a surrogate pair.
+    const prefix = Array.from(comment.anchor.prefix).slice(-80).join('');
+    const suffix = Array.from(comment.anchor.suffix).slice(0, 80).join('');
     const prompt = [
-        '请审阅下面这条 Markdown 文件批注。请围绕指定片段回答；若需要改写，先提出局部修改建议，不要直接假定文件已被写入。',
+        '请处理这条 Markdown 批注，围绕引用回答；修改只提建议，不要直接写入文件。',
         '',
         `文件：${target.relativePath}`,
         `文件版本：${comment.documentVersion}`,
         `章节：${heading}`,
         '引用原文：',
         fencedQuote(comment.anchor.selectedText),
-        ...(comment.anchor.prefix || comment.anchor.suffix ? [
-            '邻近上下文：',
-            fencedQuote([
-                comment.anchor.prefix,
-                comment.anchor.selectedText,
-                comment.anchor.suffix,
-            ].filter(Boolean).join('')),
-        ] : []),
+        ...(prefix ? ['前文：', fencedQuote(prefix)] : []),
+        ...(suffix ? ['后文：', fencedQuote(suffix)] : []),
         '用户评论：',
         comment.text,
         `markdown-document-comment-id:${comment.id}`,
         '',
-        '如果建议修改，请在回复末尾单独输出一个 markdown-suggestion fenced block，'
-            + '其中 JSON 只能包含 selectedText 和 replacement；不要声称已写入文件。格式为：',
+        '若建议修改，末尾按此格式输出，仅含这两个字段；不要声称已写入：',
         '```markdown-suggestion',
         '{"selectedText":"引用原文的精确文本","replacement":"建议替换后的 Markdown"}',
         '```',

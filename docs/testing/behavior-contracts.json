@@ -1692,6 +1692,7 @@
     "priority": "P1",
     "status": "automated",
     "owners": [
+      "tests/unit/aiSessions/documentComments.test.js",
       "tests/browser/conversationViewer.test.js",
       "tests/integration/dashboard/conversationViewer.test.js"
     ],

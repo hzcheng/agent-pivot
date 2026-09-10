@@ -5331,6 +5331,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        .replaceAll('            syncMarkdownWorkspaceBatchAction();\n', '')
+        .replace('            markdownWorkspaceRecipientName = conversationDisplayName.textContent;\n', '')
         .replace('        if (applyMarkdownWorkspaceRefreshResult(event.data)) return;\n', '')
         .replace(
             "    var markdownWorkspaceOnly = document.body.getAttribute(\n"
@@ -12077,7 +12079,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 saves a rendered selection through the
     });
     await page.getByRole('button', { name: 'Add comment', exact: true }).click();
     await page.locator('[data-markdown-workspace-comment-input]').fill('请补充失败后的恢复步骤。');
-    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+    await page.getByRole('button', { name: 'Save comment', exact: true }).click();
     const intent = (await postedIntents(page)).at(-1);
     await host.receive(intent);
     const settlement = outgoing.find(message => message.requestId === intent.requestId
@@ -12090,6 +12092,8 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 saves a rendered selection through the
         projectId: 'project-a', workspaceRootId: 'root-a', relativePath: 'docs/review.md',
     });
     assert.equal(persisted.comments[0].text, '请补充失败后的恢复步骤。');
+    assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').innerText(), /Comment saved. Not sent to AI/);
+    assert.match(await page.locator('article[data-comment-id]').innerText(), /Saved · Not sent/);
     assert.equal(persisted.comments[0].anchor.selectedText, '请完善 回滚方案，并说明验证步骤。');
     assert.ok(persisted.comments[0].createdAt > 1_700_000_000_000);
     await host.receive({ type: 'conversation-viewer-open-link', version: 1, href: 'docs/review.md' });
@@ -12130,6 +12134,84 @@ async function openReviewInteractionFixture(t, comments = []) {
     });
     return result;
 }
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 review polish retains authoritative recipient during cached preflight', async t => {
+    const { page } = await openHostViewerDocument(t, { includeStyles: true, themeFixture: viewerThemeFixtures[0] });
+    const sessionPage = (generation, sessionId, displayName) => ({
+        ...hostileConversationPage, requestId: generation * 10, subscriptionGeneration: generation,
+        htmlSignature: sessionId, displayName,
+        target: { projectId: 'project-a', provider: 'codex', sessionId, interactionId: 'input-4', displayName },
+        comments: { revision: 0, comments: [] }, projectComments: { revision: 0, comments: [] },
+        bookmarks: { revision: 0, interactionIds: [] },
+    });
+    await sendPage(page, sessionPage(2, 'session-beta', 'Beta'));
+    await sendPage(page, sessionPage(3, 'session-alpha', 'Alpha'));
+    const documentMessage = {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/review.md', relativePath: 'docs/review.md', workspaceRootId: 'root-a', documentVersion: 'v1',
+        title: 'review.md', html: '<p>Review this passage.</p>', workspaceRequestId: 1, subscriptionGeneration: 3,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-alpha',
+        commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
+    };
+    await sendPage(page, documentMessage);
+    assert.match(await page.locator('[data-markdown-workspace-recipient]').first().innerText(), /Alpha/);
+    await sendPage(page, { type: 'conversation-viewer-loading', version: 1, subscriptionGeneration: 4,
+        preflight: true, target: { projectId: 'project-a', provider: 'codex', sessionId: 'session-beta' } });
+    assert.equal(await page.locator('body').getAttribute('data-conversation-frame-preview'), 'true');
+    assert.match(await page.locator('[data-markdown-workspace-recipient]').first().innerText(), /Alpha/);
+    assert.match(await page.locator('[data-markdown-workspace-send-all]').getAttribute('aria-label'), /Alpha/);
+    const longName = 'Long session name '.repeat(10);
+    await sendPage(page, sessionPage(5, 'session-alpha', longName));
+    await sendPage(page, { ...documentMessage, subscriptionGeneration: 5, workspaceRequestId: 2 });
+    await page.setViewportSize({ width: 360, height: 700 });
+    const recipient = page.locator('[data-markdown-workspace-recipient]').first();
+    assert.ok((await recipient.boundingBox()).height < 50, 'long recipient must not consume the document viewport');
+    assert.match(await recipient.getAttribute('title'), /Long session name/);
+    await page.screenshot({ path: path.join(os.tmpdir(), 'markdown-polish-long-recipient.png') });
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 review polish names the recipient and exposes readable save and send actions', async t => {
+    const { page } = await openReviewInteractionFixture(t);
+    for (const width of [1000, 360]) {
+        await page.setViewportSize({ width, height: 700 });
+        const recipient = page.locator('[data-markdown-workspace-recipient]').first();
+        assert.equal(await recipient.isVisible(), true);
+        assert.match(await recipient.innerText(), /AI session:.*codex/i);
+        const box = await recipient.boundingBox();
+        assert.ok(box.x >= 0 && box.x + box.width <= width);
+    }
+    await page.locator('[data-markdown-workspace-content] p').evaluate(el => {
+        const range = document.createRange(); range.selectNodeContents(el);
+        window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
+        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    });
+    await page.getByRole('button', { name: 'Add comment', exact: true }).click();
+    await page.locator('[data-markdown-workspace-comment-input]').fill('Keep this draft');
+    assert.equal(await page.locator('[data-markdown-workspace-comment-input]').evaluate(el =>
+        getComputedStyle(el).backgroundColor === getComputedStyle(document.body).backgroundColor), true,
+    'comment input respects the dark editor theme instead of native white');
+    assert.equal(await page.locator('[data-markdown-workspace-comment-save]').innerText(), 'Save comment');
+    assert.equal(await page.locator('[data-markdown-workspace-comment-send]').innerText(), 'Send to AI');
+    assert.match(await page.locator('[data-markdown-workspace-draft-state]').innerText(), /Not saved/);
+    assert.equal(await page.locator('[data-markdown-workspace-draft-state]').getAttribute('role'), null,
+        'only the feedback region announces operation state');
+    assert.match(await page.locator('[data-markdown-workspace-send-all]').getAttribute('aria-label'), /to .*codex/i);
+    for (const width of [1000, 360]) {
+        await page.setViewportSize({ width, height: 700 });
+        await page.screenshot({ path: path.join(os.tmpdir(), `markdown-polish-${width}.png`) });
+        for (const key of ['save', 'send']) {
+            assert.equal(await page.locator(`[data-markdown-workspace-comment-${key}]`).evaluate(el => el.scrollWidth <= el.clientWidth), true);
+        }
+    }
+    await page.locator('[data-markdown-workspace-comment-save]').click();
+    assert.match(await page.locator('[data-markdown-workspace-draft-state]').innerText(), /Saving comment/);
+    const request = (await postedIntents(page)).at(-1);
+    await sendPage(page, { ...request, type: 'conversation-viewer-document-comments-result',
+        success: false, error: 'failed', revision: 0, comments: [] });
+    assert.equal(await page.locator('[data-markdown-workspace-comment-input]').inputValue(), 'Keep this draft');
+    assert.equal(await page.locator('[data-markdown-workspace-comment-save]').isDisabled(), false);
+    assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').innerText(), /could not be saved/i);
+});
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 review feedback Escape keeps document open', async t => {
     const { page } = await openReviewInteractionFixture(t);
@@ -12209,8 +12291,22 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 review feedback keeps refresh failures
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 review feedback exposes batch draft sending', async t => {
     const { page } = await openReviewInteractionFixture(t);
     await page.locator('[data-markdown-workspace-mode="discussion"]').click();
-    assert.equal(await page.getByRole('button', { name: /Send all drafts to AI/ }).count(), 1);
-    assert.equal(await page.getByRole('button', { name: /Send all drafts to AI/ }).isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: /Send \d+ saved comments to/ }).count(), 1);
+    assert.equal(await page.getByRole('button', { name: /Send \d+ saved comments to/ }).isDisabled(), true);
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 review polish does not claim a failed delivery is safe to resend', async t => {
+    const comment = { id: 'comment-0', documentVersion: 'v1', status: 'draft', text: 'Review this',
+        anchor: { selectedText: 'Review this passage.', prefix: '', suffix: '', headingPath: [] }, createdAt: 1 };
+    const { page } = await openReviewInteractionFixture(t, [comment]);
+    await page.locator('[data-markdown-workspace-mode="discussion"]').click();
+    await page.locator('[data-markdown-workspace-send-all]').click();
+    assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').innerText(), /Sending comments to/);
+    const request = (await postedIntents(page)).at(-1);
+    await sendPage(page, { ...request, type: 'conversation-viewer-document-comments-result',
+        success: false, error: 'failed', revision: 2, comments: [{ ...comment, status: 'sending' }] });
+    assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').innerText(), /Could not confirm delivery.*avoid duplicate messages/);
+    assert.equal(await page.locator('[data-markdown-workspace-send-all]').isDisabled(), true);
 });
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 review feedback batch preserves an unsaved composer and excludes sent comments', async t => {
@@ -12226,7 +12322,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 review feedback batch preserves an uns
     });
     await page.getByRole('button', { name: 'Add comment', exact: true }).click();
     await page.locator('[data-markdown-workspace-comment-input]').fill('Not saved yet');
-    await page.getByRole('button', { name: /Send all drafts to AI/ }).click();
+    await page.getByRole('button', { name: /Send \d+ saved comments to/ }).click();
     const request = (await postedIntents(page)).at(-1);
     assert.deepEqual(request.payload, { commentIds: ['comment-0', 'comment-1'] });
     assert.equal(await page.getByRole('button', { name: 'Refresh document', exact: true }).isDisabled(), true,
@@ -12284,7 +12380,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps a refreshed document draft recov
             assert.equal(await page.locator('[data-markdown-workspace-comment-composer]').isVisible(), true);
             assert.equal(await page.locator('[data-markdown-workspace-comment-input]').evaluate(
                 element => document.activeElement === element), true);
-            assert.equal(await page.getByRole('button', { name: 'Save draft', exact: true }).isDisabled(), true);
+            assert.equal(await page.getByRole('button', { name: 'Save comment', exact: true }).isDisabled(), true);
             assert.equal(await page.getByRole('button', { name: 'Send to AI', exact: true }).isDisabled(), true);
             assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').textContent(),
                 /select a passage in the current document/);
@@ -12302,7 +12398,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps a refreshed document draft recov
             if (fixture.compact) {
                 await page.getByRole('button', { name: 'Discussion', exact: true }).click();
             }
-            const save = page.getByRole('button', { name: 'Save draft', exact: true });
+            const save = page.getByRole('button', { name: 'Save comment', exact: true });
             assert.equal(await save.isDisabled(), false);
             await save.click();
             const intent = (await postedIntents(page)).at(-1);
@@ -12651,7 +12747,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
     });
     await page.getByRole('button', { name: 'Add comment' }).click();
     await page.locator('[data-markdown-workspace-comment-input]').fill('Clarify the fallback.');
-    await page.getByRole('button', { name: 'Save draft' }).click();
+    await page.getByRole('button', { name: 'Save comment' }).click();
     const draftIntent = (await postedIntents(page)).at(-1);
     assert.equal(draftIntent.type, 'conversation-viewer-document-comment-mutation');
     assert.equal(draftIntent.operation, 'add');
@@ -12823,7 +12919,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 settles a pending comment from an auth
     });
     await page.getByRole('button', { name: 'Add comment' }).click();
     await page.locator('[data-markdown-workspace-comment-input]').fill('Keep this durable.');
-    await page.getByRole('button', { name: 'Save draft' }).click();
+    await page.getByRole('button', { name: 'Save comment' }).click();
     const intent = (await postedIntents(page)).at(-1);
     const settlement = {
         type: 'conversation-viewer-document-comments-result', version: 1,
@@ -12901,7 +12997,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 offers direct document review and comp
     assert.equal(await page.getByRole('button', { name: 'Discussion', exact: true }).getAttribute('aria-pressed'), 'true',
         'starting a comment reveals the compact discussion mode automatically');
     assert.equal(await page.locator('[data-markdown-workspace-comment-composer]').isVisible(), true);
-    const saveDraft = page.getByRole('button', { name: 'Save draft' });
+    const saveDraft = page.getByRole('button', { name: 'Save comment' });
     assert.equal(await saveDraft.isDisabled(), true,
         'an empty comment cannot be submitted as an invalid selection error');
     await page.locator('[data-markdown-workspace-comment-input]').fill('Keep this reviewer note.');
@@ -12912,10 +13008,10 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 offers direct document review and comp
     assert.equal(addIntent.operation, 'add');
     assert.equal(addIntent.payload.text, 'Keep this reviewer note.');
     assert.equal(addIntent.payload.anchor.selectedText, 'Review this narrow-screen paragraph.');
-    for (const label of ['Cancel comment', 'Save draft', 'Send to AI']) {
+    for (const label of ['Cancel comment', 'Save comment', 'Send to AI']) {
         const action = page.getByRole('button', { name: label });
-        assert.equal((await action.textContent()).trim(), '',
-            `${label} is an icon action with a tooltip and accessible name`);
+        assert.equal((await action.textContent()).trim(), label === 'Cancel comment' ? '' : label,
+            `${label} keeps an accessible name and primary actions have visible text`);
     }
     assert.equal(await page.getByRole('button', { name: 'Undo last AI change' }).isHidden(), true,
         'an unavailable icon action must not override the native hidden state');

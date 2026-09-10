@@ -243,6 +243,8 @@
         && markdownWorkspaceSuggestionComposer && markdownWorkspaceSuggestionInput
         && markdownWorkspaceSuggestionPreview && markdownWorkspaceSuggestionList
         && markdownWorkspaceUndo);
+    var markdownWorkspaceRecipientName = String((document.querySelector(
+        '[data-conversation-display-name]') || {}).textContent || 'Current session');
     var conversationDisplayName = document.querySelector(
         '[data-conversation-display-name]'
     );
@@ -1804,7 +1806,8 @@
             card.appendChild(text);
             var footer = document.createElement('footer');
             var state = document.createElement('span');
-            state.textContent = comment.status;
+            state.textContent = comment.status === 'draft' ? 'Saved · Not sent'
+                : comment.status === 'sent' ? 'Sent to AI' : comment.status;
             footer.appendChild(state);
             footer.appendChild(workspaceCommentButton('Locate in document', 'locate', comment.id));
             if (comment.status === 'draft') {
@@ -2335,17 +2338,32 @@
         var unavailable = empty || !markdownWorkspaceSelection || !!markdownWorkspacePendingRequestId || !!markdownWorkspaceRefreshPending;
         markdownWorkspaceCommentSave.disabled = unavailable;
         markdownWorkspaceCommentSend.disabled = unavailable;
+        var draftState = document.querySelector('[data-markdown-workspace-draft-state]');
+        if (draftState) draftState.textContent = markdownWorkspacePendingRequestId
+            ? 'Operation in progress…'
+            : 'Not saved · Save comment does not send to AI.';
         syncMarkdownWorkspaceBatchAction();
     }
 
+    function markdownWorkspaceRecipientLabel() {
+        return markdownWorkspaceRecipientName
+            + ' · ' + String(commentTarget && commentTarget.provider || 'AI');
+    }
+
     function syncMarkdownWorkspaceBatchAction() {
+        var recipient = markdownWorkspaceRecipientLabel();
+        Array.prototype.forEach.call(document.querySelectorAll('[data-markdown-workspace-recipient]'), function (element) {
+            element.textContent = 'AI session: ' + recipient;
+            element.title = element.textContent;
+        });
         var button = document.querySelector('[data-markdown-workspace-send-all]');
         if (!button) return;
         var count = markdownWorkspaceComments.filter(function (item) { return item.status === 'draft'; }).length;
-        button.textContent = 'Send drafts (' + count + ')';
-        if (count > 20) button.textContent = 'Send next 20 drafts (' + count + ')';
+        button.textContent = 'Send ' + Math.min(count, 20) + ' comments to AI';
+        if (count > 20) button.textContent = 'Send next 20 of ' + count + ' comments';
         button.disabled = count === 0 || !!markdownWorkspacePendingRequestId || !!markdownWorkspaceRefreshPending;
-        button.title = count > 20 ? 'Send the next 20 drafts to AI' : 'Send all drafts to AI';
+        button.title = 'Send ' + Math.min(count, 20) + ' saved comments to ' + recipient;
+        button.setAttribute('aria-label', button.title);
     }
 
     function updateMarkdownWorkspaceSuggestionPreview() {
@@ -2510,8 +2528,9 @@
         var requestId = 'document-comment-' + (++markdownWorkspaceCommentRequestSerial)
             + '-' + String(Date.now());
         markdownWorkspacePendingRequestId = requestId;
-        setMarkdownWorkspaceCommentPending(true, 'Saving comment…');
-        scheduleMarkdownWorkspaceCommentWatchdog(requestId);
+        setMarkdownWorkspaceCommentPending(true, operation === 'sendDocumentComment'
+            ? 'Sending comments to ' + markdownWorkspaceRecipientLabel() + '…' : 'Saving comment…');
+        scheduleMarkdownWorkspaceCommentWatchdog(requestId, operation);
         post({
             type: operation === 'sendDocumentComment'
                 ? 'conversation-viewer-send-document-comment'
@@ -2542,6 +2561,8 @@
         if (refresh) refresh.disabled = pending;
         if (!pending) syncMarkdownWorkspaceCommentDraftActions();
         markdownWorkspaceCommentFeedback.textContent = message || '';
+        var draftState = document.querySelector('[data-markdown-workspace-draft-state]');
+        if (draftState && pending) draftState.textContent = message || 'Operation in progress…';
     }
 
     function markdownWorkspaceCommentFailureMessage(error) {
@@ -2587,7 +2608,10 @@
         markdownWorkspaceDraftRecoveryPending = false;
         clearMarkdownWorkspaceCommentWatchdog();
         setMarkdownWorkspaceCommentPending(false, message.success
-            ? '' : markdownWorkspaceCommentFailureMessage(message.error));
+            ? (message.operation === 'add' ? 'Comment saved. Not sent to AI.' : '')
+            : (message.operation === 'sendDocumentComment'
+                ? 'Could not confirm delivery. Your comments are preserved; check AI Conversation before retrying to avoid duplicate messages.'
+                : markdownWorkspaceCommentFailureMessage(message.error)));
         var sendAfterSave = message.success && message.operation === 'add'
             && markdownWorkspaceSendAfterSave;
         markdownWorkspaceSendAfterSave = false;
@@ -2611,7 +2635,7 @@
         return true;
     }
 
-    function scheduleMarkdownWorkspaceCommentWatchdog(requestId) {
+    function scheduleMarkdownWorkspaceCommentWatchdog(requestId, operation) {
         clearMarkdownWorkspaceCommentWatchdog();
         if (typeof window.setTimeout !== 'function') return;
         markdownWorkspaceCommentWatchdog = window.setTimeout(function () {
@@ -2619,7 +2643,9 @@
             markdownWorkspacePendingRequestId = '';
             markdownWorkspaceSendAfterSave = false;
             setMarkdownWorkspaceCommentPending(false,
-                'Could not confirm the comment. Reopen the document to refresh its current state.');
+                operation === 'sendDocumentComment'
+                    ? 'Could not confirm delivery. Check AI Conversation before retrying to avoid duplicate messages, and refresh this document to reconcile comment status.'
+                    : 'Could not confirm the comment. Reopen the document to refresh its current state.');
         }, 15_000);
     }
 
@@ -4344,6 +4370,8 @@
                 === 'string'
                 ? message.displayName
                 : message.target.displayName;
+            markdownWorkspaceRecipientName = conversationDisplayName.textContent;
+            syncMarkdownWorkspaceBatchAction();
         }
         if (conversationWorkspaceName
             && validPageTarget(message.target)

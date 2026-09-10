@@ -110,6 +110,38 @@ body[data-markdown-workspace-only="true"] {
     &:disabled { opacity: 0.5; cursor: default; }
 }
 
+.conversation-document-text-action {
+    padding: 0.4rem 0.55rem;
+    border: 1px solid var(--vscode-contrastBorder, var(--vscode-panel-border));
+    border-radius: 3px;
+    background: var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+    font: inherit;
+    cursor: pointer;
+    &.accent { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+    &:disabled { opacity: 0.5; cursor: default; }
+    &:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+}
+.conversation-document-recipient,
+.conversation-document-draft-state {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+}
+.conversation-document-comment-composer > div { flex-wrap: wrap; }
+.conversation-document-workspace-identity {
+    flex-wrap: wrap;
+    [data-markdown-workspace-recipient] {
+        flex: 1 1 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        max-height: 3em;
+    }
+}
+
 .conversation-document-workspace-header {
     display: flex;
     gap: 0.65rem;
@@ -284,6 +316,14 @@ body[data-markdown-workspace-only="true"] {
 }
 
 .conversation-document-comment-composer textarea {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 3px;
+    padding: 0.5rem;
+    font: inherit;
+    min-height: 5rem;
+    &:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
     box-sizing: border-box;
     width: 100%;
     margin: 0.35rem 0 0.6rem;

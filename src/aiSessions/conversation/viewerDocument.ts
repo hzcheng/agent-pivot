@@ -212,6 +212,7 @@ export function renderConversationViewerDocument(
             <div class="conversation-document-workspace-identity">
                 <strong id="markdown-workspace-title" data-markdown-workspace-title></strong>
                 <span data-markdown-workspace-path></span>
+                <span data-markdown-workspace-recipient>AI session: ${escapeHtml(target.displayName + duplicateId)} · ${escapeHtml(target.provider)}</span>
             </div>
             <span class="conversation-document-refresh-notice" data-markdown-workspace-notice role="status" hidden></span>
             <div class="conversation-document-workspace-mode" role="group"
@@ -252,22 +253,24 @@ export function renderConversationViewerDocument(
             <button type="button" class="conversation-document-batch-send"
                 data-markdown-workspace-send-all disabled title="Send all drafts to AI"
                 aria-label="Send all drafts to AI">${CONVERSATION_COMMENT_ICON_SEND} Send drafts (0)</button>
+            <p class="conversation-document-recipient" data-markdown-workspace-recipient>AI session: ${escapeHtml(target.displayName + duplicateId)} · ${escapeHtml(target.provider)}</p>
             <form class="conversation-document-comment-composer"
                 data-markdown-workspace-comment-composer hidden>
                 <label for="markdown-workspace-comment-input">Comment</label>
                 <textarea id="markdown-workspace-comment-input"
                     data-markdown-workspace-comment-input rows="4"
                     maxlength="4000" required></textarea>
+                <p class="conversation-document-draft-state" data-markdown-workspace-draft-state>Not saved · Save comment does not send to AI.</p>
                 <div>
                     <button type="button" class="conversation-comment-icon-button"
                         data-markdown-workspace-comment-cancel title="Cancel comment"
                         aria-label="Cancel comment">${CONVERSATION_COMMENT_ICON_X}</button>
-                    <button type="submit" class="conversation-comment-icon-button"
-                        data-markdown-workspace-comment-save title="Save draft"
-                        aria-label="Save draft" disabled>${CONVERSATION_COMMENT_ICON_CHECK}</button>
-                    <button type="button" class="conversation-comment-icon-button accent"
+                    <button type="submit" class="conversation-document-text-action"
+                        data-markdown-workspace-comment-save title="Save comment (Ctrl/Cmd+Enter; does not send to AI)"
+                        aria-label="Save comment" disabled>Save comment</button>
+                    <button type="button" class="conversation-document-text-action accent"
                         data-markdown-workspace-comment-send title="Send to AI"
-                        aria-label="Send to AI" disabled>${CONVERSATION_COMMENT_ICON_SEND}</button>
+                        aria-label="Send to AI" disabled>Send to AI</button>
                 </div>
             </form>
             <form class="conversation-document-comment-composer"

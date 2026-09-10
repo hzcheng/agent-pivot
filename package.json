@@ -100,7 +100,7 @@
             },
             {
                 "command": "agentPivot.reviewMarkdownInConversation",
-                "title": "Agent Pivot: Review in AI Conversation",
+                "title": "Agent Pivot: Preview and Comment in AI Conversation",
                 "icon": "$(comment-discussion)"
             },
             {

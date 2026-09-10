@@ -171,6 +171,11 @@ export interface ConversationViewerOptions {
     ) => PromiseLike<ConversationWorkspaceFileTarget | undefined>
         | Promise<ConversationWorkspaceFileTarget | undefined>
         | ConversationWorkspaceFileTarget | undefined;
+    /** Resolve an absolute Markdown link within the authoritative worktree. */
+    resolveWorkspaceMarkdown?: (
+        target: ConversationLocalFileTarget,
+        viewerTarget: ConversationViewerTarget
+    ) => Promise<ConversationWorkspaceFileTarget | undefined>;
     /** Read a workspace Markdown file only after the Host has resolved it
      * within the conversation's authoritative worktree. */
     readWorkspaceMarkdown?: (
@@ -2297,6 +2302,18 @@ export class ConversationViewer implements ConversationViewerApi {
         const localFile = parseConversationLocalFileLink(href);
         if (localFile) {
             if (this.target) {
+                const current = this.target;
+                const markdownFile = localFile.fsPath.toLowerCase().endsWith('.md')
+                    ? await this.options.resolveWorkspaceMarkdown?.(localFile, current) : undefined;
+                if (this.target !== current) { return; }
+                if (markdownFile) {
+                    if (this.options.openMarkdownWorkspaceInPanel) {
+                        await this.options.openMarkdownWorkspaceInPanel(current, markdownFile);
+                    } else {
+                        await this.openMarkdownWorkspace(markdownFile);
+                    }
+                    return;
+                }
                 await this.options.openLocalFile?.(localFile, this.target);
             }
             return;

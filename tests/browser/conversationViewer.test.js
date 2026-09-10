@@ -12137,6 +12137,30 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders rich document blocks and activ
     assert.equal(await content.locator('.conversation-mermaid-image').count(), 1);
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders the reported Coord pool flowchart and state diagram', async t => {
+    const { renderConversationMarkdown } = require('../../out/aiSessions/conversation/markdown');
+    const { page } = await openHostViewerDocument(t, {
+        markdownWorkspaceOnly: true, includeStyles: true, themeFixture: viewerThemeFixtures[0],
+    });
+    const markdown = fs.readFileSync(path.join(__dirname, '../fixtures/coord-pool-mermaid.md'), 'utf8');
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/coord/design.md', relativePath: 'docs/coord/design.md',
+        workspaceRootId: 'root-a', documentVersion: 'v1', title: 'design.md',
+        html: renderConversationMarkdown(markdown), workspaceRequestId: 1, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
+    });
+    await page.waitForFunction(() => document.querySelectorAll('.conversation-mermaid-image, .conversation-mermaid-error').length === 2);
+    assert.equal(await page.locator('.conversation-mermaid-error').count(), 0);
+    assert.equal(await page.locator('.conversation-mermaid-image').evaluateAll(images =>
+        images.length === 2 && images.every(image => image.naturalWidth > 0)), true);
+    await page.locator('.conversation-mermaid').first().click();
+    assert.equal(await page.locator('.conversation-mermaid-preview').isVisible(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.conversation-mermaid-preview').count(), 0);
+});
+
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders the dedicated document tab without a duplicate conversation', async t => {
     const { page } = await openHostViewerDocument(t, {
         includeStyles: true,

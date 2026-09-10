@@ -253,7 +253,11 @@
             });
             dialog.appendChild(close);
             dialog.appendChild(previewImage);
-            document.body.appendChild(dialog);
+            // Keep chat previews outside cached transcript frames; only the
+            // dedicated document needs its preview inside the visible reader.
+            var previewRoot = options.messages.closest('[data-markdown-workspace]')
+                || document.body;
+            previewRoot.appendChild(dialog);
             preview = { figure: figure, dialog: dialog };
             if (typeof dialog.showModal === 'function') {
                 dialog.showModal();
@@ -325,7 +329,16 @@
         function renderDiagram(pre, source, id) {
             var sanitized = sanitizeSource(source);
             pre.setAttribute('aria-busy', 'true');
-            return Promise.resolve(window.mermaid.render(id, sanitized))
+            // The dedicated reader hides other body children. Mermaid's default
+            // body-level staging SVG then has zero-size labels and invalid paths.
+            // Measure inside the visible reader/transcript, outside normal flow.
+            var staging = document.createElement('div');
+            staging.style.cssText = 'position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;width:1000px;';
+            staging.setAttribute('aria-hidden', 'true');
+            options.messages.appendChild(staging);
+            return Promise.resolve().then(function () {
+                return window.mermaid.render(id, sanitized, staging);
+            })
                 .then(function (result) {
                     if (!pre.isConnected) return;
                     var normalized = normalizeSvg(result.svg);
@@ -386,7 +399,8 @@
                         );
                     });
                 })
-                .catch(function () {
+                .catch(function (error) {
+                    console.warn('[Agent Pivot] Mermaid rendering failed:', error);
                     if (!pre.isConnected) return;
                     pre.removeAttribute('aria-busy');
                     pre.classList.add('conversation-mermaid-error');
@@ -401,6 +415,8 @@
                     options.restoreAnchor(readingAnchor, previousScrollTop);
                     var temporary = document.getElementById(id);
                     if (temporary) temporary.remove();
+                }).then(function () {
+                    staging.remove();
                 });
         }
 

@@ -2998,6 +2998,7 @@ function createViewer(options = {}) {
         },
         openLocalFile: options.openLocalFile,
         pickWorkspaceMarkdown: options.pickWorkspaceMarkdown,
+        resolveWorkspaceMarkdown: options.resolveWorkspaceMarkdown,
         readWorkspaceMarkdown: options.readWorkspaceMarkdown,
         applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
         openMarkdownWorkspaceInPanel: options.openMarkdownWorkspaceInPanel,
@@ -5490,6 +5491,31 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a picked Markdown file beside th
     assert.deepEqual(opened[0].workspaceFile, {
         relativePath: 'docs/picked-plan.md', line: 1, column: 1,
     });
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 routes authorized absolute Markdown links to review and retains native fallback', async () => {
+    const opened = [];
+    const native = [];
+    const resolved = [];
+    const { viewer, panel } = createViewer({
+        resolveWorkspaceMarkdown: async (file, current) => {
+            resolved.push({ file, current });
+            return file.fsPath === '/workspace/docs/design.md'
+                ? { relativePath: 'docs/design.md', line: file.line, column: file.column } : undefined;
+        },
+        openMarkdownWorkspaceInPanel: async (current, file) => opened.push({ current, file }),
+        openLocalFile: async file => native.push(file),
+    });
+    await viewer.open(target('session-a'));
+    for (const href of ['/workspace/docs/design.md:18:2', '/outside/design.md', '/workspace/main.ts']) {
+        await panel.receive({ type: 'conversation-viewer-open-link', version: 1, href });
+    }
+    assert.deepEqual(opened.map(entry => entry.file), [
+        { relativePath: 'docs/design.md', line: 18, column: 2 },
+    ]);
+    assert.equal(resolved[0].current.sessionId, 'session-a');
+    assert.deepEqual(native.map(file => file.fsPath), ['/outside/design.md', '/workspace/main.ts']);
     viewer.dispose();
 });
 

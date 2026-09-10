@@ -2068,6 +2068,24 @@ async function initializeDashboard(
         publish: message => provider.postMessage(message),
         createPanel: vscode.window.createWebviewPanel,
         openExternal: vscode.env.openExternal,
+        resolveWorkspaceMarkdown: async (targetFile, viewerTarget) => {
+            const root = getConversationAuthoritativeRoot(viewerTarget);
+            if (!root || !targetFile.fsPath.toLowerCase().endsWith('.md')) { return undefined; }
+            try {
+                const canonicalRoot = await realpathPath(root);
+                const canonicalCandidate = await realpathPath(targetFile.fsPath);
+                if (!isWorkspaceHostPathContained(canonicalRoot, canonicalCandidate)
+                    || !canonicalCandidate.toLowerCase().endsWith('.md')) { return undefined; }
+                const relativePath = path.relative(canonicalRoot, canonicalCandidate)
+                    .split(path.sep).join('/');
+                return relativePath ? {
+                    relativePath, line: targetFile.line, column: targetFile.column,
+                } : undefined;
+            } catch (error) {
+                logError('Failed to resolve Markdown review link', error);
+                return undefined;
+            }
+        },
         pickWorkspaceMarkdown: async viewerTarget => {
             const root = getConversationAuthoritativeRoot(viewerTarget);
             if (!root) { return undefined; }

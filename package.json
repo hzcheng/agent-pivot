@@ -166,7 +166,7 @@
         ],
         "menus": {
             "editor/title": [
-                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i", "group": "navigation@90" }
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i", "group": "navigation@-1" }
             ],
             "editor/context": [
                 { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i", "group": "navigation@90" }

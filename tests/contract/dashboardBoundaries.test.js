@@ -427,6 +427,25 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 exposes Markdown review from editor ti
     assert.equal((manifest.contributes.keybindings || []).some(entry => entry.command === command), false);
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps the editor review entry ahead of crowded default-priority actions', () => {
+    const manifest = require('../../package.json');
+    const command = 'agentPivot.reviewMarkdownInConversation';
+    const entry = manifest.contributes.menus['editor/title'].find(item => item.command === command);
+    const [group, order] = entry.group.split('@');
+    assert.equal(group, 'navigation');
+    // Unnumbered navigation contributions have order 0. The editor toolbar
+    // overflows later items even when there is unused horizontal space.
+    // Model the crowded screenshot, including the exempt core split action.
+    const actions = Array.from({ length: 9 }, (_, index) => ({ id: `extension-${index}`, order: 0 }));
+    actions.push({ id: command, order: Number(order) });
+    actions.sort((a, b) => a.order - b.order);
+    actions.push({ id: 'split-editor', order: Infinity });
+    const maxItems = 9 - 1;
+    const inline = actions.filter((action, index) => action.id === 'split-editor' || index + 1 < maxItems);
+    assert.ok(inline.some(action => action.id === command), 'review must not overflow behind other extension actions');
+    assert.ok(Number(order) < 0, 'prioritize direct document review before default-priority extension actions');
+});
+
 function markdownReviewFixture(overrides = {}) {
     const { MarkdownReviewCommandController } = require('../../out/dashboard/markdownReviewCommand');
     const opened = [];

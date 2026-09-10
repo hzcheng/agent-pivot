@@ -17,6 +17,7 @@ const publicCommands = [
     'agentPivot.migrateSkillsToCentral',
     'agentPivot.changeGlobalSkillsLocation',
     'agentPivot.openCurrentAiSessionConversation',
+    'agentPivot.reviewMarkdownInConversation',
     'agentPivot.seekLatestConversationInteraction',
     'agentPivot.previousActiveSession',
     'agentPivot.nextActiveSession',

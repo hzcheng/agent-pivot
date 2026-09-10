@@ -212,6 +212,7 @@
     var markdownWorkspaceMermaidGeneration = 0;
     var markdownWorkspaceCommentRequestSerial = 0;
     var markdownWorkspacePendingRequestId = '';
+    var markdownWorkspaceDraftRecoveryPending = false;
     var markdownWorkspaceCommentWatchdog;
     var markdownWorkspaceSendAfterSave = false;
     var markdownWorkspacePendingSuggestionId = '';
@@ -1632,6 +1633,8 @@
             && message.title.length > 0 && message.title.length <= 512
             && typeof message.html === 'string'
             && message.html.length <= 8 * 1024 * 1024
+            && (message.focusHtml === undefined
+                || (typeof message.focusHtml === 'string' && message.focusHtml.length <= 100000))
             && Number.isSafeInteger(message.workspaceRequestId)
             && message.workspaceRequestId > 0
             && Number.isSafeInteger(message.subscriptionGeneration)
@@ -2276,7 +2279,14 @@
             markdownWorkspaceSelectionSummary.textContent = 'Selected: “'
                 + markdownWorkspaceSelection.selectedText.slice(0, 120) + '”';
             positionMarkdownWorkspaceSelectionActions();
+            if (markdownWorkspaceDraftRecoveryPending) {
+                markdownWorkspaceDraftRecoveryPending = false;
+                markdownWorkspaceSelectionActions.hidden = true;
+                markdownWorkspaceCommentFeedback.textContent =
+                    'Draft attached to the selected passage.';
+            }
         }
+        syncMarkdownWorkspaceCommentDraftActions();
     }
 
     function positionMarkdownWorkspaceSelectionActions() {
@@ -2306,6 +2316,7 @@
         setMarkdownWorkspaceDiscussionCollapsed(false);
         setMarkdownWorkspaceMobileMode('discussion', false);
         markdownWorkspaceCommentComposer.hidden = false;
+        markdownWorkspaceDraftRecoveryPending = false;
         if (kind === 'ask' && !markdownWorkspaceCommentInput.value) {
             markdownWorkspaceCommentInput.value = '请回答关于这段内容的问题：';
         } else if (kind === 'explain' && !markdownWorkspaceCommentInput.value) {
@@ -2318,8 +2329,9 @@
     function syncMarkdownWorkspaceCommentDraftActions() {
         if (!markdownWorkspaceCommentsAvailable) return;
         var empty = !String(markdownWorkspaceCommentInput.value || '').trim();
-        markdownWorkspaceCommentSave.disabled = empty || !!markdownWorkspacePendingRequestId;
-        markdownWorkspaceCommentSend.disabled = empty || !!markdownWorkspacePendingRequestId;
+        var unavailable = empty || !markdownWorkspaceSelection || !!markdownWorkspacePendingRequestId;
+        markdownWorkspaceCommentSave.disabled = unavailable;
+        markdownWorkspaceCommentSend.disabled = unavailable;
     }
 
     function updateMarkdownWorkspaceSuggestionPreview() {
@@ -2555,6 +2567,7 @@
         markdownWorkspaceComments = message.comments.slice();
         renderMarkdownWorkspaceComments();
         markdownWorkspacePendingRequestId = '';
+        markdownWorkspaceDraftRecoveryPending = false;
         clearMarkdownWorkspaceCommentWatchdog();
         setMarkdownWorkspaceCommentPending(false, message.success
             ? '' : markdownWorkspaceCommentFailureMessage(message.error));
@@ -2744,6 +2757,7 @@
         markdownWorkspaceSuggestions = [];
         markdownWorkspaceSelection = undefined;
         markdownWorkspacePendingRequestId = '';
+        markdownWorkspaceDraftRecoveryPending = false;
         markdownWorkspacePendingSuggestionId = '';
         markdownWorkspacePendingSuggestionSourceId = '';
         markdownWorkspacePendingSuggestionStatusRequestId = '';
@@ -2764,7 +2778,52 @@
         }
     }
 
+    function focusMarkdownWorkspaceExcerpt(html) {
+        if (!html || (markdownWorkspaceCommentComposer && !markdownWorkspaceCommentComposer.hidden)) return;
+        var fragment = document.createElement('div');
+        fragment.innerHTML = sanitizeConversationHtml(html);
+        var quote = fragment.textContent.trim();
+        if (!quote) return;
+        var walker = document.createTreeWalker(markdownWorkspaceContent, NodeFilter.SHOW_TEXT);
+        var nodes = [];
+        var text = '';
+        var node;
+        while ((node = walker.nextNode())) {
+            nodes.push({ node: node, start: text.length, end: text.length + node.nodeValue.length });
+            text += node.nodeValue;
+        }
+        var start = text.indexOf(quote);
+        if (start < 0 || text.indexOf(quote, start + 1) >= 0) return;
+        var first = nodes.find(function (entry) { return entry.end > start; });
+        var last = nodes.find(function (entry) { return entry.end >= start + quote.length; });
+        if (!first || !last) return;
+        var range = document.createRange();
+        range.setStart(first.node, start - first.start);
+        range.setEnd(last.node, start + quote.length - last.start);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        first.node.parentElement.scrollIntoView({ block: 'center' });
+        updateMarkdownWorkspaceSelection();
+    }
+
     function applyMarkdownWorkspace(message) {
+        if (message && message.type === 'conversation-viewer-markdown-workspace-focus') {
+            if (message.version === 1 && activeMarkdownWorkspaceDocument && commentTarget
+                && message.subscriptionGeneration === state.subscriptionGeneration
+                && message.projectId === commentTarget.projectId && message.provider === commentTarget.provider
+                && message.sessionId === commentTarget.sessionId
+                && message.workspaceRootId === activeMarkdownWorkspaceDocument.workspaceRootId
+                && message.relativePath === activeMarkdownWorkspaceDocument.relativePath
+                && message.documentVersion === activeMarkdownWorkspaceDocument.documentVersion
+                && Number.isSafeInteger(message.workspaceRequestId)
+                && message.workspaceRequestId >= activeMarkdownWorkspaceRequestId
+                && typeof message.focusHtml === 'string' && message.focusHtml.length <= 100000) {
+                activeMarkdownWorkspaceRequestId = message.workspaceRequestId;
+                focusMarkdownWorkspaceExcerpt(message.focusHtml);
+            }
+            return true;
+        }
         if (!message || message.type !== 'conversation-viewer-markdown-workspace') {
             return false;
         }
@@ -2785,6 +2844,7 @@
             || message.workspaceRequestId < activeMarkdownWorkspaceRequestId) {
             return true;
         }
+        if (!markdownWorkspace.hidden) saveMarkdownWorkspaceScroll();
         activeMarkdownWorkspaceRequestId = message.workspaceRequestId;
         activeMarkdownWorkspaceHref = message.href;
         activeMarkdownWorkspaceTarget = messageTarget;
@@ -2805,6 +2865,10 @@
         markdownWorkspaceUndo.disabled = !markdownWorkspaceSuggestionWritesSupported;
         var recoversPendingComment = validMarkdownWorkspaceCommentSettlement(message.commentSettlement)
             && message.commentSettlement.requestId === markdownWorkspacePendingRequestId;
+        var preservesUnsentDraft = !recoversPendingComment
+            && markdownWorkspaceCommentsAvailable
+            && !markdownWorkspaceCommentComposer.hidden
+            && String(markdownWorkspaceCommentInput.value || '').trim().length > 0;
         if (!recoversPendingComment) {
             markdownWorkspaceSelection = undefined;
             markdownWorkspacePendingRequestId = '';
@@ -2821,6 +2885,17 @@
         markdownWorkspacePath.textContent = message.relativePath;
         if (markdownWorkspaceMermaidRenderer) markdownWorkspaceMermaidRenderer.release(markdownWorkspaceContent);
         markdownWorkspaceContent.innerHTML = sanitizeConversationHtml(message.html);
+        if (preservesUnsentDraft) {
+            markdownWorkspaceDraftRecoveryPending = true;
+            markdownWorkspaceCommentComposer.hidden = false;
+            setMarkdownWorkspaceDiscussionCollapsed(false, false);
+            setMarkdownWorkspaceMobileMode('discussion', false);
+            markdownWorkspaceSelectionSummary.textContent =
+                'Select a passage in the current document to continue.';
+            markdownWorkspaceCommentFeedback.textContent =
+                'The document changed. Your draft is preserved; select a passage in the current document to continue.';
+            syncMarkdownWorkspaceCommentDraftActions();
+        }
         renderMarkdownWorkspaceComments();
         renderMarkdownWorkspaceReplies();
         markdownWorkspaceNewReplies.hidden = true;
@@ -2838,7 +2913,9 @@
                 'The document changed, but its suggestion review state could not be saved.';
         }
         markdownWorkspaceReturnFocus = document.activeElement;
-        setMarkdownWorkspaceMobileMode('document', false);
+        setMarkdownWorkspaceMobileMode(
+            preservesUnsentDraft ? 'discussion' : 'document', false
+        );
         markdownWorkspace.hidden = false;
         document.body.classList.add('conversation-markdown-workspace-open');
         setMarkdownWorkspaceBackgroundDisabled(true);
@@ -2851,7 +2928,12 @@
                     activeMarkdownWorkspaceDocument && activeMarkdownWorkspaceDocument.documentVersion
                 )
             );
-            (markdownWorkspaceOnly ? markdownWorkspaceOpenEditor : markdownWorkspaceBack).focus();
+            if (preservesUnsentDraft) {
+                markdownWorkspaceCommentInput.focus();
+            } else {
+                (markdownWorkspaceOnly ? markdownWorkspaceOpenEditor : markdownWorkspaceBack).focus();
+            }
+            focusMarkdownWorkspaceExcerpt(message.focusHtml);
         };
         if (typeof requestAnimationFrame === 'function') {
             requestAnimationFrame(restorePosition);
@@ -5169,6 +5251,7 @@
             if (target && target.hasAttribute('data-markdown-workspace-comment-cancel')) {
                 markdownWorkspaceCommentComposer.hidden = true;
                 markdownWorkspaceCommentInput.value = '';
+                markdownWorkspaceDraftRecoveryPending = false;
                 syncMarkdownWorkspaceCommentDraftActions();
                 return;
             }

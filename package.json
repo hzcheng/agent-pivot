@@ -99,6 +99,11 @@
                 "title": "Agent Pivot: Open Current AI Session Conversation"
             },
             {
+                "command": "agentPivot.reviewMarkdownInConversation",
+                "title": "Agent Pivot: Review in AI Conversation",
+                "icon": "$(comment-discussion)"
+            },
+            {
                 "command": "agentPivot.seekLatestConversationInteraction",
                 "title": "Agent Pivot: Seek to Latest Conversation Interaction"
             },
@@ -159,6 +164,17 @@
                 "title": "Agent Pivot: Sponsor"
             }
         ],
+        "menus": {
+            "editor/title": [
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme == file && resourceExtname =~ /\\.md$/i", "group": "navigation@90" }
+            ],
+            "editor/context": [
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme == file && resourceExtname =~ /\\.md$/i", "group": "navigation@90" }
+            ],
+            "explorer/context": [
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme == file && resourceExtname =~ /\\.md$/i && !explorerResourceIsFolder", "group": "navigation@90" }
+            ]
+        },
         "keybindings": [
             {
                 "command": "agentPivot.open",

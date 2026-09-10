@@ -12094,6 +12094,103 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 saves a rendered selection through the
     assert.equal(await page.locator('article[data-comment-id]').count(), 1);
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 restores an editor selection and preserves its draft on repeated focus', async t => {
+    const { page } = await openHostViewerDocument(t, { markdownWorkspaceOnly: true });
+    const publication = {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/review.md', relativePath: 'docs/review.md', workspaceRootId: 'root-a', documentVersion: 'v1',
+        title: 'review.md', html: '<h1>Review</h1><p>Selected <strong>bold</strong> passage.</p><p>Other text.</p>',
+        focusHtml: '<p>Selected <strong>bold</strong> passage.</p>',
+        workspaceRequestId: 1, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
+    };
+    await sendPage(page, publication);
+    await page.waitForFunction(() => window.getSelection().toString() === 'Selected bold passage.');
+    await page.getByRole('button', { name: 'Add comment', exact: true }).click();
+    await page.locator('[data-markdown-workspace-comment-input]').fill('Keep this unsent draft');
+    await sendPage(page, { ...publication, type: 'conversation-viewer-markdown-workspace-focus',
+        workspaceRequestId: 2, focusHtml: '<p>Other text.</p>' });
+    assert.equal(await page.locator('[data-markdown-workspace-comment-input]').inputValue(), 'Keep this unsent draft');
+    assert.equal(await page.locator('[data-markdown-workspace-comment-composer]').isVisible(), true);
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps a refreshed document draft recoverable without a stale anchor', async t => {
+    for (const fixture of [
+        { name: 'wide changed version', viewport: { width: 900, height: 700 }, compact: false,
+            relativePath: 'docs/review.md' },
+        { name: 'compact changed file', viewport: { width: 360, height: 560 }, compact: true,
+            relativePath: 'docs/next.md' },
+    ]) {
+        await t.test(fixture.name, async child => {
+            const { page } = await openHostViewerDocument(child, {
+                markdownWorkspaceOnly: true,
+                includeStyles: true,
+                themeFixture: viewerThemeFixtures[0],
+                viewport: fixture.viewport,
+            });
+            const publication = {
+                type: 'conversation-viewer-markdown-workspace', version: 1,
+                href: 'docs/review.md', relativePath: 'docs/review.md',
+                workspaceRootId: 'root-a', documentVersion: 'v1',
+                title: 'review.md', html: '<h1>Review</h1><p>Original passage.</p>',
+                workspaceRequestId: 1, subscriptionGeneration: 1,
+                projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+                commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
+            };
+            await sendPage(page, publication);
+            await page.locator('[data-markdown-workspace-content] p').evaluate(element => {
+                const range = document.createRange();
+                range.selectNodeContents(element);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+                element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            });
+            await page.getByRole('button', { name: 'Add comment', exact: true }).click();
+            await page.locator('[data-markdown-workspace-comment-input]').fill('Keep this review draft');
+
+            await sendPage(page, {
+                ...publication,
+                href: fixture.relativePath, relativePath: fixture.relativePath,
+                documentVersion: 'v2', workspaceRequestId: 2,
+                html: '<h1>Review</h1><p>Replacement passage.</p>',
+            });
+            assert.equal(await page.locator('[data-markdown-workspace-comment-input]').inputValue(),
+                'Keep this review draft');
+            assert.equal(await page.locator('[data-markdown-workspace-comment-composer]').isVisible(), true);
+            assert.equal(await page.locator('[data-markdown-workspace-comment-input]').evaluate(
+                element => document.activeElement === element), true);
+            assert.equal(await page.getByRole('button', { name: 'Save draft', exact: true }).isDisabled(), true);
+            assert.equal(await page.getByRole('button', { name: 'Send to AI', exact: true }).isDisabled(), true);
+            assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').textContent(),
+                /select a passage in the current document/);
+
+            if (fixture.compact) {
+                await page.getByRole('button', { name: 'Document', exact: true }).click();
+            }
+            await page.locator('[data-markdown-workspace-content] p').evaluate(element => {
+                const range = document.createRange();
+                range.selectNodeContents(element);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+                element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+            });
+            if (fixture.compact) {
+                await page.getByRole('button', { name: 'Discussion', exact: true }).click();
+            }
+            const save = page.getByRole('button', { name: 'Save draft', exact: true });
+            assert.equal(await save.isDisabled(), false);
+            await save.click();
+            const intent = (await postedIntents(page)).at(-1);
+            assert.equal(intent.type, 'conversation-viewer-document-comment-mutation');
+            assert.equal(intent.document.relativePath, fixture.relativePath);
+            assert.equal(intent.document.documentVersion, 'v2');
+            assert.equal(intent.payload.anchor.selectedText, 'Replacement passage.');
+            assert.equal(intent.payload.text, 'Keep this review draft');
+        });
+    }
+});
+
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 renders rich document blocks and activates their controls', async t => {
     const { renderConversationMarkdown } = require('../../out/aiSessions/conversation/markdown');
     const { page } = await openHostViewerDocument(t, { markdownWorkspaceOnly: true });

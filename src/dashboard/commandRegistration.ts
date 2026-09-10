@@ -14,6 +14,7 @@ export interface DashboardCommandHandlers {
     migrateSkillsToCentral: DashboardCommandHandler;
     changeGlobalSkillsLocation: DashboardCommandHandler;
     openCurrentAiSessionConversation: DashboardCommandHandler;
+    reviewMarkdownInConversation: DashboardCommandHandler;
     seekLatestConversationInteraction: DashboardCommandHandler;
     previousActiveSession: DashboardCommandHandler;
     nextActiveSession: DashboardCommandHandler;
@@ -48,6 +49,7 @@ const DASHBOARD_COMMANDS: ReadonlyArray<readonly [string, DashboardCommandName]>
     ['agentPivot.migrateSkillsToCentral', 'migrateSkillsToCentral'],
     ['agentPivot.changeGlobalSkillsLocation', 'changeGlobalSkillsLocation'],
     ['agentPivot.openCurrentAiSessionConversation', 'openCurrentAiSessionConversation'],
+    ['agentPivot.reviewMarkdownInConversation', 'reviewMarkdownInConversation'],
     ['agentPivot.seekLatestConversationInteraction', 'seekLatestConversationInteraction'],
     ['agentPivot.previousActiveSession', 'previousActiveSession'],
     ['agentPivot.nextActiveSession', 'nextActiveSession'],

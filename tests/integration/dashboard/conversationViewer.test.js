@@ -5519,6 +5519,83 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 routes authorized absolute Markdown li
     viewer.dispose();
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 reuses an unchanged document without replacing its draft surface', async () => {
+    let documentVersion = 'v1';
+    const { viewer, panel } = createViewer({
+        markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: async () => ({ markdown: '# Review\n\nSelected text.', workspaceRootId: 'root', documentVersion }),
+    });
+    const file = { relativePath: 'docs/review.md', line: 3, column: 1, selectionText: 'Selected text.' };
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), file);
+    const count = () => panel.postedMessages.filter(message => message.type === 'conversation-viewer-markdown-workspace').length;
+    assert.equal(count(), 1);
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), file);
+    assert.equal(count(), 1, 'reopening unchanged source must not replace a live comment composer');
+    assert.ok(panel.postedMessages.some(message => message.type === 'conversation-viewer-markdown-workspace-focus'));
+    documentVersion = 'v2';
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), file);
+    assert.equal(count(), 2, 'saved editor changes must reload the current document');
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 rejects a Markdown review whose session root changed before publication', async () => {
+    const { viewer, panel } = createViewer({
+        markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Wrong worktree', workspaceRootId: 'root-b', documentVersion: 'v1',
+        }),
+    });
+    const opened = await viewer.openMarkdownWorkspaceDocument(target('session-a'), {
+        relativePath: 'docs/review.md', line: 1, column: 1, expectedWorkspaceRootId: 'root-a',
+    });
+    assert.equal(opened, false);
+    assert.equal(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-markdown-workspace'), false);
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 replaces an open reader when the authorized root changes with identical bytes', async () => {
+    let workspaceRootId = 'root-a';
+    const { viewer, panel } = createViewer({
+        markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Same bytes', workspaceRootId, documentVersion: 'v1',
+        }),
+    });
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), {
+        relativePath: 'docs/review.md', line: 1, column: 1, expectedWorkspaceRootId: 'root-a',
+    });
+    workspaceRootId = 'root-b';
+    const opened = await viewer.openMarkdownWorkspaceDocument(target('session-a'), {
+        relativePath: 'docs/review.md', line: 1, column: 1, expectedWorkspaceRootId: 'root-b',
+    });
+    assert.equal(opened, true);
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-markdown-workspace').length, 2);
+    assert.equal(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-markdown-workspace-focus'), false);
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 drops a stale editor review after its document read', async () => {
+    let settleRead;
+    const { viewer, panel } = createViewer({
+        markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: () => new Promise(resolve => { settleRead = resolve; }),
+    });
+    let current = true;
+    const opened = viewer.openMarkdownWorkspaceDocument(target('session-a'), {
+        relativePath: 'docs/review.md', line: 1, column: 1,
+    }, () => current);
+    while (!settleRead) { await new Promise(resolve => setImmediate(resolve)); }
+    current = false;
+    settleRead({ markdown: '# Obsolete review', workspaceRootId: 'root-a', documentVersion: 'v1' });
+    assert.equal(await opened, false);
+    assert.equal(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-markdown-workspace'), false);
+    viewer.dispose();
+});
+
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a document comment with a fractional performance clock', async t => {
     const storageRoot = await fs.promises.mkdtemp(
         path.join(os.tmpdir(), 'agent-pivot-viewer-document-comments-'));

@@ -509,6 +509,10 @@ export interface ConversationWorkspaceFileTarget {
     relativePath: string;
     line: number;
     column: number;
+    /** Editor-only navigation hint, never a file mutation or comment. */
+    selectionText?: string;
+    /** Editor entry binds the selected file to its original canonical root. */
+    expectedWorkspaceRootId?: string;
 }
 
 /**

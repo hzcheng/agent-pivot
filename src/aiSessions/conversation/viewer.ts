@@ -296,8 +296,9 @@ export interface ConversationViewerApi extends AiSessionDisposable {
     ): Promise<void>;
     openMarkdownWorkspaceDocument?(
         target: ConversationViewerTarget,
-        workspaceFile: ConversationWorkspaceFileTarget
-    ): Promise<void>;
+        workspaceFile: ConversationWorkspaceFileTarget,
+        isCurrent?: () => boolean
+    ): Promise<boolean>;
     restore(
         panel: vscode.WebviewPanel,
         target: ConversationViewerTarget,
@@ -882,12 +883,41 @@ export class ConversationViewer implements ConversationViewerApi {
 
     async openMarkdownWorkspaceDocument(
         target: ConversationViewerTarget,
-        workspaceFile: ConversationWorkspaceFileTarget
-    ): Promise<void> {
-        await this.open(target);
-        if (this.target && hasSameConversationViewerTarget(this.target, target)) {
-            await this.openMarkdownWorkspace(workspaceFile);
+        workspaceFile: ConversationWorkspaceFileTarget,
+        isCurrent: () => boolean = () => true
+    ): Promise<boolean> {
+        if (!isCurrent()) { return false; }
+        if (this.target && hasSameConversationSessionTarget(this.target, target)
+            && this.activeMarkdownWorkspace?.workspaceFile.relativePath === workspaceFile.relativePath
+            && this.panel) {
+            const active = this.activeMarkdownWorkspace;
+            const document = await this.options.readWorkspaceMarkdown?.(workspaceFile, this.target);
+            if (!isCurrent() || this.activeMarkdownWorkspace !== active || !this.panel) { return false; }
+            if (workspaceFile.expectedWorkspaceRootId
+                && document?.workspaceRootId !== workspaceFile.expectedWorkspaceRootId) {
+                return false;
+            }
+            if (document
+                && document.workspaceRootId === active.workspaceRootId
+                && document.documentVersion === active.documentVersion) {
+                await this.panel.webview.postMessage({
+                    type: 'conversation-viewer-markdown-workspace-focus', version: 1,
+                    projectId: target.projectId, provider: target.provider, sessionId: target.sessionId,
+                    subscriptionGeneration: this.subscriptionGeneration,
+                    workspaceRequestId: ++this.nextMarkdownWorkspaceRequestId,
+                    workspaceRootId: active.workspaceRootId, relativePath: workspaceFile.relativePath,
+                    documentVersion: active.documentVersion,
+                    focusHtml: renderMarkdownWorkspaceFocus(workspaceFile, document.markdown),
+                });
+                return isCurrent();
+            }
+            return this.openMarkdownWorkspace(workspaceFile, undefined, isCurrent);
         }
+        await this.open(target);
+        if (!isCurrent() || !this.target || !hasSameConversationViewerTarget(this.target, target)) {
+            return false;
+        }
+        return this.openMarkdownWorkspace(workspaceFile, undefined, isCurrent);
     }
 
     async restore(
@@ -2332,14 +2362,13 @@ export class ConversationViewer implements ConversationViewerApi {
 
     private async openMarkdownWorkspace(
         workspaceFile: ConversationWorkspaceFileTarget,
-        commentSettlement?: object
-    ): Promise<void> {
+        commentSettlement?: object,
+        isCurrent: () => boolean = () => true
+    ): Promise<boolean> {
         const target = this.target;
         const panel = this.panel;
         const workspaceRequestId = ++this.nextMarkdownWorkspaceRequestId;
-        if (!target || !panel) {
-            return;
-        }
+        if (!target || !panel || !isCurrent()) { return false; }
         let document: { markdown: string; workspaceRootId: string; documentVersion: string } | undefined;
         try {
             document = await this.options.readWorkspaceMarkdown?.(
@@ -2352,8 +2381,9 @@ export class ConversationViewer implements ConversationViewerApi {
         // A workspace read is asynchronous. Never let a late completion from
         // the previously selected session open a document over its successor.
         if (this.target !== target || this.panel !== panel
-            || workspaceRequestId !== this.nextMarkdownWorkspaceRequestId) {
-            return;
+            || workspaceRequestId !== this.nextMarkdownWorkspaceRequestId
+            || !isCurrent()) {
+            return false;
         }
         // The dashboard owns the filesystem boundary. Keep this additional
         // bound at the viewer protocol boundary so a faulty adapter cannot
@@ -2361,14 +2391,18 @@ export class ConversationViewer implements ConversationViewerApi {
         if (!document || typeof document.markdown !== 'string'
             || document.markdown.length > 2 * 1024 * 1024) {
             this.showNotice('Markdown document could not be opened.');
-            return;
+            return false;
+        }
+        if (workspaceFile.expectedWorkspaceRootId
+            && document.workspaceRootId !== workspaceFile.expectedWorkspaceRootId) {
+            return false;
         }
         const title = workspaceFile.relativePath.split('/').pop()
             || workspaceFile.relativePath;
         const html = renderConversationMarkdown(document.markdown);
         if (Buffer.byteLength(html, 'utf8') > 8 * 1024 * 1024) {
             this.showNotice('Markdown document is too large to display.');
-            return;
+            return false;
         }
         await this.documentCommentController.activate({
             target: {
@@ -2381,6 +2415,7 @@ export class ConversationViewer implements ConversationViewerApi {
             viewerTarget: target,
             subscriptionGeneration: this.subscriptionGeneration,
         });
+        if (!isCurrent()) { return false; }
         const suggestionTarget = {
             projectId: target.projectId,
             workspaceRootId: document.workspaceRootId,
@@ -2395,8 +2430,9 @@ export class ConversationViewer implements ConversationViewerApi {
             // optional decision history cannot be loaded.
         }
         if (this.target !== target || this.panel !== panel
-            || workspaceRequestId !== this.nextMarkdownWorkspaceRequestId) {
-            return;
+            || workspaceRequestId !== this.nextMarkdownWorkspaceRequestId
+            || !isCurrent()) {
+            return false;
         }
         this.markdownSuggestionStateTarget = suggestionTarget;
         this.markdownSuggestionStateRevision = suggestionSnapshot.revision;
@@ -2412,6 +2448,7 @@ export class ConversationViewer implements ConversationViewerApi {
         // surface. The transcript is pageable and not a durable discussion
         // store, while the file comment store is.
         await this.captureMarkdownWorkspaceReplies();
+        if (!isCurrent()) { return false; }
         try {
             await panel.webview.postMessage({
                 type: 'conversation-viewer-markdown-workspace',
@@ -2425,6 +2462,7 @@ export class ConversationViewer implements ConversationViewerApi {
                 relativePath: workspaceFile.relativePath,
                 title,
                 html,
+                focusHtml: renderMarkdownWorkspaceFocus(workspaceFile, document.markdown),
                 workspaceRootId: document.workspaceRootId,
                 documentVersion: document.documentVersion,
                 commentSnapshot: this.documentCommentController.snapshot,
@@ -2444,7 +2482,9 @@ export class ConversationViewer implements ConversationViewerApi {
             });
         } catch (_error) {
             this.showNotice('Markdown document could not be opened.');
+            return false;
         }
+        return isCurrent();
     }
 
     private markdownWorkspaceUndoSuggestionId(
@@ -5205,6 +5245,15 @@ function isConversationWorkspaceMarkdownFile(
     target: ConversationWorkspaceFileTarget
 ): boolean {
     return target.relativePath.toLocaleLowerCase().endsWith('.md');
+}
+
+function renderMarkdownWorkspaceFocus(file: ConversationWorkspaceFileTarget, source: string): string {
+    if (!file.selectionText && file.line <= 1) { return ''; }
+    const html = renderConversationMarkdown((file.selectionText
+        || source.split(/\r?\n/)[file.line - 1] || '').slice(0, 4000));
+    // A large math expansion is an optional navigation hint, not a reason to
+    // reject the entire document publication at the Webview boundary.
+    return html.length <= 100000 ? html : '';
 }
 
 function hasSameConversationViewerTarget(

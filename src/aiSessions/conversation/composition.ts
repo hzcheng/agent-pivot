@@ -101,6 +101,11 @@ export interface PreparedActiveConversationNavigation {
 export interface ConversationCapability {
     viewer: ConversationViewerApi;
     availability: 'available' | 'unavailable';
+    openMarkdownReview(
+        target: ConversationSessionOpenTarget,
+        file: import('./markdown').ConversationWorkspaceFileTarget,
+        isCurrent?: () => boolean
+    ): Promise<boolean>;
     /**
      * Cancels an in-flight foreground resolution as soon as a newer
      * user-visible navigation intent wins, before that later intent reaches
@@ -469,11 +474,13 @@ function createAvailableConversationCapability(
         confirmedTarget?: ConversationViewerTarget;
     } = {};
     let markdownWorkspaceViewer: ConversationViewer | undefined;
+    let markdownReviewGeneration = 0;
     let viewerOptions: ConversationViewerOptions;
     const openMarkdownWorkspaceInPanel = async (
         target: ConversationViewerTarget,
-        workspaceFile: import('./markdown').ConversationWorkspaceFileTarget
-    ): Promise<void> => {
+        workspaceFile: import('./markdown').ConversationWorkspaceFileTarget,
+        isCurrent: () => boolean = () => true
+    ): Promise<boolean> => {
         if (!markdownWorkspaceViewer) {
             markdownWorkspaceViewer = ownership.own(new ConversationViewer({
                 ...viewerOptions,
@@ -485,8 +492,9 @@ function createAvailableConversationCapability(
                 restoreFocus: () => { viewer.focus(); },
             }));
         }
-        await markdownWorkspaceViewer.openMarkdownWorkspaceDocument(target, workspaceFile);
-        markdownWorkspaceViewer.focus();
+        const opened = await markdownWorkspaceViewer.openMarkdownWorkspaceDocument(target, workspaceFile, isCurrent);
+        if (opened && isCurrent()) { markdownWorkspaceViewer.focus(); }
+        return opened && isCurrent();
     };
     viewerOptions = {
         createPanel: options.createPanel,
@@ -507,7 +515,7 @@ function createAvailableConversationCapability(
         pickWorkspaceMarkdown: options.pickWorkspaceMarkdown,
         readWorkspaceMarkdown: options.readWorkspaceMarkdown,
         applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
-        openMarkdownWorkspaceInPanel,
+        openMarkdownWorkspaceInPanel: async (target, file) => { await openMarkdownWorkspaceInPanel(target, file); },
         mediaUri: getConversationMediaUri,
         showThinking: options.getShowThinking,
         readSessionStatus: options.readSessionStatus,
@@ -886,6 +894,13 @@ function createAvailableConversationCapability(
     return {
         viewer,
         availability: 'available',
+        async openMarkdownReview(target, file, isCurrent = () => true): Promise<boolean> {
+            const generation = ++markdownReviewGeneration;
+            const current = () => !disposed && generation === markdownReviewGeneration && isCurrent();
+            const resolution = await resolveLatestConversationTarget(options, coordinator, target);
+            if (!current() || resolution.result !== 'opened') { return false; }
+            return await openMarkdownWorkspaceInPanel(resolution.viewerTarget, file, current) && current();
+        },
         cancelPendingNavigation: navigationOptions => {
             if (!disposed) {
                 // Only release an uncommitted visual preflight. Do not abort
@@ -1120,6 +1135,7 @@ function createUnavailableConversationCapability(): ConversationCapability {
     return {
         viewer,
         availability: 'unavailable',
+        async openMarkdownReview(): Promise<boolean> { return false; },
         cancelPendingNavigation(): void {},
         prepareActiveConversation(): PreparedActiveConversationNavigation {
             return {

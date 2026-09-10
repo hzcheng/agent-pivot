@@ -261,6 +261,7 @@ import { getDashboardBootContent } from './dashboard/bootContent';
 import { getAgentPivotConfiguration } from './configuration';
 import { DashboardCommandRegistration } from './dashboard/commandRegistration';
 import { ActiveTerminalFileReferenceController } from './dashboard/activeTerminalFileReference';
+import { isSameMarkdownReviewWorktree, MarkdownReviewCandidate, MarkdownReviewCommandController } from './dashboard/markdownReviewCommand';
 import DashboardDiagnostics from './dashboard/diagnostics';
 import { getErrorContent } from './dashboard/errorContent';
 import { GroupCollapseController } from './dashboard/groupCollapseController';
@@ -4566,6 +4567,92 @@ async function initializeDashboard(
         },
     });
 
+    const markdownReviewCommand = new MarkdownReviewCommandController({
+        getDocument: async resource => {
+            const editor = vscode.window.activeTextEditor;
+            const candidate = resource || editor?.document.uri;
+            if (!candidate || typeof candidate !== 'object'
+                || (candidate as vscode.Uri).scheme !== 'file'
+                || typeof (candidate as vscode.Uri).fsPath !== 'string') { return undefined; }
+            const uri = vscode.Uri.file((candidate as vscode.Uri).fsPath);
+            if (!uri.fsPath.toLowerCase().endsWith('.md')) { return undefined; }
+            const document = await vscode.workspace.openTextDocument(uri);
+            const sourceEditor = editor?.document.uri.toString() === uri.toString() ? editor : undefined;
+            return {
+                fsPath: uri.fsPath,
+                get isDirty() { return document.isDirty; },
+                save: () => document.save(),
+                position: () => {
+                    const selection = sourceEditor?.selection;
+                    const text = selection && !selection.isEmpty ? document.getText(selection) : '';
+                    return {
+                        line: (selection?.start.line || 0) + 1,
+                        column: (selection?.start.character || 0) + 1,
+                        ...(text && text.length <= 4000 ? { selectionText: text } : {}),
+                    };
+                },
+            };
+        },
+        confirmSave: async () => await vscode.window.showWarningMessage(
+            'This Markdown document has unsaved changes. Save it before opening AI review?',
+            { modal: true }, 'Save and review'
+        ) === 'Save and review',
+        candidates: async fsPath => {
+            const workspace = getCurrentWorkspaceActionTargetWithoutCardId();
+            if (!workspace) { return []; }
+            const canonicalFile = await realpathPath(fsPath);
+            const sessions = new Map<string, { target: ConversationSessionOpenTarget; label: string; focused: boolean }>();
+            for (const provider of getRegisteredAiSessionProviders()) {
+                for (const session of workspace.sessions.sessionsByProvider[provider.id] || []) {
+                    sessions.set(`${provider.id}:${session.id}`, {
+                        target: { projectId: workspace.cardId, provider: provider.id, sessionId: session.id },
+                        label: session.name || session.id, focused: false,
+                    });
+                }
+            }
+            for (const session of workspace.sessions.activeSessions || []) {
+                if (!session.sessionId) { continue; }
+                sessions.set(`${session.provider}:${session.sessionId}`, {
+                    target: { projectId: workspace.cardId, provider: session.provider, sessionId: session.sessionId },
+                    label: session.name || session.sessionId, focused: session.focused === true,
+                });
+            }
+            const current = conversationCapability.viewer.getCurrentTarget();
+            const candidates: MarkdownReviewCandidate[] = [];
+            for (const session of sessions.values()) {
+                const root = getConversationAuthoritativeRoot(session.target);
+                if (!root) { continue; }
+                let canonicalRoot: string;
+                try { canonicalRoot = await realpathPath(root); } catch (error) {
+                    logError('Could not resolve Markdown review session root', error);
+                    continue;
+                }
+                if (!isWorkspaceHostPathContained(canonicalRoot, canonicalFile)) { continue; }
+                if (!await isSameMarkdownReviewWorktree(canonicalRoot, canonicalFile, async directory => {
+                    try { await lstatPath(path.join(directory, '.git')); return true; } catch (error) {
+                        if ((error as NodeJS.ErrnoException).code === 'ENOENT') { return false; }
+                        throw error;
+                    }
+                })) { continue; }
+                const relativePath = path.relative(canonicalRoot, canonicalFile).split(path.sep).join('/');
+                candidates.push({
+                    target: session.target, file: { relativePath, line: 1, column: 1,
+                        expectedWorkspaceRootId: createHash('sha256').update(canonicalRoot).digest('hex') },
+                    label: session.label, description: `${session.target.provider} · ${canonicalRoot}`,
+                    preferred: current ? current.projectId === session.target.projectId
+                        && current.provider === session.target.provider && current.sessionId === session.target.sessionId
+                        : session.focused,
+                });
+            }
+            return candidates;
+        },
+        choose: async candidates => vscode.window.showQuickPick(candidates, {
+            placeHolder: 'Choose the AI session for this document review', matchOnDescription: true,
+        }),
+        open: (candidate, isCurrent) => conversationCapability.openMarkdownReview(candidate.target, candidate.file, isCurrent),
+        inform: message => vscode.window.showInformationMessage(message),
+    });
+
     const commandHandlers = {
         open: () => showAgentPivot(),
         saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
@@ -4575,6 +4662,11 @@ async function initializeDashboard(
         changeGlobalSkillsLocation: () =>
             skillPanel.changeGlobalStoreLocation(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
+        reviewMarkdownInConversation: (resource?: unknown) => markdownReviewCommand.review(resource)
+            .catch(error => {
+                logError('Could not open Markdown review', error);
+                void vscode.window.showErrorMessage('Markdown review could not be opened. See Agent Pivot output for details.');
+            }),
         seekLatestConversationInteraction: () => seekLatestConversationInteractionWithFeedback(),
         previousActiveSession: () => {
             beginConversationNavigationIntent();

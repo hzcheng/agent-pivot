@@ -338,12 +338,18 @@ function parseMarkdownDocumentCommentAnchor(
     if (value.headingPath.length > DOCUMENT_COMMENT_LIMITS.maxHeadingDepth) {
         throw fail('invalid');
     }
+    // Heading breadcrumbs are supporting relocation evidence, not the
+    // comment's identity. A rendered heading can be visually empty (for
+    // example an image-only heading), and a live Webview from the preceding
+    // extension generation can still submit that empty crumb after the Host
+    // reloads. Ignore those crumbs instead of rejecting an otherwise valid
+    // selected passage and comment.
     const headingPath = value.headingPath.map(heading =>
-        validators.requireBoundedText(
+        validators.optionalBoundedText(
             heading,
             DOCUMENT_COMMENT_LIMITS.maxHeadingGraphemes
-        )
-    );
+        ).replace(/\s+/g, ' ').trim()
+    ).filter(Boolean);
     const anchor: MarkdownDocumentCommentAnchor = {
         selectedText: validators.requireBoundedText(
             value.selectedText,

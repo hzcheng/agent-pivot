@@ -153,6 +153,28 @@ test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 rebases a new draft after anothe
     ]);
 });
 
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 saves a renderer anchor after removing empty heading crumbs', async () => {
+    const { controller, posted, saved } = createHarness();
+    await activate(controller);
+
+    await controller.enqueue(request('add-renderer-anchor', 'add', {
+        anchor: {
+            selectedText: 'Ship the rollback plan.',
+            prefix: 'Migration: ',
+            suffix: ' Before release.',
+            // Rendered headings can be visually empty (for example an
+            // image-only heading), and older live Webviews can retain that
+            // crumb while the extension Host is reloaded underneath them.
+            headingPath: ['', 'Migration', '   '],
+        },
+        text: 'Explain the operational fallback.',
+    }, 0));
+
+    assert.equal(posted.at(-1).success, true);
+    assert.equal(saved.length, 1);
+    assert.deepEqual(controller.snapshot.comments[0].anchor.headingPath, ['Migration']);
+});
+
 test('MARKDOWN-DOCUMENT-COMMENTS-CONTROLLER-001 rejects stale document identity and marks version-mismatched anchors outdated', async () => {
     const stored = {
         revision: 3,

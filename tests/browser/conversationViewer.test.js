@@ -22187,3 +22187,35 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resyncs when a tail patch misse
         '.conversation-deferred-messages').count(), 0,
         'the stray placeholder never lands');
 });
+
+test('CONVERSATION-MARKDOWN-RESOURCES-001 displays an SVG and activates a sibling Markdown link', async t => {
+    const { renderConversationMarkdown } = require('../../out/aiSessions/conversation/markdown');
+    const { page } = await openHostViewerDocument(t, { markdownWorkspaceOnly: true });
+    await page.addStyleTag({ content: viewerCss });
+    await page.setViewportSize({ width: 900, height: 750 });
+    await page.route('https://file.vscode-resource.vscode-cdn.net/**', route => route.fulfill({
+        contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="100"><rect width="320" height="100" fill="steelblue"/><text x="20" y="55" fill="white">Shared KV / CoorD / DN</text></svg>',
+    }));
+    const html = renderConversationMarkdown('## 系统保存什么\n\n![状态分为共享 KV、CoorD 内存和 DN 本地三层](./assets/01-state-layers.svg)\n\n详见 [状态、命名空间与 GC](./topics/01-state-and-kv.md)。', {
+        documentPath: 'docs/coord/report/02-coord-design-review.md',
+        resolveImage: resource => `https://file.vscode-resource.vscode-cdn.net/workspace/${resource}`,
+    });
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/coord/report/02-coord-design-review.md', relativePath: 'docs/coord/report/02-coord-design-review.md',
+        workspaceRootId: 'root-a', documentVersion: 'v1', title: '02-coord-design-review.md', html,
+        workspaceRequestId: 1, subscriptionGeneration: 1, projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
+    });
+    const content = page.locator('[data-markdown-workspace-content]');
+    const image = content.getByRole('img');
+    await image.evaluate(img => img.decode());
+    assert.equal(await image.evaluate(img => img.naturalWidth), 320);
+    assert.equal(await image.isVisible(), true);
+    await content.getByRole('link', { name: '状态、命名空间与 GC' }).click();
+    assert.equal((await postedIntents(page)).at(-1).href, 'docs/coord/report/topics/01-state-and-kv.md');
+    await page.screenshot({ path: '/tmp/markdown-preview-resources.png' });
+    await page.setViewportSize({ width: 400, height: 750 });
+    assert.equal(await image.isVisible(), true);
+    await page.screenshot({ path: '/tmp/markdown-preview-resources-narrow.png' });
+});

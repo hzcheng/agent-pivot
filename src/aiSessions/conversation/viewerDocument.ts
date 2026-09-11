@@ -145,7 +145,7 @@ export function renderConversationViewerDocument(
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; img-src https: blob:; font-src ${escapeAttribute(
+        content="default-src 'none'; img-src ${escapeAttribute(panel.webview.cspSource)} https: blob:; font-src ${escapeAttribute(
             panel.webview.cspSource
         )}; style-src ${escapeAttribute(
             panel.webview.cspSource

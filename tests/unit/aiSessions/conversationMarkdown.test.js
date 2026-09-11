@@ -328,3 +328,30 @@ test('CONVERSATION-LOCAL-FILE-LINKS-002 rejects traversal and unsafe workspace r
     assert.doesNotMatch(html, /href="\.\.\/private\.ts:1"/);
     assert.doesNotMatch(html, /href="src\/private\.ts\?token/);
 });
+
+test('CONVERSATION-MARKDOWN-RESOURCES-001 resolves document-relative links and SVG images', () => {
+    const html = renderConversationMarkdown('![状态分为共享 KV、CoorD 内存和 DN 本地三层](./assets/01-state-layers.svg)\n\n详见 [状态、命名空间与 GC](./topics/01-state-and-kv.md)。', {
+        documentPath: 'docs/review/02-coord-design-review.md',
+        resolveImage: resource => `https://file.vscode-resource.vscode-cdn.net/workspace/${resource}`,
+    });
+    assert.match(html, /<img src="https:\/\/file.vscode-resource.vscode-cdn.net\/workspace\/docs\/review\/assets\/01-state-layers.svg"/);
+    assert.match(html, /<a href="docs\/review\/topics\/01-state-and-kv.md">状态、命名空间与 GC<\/a>/);
+});
+
+test('CONVERSATION-MARKDOWN-RESOURCES-001 confines resources to the workspace and preserves transcript policy', () => {
+    const { resolveMarkdownDocumentResource } = require('../../../out/aiSessions/conversation/markdown');
+    assert.equal(resolveMarkdownDocumentResource('../assets/diagram.svg', 'docs/topics/review.md'), 'docs/assets/diagram.svg');
+    for (const href of ['../../../secret.svg', '%2e%2e/%2e%2e/secret.svg', 'javascript:alert(1)', 'file:///secret.svg', '//host/image.svg', 'data:image/svg+xml,foo']) {
+        assert.equal(resolveMarkdownDocumentResource(href, 'docs/review.md'), undefined, href);
+    }
+    const html = renderConversationMarkdown('[escape](../../secret.md) ![secret](../../secret.svg)', { documentPath: 'docs/review.md' });
+    assert.doesNotMatch(html, /(?:href|src)=/);
+    assert.doesNotMatch(renderConversationMarkdown('[relative](./docs/test.md)'), /href=/);
+    assert.match(renderConversationMarkdown('[site](https://example.com)', { documentPath: 'docs/review.md' }), /href="https:\/\/example.com"/);
+});
+
+test('CONVERSATION-MARKDOWN-RESOURCES-001 preserves source-link line and column positions', () => {
+    const html = renderConversationMarkdown('[source](../src/foo.ts:12:3) [line](../src/foo.ts#L18)', { documentPath: 'docs/review.md' });
+    assert.match(html, /href="src\/foo.ts:12:3"/);
+    assert.match(html, /href="src\/foo.ts#L18"/);
+});

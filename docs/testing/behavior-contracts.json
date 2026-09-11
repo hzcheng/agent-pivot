@@ -1,5 +1,22 @@
 [
   {
+    "id": "CONVERSATION-MARKDOWN-RESOURCES-001",
+    "domain": "webview",
+    "title": "Markdown review resolves document-relative links and loads workspace SVG images",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/unit/aiSessions/conversationMarkdown.test.js",
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/markdown.ts",
+      "src/aiSessions/conversation/viewer.ts",
+      "src/dashboard.ts"
+    ]
+  },
+  {
     "id": "ACTIVE-SESSION-CONVERSATION-OPEN-001",
     "domain": "webview",
     "title": "Clicking a focused Active Session opens its AI Conversation at the latest user input",

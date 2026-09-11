@@ -3,6 +3,7 @@
 import MarkdownIt = require('markdown-it');
 import { randomBytes } from 'crypto';
 import { URL } from 'url';
+import { posix } from 'path';
 import { parseUnifiedDiff } from './diffs';
 import { renderConversationDiffs } from './diffRenderer';
 import { CONVERSATION_RUN_COMMAND_MAX_TEXT_LENGTH } from './viewerProtocol';
@@ -649,10 +650,61 @@ markdown.validateLink = (url: string): boolean => {
         || parseConversationWorkspaceFileLink(url));
 };
 
-export function renderConversationMarkdown(value: string): string {
+export interface ConversationMarkdownDocumentOptions {
+    documentPath: string;
+    resolveImage?: (relativePath: string) => string | undefined;
+}
+
+/** Resolve inside the authoritative workspace, relative to the document. */
+export function resolveMarkdownDocumentResource(value: string, documentPath: string): string | undefined {
+    let decoded: string;
+    try { decoded = decodeURIComponent(value); } catch (_error) { return undefined; }
+    if (!decoded || /^(?:[a-z][a-z0-9+.-]*:|[\\/])/i.test(decoded)
+        || /[\u0000-\u001f\u007f?]/.test(decoded)) { return undefined; }
+    const resolved = posix.normalize(posix.join(posix.dirname(documentPath), decoded.replace(/\\/g, '/')));
+    return parseConversationWorkspaceFileLink(resolved) ? resolved : undefined;
+}
+
+// Share the syntax extensions, but keep document-relative validation separate
+// from transcript links, which have no document directory as their base.
+const documentMarkdown: MarkdownIt = Object.create(markdown);
+documentMarkdown.validateLink = (url: string): boolean => markdown.validateLink(url)
+    || !!resolveMarkdownDocumentResource(url, 'document.md')
+    || !!parseConversationWorkspaceFileLink(url.replace(/^(?:\.\.?\/)+/, ''));
+const defaultImageRenderer = markdown.renderer.rules.image!;
+markdown.renderer.rules.image = (tokens, index, options, env, renderer) => {
+    const context = env as ConversationMarkdownDocumentOptions | undefined;
+    if (context?.documentPath) {
+        const token = tokens[index];
+        const source = token.attrGet('src') || '';
+        if (!/^https:\/\//i.test(source)) {
+            const relative = resolveMarkdownDocumentResource(source, context.documentPath);
+            const resource = relative && context.resolveImage?.(relative);
+            if (!resource) { return escapeHtml(token.content); }
+            token.attrSet('src', resource);
+        }
+    }
+    return defaultImageRenderer(tokens, index, options, env, renderer);
+};
+markdown.renderer.rules.link_open = (tokens, index, options, env, renderer) => {
+    const context = env as ConversationMarkdownDocumentOptions | undefined;
+    if (context?.documentPath) {
+        const token = tokens[index];
+        const href = token.attrGet('href') || '';
+        const relative = resolveMarkdownDocumentResource(href, context.documentPath);
+        if (relative) { token.attrSet('href', relative); }
+        else if (!markdown.validateLink(href)) {
+            token.attrs = (token.attrs || []).filter(attribute => attribute[0] !== 'href');
+        }
+    }
+    return renderer.renderToken(tokens, index, options);
+};
+
+export function renderConversationMarkdown(value: string, document?: ConversationMarkdownDocumentOptions): string {
     renderedMathExpressions = 0;
     renderedMathLength = 0;
-    return renderAdmonitions(renderTaskLists(renderSortableTables(markdown.render(value))));
+    return renderAdmonitions(renderTaskLists(renderSortableTables(
+        (document ? documentMarkdown : markdown).render(value, document))));
 }
 
 function renderSortableTables(html: string): string {

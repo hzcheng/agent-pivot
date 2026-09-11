@@ -4,6 +4,35 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.4.3] - 2026-09-09
+
+### Fixed
+
+- Keep AI Conversation visually unchanged while opening Markdown review in a
+  dedicated adjacent tab, and close that tab back to the original conversation.
+- Coalesce runtime session refreshes so background attention updates do not
+  repeatedly rebuild every AI session card or block conversation scrolling.
+
+### Changed
+
+- Continue publishing through the VS Code Marketplace with the existing
+  Workspace Trust declaration and progressively rendered AI Conversation
+  experience.
+
+## [1.4.2] - 2026-09-09
+
+### Added
+
+- Add a document workspace to AI Conversation for rendered Markdown reading,
+  file-anchored comments, durable AI discussion, safe suggested changes, and
+  version-checked undo.
+
+### Changed
+
+- Continue publishing through the VS Code Marketplace with the existing
+  Workspace Trust declaration and progressively rendered AI Conversation
+  experience.
+
 ## [1.4.1] - 2026-09-09
 
 ### Added

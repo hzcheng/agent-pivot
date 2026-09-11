@@ -135,12 +135,11 @@ const mutations = {
         scenario: 'user-close',
         transform: source => replaceOnce(
             source,
-            'getAttentionController().acknowledge(authoritativeEventIds);\n'
-                + '        refreshAiSessionViewsIncrementally();\n'
+            "void refreshViewsNow('attention');\n"
                 + '        return aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);',
-            'getAttentionController().acknowledge(authoritativeEventIds);\n'
-                + '        yield aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);\n'
-                + '        refreshAiSessionViewsIncrementally();',
+            'yield aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);\n'
+                + "        void refreshViewsNow('attention');\n"
+                + '        return;',
             'acknowledgement ordering',
         ),
     },
@@ -515,13 +514,13 @@ async function runTerminalCloseContract(transform = source => source, scenario =
                 'active terminal attention evaluation',
             );
             const highlightSyncIndex = indexOfCall(calls, 'highlight-sync', activeMark);
-            const refreshIndex = indexOfCall(calls, 'refresh', activeMark);
+            const refreshIndex = indexOfCall(calls, 'schedule-refresh', activeMark);
             const lifecycleTaskIndex = indexOfLifecycleTask(calls, 'evaluate-attention-active-terminal', activeMark);
             const evaluateIndex = indexOfCall(calls, 'attention-evaluate', activeMark);
             assert.ok(highlightSyncIndex >= activeMark,
                 'WEBVIEW-ACTIVE-AI-SESSION-TERMINAL-HIGHLIGHT-001 an active terminal change must sync the highlighter');
             assert.ok(refreshIndex > highlightSyncIndex,
-                'WEBVIEW-ACTIVE-AI-SESSION-TERMINAL-HIGHLIGHT-001 the highlighter sync must precede the incremental refresh');
+                'WEBVIEW-ACTIVE-AI-SESSION-TERMINAL-HIGHLIGHT-001 the highlighter sync must precede the coalesced refresh');
             assert.ok(lifecycleTaskIndex > refreshIndex,
                 'WEBVIEW-ACTIVE-AI-SESSION-TERMINAL-HIGHLIGHT-001 the attention evaluation must be routed through the safe lifecycle task');
             assert.ok(evaluateIndex > lifecycleTaskIndex,
@@ -562,10 +561,14 @@ async function runTerminalCloseContract(transform = source => source, scenario =
                 'ATTENTION-RUNTIME-EXIT-NEUTRAL-001 runtime exit must never suppress completion attention');
             assert.ok(localAcknowledgeIndex > runtimeCloseIndex,
                 'ATTENTION-USER-TERMINAL-CLOSE-001 must acknowledge after the user close is observed');
-            const refreshAfterAcknowledgeIndex = indexOfCall(calls, 'refresh', localAcknowledgeIndex);
+            const refreshAfterAcknowledgeIndex = indexOfCall(
+                calls,
+                'refresh',
+                localAcknowledgeIndex
+            );
             const bridgeAcknowledgeIndex = indexOfCall(calls, 'bridge-acknowledge');
             assert.ok(refreshAfterAcknowledgeIndex > localAcknowledgeIndex,
-                'ATTENTION-USER-TERMINAL-CLOSE-001 acknowledgement must refresh the local view before waiting for the cross-window bridge');
+                'ATTENTION-USER-TERMINAL-CLOSE-001 acknowledgement must publish the local refresh before waiting for the cross-window bridge');
             assert.ok(bridgeAcknowledgeIndex > refreshAfterAcknowledgeIndex,
                 'ATTENTION-USER-TERMINAL-CLOSE-001 the cross-window bridge must be awaited only after the local refresh');
             const acknowledgeTaskIndex = indexOfLifecycleTask(calls, 'acknowledge-user-terminal-close');

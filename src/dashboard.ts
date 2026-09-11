@@ -1,9 +1,16 @@
 'use strict';
 import * as vscode from 'vscode';
 import * as childProcess from 'child_process';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { existsSync } from 'fs';
-import { access as accessPath, realpath as realpathPath } from 'fs/promises';
+import {
+    access as accessPath,
+    lstat as lstatPath,
+    open as openFilePath,
+    realpath as realpathPath,
+} from 'fs/promises';
+import type { FileHandle } from 'fs/promises';
+import { TextDecoder } from 'util';
 import * as os from 'os';
 import * as path from 'path';
 import { performance } from 'perf_hooks';
@@ -96,6 +103,7 @@ import {
     ConversationSessionRebindCoordinator,
     hasCommittedConversationSessionRuntimeRebind,
 } from './aiSessions/conversation/sessionRebindCoordinator';
+import { applyValidatedWorkspaceMarkdownSuggestion } from './aiSessions/conversation/workspaceMarkdownFile';
 import AiSessionWorkspaceStateStore from './aiSessions/workspaceStateStore';
 import ActiveAiSessionTerminalHighlighter from './aiSessions/activeTerminalHighlight';
 import AttentionBridgeClient from './aiSessions/attentionBridgeClient';
@@ -253,6 +261,7 @@ import { getDashboardBootContent } from './dashboard/bootContent';
 import { getAgentPivotConfiguration } from './configuration';
 import { DashboardCommandRegistration } from './dashboard/commandRegistration';
 import { ActiveTerminalFileReferenceController } from './dashboard/activeTerminalFileReference';
+import { isSameMarkdownReviewWorktree, MarkdownReviewCandidate, MarkdownReviewCommandController } from './dashboard/markdownReviewCommand';
 import DashboardDiagnostics from './dashboard/diagnostics';
 import { getErrorContent } from './dashboard/errorContent';
 import { GroupCollapseController } from './dashboard/groupCollapseController';
@@ -779,6 +788,8 @@ async function initializeDashboard(
         conversationCommentStore,
         projectCommentStore,
         conversationBookmarkStore,
+        documentCommentStore,
+        markdownSuggestionStateStore,
         conversationSessionRebindCoordinator,
         conversationViewerCommentStore,
         conversationViewerBookmarkStore,
@@ -1951,6 +1962,21 @@ async function initializeDashboard(
         conversationCapability?.cancelPendingNavigation(options);
         return conversationNavigationIntent;
     };
+    const getConversationAuthoritativeRoot = (
+        viewerTarget: { projectId: string; provider: AiSessionProviderId; sessionId: string }
+    ): string | undefined => {
+        const actionTarget = getCurrentWorkspaceActionTarget(viewerTarget.projectId);
+        const activeSession = (actionTarget?.sessions.activeSessions || [])
+            .find(session => session.provider === viewerTarget.provider
+                && session.sessionId === viewerTarget.sessionId);
+        const historySession = (
+            actionTarget?.sessions.sessionsByProvider[viewerTarget.provider] || []
+        ).find(session => session.id === viewerTarget.sessionId);
+        return activeSession?.worktreeKey?.canonicalWorktreePath
+            ?? historySession?.worktreeKey?.canonicalWorktreePath
+            ?? historySession?.cwd
+            ?? historySession?.workDir;
+    };
     conversationCapability = ownResource(() => createConversationCapability({
         services: aiSessionServices,
         cycleLocalSessionStatus: (kind, currentTarget) =>
@@ -2043,6 +2069,59 @@ async function initializeDashboard(
         publish: message => provider.postMessage(message),
         createPanel: vscode.window.createWebviewPanel,
         openExternal: vscode.env.openExternal,
+        resolveWorkspaceMarkdown: async (targetFile, viewerTarget) => {
+            const root = getConversationAuthoritativeRoot(viewerTarget);
+            if (!root || !targetFile.fsPath.toLowerCase().endsWith('.md')) { return undefined; }
+            try {
+                const canonicalRoot = await realpathPath(root);
+                const canonicalCandidate = await realpathPath(targetFile.fsPath);
+                if (!isWorkspaceHostPathContained(canonicalRoot, canonicalCandidate)
+                    || !canonicalCandidate.toLowerCase().endsWith('.md')) { return undefined; }
+                const relativePath = path.relative(canonicalRoot, canonicalCandidate)
+                    .split(path.sep).join('/');
+                return relativePath ? {
+                    relativePath, line: targetFile.line, column: targetFile.column,
+                } : undefined;
+            } catch (error) {
+                logError('Failed to resolve Markdown review link', error);
+                return undefined;
+            }
+        },
+        pickWorkspaceMarkdown: async viewerTarget => {
+            const root = getConversationAuthoritativeRoot(viewerTarget);
+            if (!root) { return undefined; }
+            let canonicalRoot: string;
+            try {
+                canonicalRoot = await realpathPath(root);
+            } catch (_error) {
+                return undefined;
+            }
+            const selected = await vscode.window.showOpenDialog({
+                defaultUri: vscode.Uri.file(canonicalRoot),
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: { Markdown: ['md'] },
+                title: 'Open Markdown for review',
+            });
+            const picked = selected?.[0];
+            if (!picked || picked.scheme !== 'file') { return undefined; }
+            let canonicalCandidate: string;
+            try {
+                canonicalCandidate = await realpathPath(picked.fsPath);
+            } catch (_error) {
+                return undefined;
+            }
+            if (!isWorkspaceHostPathContained(canonicalRoot, canonicalCandidate)
+                || !canonicalCandidate.toLowerCase().endsWith('.md')) {
+                return undefined;
+            }
+            const relativePath = path.relative(canonicalRoot, canonicalCandidate)
+                .split(path.sep).join('/');
+            return relativePath && !relativePath.startsWith('../') ? {
+                relativePath, line: 1, column: 1,
+            } : undefined;
+        },
         openLocalFile: async (targetFile, viewerTarget) => {
             const actionTarget = getCurrentWorkspaceActionTarget(
                 viewerTarget.projectId
@@ -2110,6 +2189,146 @@ async function initializeDashboard(
                 );
                 return;
             }
+        },
+        readWorkspaceMarkdown: async (targetFile, viewerTarget) => {
+            if (!targetFile.relativePath.toLocaleLowerCase().endsWith('.md')) {
+                return undefined;
+            }
+            const actionTarget = getCurrentWorkspaceActionTarget(
+                viewerTarget.projectId
+            );
+            const activeSession = (actionTarget?.sessions.activeSessions || [])
+                .find(session => session.provider === viewerTarget.provider
+                    && session.sessionId === viewerTarget.sessionId);
+            const historySession = (
+                actionTarget?.sessions.sessionsByProvider[viewerTarget.provider] || []
+            ).find(session => session.id === viewerTarget.sessionId);
+            // Markdown rendered in the conversation must come from the same
+            // authoritative worktree as a relative source link, never from a
+            // same-named file in the primary checkout.
+            const authoritativeRoot = activeSession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.cwd
+                ?? historySession?.workDir;
+            if (typeof authoritativeRoot !== 'string' || !authoritativeRoot) {
+                return undefined;
+            }
+            let canonicalRoot: string;
+            try {
+                canonicalRoot = await realpathPath(authoritativeRoot);
+            } catch (_error) {
+                return undefined;
+            }
+            const candidate = path.resolve(canonicalRoot, targetFile.relativePath);
+            let canonicalCandidate: string;
+            try {
+                canonicalCandidate = await realpathPath(candidate);
+            } catch (_error) {
+                return undefined;
+            }
+            if (!isWorkspaceHostPathContained(canonicalRoot, canonicalCandidate)) {
+                return undefined;
+            }
+            let initialStat;
+            try {
+                initialStat = await lstatPath(canonicalCandidate);
+            } catch (_error) {
+                return undefined;
+            }
+            // Bind the validation to the object we actually read. A final
+            // component can be swapped after realpath(); compare the opened
+            // descriptor with the checked regular-file inode.
+            if (!initialStat.isFile() || initialStat.size > 2 * 1024 * 1024) {
+                return undefined;
+            }
+            let handle: FileHandle | undefined;
+            let contents: Buffer;
+            try {
+                handle = await openFilePath(canonicalCandidate, 'r');
+                const openedStat = await handle.stat();
+                if (!openedStat.isFile()
+                    || openedStat.size > 2 * 1024 * 1024
+                    || openedStat.dev !== initialStat.dev
+                    || openedStat.ino !== initialStat.ino) {
+                    return undefined;
+                }
+                // A writer can grow a file after stat. Read no more than the
+                // verified descriptor size rather than using readFile().
+                contents = Buffer.alloc(openedStat.size);
+                let offset = 0;
+                while (offset < contents.length) {
+                    const read = await handle.read(
+                        contents, offset, contents.length - offset, offset
+                    );
+                    if (!read.bytesRead) { break; }
+                    offset += read.bytesRead;
+                }
+                contents = contents.subarray(0, offset);
+            } catch (_error) {
+                return undefined;
+            } finally {
+                await handle?.close().catch(() => undefined);
+            }
+            // Keep one document disclosure bounded and reject a binary file
+            // carrying a Markdown suffix before it reaches the Webview.
+            if (contents.includes(0)) {
+                return undefined;
+            }
+            try {
+                return {
+                    markdown: new TextDecoder('utf-8', { fatal: true })
+                        .decode(contents),
+                    workspaceRootId: createHash('sha256')
+                        .update(canonicalRoot).digest('hex'),
+                    documentVersion: createHash('sha256')
+                        .update(contents).digest('hex'),
+                };
+            } catch (_error) {
+                return undefined;
+            }
+        },
+        applyWorkspaceMarkdownSuggestion: async (targetFile, viewerTarget, suggestion) => {
+            if (!targetFile.relativePath.toLocaleLowerCase().endsWith('.md')) {
+                return 'stale';
+            }
+            const actionTarget = getCurrentWorkspaceActionTarget(viewerTarget.projectId);
+            const activeSession = (actionTarget?.sessions.activeSessions || [])
+                .find(session => session.provider === viewerTarget.provider
+                    && session.sessionId === viewerTarget.sessionId);
+            const historySession = (
+                actionTarget?.sessions.sessionsByProvider[viewerTarget.provider] || []
+            ).find(session => session.id === viewerTarget.sessionId);
+            const root = activeSession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.worktreeKey?.canonicalWorktreePath
+                ?? historySession?.cwd ?? historySession?.workDir;
+            if (typeof root !== 'string' || !root) { return 'stale'; }
+            let canonicalRoot: string;
+            let canonicalCandidate: string;
+            try {
+                canonicalRoot = await realpathPath(root);
+                if (createHash('sha256').update(canonicalRoot).digest('hex')
+                    !== suggestion.workspaceRootId) { return 'stale'; }
+                canonicalCandidate = await realpathPath(path.resolve(
+                    canonicalRoot, targetFile.relativePath
+                ));
+            } catch (_error) {
+                return 'stale';
+            }
+            if (!isWorkspaceHostPathContained(canonicalRoot, canonicalCandidate)) {
+                return 'stale';
+            }
+            // Never overwrite a user's in-memory editor buffer. A model
+            // change is allowed only from the verified disk version rendered
+            // in the workspace reader.
+            if (vscode.workspace.textDocuments.some(document =>
+                document.uri.scheme === 'file'
+                && document.uri.fsPath === canonicalCandidate
+                && document.isDirty)) {
+                return 'stale';
+            }
+            return applyValidatedWorkspaceMarkdownSuggestion(
+                canonicalRoot, canonicalCandidate, suggestion
+            );
         },
         changes: {
             // PRD §4.1 fallback identity: a valid telemetry worktree takes
@@ -2244,6 +2463,8 @@ async function initializeDashboard(
         }),
         commentStore: conversationViewerCommentStore,
         projectCommentStore,
+        documentCommentStore,
+        markdownSuggestionStateStore,
         bookmarkStore: conversationViewerBookmarkStore,
         resolveReboundTarget: target =>
             conversationSessionRebindCoordinator.resolve(target),
@@ -4210,7 +4431,12 @@ async function initializeDashboard(
         clearInterval: handle => clearInterval(handle as NodeJS.Timeout),
     }));
     tmuxFocusedRuntimeMonitor.start();
-    publishRestoredTmuxAttachTerminal = refreshAiSessionViewsIncrementally;
+    // A restored attach terminal is a one-shot authority transition, not the
+    // noisy active/close runtime stream. Publish it immediately so the newly
+    // opened terminal cannot spend the dashboard debounce window detached.
+    publishRestoredTmuxAttachTerminal = () => {
+        void aiSessionDashboardController.refreshNow();
+    };
     aiSessionRuntimeSettlement.startSettlementScan();
 
     ownResource(() => aiSessionAttentionEvent.registerTerminalEventHandlers());
@@ -4220,9 +4446,9 @@ async function initializeDashboard(
             remoteSSH: false,
             remoteContainers: false,
         },
-        get config() { return getAgentPivotConfiguration() },
-        get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed() },
-        get skills() { return skillPanel.getRecords() },
+        get config() { return getAgentPivotConfiguration(); },
+        get favoritesGroupCollapsed() { return groupCollapseController.getFavoritesCollapsed(); },
+        get skills() { return skillPanel.getRecords(); },
     };
     const renderProjectsPanel = (
         _groups: import('./models').Group[],
@@ -4341,6 +4567,93 @@ async function initializeDashboard(
         },
     });
 
+    const markdownReviewCommand = new MarkdownReviewCommandController({
+        getDocument: async resource => {
+            const editor = vscode.window.activeTextEditor;
+            const candidate = resource || editor?.document.uri;
+            if (!candidate || typeof candidate !== 'object'
+                || (candidate as vscode.Uri).scheme !== 'file'
+                || typeof (candidate as vscode.Uri).fsPath !== 'string') { return undefined; }
+            const uri = vscode.Uri.file((candidate as vscode.Uri).fsPath);
+            if (!uri.fsPath.toLowerCase().endsWith('.md')) { return undefined; }
+            const document = await vscode.workspace.openTextDocument(uri);
+            const sourceEditor = editor?.document.uri.toString() === uri.toString() ? editor : undefined;
+            return {
+                fsPath: uri.fsPath,
+                get isDirty() { return document.isDirty; },
+                save: () => document.save(),
+                position: () => {
+                    const selection = sourceEditor?.selection;
+                    const text = selection && !selection.isEmpty ? document.getText(selection) : '';
+                    return {
+                        line: (selection?.start.line || 0) + 1,
+                        column: (selection?.start.character || 0) + 1,
+                        ...(text && text.length <= 4000 ? { selectionText: text } : {}),
+                    };
+                },
+            };
+        },
+        confirmSave: async () => await vscode.window.showWarningMessage(
+            'This Markdown document has unsaved changes. Save it before opening AI review?',
+            { modal: true }, 'Save and review'
+        ) === 'Save and review',
+        candidates: async fsPath => {
+            const workspace = getCurrentWorkspaceActionTargetWithoutCardId();
+            if (!workspace) { return []; }
+            const canonicalFile = await realpathPath(fsPath);
+            const sessions = new Map<string, { target: ConversationSessionOpenTarget; label: string; focused: boolean }>();
+            for (const provider of getRegisteredAiSessionProviders()) {
+                for (const session of workspace.sessions.sessionsByProvider[provider.id] || []) {
+                    sessions.set(`${provider.id}:${session.id}`, {
+                        target: { projectId: workspace.cardId, provider: provider.id, sessionId: session.id },
+                        label: session.name || session.id, focused: false,
+                    });
+                }
+            }
+            for (const session of workspace.sessions.activeSessions || []) {
+                if (!session.sessionId) { continue; }
+                sessions.set(`${session.provider}:${session.sessionId}`, {
+                    target: { projectId: workspace.cardId, provider: session.provider, sessionId: session.sessionId },
+                    label: session.name || session.sessionId, focused: session.focused === true,
+                });
+            }
+            const current = conversationCapability.viewer.getCurrentTarget();
+            const candidates: MarkdownReviewCandidate[] = [];
+            for (const session of sessions.values()) {
+                const root = getConversationAuthoritativeRoot(session.target);
+                if (!root) { continue; }
+                let canonicalRoot: string;
+                try { canonicalRoot = await realpathPath(root); } catch (error) {
+                    logError('Could not resolve Markdown review session root', error);
+                    continue;
+                }
+                if (!isWorkspaceHostPathContained(canonicalRoot, canonicalFile)) { continue; }
+                if (!await isSameMarkdownReviewWorktree(canonicalRoot, canonicalFile, async directory => {
+                    try { await lstatPath(path.join(directory, '.git')); return true; } catch (error) {
+                        if ((error as NodeJS.ErrnoException).code === 'ENOENT') { return false; }
+                        throw error;
+                    }
+                })) { continue; }
+                const relativePath = path.relative(canonicalRoot, canonicalFile).split(path.sep).join('/');
+                candidates.push({
+                    target: session.target, file: { relativePath, line: 1, column: 1,
+                        expectedWorkspaceRootId: createHash('sha256').update(canonicalRoot).digest('hex') },
+                    label: session.label, description: `${session.target.provider} · ${canonicalRoot}`,
+                    preferred: current ? current.projectId === session.target.projectId
+                        && current.provider === session.target.provider && current.sessionId === session.target.sessionId
+                        : session.focused,
+                });
+            }
+            return candidates;
+        },
+        choose: async candidates => vscode.window.showQuickPick(candidates, {
+            placeHolder: 'Choose the AI session for this document review', matchOnDescription: true,
+        }),
+        open: (candidate, isCurrent) => conversationCapability.openMarkdownReview(candidate.target, candidate.file, isCurrent),
+        reportFailure: (stage, error) => logError(`Markdown review failed at ${stage}`, error || new Error(stage)),
+        inform: message => vscode.window.showInformationMessage(message),
+    });
+
     const commandHandlers = {
         open: () => showAgentPivot(),
         saveProject: () => savedWorkspaceProjectAdapter.saveCurrentWorkspace(),
@@ -4350,6 +4663,11 @@ async function initializeDashboard(
         changeGlobalSkillsLocation: () =>
             skillPanel.changeGlobalStoreLocation(),
         openCurrentAiSessionConversation: () => openCurrentAiSessionConversation(),
+        reviewMarkdownInConversation: (resource?: unknown) => markdownReviewCommand.review(resource)
+            .catch(error => {
+                logError('Could not open Markdown review', error);
+                void vscode.window.showErrorMessage('Markdown review could not be opened. See Agent Pivot output for details.');
+            }),
         seekLatestConversationInteraction: () => seekLatestConversationInteractionWithFeedback(),
         previousActiveSession: () => {
             beginConversationNavigationIntent();

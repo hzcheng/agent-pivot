@@ -316,7 +316,10 @@ export function createAiSessionAttentionEventCapability(
     }
 
     function refreshAiSessionViewsIncrementally() {
-        void refreshViewsNow();
+        // Runtime probes can report a burst of transitions while a terminal
+        // streams. Route them through the dashboard controller's coalescing
+        // queue instead of rebuilding every session card synchronously.
+        scheduleRefresh('execution');
     }
 
     function publishDeferredTmuxRestoreIfReady(): void {
@@ -372,7 +375,11 @@ export function createAiSessionAttentionEventCapability(
             authoritativeEventIds = authoritative;
         }
         getAttentionController().acknowledge(authoritativeEventIds);
-        refreshAiSessionViewsIncrementally();
+        // A user acknowledgement is an authoritative visible mutation, not a
+        // noisy runtime probe. Publish it immediately before the Bridge can
+        // replay an older aggregate; terminal activity still uses the
+        // coalesced execution path below.
+        void refreshViewsNow('attention');
         return aiSessionAttentionBridgeClient.acknowledge(authoritativeEventIds);
     };
     const acknowledgeAiSessionAttention = async (

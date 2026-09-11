@@ -39,6 +39,120 @@ export interface ConversationViewerOpenLinkMessage {
     href: string;
 }
 
+/** Open the current Markdown document in VS Code's native editor. The Host
+ * validates the workspace-relative target again before opening it. */
+export interface ConversationViewerOpenMarkdownEditorMessage {
+    type: 'conversation-viewer-open-markdown-editor';
+    version: 1;
+    href: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+}
+
+/** Opens a Host-owned Markdown file picker for the current conversation's
+ * authoritative worktree. */
+export interface ConversationViewerPickMarkdownWorkspaceMessage {
+    type: 'conversation-viewer-pick-markdown-workspace';
+    version: 1;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+}
+
+export interface ConversationViewerRefreshMarkdownWorkspaceMessage extends Omit<ConversationViewerOpenMarkdownEditorMessage, 'type'> {
+    type: 'conversation-viewer-refresh-markdown-workspace';
+    requestId: string;
+}
+
+/** Requests disposal of the dedicated Markdown reader panel. The message is
+ * intentionally identity-free: the receiving Host resolves its own panel and
+ * accepts it only when that Viewer was created in workspace-only mode. */
+export interface ConversationViewerCloseMarkdownWorkspaceMessage {
+    type: 'conversation-viewer-close-markdown-workspace';
+    version: 1;
+}
+
+export interface ConversationViewerDocumentCommentMutationMessage {
+    type: 'conversation-viewer-document-comment-mutation';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'add' | 'update' | 'delete' | 'setStatus';
+    expectedRevision: number;
+    document: {
+        workspaceRootId: string;
+        relativePath: string;
+        documentVersion: string;
+    };
+    payload: unknown;
+}
+
+export interface ConversationViewerSendDocumentCommentMessage {
+    type: 'conversation-viewer-send-document-comment';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    operation: 'sendDocumentComment';
+    expectedRevision: number;
+    document: {
+        workspaceRootId: string;
+        relativePath: string;
+        documentVersion: string;
+    };
+    payload: { commentId: string } | { commentIds: string[] };
+}
+
+/** A user-approved local replacement. The Host revalidates both the file
+ * version and the anchored source text before using a WorkspaceEdit. */
+export interface ConversationViewerApplyMarkdownSuggestionMessage {
+    type: 'conversation-viewer-apply-markdown-suggestion';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    document: {
+        workspaceRootId: string;
+        relativePath: string;
+        documentVersion: string;
+    };
+    payload: {
+        suggestionId: string;
+        selectedText: string;
+        prefix: string;
+        suffix: string;
+        replacement: string;
+    };
+}
+
+/** A reader decision is persisted by the Host; the Webview never treats a
+ * dismissed card as committed until the matching authority refresh arrives. */
+export interface ConversationViewerMarkdownSuggestionStatusMessage {
+    type: 'conversation-viewer-markdown-suggestion-status';
+    version: 1;
+    requestId: string;
+    subscriptionGeneration: number;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    document: {
+        workspaceRootId: string;
+        relativePath: string;
+        documentVersion: string;
+    };
+    payload: { suggestionId: string; disposition: 'dismissed' };
+}
+
 export interface ConversationViewerCommentMutationMessage {
     type: 'conversation-viewer-comment-mutation';
     version: 1;
@@ -399,6 +513,14 @@ export type ConversationViewerMessage =
     ConversationViewerNavigationMessage
     | ConversationViewerSelectInteractionMessage
     | ConversationViewerOpenLinkMessage
+    | ConversationViewerOpenMarkdownEditorMessage
+    | ConversationViewerRefreshMarkdownWorkspaceMessage
+    | ConversationViewerPickMarkdownWorkspaceMessage
+    | ConversationViewerCloseMarkdownWorkspaceMessage
+    | ConversationViewerDocumentCommentMutationMessage
+    | ConversationViewerSendDocumentCommentMessage
+    | ConversationViewerApplyMarkdownSuggestionMessage
+    | ConversationViewerMarkdownSuggestionStatusMessage
     | ConversationViewerSendSelectionMessage
     | ConversationViewerRunCommandMessage
     | ConversationViewerSwitchSessionMessage
@@ -475,6 +597,46 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerOpenLinkMessage;
+    }
+    if (value.type === 'conversation-viewer-open-markdown-editor'
+        || value.type === 'conversation-viewer-refresh-markdown-workspace') {
+        if (keys.length !== (value.type === 'conversation-viewer-refresh-markdown-workspace' ? 8 : 7)
+            || (value.type === 'conversation-viewer-refresh-markdown-workspace' && !isRequestId(value.requestId))
+            || !hasOwn(value, 'type')
+            || !hasOwn(value, 'version')
+            || !hasOwn(value, 'href')
+            || !hasOwn(value, 'subscriptionGeneration')
+            || !hasOwn(value, 'projectId')
+            || !hasOwn(value, 'provider')
+            || !hasOwn(value, 'sessionId')
+            || typeof value.href !== 'string'
+            || !Number.isSafeInteger(value.subscriptionGeneration)
+            || value.subscriptionGeneration < 1
+            || !isBoundedId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isBoundedId(value.sessionId)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerOpenMarkdownEditorMessage | ConversationViewerRefreshMarkdownWorkspaceMessage;
+    }
+    if (value.type === 'conversation-viewer-pick-markdown-workspace') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId',
+        ])
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isBoundedId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isBoundedId(value.sessionId)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerPickMarkdownWorkspaceMessage;
+    }
+    if (value.type === 'conversation-viewer-close-markdown-workspace') {
+        if (!hasExactKeys(value, ['type', 'version'])) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerCloseMarkdownWorkspaceMessage;
     }
     if (value.type === 'conversation-viewer-send-selection') {
         if (keys.length !== 3
@@ -848,6 +1010,106 @@ export function parseConversationViewerMessage(
         }
         return undefined;
     }
+    if (value.type === 'conversation-viewer-document-comment-mutation'
+        || value.type === 'conversation-viewer-send-document-comment') {
+        if (keys.length !== 11
+            || !hasExactKeys(value, [
+                'type', 'version', 'requestId', 'subscriptionGeneration',
+                'projectId', 'provider', 'sessionId', 'operation',
+                'expectedRevision', 'document', 'payload',
+            ])
+            || !isRequestId(value.requestId)
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isConversationViewerTargetId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)
+            || !isNonnegativeSafeInteger(value.expectedRevision)
+            || !isRecord(value.document)
+            || !hasExactKeys(value.document, [
+                'workspaceRootId', 'relativePath', 'documentVersion',
+            ])
+            || !isConversationViewerTargetId(value.document.workspaceRootId)
+            || typeof value.document.relativePath !== 'string'
+            || value.document.relativePath.length < 1
+            || value.document.relativePath.length > 4096
+            || !isConversationViewerTargetId(value.document.documentVersion)
+            || !isRecord(value.payload)) {
+            return undefined;
+        }
+        if (value.type === 'conversation-viewer-document-comment-mutation') {
+            if (value.operation !== 'add' && value.operation !== 'update'
+                && value.operation !== 'delete' && value.operation !== 'setStatus') {
+                return undefined;
+            }
+            return value as unknown as ConversationViewerDocumentCommentMutationMessage;
+        }
+        if (value.operation !== 'sendDocumentComment'
+            || !(hasExactKeys(value.payload, ['commentId'])
+                && isConversationViewerTargetId(value.payload.commentId)
+                || hasExactKeys(value.payload, ['commentIds'])
+                && Array.isArray(value.payload.commentIds)
+                && value.payload.commentIds.length > 0 && value.payload.commentIds.length <= 20
+                && value.payload.commentIds.every(isConversationViewerTargetId)
+                && new Set(value.payload.commentIds).size === value.payload.commentIds.length)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerSendDocumentCommentMessage;
+    }
+    if (value.type === 'conversation-viewer-apply-markdown-suggestion') {
+        if (keys.length !== 9 || !hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'document', 'payload',
+        ]) || !isRequestId(value.requestId)
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isConversationViewerTargetId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)
+            || !isRecord(value.document)
+            || !hasExactKeys(value.document, [
+                'workspaceRootId', 'relativePath', 'documentVersion',
+            ]) || !isConversationViewerTargetId(value.document.workspaceRootId)
+            || typeof value.document.relativePath !== 'string'
+            || value.document.relativePath.length < 1
+            || value.document.relativePath.length > 4096
+            || !isConversationViewerTargetId(value.document.documentVersion)
+            || !isRecord(value.payload)
+            || !hasExactKeys(value.payload, [
+                'suggestionId', 'selectedText', 'prefix', 'suffix', 'replacement',
+            ]) || (value.payload.suggestionId !== ''
+                && !isConversationViewerTargetId(value.payload.suggestionId))
+            || !isBoundedSuggestionText(value.payload.selectedText, 4000)
+            || !isBoundedSuggestionText(value.payload.prefix, 480, true)
+            || !isBoundedSuggestionText(value.payload.suffix, 480, true)
+            || !isBoundedSuggestionText(value.payload.replacement, 12000)) {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerApplyMarkdownSuggestionMessage;
+    }
+    if (value.type === 'conversation-viewer-markdown-suggestion-status') {
+        if (keys.length !== 9 || !hasExactKeys(value, [
+            'type', 'version', 'requestId', 'subscriptionGeneration',
+            'projectId', 'provider', 'sessionId', 'document', 'payload',
+        ]) || !isRequestId(value.requestId)
+            || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isConversationViewerTargetId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)
+            || !isRecord(value.document)
+            || !hasExactKeys(value.document, [
+                'workspaceRootId', 'relativePath', 'documentVersion',
+            ]) || !isConversationViewerTargetId(value.document.workspaceRootId)
+            || typeof value.document.relativePath !== 'string'
+            || value.document.relativePath.length < 1
+            || value.document.relativePath.length > 4096
+            || !isConversationViewerTargetId(value.document.documentVersion)
+            || !isRecord(value.payload)
+            || !hasExactKeys(value.payload, ['suggestionId', 'disposition'])
+            || !isConversationViewerTargetId(value.payload.suggestionId)
+            || value.payload.disposition !== 'dismissed') {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerMarkdownSuggestionStatusMessage;
+    }
     if (value.type === 'conversation-viewer-project-comment-mutation'
         || value.type === 'conversation-viewer-send-project-comment') {
         if (keys.length !== 10
@@ -1016,6 +1278,14 @@ function isRunnableTerminalCommand(value: unknown): value is string {
         && !!value.trim()
         // Keep newlines and tabs, but reject non-printing controls that
         // cannot be meaningfully typed into a terminal command.
+        && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
+}
+
+function isBoundedSuggestionText(
+    value: unknown, maxLength: number, allowEmpty = false
+): value is string {
+    return typeof value === 'string' && (allowEmpty || value.length > 0)
+        && value.length <= maxLength
         && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value);
 }
 

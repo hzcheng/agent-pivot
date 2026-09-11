@@ -332,7 +332,7 @@ function renderChartRows(chart: ConversationChartData): string {
 }
 
 function renderMath(value: string, displayMode: boolean): string {
-    if (!value || value.length > 10_000 || /[\u0000-\u001f\u007f]/.test(value)) {
+    if (!value || value.length > 10_000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) {
         return renderMathFallback(value, displayMode);
     }
     if (renderedMathExpressions >= MAX_CONVERSATION_MATH_EXPRESSIONS
@@ -509,6 +509,56 @@ export interface ConversationWorkspaceFileTarget {
     relativePath: string;
     line: number;
     column: number;
+    /** Editor-only navigation hint, never a file mutation or comment. */
+    selectionText?: string;
+    /** Editor entry binds the selected file to its original canonical root. */
+    expectedWorkspaceRootId?: string;
+}
+
+/**
+ * Locate an exact Markdown source fragment for a user-approved replacement.
+ * A suggestion may only apply when the selected text and its bounded context
+ * identify exactly one source range; ambiguity is a conflict, never a guess.
+ */
+export function findUniqueMarkdownSuggestionAnchor(
+    source: string,
+    anchor: { selectedText: string; prefix: string; suffix: string }
+): { start: number; end: number } | undefined {
+    if (typeof source !== 'string' || !anchor
+        || typeof anchor.selectedText !== 'string' || !anchor.selectedText
+        || typeof anchor.prefix !== 'string' || typeof anchor.suffix !== 'string') {
+        return undefined;
+    }
+    const candidates: Array<{ start: number; end: number }> = [];
+    let start = source.indexOf(anchor.selectedText);
+    while (start >= 0) {
+        const end = start + anchor.selectedText.length;
+        candidates.push({ start, end });
+        start = source.indexOf(anchor.selectedText, start + 1);
+    }
+    // Rendering removes Markdown delimiters and normalizes whitespace, so
+    // its surrounding context is not necessarily byte-identical to source.
+    // A single raw occurrence remains safe to apply; duplicate occurrences
+    // still require the exact context and are rejected if ambiguous.
+    if (candidates.length === 1) {
+        return candidates[0];
+    }
+    let match: { start: number; end: number } | undefined;
+    for (const candidate of candidates) {
+        const { start: candidateStart, end } = candidate;
+        const prefix = source.slice(
+            Math.max(0, candidateStart - anchor.prefix.length), candidateStart
+        );
+        const suffix = source.slice(end, end + anchor.suffix.length);
+        if ((!anchor.prefix || prefix === anchor.prefix)
+            && (!anchor.suffix || suffix === anchor.suffix)) {
+            if (match) {
+                return undefined;
+            }
+            match = candidate;
+        }
+    }
+    return match;
 }
 
 function parseConversationFilePosition(value: string): {

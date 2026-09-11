@@ -5,6 +5,8 @@ import * as vscode from 'vscode';
 import { ConversationCommentFileStore } from '../../aiSessions/conversation/commentStore';
 import { ProjectCommentFileStore } from '../../aiSessions/conversation/projectCommentStore';
 import { ConversationBookmarkFileStore } from '../../aiSessions/conversation/bookmarkStore';
+import { MarkdownDocumentCommentFileStore } from '../../aiSessions/conversation/documentCommentStore';
+import { MarkdownSuggestionStateFileStore } from '../../aiSessions/conversation/markdownSuggestionState';
 import {
     ConversationSessionRebindCoordinator,
     hasCommittedConversationSessionRuntimeRebind,
@@ -38,6 +40,12 @@ export function createConversationStack(deps: ConversationStackDeps) {
         context.globalStoragePath
     );
     const conversationBookmarkStore = new ConversationBookmarkFileStore(
+        context.globalStoragePath
+    );
+    const documentCommentStore = new MarkdownDocumentCommentFileStore(
+        context.globalStoragePath
+    );
+    const markdownSuggestionStateStore = new MarkdownSuggestionStateFileStore(
         context.globalStoragePath
     );
     const conversationSessionRebindCoordinator =
@@ -108,6 +116,8 @@ export function createConversationStack(deps: ConversationStackDeps) {
         conversationCommentStore,
         projectCommentStore,
         conversationBookmarkStore,
+        documentCommentStore,
+        markdownSuggestionStateStore,
         conversationSessionRebindCoordinator,
         conversationViewerCommentStore,
         conversationViewerBookmarkStore,

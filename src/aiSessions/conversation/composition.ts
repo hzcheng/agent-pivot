@@ -28,6 +28,8 @@ import {
 } from './codexAppServerClient';
 import type { ConversationCommentStore } from './commentStore';
 import type { ProjectCommentStore } from './projectCommentStore';
+import type { MarkdownDocumentCommentStore } from './documentCommentStore';
+import type { MarkdownSuggestionStateStore } from './markdownSuggestionState';
 import type { ConversationBookmarkStore } from './bookmarkStore';
 import {
     ConversationCoordinator,
@@ -96,9 +98,17 @@ export interface PreparedActiveConversationNavigation {
     cancel(): void;
 }
 
+export type MarkdownReviewOpenResult = true | 'cancelled' | 'session-unavailable'
+    | 'conversation-unavailable' | 'document-unavailable';
+
 export interface ConversationCapability {
     viewer: ConversationViewerApi;
     availability: 'available' | 'unavailable';
+    openMarkdownReview(
+        target: ConversationSessionOpenTarget,
+        file: import('./markdown').ConversationWorkspaceFileTarget,
+        isCurrent?: () => boolean
+    ): Promise<MarkdownReviewOpenResult>;
     /**
      * Cancels an in-flight foreground resolution as soon as a newer
      * user-visible navigation intent wins, before that later intent reaches
@@ -152,6 +162,10 @@ export interface ConversationCapabilityOptions {
     createPanel: typeof vscode.window.createWebviewPanel;
     openExternal: typeof vscode.env.openExternal;
     openLocalFile?: ConversationViewerOptions['openLocalFile'];
+    pickWorkspaceMarkdown?: ConversationViewerOptions['pickWorkspaceMarkdown'];
+    resolveWorkspaceMarkdown?: ConversationViewerOptions['resolveWorkspaceMarkdown'];
+    readWorkspaceMarkdown?: ConversationViewerOptions['readWorkspaceMarkdown'];
+    applyWorkspaceMarkdownSuggestion?: ConversationViewerOptions['applyWorkspaceMarkdownSuggestion'];
     spawnCodex: typeof childProcess.spawn;
     now: () => number;
     setTimer: typeof setTimeout;
@@ -200,6 +214,8 @@ export interface ConversationCapabilityOptions {
     ) => Promise<void>;
     commentStore?: ConversationCommentStore;
     projectCommentStore?: ProjectCommentStore;
+    documentCommentStore?: MarkdownDocumentCommentStore;
+    markdownSuggestionStateStore?: MarkdownSuggestionStateStore;
     bookmarkStore?: ConversationBookmarkStore;
     getShowThinking?: () => boolean;
     readSessionStatus?: ConversationViewerOptions['readSessionStatus'];
@@ -460,7 +476,30 @@ function createAvailableConversationCapability(
     const terminalAuthority: {
         confirmedTarget?: ConversationViewerTarget;
     } = {};
-    const viewer = ownership.own(factories.createViewer({
+    let markdownWorkspaceViewer: ConversationViewer | undefined;
+    let markdownReviewGeneration = 0;
+    let viewerOptions: ConversationViewerOptions;
+    const openMarkdownWorkspaceInPanel = async (
+        target: ConversationViewerTarget,
+        workspaceFile: import('./markdown').ConversationWorkspaceFileTarget,
+        isCurrent: () => boolean = () => true
+    ): Promise<boolean> => {
+        if (!markdownWorkspaceViewer) {
+            markdownWorkspaceViewer = ownership.own(new ConversationViewer({
+                ...viewerOptions,
+                openMarkdownWorkspaceInPanel: undefined,
+                panelViewType: 'agentPivot.markdownWorkspace',
+                panelTitle: 'Markdown workspace',
+                panelViewColumn: vscode.ViewColumn.Beside,
+                markdownWorkspaceOnly: true,
+                restoreFocus: () => { viewer.focus(); },
+            }));
+        }
+        const opened = await markdownWorkspaceViewer.openMarkdownWorkspaceDocument(target, workspaceFile, isCurrent);
+        if (opened && isCurrent()) { markdownWorkspaceViewer.focus(); }
+        return opened && isCurrent();
+    };
+    viewerOptions = {
         createPanel: options.createPanel,
         readSnapshot: typeof coordinator.readSnapshot === 'function'
             ? coordinator.readSnapshot.bind(coordinator)
@@ -475,6 +514,11 @@ function createAvailableConversationCapability(
         restoreFocus: target => restoreConversationFocus(options, target),
         openExternal: options.openExternal,
         openLocalFile: options.openLocalFile,
+        resolveWorkspaceMarkdown: options.resolveWorkspaceMarkdown,
+        pickWorkspaceMarkdown: options.pickWorkspaceMarkdown,
+        readWorkspaceMarkdown: options.readWorkspaceMarkdown,
+        applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
+        openMarkdownWorkspaceInPanel: async (target, file) => { await openMarkdownWorkspaceInPanel(target, file); },
         mediaUri: getConversationMediaUri,
         showThinking: options.getShowThinking,
         readSessionStatus: options.readSessionStatus,
@@ -486,6 +530,8 @@ function createAvailableConversationCapability(
         focusSession: options.focusSession,
         commentStore: options.commentStore,
         projectCommentStore: options.projectCommentStore,
+        documentCommentStore: options.documentCommentStore,
+        markdownSuggestionStateStore: options.markdownSuggestionStateStore,
         bookmarkStore: options.bookmarkStore,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         runCommandInTerminal: options.runCommandInTerminal,
@@ -522,7 +568,8 @@ function createAvailableConversationCapability(
         now: options.monotonicNow,
         setTimer: options.setTimer,
         clearTimer: options.clearTimer,
-    }));
+    };
+    const viewer = ownership.own(factories.createViewer(viewerOptions));
     const queueConversationFocus = (
         _target: ConversationSessionOpenTarget,
         isCurrent: () => boolean
@@ -850,6 +897,26 @@ function createAvailableConversationCapability(
     return {
         viewer,
         availability: 'available',
+        async openMarkdownReview(target, file, isCurrent = () => true): Promise<MarkdownReviewOpenResult> {
+            const generation = ++markdownReviewGeneration;
+            const intent = beginViewerIntent();
+            const current = () => intent.isCurrent() && generation === markdownReviewGeneration && isCurrent();
+            const resolution = await resolveLatestConversationTarget(options, coordinator, target);
+            if (!current()) { return 'cancelled'; }
+            if (resolution.result !== 'opened') { return 'session-unavailable'; }
+            // Editor commands start outside Conversation: reveal its matching
+            // session first, then open the reader beside that panel. Reuse the
+            // resolution so the two panels cannot select different snapshots.
+            const opened = await openLatestConversation(
+                options, coordinator, viewer, target, current, snapshotWarmup,
+                intent.signal, Promise.resolve(resolution)
+            );
+            if (!current()) { return 'cancelled'; }
+            if (opened !== 'opened') { return 'conversation-unavailable'; }
+            const documentOpened = await openMarkdownWorkspaceInPanel(resolution.viewerTarget, file, current);
+            if (!current()) { return 'cancelled'; }
+            return documentOpened ? true : 'document-unavailable';
+        },
         cancelPendingNavigation: navigationOptions => {
             if (!disposed) {
                 // Only release an uncommitted visual preflight. Do not abort
@@ -1084,6 +1151,7 @@ function createUnavailableConversationCapability(): ConversationCapability {
     return {
         viewer,
         availability: 'unavailable',
+        async openMarkdownReview(): Promise<MarkdownReviewOpenResult> { return 'conversation-unavailable'; },
         cancelPendingNavigation(): void {},
         prepareActiveConversation(): PreparedActiveConversationNavigation {
             return {

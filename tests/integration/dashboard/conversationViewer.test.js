@@ -2,11 +2,18 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const Module = require('node:module');
 const childProcess = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
+
+function markdownSuggestionWireId(provider, sessionId, messageId) {
+    return crypto.createHash('sha256').update(JSON.stringify([
+        provider, sessionId, messageId,
+    ])).digest('hex');
+}
 
 function fakeUri(value) {
     return {
@@ -42,6 +49,9 @@ const {
 const {
     CommitsCollector,
 } = require('../../../out/worktrees/commitsCollector');
+const {
+    MarkdownDocumentCommentFileStore,
+} = require('../../../out/aiSessions/conversation/documentCommentStore');
 
 function git(cwd, args) {
     return childProcess.execFileSync('git', ['-C', cwd, ...args], {
@@ -2987,6 +2997,12 @@ function createViewer(options = {}) {
             return true;
         },
         openLocalFile: options.openLocalFile,
+        pickWorkspaceMarkdown: options.pickWorkspaceMarkdown,
+        resolveWorkspaceMarkdown: options.resolveWorkspaceMarkdown,
+        readWorkspaceMarkdown: options.readWorkspaceMarkdown,
+        applyWorkspaceMarkdownSuggestion: options.applyWorkspaceMarkdownSuggestion,
+        openMarkdownWorkspaceInPanel: options.openMarkdownWorkspaceInPanel,
+        markdownWorkspaceOnly: options.markdownWorkspaceOnly,
         insertIntoActiveTerminal: options.insertIntoActiveTerminal,
         runCommandInTerminal: options.runCommandInTerminal,
         renameSession: options.renameSession,
@@ -2999,6 +3015,8 @@ function createViewer(options = {}) {
         mediaUri: fileName => fakeUri(`file:///extension/media/${fileName}`),
         showThinking: options.showThinking,
         commentStore: options.commentStore,
+        documentCommentStore: options.documentCommentStore,
+        markdownSuggestionStateStore: options.markdownSuggestionStateStore,
         bookmarkStore: options.bookmarkStore,
         changes: options.changes,
         setTimer: options.setTimer,
@@ -5420,6 +5438,467 @@ test('CONVERSATION-LOCAL-FILE-LINKS-001 routes absolute and workspace-relative f
         provider: 'codex',
         sessionId: 'session-a',
     }], 'file resolution remains bound to the viewed conversation target');
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps the primary conversation untouched when opening the document reader', async () => {
+    const opened = [];
+    const { viewer, panel } = createViewer({
+        openMarkdownWorkspaceInPanel: async (viewerTarget, workspaceFile) => {
+            opened.push({ viewerTarget, workspaceFile });
+        },
+    });
+
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md#L12',
+    });
+
+    assert.deepEqual(opened.map(entry => ({
+        projectId: entry.viewerTarget.projectId,
+        provider: entry.viewerTarget.provider,
+        sessionId: entry.viewerTarget.sessionId,
+        workspaceFile: entry.workspaceFile,
+    })), [{
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+        workspaceFile: { relativePath: 'docs/architecture-plan.md', line: 12, column: 1 },
+    }]);
+    assert.equal(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-markdown-workspace'), false,
+    'the primary conversation must never be covered or replaced by the reader');
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a picked Markdown file beside the authoritative conversation', async () => {
+    const opened = [];
+    const { viewer, panel } = createViewer({
+        pickWorkspaceMarkdown: async () => ({
+            relativePath: 'docs/picked-plan.md', line: 1, column: 1,
+        }),
+        openMarkdownWorkspaceInPanel: async (viewerTarget, workspaceFile) => {
+            opened.push({ viewerTarget, workspaceFile });
+        },
+    });
+    await viewer.open(target('session-a'));
+
+    await panel.receive({
+        type: 'conversation-viewer-pick-markdown-workspace', version: 1,
+        subscriptionGeneration: 1, projectId: 'project-a', provider: 'codex',
+        sessionId: 'session-a',
+    });
+
+    assert.equal(opened.length, 1);
+    assert.deepEqual(opened[0].workspaceFile, {
+        relativePath: 'docs/picked-plan.md', line: 1, column: 1,
+    });
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 routes authorized absolute Markdown links to review and retains native fallback', async () => {
+    const opened = [];
+    const native = [];
+    const resolved = [];
+    const { viewer, panel } = createViewer({
+        resolveWorkspaceMarkdown: async (file, current) => {
+            resolved.push({ file, current });
+            return file.fsPath === '/workspace/docs/design.md'
+                ? { relativePath: 'docs/design.md', line: file.line, column: file.column } : undefined;
+        },
+        openMarkdownWorkspaceInPanel: async (current, file) => opened.push({ current, file }),
+        openLocalFile: async file => native.push(file),
+    });
+    await viewer.open(target('session-a'));
+    for (const href of ['/workspace/docs/design.md:18:2', '/outside/design.md', '/workspace/main.ts']) {
+        await panel.receive({ type: 'conversation-viewer-open-link', version: 1, href });
+    }
+    assert.deepEqual(opened.map(entry => entry.file), [
+        { relativePath: 'docs/design.md', line: 18, column: 2 },
+    ]);
+    assert.equal(resolved[0].current.sessionId, 'session-a');
+    assert.deepEqual(native.map(file => file.fsPath), ['/outside/design.md', '/workspace/main.ts']);
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 refresh rereads the active document and rejects a stale session', async () => {
+    let markdown = '# Before';
+    let unreadable = false;
+    const { viewer, panel } = createViewer({ markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: async () => {
+            if (unreadable) throw new Error('file removed');
+            return { markdown, workspaceRootId: 'root', documentVersion: markdown };
+        } });
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), { relativePath: 'docs/review.md', line: 1, column: 1 });
+    const first = panel.postedMessages.find(m => m.type === 'conversation-viewer-markdown-workspace');
+    const refresh = { type: 'conversation-viewer-refresh-markdown-workspace', version: 1, requestId: 'refresh-1', href: 'docs/review.md',
+        projectId: first.projectId, provider: first.provider, sessionId: first.sessionId,
+        subscriptionGeneration: first.subscriptionGeneration };
+    markdown = '# After';
+    await panel.receive({ ...refresh, sessionId: 'wrong-session' });
+    assert.equal(panel.postedMessages.filter(m => m.type === 'conversation-viewer-markdown-workspace').length, 1);
+    await panel.receive(refresh);
+    assert.match(panel.postedMessages.filter(m => m.type === 'conversation-viewer-markdown-workspace').at(-1).html, /After/);
+    assert.equal(panel.postedMessages.at(-1).success, true);
+    unreadable = true;
+    await panel.receive({ ...refresh, requestId: 'refresh-failed' });
+    assert.equal(panel.postedMessages.at(-1).type, 'conversation-viewer-refresh-markdown-result');
+    assert.equal(panel.postedMessages.at(-1).requestId, 'refresh-failed');
+    assert.equal(panel.postedMessages.at(-1).success, false);
+    assert.match(panel.postedMessages.filter(m => m.type === 'conversation-viewer-markdown-workspace').at(-1).html, /After/);
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 reuses an unchanged document without replacing its draft surface', async () => {
+    let documentVersion = 'v1';
+    const { viewer, panel } = createViewer({
+        markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: async () => ({ markdown: '# Review\n\nSelected text.', workspaceRootId: 'root', documentVersion }),
+    });
+    const file = { relativePath: 'docs/review.md', line: 3, column: 1, selectionText: 'Selected text.' };
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), file);
+    const count = () => panel.postedMessages.filter(message => message.type === 'conversation-viewer-markdown-workspace').length;
+    assert.equal(count(), 1);
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), file);
+    assert.equal(count(), 1, 'reopening unchanged source must not replace a live comment composer');
+    assert.ok(panel.postedMessages.some(message => message.type === 'conversation-viewer-markdown-workspace-focus'));
+    documentVersion = 'v2';
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), file);
+    assert.equal(count(), 2, 'saved editor changes must reload the current document');
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 rejects a Markdown review whose session root changed before publication', async () => {
+    const { viewer, panel } = createViewer({
+        markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Wrong worktree', workspaceRootId: 'root-b', documentVersion: 'v1',
+        }),
+    });
+    const opened = await viewer.openMarkdownWorkspaceDocument(target('session-a'), {
+        relativePath: 'docs/review.md', line: 1, column: 1, expectedWorkspaceRootId: 'root-a',
+    });
+    assert.equal(opened, false);
+    assert.equal(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-markdown-workspace'), false);
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 replaces an open reader when the authorized root changes with identical bytes', async () => {
+    let workspaceRootId = 'root-a';
+    const { viewer, panel } = createViewer({
+        markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Same bytes', workspaceRootId, documentVersion: 'v1',
+        }),
+    });
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), {
+        relativePath: 'docs/review.md', line: 1, column: 1, expectedWorkspaceRootId: 'root-a',
+    });
+    workspaceRootId = 'root-b';
+    const opened = await viewer.openMarkdownWorkspaceDocument(target('session-a'), {
+        relativePath: 'docs/review.md', line: 1, column: 1, expectedWorkspaceRootId: 'root-b',
+    });
+    assert.equal(opened, true);
+    assert.equal(panel.postedMessages.filter(message =>
+        message.type === 'conversation-viewer-markdown-workspace').length, 2);
+    assert.equal(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-markdown-workspace-focus'), false);
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 drops a stale editor review after its document read', async () => {
+    let settleRead;
+    const { viewer, panel } = createViewer({
+        markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: () => new Promise(resolve => { settleRead = resolve; }),
+    });
+    let current = true;
+    const opened = viewer.openMarkdownWorkspaceDocument(target('session-a'), {
+        relativePath: 'docs/review.md', line: 1, column: 1,
+    }, () => current);
+    while (!settleRead) { await new Promise(resolve => setImmediate(resolve)); }
+    current = false;
+    settleRead({ markdown: '# Obsolete review', workspaceRootId: 'root-a', documentVersion: 'v1' });
+    assert.equal(await opened, false);
+    assert.equal(panel.postedMessages.some(message =>
+        message.type === 'conversation-viewer-markdown-workspace'), false);
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a document comment with a fractional performance clock', async t => {
+    const storageRoot = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'agent-pivot-viewer-document-comments-'));
+    t.after(() => fs.promises.rm(storageRoot, { recursive: true, force: true }));
+    const documentCommentStore = new MarkdownDocumentCommentFileStore(storageRoot);
+    const { viewer, panel } = createViewer({
+        now: () => 1234.5,
+        documentCommentStore,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Architecture\n\nRollback strategy',
+            workspaceRootId: 'root-a',
+            documentVersion: 'sha256:document-a',
+        }),
+    });
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-document-comment-mutation', version: 1,
+        requestId: 'add-document-comment-a', subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+        operation: 'add', expectedRevision: 0,
+        document: {
+            workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:document-a',
+        },
+        payload: {
+            anchor: {
+                selectedText: 'Rollback strategy', prefix: '', suffix: '',
+                headingPath: ['Architecture'],
+            },
+            text: 'Explain the operational fallback.',
+        },
+    });
+
+    const settlement = panel.postedMessages.find(message =>
+        message.type === 'conversation-viewer-document-comments-result'
+            && message.requestId === 'add-document-comment-a'
+    );
+    assert.equal(settlement.success, true,
+        'performance.now() must never become an invalid persisted comment timestamp');
+    const persisted = await documentCommentStore.load({
+        projectId: 'project-a', workspaceRootId: 'root-a',
+        relativePath: 'docs/architecture-plan.md',
+    });
+    assert.equal(persisted.revision, 1,
+        'the accepted Webview intent must reach the real file-backed store');
+    assert.equal(Number.isSafeInteger(persisted.comments[0].createdAt), true);
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 closes a dedicated document panel only through its Host authority', async () => {
+    const { viewer, panel, restoredTargets } = createViewer({
+        markdownWorkspaceOnly: true,
+    });
+    await viewer.open(target('session-a'));
+
+    await panel.receive({
+        type: 'conversation-viewer-close-markdown-workspace',
+        version: 1,
+    });
+
+    assert.equal(viewer.isOpen(), false,
+        'the dedicated panel is disposed instead of revealing a duplicate conversation');
+    assert.equal(restoredTargets.at(-1).sessionId, 'session-a',
+        'disposing the document panel restores its authoritative conversation target');
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps one batch reply associated with every sent document comment', async () => {
+    const saved = [];
+    const comments = ['a', 'b'].map((suffix, index) => ({
+        id: `document-comment-${suffix}`,
+        documentVersion: 'sha256:document-a',
+        anchor: {
+            selectedText: `Passage ${index + 1}`,
+            prefix: '', suffix: '', headingPath: [],
+        },
+        text: `Review passage ${index + 1}.`,
+        status: 'sent',
+        createdAt: index + 1,
+    }));
+    const { viewer, panel } = createViewer({
+        documentCommentStore: {
+            load: async () => ({ revision: 2, comments }),
+            save: async (_target, snapshot) => saved.push(snapshot),
+        },
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Review\n\nPassage 1\n\nPassage 2',
+            workspaceRootId: 'root-a',
+            documentVersion: 'sha256:document-a',
+        }),
+        readPage: async request => ({
+            ...page(request.sessionId, request.anchorInteractionId),
+            messages: [{
+                id: 'user-document-comment-batch', interactionId: request.anchorInteractionId,
+                role: 'user', markdown: [
+                    'markdown-document-comment-id:document-comment-a',
+                    'markdown-document-comment-id:document-comment-b',
+                ].join('\n'),
+            }, {
+                id: 'assistant-document-comment-batch', interactionId: request.anchorInteractionId,
+                role: 'assistant', markdown: 'Batch review response.',
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md',
+    });
+
+    const workspace = panel.postedMessages.find(message =>
+        message.type === 'conversation-viewer-markdown-workspace'
+    );
+    assert.deepEqual(workspace.replies.map(reply => reply.commentId).sort(),
+        ['document-comment-a', 'document-comment-b'],
+        'a single AI turn must remain reachable from every comment sent in its batch');
+    assert.equal(new Set(workspace.replies.map(reply => reply.messageId)).size, 2,
+        'per-comment reply cards need distinct Webview identities even when they share one provider message');
+    assert.deepEqual(saved.at(-1).comments.map(comment =>
+        (comment.discussion || []).map(reply => reply.messageId)
+    ), [
+        ['assistant-document-comment-batch'],
+        ['assistant-document-comment-batch'],
+    ], 'the durable document discussion must retain the shared response for both comments');
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 publishes Host-persisted suggestion decisions with the rendered document', async () => {
+    const suggestionStateStore = {
+        load: async () => ({
+            revision: 4,
+            suggestions: [{
+                provider: 'codex', sessionId: 'session-a',
+                messageId: 'assistant-suggestion-a',
+                disposition: 'outdated',
+                updatedAt: 1000,
+            }, {
+                provider: 'codex', sessionId: 'session-a',
+                messageId: 'assistant-historic-suggestion-a',
+                disposition: 'dismissed',
+                updatedAt: 900,
+            }],
+        }),
+        save: async () => undefined,
+    };
+    const { viewer, panel } = createViewer({
+        markdownSuggestionStateStore: suggestionStateStore,
+        documentCommentStore: {
+            load: async () => ({ revision: 1, comments: [{
+                id: 'document-comment-a', documentVersion: 'sha256:document-a',
+                anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: [] },
+                text: 'Improve the rollback guidance.', status: 'sent', createdAt: 1,
+                discussion: [{
+                    messageId: 'assistant-historic-suggestion-a', provider: 'codex', sessionId: 'session-a',
+                    createdAt: 900, markdown: '```markdown-suggestion\n'
+                        + '{"selectedText":"Rollback strategy","replacement":"Historic safe rollback."}\n```',
+                }],
+            }] }),
+            save: async () => undefined,
+        },
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Architecture\n\nRollback strategy',
+            workspaceRootId: 'root-a',
+            documentVersion: 'sha256:document-a',
+        }),
+        readPage: async request => ({
+            ...page(request.sessionId, request.anchorInteractionId),
+            messages: [{
+                id: 'user-document-comment-a', interactionId: request.anchorInteractionId,
+                role: 'user', markdown: 'markdown-document-comment-id:document-comment-a',
+            }, {
+                id: 'assistant-suggestion-a', interactionId: request.anchorInteractionId,
+                role: 'assistant', markdown: '```markdown-suggestion\n'
+                    + '{"selectedText":"Rollback strategy","replacement":"Rollback with a staged restore."}\n```',
+            }, {
+                id: 'assistant-unrelated-suggestion', interactionId: 'other-interaction',
+                role: 'assistant', markdown: '```markdown-suggestion\n'
+                    + '{"selectedText":"Rollback strategy","replacement":"Wrong document."}\n```',
+            }],
+        }),
+    });
+
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md',
+    });
+    const workspace = panel.postedMessages.find(message =>
+        message.type === 'conversation-viewer-markdown-workspace'
+    );
+    assert.deepEqual(workspace.suggestions.map(suggestion => suggestion.messageId),
+        [
+            markdownSuggestionWireId('codex', 'session-a', 'assistant-suggestion-a'),
+            markdownSuggestionWireId('codex', 'session-a', 'assistant-historic-suggestion-a'),
+        ]);
+    assert.equal(workspace.suggestions[0].disposition, 'outdated');
+    assert.equal(workspace.suggestions[1].disposition, 'dismissed',
+        'a previous document discussion keeps its AI change decision after transcript paging');
+    viewer.dispose();
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 persists a rejected suggestion only for the active document identity', async () => {
+    const saved = [];
+    const suggestionStateStore = {
+        load: async () => ({ revision: 0, suggestions: [] }),
+        save: async (storeTarget, snapshot) => saved.push({ storeTarget, snapshot }),
+    };
+    const { viewer, panel } = createViewer({
+        markdownSuggestionStateStore: suggestionStateStore,
+        documentCommentStore: {
+            load: async () => ({ revision: 1, comments: [{
+                id: 'document-comment-a', documentVersion: 'sha256:document-a',
+                anchor: { selectedText: 'Rollback strategy', prefix: '', suffix: '', headingPath: [] },
+                text: 'Improve the rollback guidance.', status: 'sent', createdAt: 1,
+            }] }),
+            save: async () => undefined,
+        },
+        readWorkspaceMarkdown: async () => ({
+            markdown: '# Architecture\n\nRollback strategy',
+            workspaceRootId: 'root-a', documentVersion: 'sha256:document-a',
+        }),
+        readPage: async request => ({
+            ...page(request.sessionId, request.anchorInteractionId),
+            messages: [{
+                id: 'user-document-comment-a', interactionId: request.anchorInteractionId,
+                role: 'user', markdown: 'markdown-document-comment-id:document-comment-a',
+            }, {
+                id: 'assistant-suggestion-a', interactionId: request.anchorInteractionId,
+                role: 'assistant', markdown: '```markdown-suggestion\n'
+                    + '{"selectedText":"Rollback strategy","replacement":"Rollback with a staged restore."}\n```',
+            }],
+        }),
+    });
+    await viewer.open(target('session-a'));
+    await panel.receive({
+        type: 'conversation-viewer-open-link', version: 1,
+        href: 'docs/architecture-plan.md',
+    });
+    await panel.receive({
+        type: 'conversation-viewer-markdown-suggestion-status', version: 1,
+        requestId: 'dismiss-suggestion-a', subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+        document: {
+            workspaceRootId: 'root-a', relativePath: 'docs/architecture-plan.md',
+            documentVersion: 'sha256:document-a',
+        },
+        payload: {
+            suggestionId: markdownSuggestionWireId('codex', 'session-a', 'assistant-suggestion-a'),
+            disposition: 'dismissed',
+        },
+    });
+    assert.equal(saved.length, 1, 'the Host must persist a recognized dismissal');
+    assert.deepEqual(saved[0].storeTarget, {
+        projectId: 'project-a', workspaceRootId: 'root-a',
+        relativePath: 'docs/architecture-plan.md',
+    });
+    assert.deepEqual(saved[0].snapshot, {
+        revision: 1,
+        suggestions: [{
+            provider: 'codex', sessionId: 'session-a',
+            messageId: 'assistant-suggestion-a', disposition: 'dismissed',
+            updatedAt: saved[0].snapshot.suggestions[0].updatedAt,
+        }],
+    });
+    assert.equal(panel.postedMessages.at(-2).type,
+        'conversation-viewer-markdown-workspace-suggestions');
+    assert.equal(panel.postedMessages.at(-2).settlesRequestId, 'dismiss-suggestion-a',
+        'the authority replacement carries the exact pending dismissal');
+    assert.equal(panel.postedMessages.at(-1).type,
+        'conversation-viewer-markdown-suggestion-status-result');
+    viewer.dispose();
 });
 
 test('CONVERSATION-LOCAL-FILE-LINKS-001 keeps absolute code locations reachable from the workspace when a Conversation is bound to a worktree', () => {

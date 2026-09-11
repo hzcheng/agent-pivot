@@ -386,6 +386,7 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.addFileToActiveTerminal', 'agentPivot.insertPromptToActiveTerminal',
     'agentPivot.migrateSkillsToCentral', 'agentPivot.changeGlobalSkillsLocation',
     'agentPivot.openCurrentAiSessionConversation',
+    'agentPivot.reviewMarkdownInConversation',
     'agentPivot.seekLatestConversationInteraction',
     'agentPivot.previousActiveSession', 'agentPivot.nextActiveSession',
     'agentPivot.nextAttentionSession',
@@ -399,6 +400,164 @@ const DASHBOARD_COMMANDS = [
     'agentPivot.sshToMachine',
     'agentPivot.copySshCommand',
 ];
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 exposes Markdown review from editor title, context and explorer menus', () => {
+    const manifest = require('../../package.json');
+    const command = 'agentPivot.reviewMarkdownInConversation';
+    assert.ok(manifest.contributes.commands.some(entry => entry.command === command));
+    for (const menu of ['editor/title', 'editor/context', 'explorer/context']) {
+        const entry = manifest.contributes.menus[menu].find(entry => entry.command === command);
+        assert.ok(entry, menu);
+        const folderGuard = menu === 'explorer/context' ? ' && !explorerResourceIsFolder' : '';
+        assert.equal(entry.when,
+            'resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i' + folderGuard);
+        const [, schemePattern, extensionPattern] = entry.when.match(
+            /^resourceScheme =~ \/(.+)\/ && resourceExtname =~ \/(.+)\/i/);
+        const visible = resource => new RegExp(schemePattern).test(resource.protocol.slice(0, -1))
+            && new RegExp(extensionPattern, 'i').test(require('node:path').extname(resource.pathname));
+        for (const scheme of ['file', 'vscode-remote']) {
+            assert.equal(visible(new URL(`${scheme}://host/home/hzcheng/projects/repos/reddb/.worktrees/task-ce92dd/docs/coord/14-coord-solution-briefing.md`)), true);
+            assert.equal(visible(new URL(`${scheme}://host/docs/REVIEW.MD`)), true);
+            assert.equal(visible(new URL(`${scheme}://host/docs/review.ts`)), false);
+        }
+        for (const scheme of ['git', 'untitled', 'https', 'vscode-remote-other']) {
+            assert.equal(visible(new URL(`${scheme}://host/docs/review.md`)), false);
+        }
+    }
+    assert.equal((manifest.contributes.keybindings || []).some(entry => entry.command === command), false);
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 keeps the editor review entry ahead of crowded default-priority actions', () => {
+    const manifest = require('../../package.json');
+    const command = 'agentPivot.reviewMarkdownInConversation';
+    const entry = manifest.contributes.menus['editor/title'].find(item => item.command === command);
+    const [group, order] = entry.group.split('@');
+    assert.equal(group, 'navigation');
+    // Unnumbered navigation contributions have order 0. The editor toolbar
+    // overflows later items even when there is unused horizontal space.
+    // Model the crowded screenshot, including the exempt core split action.
+    const actions = Array.from({ length: 9 }, (_, index) => ({ id: `extension-${index}`, order: 0 }));
+    actions.push({ id: command, order: Number(order) });
+    actions.sort((a, b) => a.order - b.order);
+    actions.push({ id: 'split-editor', order: Infinity });
+    const maxItems = 9 - 1;
+    const inline = actions.filter((action, index) => action.id === 'split-editor' || index + 1 < maxItems);
+    assert.ok(inline.some(action => action.id === command), 'review must not overflow behind other extension actions');
+    assert.ok(Number(order) < 0, 'prioritize direct document review before default-priority extension actions');
+});
+
+function markdownReviewFixture(overrides = {}) {
+    const { MarkdownReviewCommandController } = require('../../out/dashboard/markdownReviewCommand');
+    const opened = [];
+    const notices = [];
+    const candidate = {
+        target: { projectId: 'project', provider: 'codex', sessionId: 'session' },
+        file: { relativePath: 'docs/review.md', line: 1, column: 1 },
+        label: 'Review session', description: 'codex', preferred: false,
+    };
+    const document = { fsPath: '/workspace/docs/review.md', isDirty: false,
+        save: async () => { document.isDirty = false; return true; },
+        position: () => ({ line: 12, column: 3, selectionText: '**Selected** passage' }),
+    };
+    const options = {
+        getDocument: async () => document,
+        confirmSave: async () => false,
+        candidates: async () => [candidate],
+        choose: async () => undefined,
+        open: async item => { opened.push(item); return true; },
+        inform: message => notices.push(message),
+        ...overrides,
+    };
+    return { controller: new MarkdownReviewCommandController(options), options, candidate, document, opened, notices };
+}
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 review reports the failed stage but not superseded navigation', async () => {
+    for (const [result, message] of [['cancelled', undefined], ['document-unavailable', /document could not be opened/i],
+        ['conversation-unavailable', /conversation could not be opened/i]]) {
+        const fixture = markdownReviewFixture({ open: async () => result });
+        await fixture.controller.review();
+        if (message) assert.match(fixture.notices[0], message);
+        else assert.deepEqual(fixture.notices, []);
+    }
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 review command preserves editor position and never sends a prompt', async () => {
+    const fixture = markdownReviewFixture();
+    await fixture.controller.review();
+    assert.deepEqual(fixture.opened[0].file, {
+        relativePath: 'docs/review.md', line: 12, column: 3, selectionText: '**Selected** passage',
+    });
+    assert.equal(fixture.notices.length, 0);
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 review command does not silently save or show old content', async () => {
+    const fixture = markdownReviewFixture();
+    fixture.document.isDirty = true;
+    await fixture.controller.review();
+    assert.equal(fixture.opened.length, 0);
+    assert.equal(fixture.document.isDirty, true);
+    fixture.options.confirmSave = async () => true;
+    fixture.document.save = async () => false;
+    await fixture.controller.review();
+    assert.equal(fixture.opened.length, 0);
+    assert.match(fixture.notices.at(-1), /not saved/);
+    fixture.document.save = async () => { fixture.document.isDirty = false; return true; };
+    await fixture.controller.review();
+    assert.equal(fixture.opened.length, 1);
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 review command handles ambiguous, absent and superseded session choices', async () => {
+    const fixture = markdownReviewFixture();
+    fixture.options.candidates = async () => [];
+    await fixture.controller.review();
+    assert.match(fixture.notices[0], /No AI session/);
+    fixture.options.candidates = async () => [fixture.candidate, { ...fixture.candidate, label: 'Second' }];
+    await fixture.controller.review();
+    assert.equal(fixture.opened.length, 0, 'picker cancellation has no side effect');
+    let resolveFirst;
+    fixture.options.choose = () => new Promise(resolve => { resolveFirst = resolve; });
+    const first = fixture.controller.review();
+    await flushAsync();
+    fixture.options.candidates = async () => [{ ...fixture.candidate, preferred: true }];
+    await fixture.controller.review();
+    resolveFirst(fixture.candidate);
+    await first;
+    assert.equal(fixture.opened.length, 1, 'an old picker cannot replace the newer document intent');
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 review matching rejects nested worktrees even without a child session', async () => {
+    const { isSameMarkdownReviewWorktree } = require('../../out/dashboard/markdownReviewCommand');
+    assert.equal(typeof isSameMarkdownReviewWorktree, 'function');
+    const root = path.resolve('fixture-project');
+    const child = path.join(root, '.worktrees', 'task');
+    const file = path.join(child, 'docs', 'review.md');
+    const boundary = async directory => directory === child;
+    assert.equal(await isSameMarkdownReviewWorktree(root, file, boundary), false);
+    assert.equal(await isSameMarkdownReviewWorktree(child, file, boundary), true);
+    assert.equal(await isSameMarkdownReviewWorktree(root, path.join(root, 'docs', 'review.md'), boundary), true);
+    assert.equal(await isSameMarkdownReviewWorktree(root, path.resolve('outside', 'review.md'), boundary), false);
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 newer cancelled review invalidates an already resolving open', async () => {
+    const fixture = markdownReviewFixture();
+    let finishOpen;
+    let stillCurrent;
+    fixture.options.open = async (_candidate, isCurrent) => {
+        stillCurrent = isCurrent;
+        await new Promise(resolve => { finishOpen = resolve; });
+        return false;
+    };
+    const first = fixture.controller.review();
+    await flushAsync();
+    assert.equal(typeof stillCurrent, 'function');
+    assert.equal(stillCurrent(), true);
+    fixture.options.candidates = async () => [];
+    await fixture.controller.review();
+    assert.equal(stillCurrent(), false);
+    finishOpen();
+    await first;
+    assert.equal(fixture.notices.length, 1, 'obsolete open does not show a stale failure notice');
+});
 
 // Registered directly from initializeDashboard, outside the dashboard command facade.
 const NOTIFY_COMMANDS = [
@@ -419,6 +578,7 @@ test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 WEBVIEW-DASHBOARD-COMMAND-AVAIL
         'open', 'saveProject', 'addFileToActiveTerminal', 'insertPromptToActiveTerminal',
         'migrateSkillsToCentral', 'changeGlobalSkillsLocation',
         'openCurrentAiSessionConversation',
+        'reviewMarkdownInConversation',
         'seekLatestConversationInteraction',
         'previousActiveSession', 'nextActiveSession',
         'nextAttentionSession',

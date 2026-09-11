@@ -2,7 +2,7 @@
     "name": "agent-pivot",
     "displayName": "Agent Pivot",
     "description": "Switch, monitor, and resume Codex, Claude, and Kimi sessions across VS Code workspaces. Project manager and prompt library for AI coding agents.",
-    "version": "1.4.1",
+    "version": "1.4.3",
     "publisher": "hzcheng",
     "license": "MIT",
     "icon": "media/extension_icon.png",
@@ -99,6 +99,11 @@
                 "title": "Agent Pivot: Open Current AI Session Conversation"
             },
             {
+                "command": "agentPivot.reviewMarkdownInConversation",
+                "title": "Agent Pivot: Preview and Comment in AI Conversation",
+                "icon": "$(comment-discussion)"
+            },
+            {
                 "command": "agentPivot.seekLatestConversationInteraction",
                 "title": "Agent Pivot: Seek to Latest Conversation Interaction"
             },
@@ -159,6 +164,17 @@
                 "title": "Agent Pivot: Sponsor"
             }
         ],
+        "menus": {
+            "editor/title": [
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i", "group": "navigation@-1" }
+            ],
+            "editor/context": [
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i", "group": "navigation@90" }
+            ],
+            "explorer/context": [
+                { "command": "agentPivot.reviewMarkdownInConversation", "when": "resourceScheme =~ /^(file|vscode-remote)$/ && resourceExtname =~ /\\.md$/i && !explorerResourceIsFolder", "group": "navigation@90" }
+            ]
+        },
         "keybindings": [
             {
                 "command": "agentPivot.open",

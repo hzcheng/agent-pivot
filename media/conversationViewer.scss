@@ -31,6 +31,547 @@ body {
     background: var(--vscode-editor-background);
 }
 
+// A dedicated Markdown tab reuses the proven reader DOM without laying out a
+// second conversation behind it. The in-conversation form remains supported
+// for restored/older surfaces.
+body[data-markdown-workspace-only="true"] {
+    // Hide only our conversation chrome, not library-owned measurement nodes.
+    > .conversation-header,
+    > .conversation-telemetry,
+    > .conversation-status,
+    > .conversation-subagent-banner,
+    > .conversation-follow-notice,
+    > .conversation-workspace,
+    > .conversation-add-comment {
+        display: none !important;
+    }
+
+    // Sequence diagrams measure text in a temporary body-level SVG even when
+    // render() receives a container. Keep it measurable but out of view/flow.
+    > svg {
+        position: fixed;
+        left: -100000px;
+        visibility: hidden;
+        pointer-events: none;
+    }
+}
+
+.conversation-document-workspace {
+    position: fixed;
+    z-index: 20;
+    inset: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 5px var(--document-discussion-width, minmax(18rem, 0.6fr));
+    grid-template-rows: auto minmax(0, 1fr);
+    min-width: 0;
+    min-height: 0;
+    background: var(--vscode-editor-background);
+}
+
+.conversation-document-workspace[hidden] {
+    display: none;
+}
+
+.conversation-document-workspace[data-discussion-collapsed="true"] {
+    grid-template-columns: minmax(0, 1fr);
+
+    .conversation-document-discussion, .conversation-document-resize { display: none; }
+}
+
+.conversation-document-resize {
+    grid-column: 2;
+    grid-row: 2;
+    cursor: col-resize;
+    touch-action: none;
+    background: var(--vscode-panel-border);
+    &:hover, &:focus { background: var(--vscode-focusBorder); }
+}
+
+.conversation-document-refresh-notice {
+    flex: 0 1 16rem;
+    font-size: 0.9em;
+    color: var(--vscode-descriptionForeground);
+    overflow-wrap: anywhere;
+    &[hidden] { display: none; }
+}
+
+.conversation-document-batch-send {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.5rem 0;
+    padding: 0.35rem 0.6rem;
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 3px;
+    cursor: pointer;
+    svg { width: 16px; height: 16px; }
+    &:disabled { opacity: 0.5; cursor: default; }
+}
+
+.conversation-document-text-action {
+    padding: 0.4rem 0.55rem;
+    border: 1px solid var(--vscode-contrastBorder, var(--vscode-panel-border));
+    border-radius: 3px;
+    background: var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+    font: inherit;
+    cursor: pointer;
+    &.accent { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+    &:disabled { opacity: 0.5; cursor: default; }
+    &:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+}
+.conversation-document-recipient,
+.conversation-document-draft-state {
+    color: var(--vscode-descriptionForeground);
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+}
+.conversation-document-comment-composer > div { flex-wrap: wrap; }
+.conversation-document-workspace-identity {
+    flex-wrap: wrap;
+    [data-markdown-workspace-recipient] {
+        flex: 1 1 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        max-height: 3em;
+    }
+}
+
+.conversation-document-workspace-header {
+    display: flex;
+    gap: 0.65rem;
+    align-items: center;
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-editor-background);
+    grid-column: 1 / -1;
+}
+
+.conversation-document-workspace-back,
+.conversation-document-workspace-editor {
+    flex: 0 0 auto;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--vscode-button-border, transparent);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--vscode-textLink-foreground);
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+
+    &:hover {
+        background: var(--vscode-list-hoverBackground);
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+}
+
+.conversation-document-workspace-identity {
+    display: flex;
+    flex: 1 1 auto;
+    gap: 0.45rem;
+    align-items: baseline;
+    min-width: 0;
+
+    strong,
+    span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    strong {
+        flex: 0 1 auto;
+    }
+
+    span {
+        flex: 1 1 auto;
+        color: var(--vscode-descriptionForeground);
+        font-size: 0.9em;
+    }
+}
+
+.conversation-document-workspace-mode {
+    display: flex;
+    gap: 0.25rem;
+
+    button {
+        padding: 0.25rem 0.45rem;
+        border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+        border-radius: 3px;
+        background: transparent;
+        color: var(--vscode-foreground);
+        font: inherit;
+    }
+
+    button[aria-pressed="true"] {
+        border-color: var(--vscode-focusBorder);
+        background: var(--vscode-button-secondaryHoverBackground,
+            var(--vscode-list-activeSelectionBackground));
+    }
+
+    button[data-new-replies] {
+        box-shadow: inset 0 -2px 0 var(--vscode-notificationsInfoIcon-foreground,
+            var(--vscode-textLink-foreground));
+    }
+
+    button[data-new-replies]::after {
+        content: attr(data-new-replies);
+        display: inline-flex;
+        min-width: 1.1em;
+        height: 1.1em;
+        margin-left: 0.25rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: var(--vscode-notificationsInfoIcon-foreground,
+            var(--vscode-textLink-foreground));
+        color: var(--vscode-editor-background);
+        font-size: 0.75em;
+        line-height: 1;
+    }
+
+    [data-markdown-workspace-mode="document"] { display: none; }
+}
+
+.conversation-document-workspace-scroll {
+    grid-column: 1;
+    grid-row: 2;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: auto;
+    padding: 1.25rem clamp(1rem, 5vw, 4rem) 3rem;
+}
+
+.conversation-document-discussion {
+    grid-column: 3;
+    grid-row: 2;
+    flex: 0 0 min(22rem, 34vw);
+    min-width: 15rem;
+    overflow: auto;
+    padding: 1rem;
+    border-left: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background);
+}
+
+.conversation-document-discussion-heading,
+.conversation-document-selection-actions > div,
+.conversation-document-comment-composer > div {
+    display: flex;
+    gap: 0.45rem;
+    align-items: center;
+    justify-content: space-between;
+}
+
+[data-markdown-workspace-new-replies] {
+    margin-left: auto;
+    color: var(--vscode-textLink-foreground);
+    font-size: 0.85em;
+}
+
+.conversation-document-comment-composer {
+    margin: 0.8rem 0;
+    padding: 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 4px;
+    background: var(--vscode-editor-background);
+}
+
+[data-markdown-workspace-comment-composer] {
+    position: fixed;
+    z-index: 35;
+    width: 560px;
+    max-width: calc(100vw - 16px);
+    margin: 0;
+    overflow: auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.4rem 0.65rem;
+    box-shadow: 0 4px 18px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+    &[hidden] { display: none; }
+    > label { grid-column: 1 / -1; grid-row: 1; }
+    > blockquote {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        margin: 0;
+        padding-left: 0.5rem;
+        border-left: 2px solid var(--vscode-textLink-foreground);
+        color: var(--vscode-descriptionForeground);
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        overflow-wrap: anywhere;
+    }
+    > textarea { grid-column: 1; grid-row: 3; margin: 0; }
+    > div { grid-column: 2; grid-row: 3; flex-direction: column; justify-content: flex-end; }
+    > .conversation-document-draft-state { grid-column: 1 / -1; grid-row: 4; margin: 0; }
+    > .conversation-document-composer-recipient { grid-column: 1 / -1; grid-row: 5; margin: 0; font-size: 0.9em; overflow-wrap: anywhere; }
+    > .conversation-document-comment-feedback { grid-column: 1 / -1; grid-row: 6; margin: 0; }
+}
+.conversation-document-comment-feedback:empty { display: none; }
+.conversation-document-workspace-header > .conversation-document-comment-feedback {
+    flex: 0 1 18rem;
+    font-size: 0.9em;
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+@media (max-width: 680px) {
+    [data-markdown-workspace-comment-composer] {
+        > textarea { grid-column: 1 / -1; }
+        > div { grid-column: 1 / -1; grid-row: 4; flex-direction: row; }
+        > .conversation-document-draft-state { grid-row: 5; }
+        > .conversation-document-composer-recipient { grid-row: 6; }
+        > .conversation-document-comment-feedback { grid-row: 7; }
+    }
+}
+
+.conversation-document-selection-actions {
+    position: fixed;
+    z-index: 30;
+    display: flex;
+    padding: 3px;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 7px;
+    background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+    box-shadow: 0 4px 16px var(--vscode-widget-shadow);
+
+    &[hidden] { display: none; }
+
+    > div {
+        gap: 2px;
+        justify-content: flex-start;
+    }
+}
+
+.conversation-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.conversation-document-comment-composer textarea {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    border-radius: 3px;
+    padding: 0.5rem;
+    font: inherit;
+    min-height: 5rem;
+    &:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0.35rem 0 0.6rem;
+    resize: vertical;
+}
+
+[data-markdown-workspace-suggestion-preview] {
+    margin: 0.35rem 0 0.6rem;
+    padding: 0.5rem;
+    overflow: auto;
+    border-radius: 3px;
+    background: var(--vscode-textCodeBlock-background);
+    color: var(--vscode-editor-foreground);
+    white-space: pre-wrap;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.9em;
+}
+
+.conversation-document-comment-list {
+    display: grid;
+    gap: 0.65rem;
+}
+
+.conversation-document-reply-list {
+    display: grid;
+    gap: 0.65rem;
+    margin-top: 0.8rem;
+}
+
+.conversation-document-reply-card {
+    padding: 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-charts-blue, var(--vscode-textLink-foreground));
+    border-radius: 3px;
+    background: var(--vscode-editor-background);
+
+    h3 { margin: 0; font-size: 0.95em; }
+    .conversation-document-reply-meta {
+        margin: 0.25rem 0 0.5rem;
+        color: var(--vscode-descriptionForeground);
+        font-size: 0.85em;
+    }
+    .conversation-document-reply-content > :first-child { margin-top: 0; }
+    .conversation-document-reply-content > :last-child { margin-bottom: 0; }
+}
+
+.conversation-document-suggestion-list {
+    display: grid;
+    gap: 0.65rem;
+    margin-top: 0.8rem;
+}
+
+.conversation-document-suggestion-card {
+    padding: 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-charts-green, var(--vscode-textLink-foreground));
+    border-radius: 3px;
+    background: var(--vscode-editor-background);
+
+    h3 { margin: 0 0 0.5rem; font-size: 0.95em; }
+    blockquote { margin: 0 0 0.5rem; color: var(--vscode-descriptionForeground); }
+    pre {
+        margin: 0.5rem 0;
+        padding: 0.5rem;
+        overflow: auto;
+        white-space: pre-wrap;
+        background: var(--vscode-textCodeBlock-background);
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 0.85em;
+    }
+    p { margin: 0.4rem 0; color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+    footer { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+
+    &[data-status="outdated"] {
+        border-left-color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+    }
+}
+
+.conversation-document-comment-marker {
+    display: inline-flex;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-left: 0.35rem;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: var(--vscode-textLink-foreground);
+    color: var(--vscode-editor-background);
+    font: inherit;
+    font-size: 0.75em;
+    cursor: pointer;
+
+    &:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+}
+
+.conversation-document-comment-highlight {
+    outline: 2px solid var(--vscode-editor-findMatchHighlightBorder, var(--vscode-focusBorder));
+    outline-offset: 3px;
+    background: var(--vscode-editor-findMatchHighlightBackground);
+}
+
+.conversation-document-comment-card {
+    padding: 0.7rem;
+    border: 1px solid var(--vscode-panel-border);
+    border-left: 3px solid var(--vscode-textLink-foreground);
+    border-radius: 3px;
+    background: var(--vscode-editor-background);
+
+    &[data-status="resolved"] { opacity: 0.68; }
+    &[data-status="outdated"] { border-left-color: var(--vscode-editorWarning-foreground); }
+
+    blockquote { margin: 0 0 0.5rem; color: var(--vscode-descriptionForeground); }
+    p { margin: 0.4rem 0; white-space: pre-wrap; }
+    footer { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; }
+}
+
+@media (max-width: 680px) {
+    .conversation-document-resize { display: none; }
+    .conversation-document-workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto minmax(0, 1fr);
+    }
+    .conversation-document-workspace-header {
+        position: relative;
+        z-index: 1;
+        flex-wrap: nowrap;
+        gap: 0.25rem;
+    }
+    .conversation-document-workspace-identity {
+        order: 0;
+        flex: 1 1 auto;
+    }
+    .conversation-document-workspace-editor { margin-left: 0; }
+    .conversation-document-workspace-mode { display: flex; }
+    .conversation-document-workspace-mode [data-markdown-workspace-mode="document"] {
+        display: none;
+    }
+    .conversation-document-workspace-scroll,
+    .conversation-document-discussion {
+        grid-column: 1;
+        grid-row: 2;
+        min-height: 0;
+    }
+    .conversation-document-workspace-scroll { display: block; }
+    .conversation-document-discussion {
+        display: none;
+        min-width: 0;
+        border-top: 1px solid var(--vscode-panel-border);
+        border-left: 0;
+    }
+    .conversation-document-workspace[data-mobile-mode="discussion"]
+    .conversation-document-workspace-scroll { display: none; }
+    .conversation-document-workspace[data-mobile-mode="discussion"]
+    .conversation-document-discussion { display: block; }
+}
+
+.conversation-document-workspace-header { position: relative; gap: 0.25rem; }
+details.conversation-document-workspace-identity {
+    display: block;
+    summary {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 0.3rem 0;
+        list-style: none;
+        &::-webkit-details-marker { display: none; }
+        &::after { content: '▾'; flex: 0 0 auto; color: var(--vscode-descriptionForeground); }
+        strong { display: block; min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+        &:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+    }
+    .conversation-document-workspace-details {
+        position: absolute;
+        z-index: 40;
+        top: 100%;
+        left: 8px;
+        right: 8px;
+        padding: 0.75rem;
+        max-height: 50vh;
+        overflow: auto;
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+        border: 1px solid var(--vscode-panel-border);
+        box-shadow: 0 4px 12px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.2));
+        span { display: block; white-space: normal; overflow-wrap: anywhere; max-height: none; }
+    }
+}
+
+.conversation-document-workspace-content {
+    width: min(100%, 58rem);
+    margin: 0 auto;
+    font-size: max(1em, 13px);
+    line-height: 1.6;
+}
+
 .conversation-identity {
     display: flex;
     min-width: 0;
@@ -625,7 +1166,9 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 }
 
 /* Outspecific .conversation-markdown pre: the card supplies the chrome. */
-.conversation-markdown .conversation-code-block > pre {
+.conversation-markdown .conversation-code-block > pre,
+.conversation-document-workspace-content .conversation-code-block > pre,
+.conversation-document-reply-content .conversation-code-block > pre {
     margin: 0;
     padding: 0.75rem;
     border: none;
@@ -1590,7 +2133,9 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     overflow-wrap: anywhere;
 }
 
-.conversation-markdown {
+.conversation-markdown,
+.conversation-document-workspace-content,
+.conversation-document-reply-content {
     overflow-wrap: anywhere;
 
     > :first-child {
@@ -2300,6 +2845,11 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
             background: var(--vscode-button-hoverBackground);
         }
     }
+}
+
+.conversation-comment-icon-button[hidden],
+.conversation-icon-button[hidden] {
+    display: none;
 }
 
 .conversation-comment-drag-handle {
@@ -3479,7 +4029,9 @@ body[data-viewing-subagent="true"] .conversation-outline-bookmarks-only {
     white-space: pre-wrap;
 }
 
-.conversation-markdown pre code.hljs {
+.conversation-markdown pre code.hljs,
+.conversation-document-workspace-content pre code.hljs,
+.conversation-document-reply-content pre code.hljs {
     display: block;
     background: transparent;
     padding: 0;

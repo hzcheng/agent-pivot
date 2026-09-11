@@ -2301,6 +2301,7 @@ async function initializeDashboard(
                 return {
                     markdown: new TextDecoder('utf-8', { fatal: true })
                         .decode(contents),
+                    resourceRootUri: vscode.Uri.file(canonicalRoot).toString(),
                     workspaceRootId: createHash('sha256')
                         .update(canonicalRoot).digest('hex'),
                     documentVersion: createHash('sha256')

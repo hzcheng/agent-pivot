@@ -181,9 +181,9 @@ export interface ConversationViewerOptions {
     readWorkspaceMarkdown?: (
         target: ConversationWorkspaceFileTarget,
         viewerTarget: ConversationViewerTarget
-    ) => PromiseLike<{ markdown: string; workspaceRootId: string; documentVersion: string } | undefined>
-        | Promise<{ markdown: string; workspaceRootId: string; documentVersion: string } | undefined>
-        | { markdown: string; workspaceRootId: string; documentVersion: string } | undefined;
+    ) => PromiseLike<{ markdown: string; workspaceRootId: string; documentVersion: string; resourceRootUri?: string } | undefined>
+        | Promise<{ markdown: string; workspaceRootId: string; documentVersion: string; resourceRootUri?: string } | undefined>
+        | { markdown: string; workspaceRootId: string; documentVersion: string; resourceRootUri?: string } | undefined;
     applyWorkspaceMarkdownSuggestion?: (
         target: ConversationWorkspaceFileTarget,
         viewerTarget: ConversationViewerTarget,
@@ -2386,7 +2386,7 @@ export class ConversationViewer implements ConversationViewerApi {
         const panel = this.panel;
         const workspaceRequestId = ++this.nextMarkdownWorkspaceRequestId;
         if (!target || !panel || !isCurrent()) { return false; }
-        let document: { markdown: string; workspaceRootId: string; documentVersion: string } | undefined;
+        let document: { markdown: string; workspaceRootId: string; documentVersion: string; resourceRootUri?: string } | undefined;
         try {
             document = await this.options.readWorkspaceMarkdown?.(
                 workspaceFile,
@@ -2416,7 +2416,19 @@ export class ConversationViewer implements ConversationViewerApi {
         }
         const title = workspaceFile.relativePath.split('/').pop()
             || workspaceFile.relativePath;
-        const html = renderConversationMarkdown(document.markdown);
+        const resourceRoot = document.resourceRootUri ? vscode.Uri.parse(document.resourceRootUri) : undefined;
+        panel.webview.options = {
+            ...panel.webview.options,
+            localResourceRoots: [this.options.mediaUri(''), ...(resourceRoot ? [resourceRoot] : [])],
+        };
+        const html = renderConversationMarkdown(document.markdown, {
+            documentPath: workspaceFile.relativePath,
+            resolveImage: relative => resourceRoot
+                ? panel.webview.asWebviewUri(vscode.Uri.parse(
+                    resourceRoot.toString().replace(/\/$/, '') + '/'
+                    + relative.split('/').map(encodeURIComponent).join('/')
+                )).toString() : undefined,
+        });
         if (Buffer.byteLength(html, 'utf8') > 8 * 1024 * 1024) {
             this.showNotice('Markdown document is too large to display.');
             return false;

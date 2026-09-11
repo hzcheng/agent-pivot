@@ -5296,7 +5296,7 @@ test('CONVERSATION-VIEWER-SECURITY-001 emits a nonce-only CSP and opens only HTT
     await viewer.open(target('session-a'));
 
     assert.match(panel.webview.html, /default-src 'none';/);
-    assert.match(panel.webview.html, /img-src https: blob:;/);
+    assert.match(panel.webview.html, /img-src fixture-csp https: blob:;/);
     assert.match(panel.webview.html, /style-src fixture-csp 'unsafe-inline';/);
     assert.match(panel.webview.html, /font-src fixture-csp;/);
     assert.match(panel.webview.html, /script-src 'nonce-[^']+';/);
@@ -10000,4 +10000,28 @@ test('WORKTREE-CHANGES-COMMITS-001 commits requests bind to generation and sessi
     assert.ok(!panel.postedMessages.slice(before).some(message =>
         message.type === 'conversation-viewer-commits'),
         'a pre-switch commits request never reaches the new session');
+});
+
+test('CONVERSATION-MARKDOWN-RESOURCES-001 publishes mapped images and document-relative navigation', async () => {
+    const opened = [];
+    const sources = [];
+    const { viewer, panel } = createViewer({
+        markdownWorkspaceOnly: true,
+        readWorkspaceMarkdown: async () => ({
+            markdown: '![状态](./assets/01-state-layers.svg)\n\n[状态、命名空间与 GC](./topics/01-state-and-kv.md)',
+            workspaceRootId: 'root', documentVersion: 'v1', resourceRootUri: 'file:///workspace',
+        }),
+        openLocalFile: async file => sources.push(file),
+        openMarkdownWorkspaceInPanel: async (_target, file) => opened.push(file.relativePath),
+    });
+    await viewer.openMarkdownWorkspaceDocument(target('session-a'), { relativePath: 'docs/coord/report/02-coord-design-review.md', line: 1, column: 1 });
+    const publication = panel.postedMessages.find(message => message.type === 'conversation-viewer-markdown-workspace');
+    assert.match(publication.html, /<img src="webview:\/\/fixture\/\/workspace\/docs\/coord\/report\/assets\/01-state-layers.svg"/);
+    assert.match(publication.html, /href="docs\/coord\/report\/topics\/01-state-and-kv.md"/);
+    assert.deepEqual(panel.webview.options.localResourceRoots.map(uri => uri.toString()), ['file:///extension/media/', 'file:///workspace']);
+    await panel.receive({ type: 'conversation-viewer-open-link', version: 1, href: 'docs/coord/report/topics/01-state-and-kv.md' });
+    assert.deepEqual(opened, ['docs/coord/report/topics/01-state-and-kv.md']);
+    await panel.receive({ type: 'conversation-viewer-open-link', version: 1, href: 'docs/coord/src/foo.ts:12:3' });
+    assert.deepEqual(sources, [{ relativePath: 'docs/coord/src/foo.ts', line: 12, column: 3 }]);
+    viewer.dispose();
 });

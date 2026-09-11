@@ -12154,18 +12154,18 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 review polish retains authoritative re
         commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
     };
     await sendPage(page, documentMessage);
-    assert.match(await page.locator('[data-markdown-workspace-recipient]').first().innerText(), /Alpha/);
+    assert.match(await page.locator('[data-markdown-workspace-recipient]').first().textContent(), /Alpha/);
     await sendPage(page, { type: 'conversation-viewer-loading', version: 1, subscriptionGeneration: 4,
         preflight: true, target: { projectId: 'project-a', provider: 'codex', sessionId: 'session-beta' } });
     assert.equal(await page.locator('body').getAttribute('data-conversation-frame-preview'), 'true');
-    assert.match(await page.locator('[data-markdown-workspace-recipient]').first().innerText(), /Alpha/);
+    assert.match(await page.locator('[data-markdown-workspace-recipient]').first().textContent(), /Alpha/);
     assert.match(await page.locator('[data-markdown-workspace-send-all]').getAttribute('aria-label'), /Alpha/);
     const longName = 'Long session name '.repeat(10);
     await sendPage(page, sessionPage(5, 'session-alpha', longName));
     await sendPage(page, { ...documentMessage, subscriptionGeneration: 5, workspaceRequestId: 2 });
     await page.setViewportSize({ width: 360, height: 700 });
     const recipient = page.locator('[data-markdown-workspace-recipient]').first();
-    assert.ok((await recipient.boundingBox()).height < 50, 'long recipient must not consume the document viewport');
+    assert.equal(await recipient.isVisible(), false, 'recipient metadata stays collapsed by default');
     assert.match(await recipient.getAttribute('title'), /Long session name/);
     await page.screenshot({ path: path.join(os.tmpdir(), 'markdown-polish-long-recipient.png') });
 });
@@ -12175,10 +12175,12 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 review polish names the recipient and 
     for (const width of [1000, 360]) {
         await page.setViewportSize({ width, height: 700 });
         const recipient = page.locator('[data-markdown-workspace-recipient]').first();
+        await page.locator('.conversation-document-workspace-identity summary').click();
         assert.equal(await recipient.isVisible(), true);
         assert.match(await recipient.innerText(), /AI session:.*codex/i);
         const box = await recipient.boundingBox();
         assert.ok(box.x >= 0 && box.x + box.width <= width);
+        await page.locator('.conversation-document-workspace-identity summary').click();
     }
     await page.locator('[data-markdown-workspace-content] p').evaluate(el => {
         const range = document.createRange(); range.selectNodeContents(el);
@@ -12211,6 +12213,53 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 review polish names the recipient and 
     assert.equal(await page.locator('[data-markdown-workspace-comment-input]').inputValue(), 'Keep this draft');
     assert.equal(await page.locator('[data-markdown-workspace-comment-save]').isDisabled(), false);
     assert.match(await page.locator('[data-markdown-workspace-comment-feedback]').innerText(), /could not be saved/i);
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 compact document header keeps actions together and metadata on demand', async t => {
+    for (const width of [360, 680, 1000]) {
+        const { page } = await openReviewInteractionFixture(t);
+        await page.setViewportSize({ width, height: 700 });
+        await page.locator('[data-markdown-workspace-title]').evaluate(el => { el.textContent = '15-declarative-expansion-walkthrough.md'; });
+        const header = page.locator('.conversation-document-workspace-header');
+        assert.ok((await header.boundingBox()).height <= 52, 'default header must be a single compact row');
+        assert.equal(await page.locator('[data-markdown-workspace-path]').isVisible(), false);
+        const controls = ['[data-markdown-workspace-mode="discussion"]', '[data-markdown-workspace-refresh]', '[data-markdown-workspace-open-editor]'];
+        const boxes = await Promise.all(controls.map(selector => page.locator(selector).boundingBox()));
+        for (let i = 0; i < boxes.length; i++) {
+            assert.ok(boxes[i].x >= 0 && boxes[i].x + boxes[i].width <= width);
+            assert.ok(Math.abs(boxes[i].y - boxes[0].y) < 2);
+            if (i) {
+                const gap = boxes[i].x - boxes[i - 1].x - boxes[i - 1].width;
+                assert.ok(gap >= 0 && gap < 16, 'actions are adjacent without overlap');
+            }
+        }
+        await page.locator('.conversation-document-workspace-identity summary').click();
+        assert.equal(await page.locator('[data-markdown-workspace-path]').isVisible(), true);
+        await page.locator('.conversation-document-workspace-identity summary').click();
+        await page.screenshot({ path: `/tmp/markdown-header-${width}.png` });
+    }
+});
+
+test('CONVERSATION-MARKDOWN-WORKSPACE-001 discussion toggle preserves state across pane resizing', async t => {
+    const { page } = await openReviewInteractionFixture(t);
+    const toggle = page.locator('[data-markdown-workspace-mode="discussion"]');
+    await toggle.click();
+    await sendPage(page, {
+        type: 'conversation-viewer-markdown-workspace', version: 1,
+        href: 'docs/review.md', relativePath: 'docs/review.md', workspaceRootId: 'root-a', documentVersion: 'v2',
+        title: 'review.md', html: '<p>Updated passage.</p>', workspaceRequestId: 2, subscriptionGeneration: 1,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-host-document',
+        commentSnapshot: { revision: 0, comments: [] }, replies: [], suggestions: [],
+    });
+    for (const width of [360, 1000, 680]) {
+        await page.setViewportSize({ width, height: 700 });
+        assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), true);
+        assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+    }
+    await toggle.click();
+    await page.setViewportSize({ width: 1000, height: 700 });
+    assert.equal(await page.locator('[data-markdown-workspace-discussion]').isVisible(), false);
+    assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
 });
 
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 inline composer stays beside the selection without opening discussion', async t => {
@@ -12289,7 +12338,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 review feedback discussion starts coll
     await page.screenshot({ path: path.join(os.tmpdir(), 'markdown-feedback-wide.png') });
     await page.setViewportSize({ width: 360, height: 560 });
     assert.equal(await divider.isVisible(), false);
-    await page.locator('[data-markdown-workspace-mode="discussion"]').click();
+    assert.equal(await page.locator('[data-markdown-workspace-mode="discussion"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await discussion.isVisible(), true);
     assert.ok((await discussion.boundingBox()).width <= 360);
     await page.screenshot({ path: path.join(os.tmpdir(), 'markdown-feedback-compact.png') });
@@ -12646,7 +12695,7 @@ test('CONVERSATION-MARKDOWN-WORKSPACE-001 opens a host-rendered Markdown reading
         'the reading surface is modal to assistive technology');
     assert.equal(await page.locator('[data-markdown-workspace-title]').innerText(),
         'architecture-plan.md');
-    assert.equal(await page.locator('[data-markdown-workspace-path]').innerText(),
+    assert.equal(await page.locator('[data-markdown-workspace-path]').textContent(),
         'docs/architecture-plan.md');
     assert.equal(await workspace.locator('h1').innerText(), 'Architecture plan');
     await page.locator('[data-markdown-workspace-mode="discussion"]').click();

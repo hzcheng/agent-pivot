@@ -2772,8 +2772,10 @@
     function setMarkdownWorkspaceMobileMode(mode, focus) {
         if (mode !== 'document' && mode !== 'discussion') return;
         if (!markdownWorkspace) return;
-        markdownWorkspace.setAttribute('data-mobile-mode', mode);
         var compact = isCompactMarkdownWorkspace();
+        if (!compact) mode = markdownWorkspace.getAttribute('data-discussion-collapsed') === 'true' ? 'document' : 'discussion';
+        markdownWorkspace.setAttribute('data-mobile-mode', mode);
+        if (compact) markdownWorkspace.setAttribute('data-discussion-collapsed', mode === 'document' ? 'true' : 'false');
         if (markdownWorkspaceModeDocument) {
             markdownWorkspaceModeDocument.setAttribute('aria-pressed',
                 compact && mode === 'document' ? 'true' : 'false');
@@ -2803,6 +2805,7 @@
 
     function setMarkdownWorkspaceDiscussionCollapsed(collapsed, focus) {
         if (!markdownWorkspace || !markdownWorkspaceDiscussion) return;
+        markdownWorkspace.setAttribute('data-mobile-mode', collapsed ? 'document' : 'discussion');
         markdownWorkspace.setAttribute(
             'data-discussion-collapsed', collapsed ? 'true' : 'false'
         );
@@ -2972,6 +2975,10 @@
             markdownWorkspaceSendAfterSave = false;
         }
         markdownWorkspaceTitle.textContent = message.title;
+        markdownWorkspaceTitle.parentElement.title = message.title + '\n' + message.relativePath;
+        markdownWorkspaceTitle.parentElement.setAttribute('aria-label', 'Document information: ' + message.title);
+        var documentDetails = markdownWorkspaceTitle.closest('details');
+        if (documentDetails) documentDetails.removeAttribute('open');
         markdownWorkspacePath.textContent = message.relativePath;
         if (markdownWorkspaceMermaidRenderer) markdownWorkspaceMermaidRenderer.release(markdownWorkspaceContent);
         markdownWorkspaceContent.innerHTML = sanitizeConversationHtml(message.html);
@@ -5748,9 +5755,9 @@
         if (markdownWorkspaceModeDiscussion) {
             markdownWorkspaceModeDiscussion.addEventListener('click', function () {
                 if (isCompactMarkdownWorkspace()) {
-                    setMarkdownWorkspaceMobileMode('discussion', true);
+                    setMarkdownWorkspaceMobileMode(markdownWorkspace.getAttribute('data-mobile-mode') === 'discussion' ? 'document' : 'discussion', true);
                 } else {
-                    setMarkdownWorkspaceDiscussionCollapsed(false, true);
+                    setMarkdownWorkspaceDiscussionCollapsed(markdownWorkspace.getAttribute('data-discussion-collapsed') !== 'true', true);
                 }
             });
         }

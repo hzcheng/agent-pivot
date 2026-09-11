@@ -209,11 +209,13 @@ export function renderConversationViewerDocument(
                 class="conversation-icon-button conversation-document-workspace-back"
                 data-markdown-workspace-back title="Back to conversation"
                 aria-label="Back to conversation">${CONVERSATION_FIND_ICON_CLOSE}</button>`}
-            <div class="conversation-document-workspace-identity">
-                <strong id="markdown-workspace-title" data-markdown-workspace-title></strong>
+            <details class="conversation-document-workspace-identity">
+                <summary aria-label="Document information"><strong id="markdown-workspace-title" data-markdown-workspace-title></strong></summary>
+                <div class="conversation-document-workspace-details">
                 <span data-markdown-workspace-path></span>
                 <span data-markdown-workspace-recipient>AI session: ${escapeHtml(target.displayName + duplicateId)} · ${escapeHtml(target.provider)}</span>
-            </div>
+                </div>
+            </details>
             <span class="conversation-document-refresh-notice" data-markdown-workspace-notice role="status" hidden></span>
             <div class="conversation-document-workspace-mode" role="group"
                 aria-label="Document workspace view">
@@ -262,6 +264,7 @@ export function renderConversationViewerDocument(
                     data-markdown-workspace-comment-input rows="4"
                     maxlength="4000" required></textarea>
                 <p class="conversation-document-draft-state" data-markdown-workspace-draft-state>Not saved · Save comment does not send to AI.</p>
+                <p class="conversation-document-composer-recipient" data-markdown-workspace-recipient>AI session: ${escapeHtml(target.displayName + duplicateId)} · ${escapeHtml(target.provider)}</p>
                 <div>
                     <button type="button" class="conversation-comment-icon-button"
                         data-markdown-workspace-comment-cancel title="Cancel comment"

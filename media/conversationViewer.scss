@@ -315,7 +315,8 @@ body[data-markdown-workspace-only="true"] {
     > textarea { grid-column: 1; grid-row: 3; margin: 0; }
     > div { grid-column: 2; grid-row: 3; flex-direction: column; justify-content: flex-end; }
     > .conversation-document-draft-state { grid-column: 1 / -1; grid-row: 4; margin: 0; }
-    > .conversation-document-comment-feedback { grid-column: 1 / -1; grid-row: 5; margin: 0; }
+    > .conversation-document-composer-recipient { grid-column: 1 / -1; grid-row: 5; margin: 0; font-size: 0.9em; overflow-wrap: anywhere; }
+    > .conversation-document-comment-feedback { grid-column: 1 / -1; grid-row: 6; margin: 0; }
 }
 .conversation-document-comment-feedback:empty { display: none; }
 .conversation-document-workspace-header > .conversation-document-comment-feedback {
@@ -329,7 +330,8 @@ body[data-markdown-workspace-only="true"] {
         > textarea { grid-column: 1 / -1; }
         > div { grid-column: 1 / -1; grid-row: 4; flex-direction: row; }
         > .conversation-document-draft-state { grid-row: 5; }
-        > .conversation-document-comment-feedback { grid-row: 6; }
+        > .conversation-document-composer-recipient { grid-row: 6; }
+        > .conversation-document-comment-feedback { grid-row: 7; }
     }
 }
 
@@ -498,17 +500,17 @@ body[data-markdown-workspace-only="true"] {
     .conversation-document-workspace-header {
         position: relative;
         z-index: 1;
-        flex-wrap: wrap;
-        gap: 0.45rem;
+        flex-wrap: nowrap;
+        gap: 0.25rem;
     }
     .conversation-document-workspace-identity {
-        order: 4;
-        flex: 1 1 calc(100% - 7rem);
+        order: 0;
+        flex: 1 1 auto;
     }
-    .conversation-document-workspace-editor { margin-left: auto; }
+    .conversation-document-workspace-editor { margin-left: 0; }
     .conversation-document-workspace-mode { display: flex; }
     .conversation-document-workspace-mode [data-markdown-workspace-mode="document"] {
-        display: inline-grid;
+        display: none;
     }
     .conversation-document-workspace-scroll,
     .conversation-document-discussion {
@@ -527,6 +529,40 @@ body[data-markdown-workspace-only="true"] {
     .conversation-document-workspace-scroll { display: none; }
     .conversation-document-workspace[data-mobile-mode="discussion"]
     .conversation-document-discussion { display: block; }
+}
+
+.conversation-document-workspace-header { position: relative; gap: 0.25rem; }
+details.conversation-document-workspace-identity {
+    display: block;
+    summary {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        padding: 0.3rem 0;
+        list-style: none;
+        &::-webkit-details-marker { display: none; }
+        &::after { content: '▾'; flex: 0 0 auto; color: var(--vscode-descriptionForeground); }
+        strong { display: block; min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+        &:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+    }
+    .conversation-document-workspace-details {
+        position: absolute;
+        z-index: 40;
+        top: 100%;
+        left: 8px;
+        right: 8px;
+        padding: 0.75rem;
+        max-height: 50vh;
+        overflow: auto;
+        background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+        border: 1px solid var(--vscode-panel-border);
+        box-shadow: 0 4px 12px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.2));
+        span { display: block; white-space: normal; overflow-wrap: anywhere; max-height: none; }
+    }
 }
 
 .conversation-document-workspace-content {

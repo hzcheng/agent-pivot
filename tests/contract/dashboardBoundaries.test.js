@@ -471,6 +471,47 @@ function markdownReviewFixture(overrides = {}) {
     return { controller: new MarkdownReviewCommandController(options), options, candidate, document, opened, notices };
 }
 
+test('CONVERSATION-LOCAL-FILE-LINKS-001 confirms exact external files and routes Markdown read-only', async () => {
+    const { LocalFileReviewController } = require('../../out/dashboard/markdownReviewCommand');
+    assert.equal(typeof LocalFileReviewController, 'function', 'local file review must expose a guarded opening controller');
+    const os = require('node:os');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conversation-link-'));
+    const file = path.join(dir, 'report.md');
+    fs.writeFileSync(file, '# Report');
+    const prompts = [], previews = [], notices = [], native = [];
+    const options = { confirm: async name => { prompts.push(name); return false; },
+        preview: async (name, text, line, column) => previews.push([name, text, line, column]),
+        openNative: async name => native.push(name), inform: text => notices.push(text), log: () => {} };
+    const controller = new LocalFileReviewController(options);
+    try {
+        await controller.open({ fsPath: file, line: 1, column: 1 }, [], () => true);
+        assert.deepEqual(previews, []);
+        assert.deepEqual(prompts, [file]);
+        options.confirm = async () => true;
+        await controller.open({ fsPath: file, line: 120, column: 4 }, [], () => true);
+        assert.deepEqual(previews, [[file, '# Report', 120, 4]]);
+        assert.deepEqual(native, []);
+        const image = path.join(dir, 'image.png');
+        fs.writeFileSync(image, 'fixture');
+        await controller.open({ fsPath: image, line: 1, column: 1 }, [dir], () => true);
+        assert.deepEqual(native, [image]);
+        const firstRoot = path.join(dir, 'first');
+        fs.mkdirSync(firstRoot);
+        await controller.openRelative({ relativePath: 'image.png', line: 1, column: 1 }, [firstRoot, dir], () => true);
+        assert.deepEqual(native, [image, image], 'relative compatibility links search subsequent workspace roots');
+        await controller.openRelative({ relativePath: '../image.png', line: 1, column: 1 }, [firstRoot], () => true);
+        assert.equal(native.length, 2, 'an authoritative root must not fall through or permit traversal');
+        options.confirm = async () => { fs.writeFileSync(file, '# Changed report'); return true; };
+        await controller.open({ fsPath: file, line: 1, column: 1 }, [], () => true);
+        assert.equal(previews.length, 1, 'changing a file during approval cannot reuse consent');
+        options.confirm = async () => { assert.fail('relative escapes must not request broader permission'); };
+        await controller.open({ fsPath: file, line: 1, column: 1 }, [], () => true, false);
+        assert.equal(previews.length, 1);
+        await controller.open({ fsPath: path.join(dir, 'missing.md'), line: 1, column: 1 }, [], () => true);
+        assert.match(notices.at(-1), /could not be opened/i);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('CONVERSATION-MARKDOWN-WORKSPACE-001 review reports the failed stage but not superseded navigation', async () => {
     for (const [result, message] of [['cancelled', undefined], ['document-unavailable', /document could not be opened/i],
         ['conversation-unavailable', /conversation could not be opened/i]]) {
@@ -874,6 +915,12 @@ test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 marks only an actually
         source,
         /sessionId: selected\.sessionId,\s*}, true\);/
     );
+});
+
+test('CONVERSATION-LOCAL-FILE-LINKS-001 external preview opens after production bootstrap transfers resources', () => {
+    const result = spawnSync(process.execPath, [path.resolve(__dirname, '../fixtures/aiSessions/runtimeHostActivationHarness.js'), 'local-file-review'],
+        { encoding: 'utf8', env: process.env });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 
 test('WEBVIEW-DASHBOARD-COMMAND-REGISTRATION-001 production activation installs the exact Dashboard public command surface', () => {

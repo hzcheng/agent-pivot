@@ -335,11 +335,18 @@ async function main() {
     const compositionSectionsPath = path.join(root, 'out', 'dashboard', 'sections');
     const isCompositionSource = filename => filename === dashboardPath
         || (filename && filename.startsWith(compositionSectionsPath + path.sep));
+    let capturedConversationOptions;
     Module._load = function (request, parent, isMain) {
         if (request === 'vscode') return vscode;
         const isCompositionRequest = moduleName => isCompositionSource(parent?.filename)
             && request.endsWith(`/${moduleName}`);
         const loaded = previousLoad.call(this, request, parent, isMain);
+        if (mode === 'local-file-review' && isCompositionRequest('aiSessions/conversation/composition')) {
+            return { ...loaded, createConversationCapability: options => {
+                capturedConversationOptions = options;
+                return loaded.createConversationCapability(options);
+            } };
+        }
         if (isCompositionRequest('workspaces/sessionHydrationController')) {
             const Original = loaded.WorkspaceSessionHydrationController;
             return {
@@ -652,6 +659,42 @@ async function main() {
             await waitFor(() => tmuxRestoreSettled, 'tmux restoration to settle');
         }
         await activationFlight;
+        if (mode === 'local-file-review') {
+            await waitFor(() => vscode.registeredProvider?.lifecycle?.kind === 'ready', 'bootstrap ready before external link');
+            const file = path.join(storageRoot, 'external-report.md');
+            fs.writeFileSync(file, '# External report');
+            let panel;
+            let onPreviewMessage;
+            const nativeOpens = [];
+            vscode.Position = class { constructor(line, character) { this.line = line; this.character = character; } };
+            vscode.Range = class { constructor(start, end) { this.start = start; this.end = end; } };
+            const execute = vscode.commands.executeCommand;
+            vscode.commands.executeCommand = async (command, ...args) => {
+                if (command === 'vscode.open') { nativeOpens.push(args); return; }
+                return execute(command, ...args);
+            };
+            vscode.window.showWarningMessage = async () => 'Open file';
+            vscode.window.createWebviewPanel = () => {
+                panel = { dispose() {}, onDidDispose: () => disposable(), webview: {
+                    html: '', cspSource: 'fixture-webview', asWebviewUri: value => value,
+                    onDidReceiveMessage: handler => { onPreviewMessage = handler; return disposable(); },
+                } };
+                return panel;
+            };
+            await capturedConversationOptions.openLocalFile({ fsPath: file, line: 12, column: 4 },
+                { projectId: 'external-link-project', provider: 'codex', sessionId: 'external-link-session' });
+            assert.ok(panel?.webview.html.includes('External report'), 'post-bootstrap link must publish a rendered preview');
+            assert.ok(panel.webview.html.includes('line 12, column 4'), 'source position is preserved');
+            await onPreviewMessage({ type: 'open-source' });
+            assert.equal(nativeOpens[0][0].fsPath, file);
+            assert.equal(nativeOpens[0][1].selection.start.line, 11);
+            assert.equal(nativeOpens[0][1].selection.start.character, 3);
+            const image = path.join(storageRoot, 'preview.png');
+            fs.writeFileSync(image, 'fixture');
+            await capturedConversationOptions.openLocalFile({ fsPath: image, line: 1, column: 1 },
+                { projectId: 'external-link-project', provider: 'codex', sessionId: 'external-link-session' });
+            assert.equal(nativeOpens.at(-1)[0].fsPath, image, 'images use vscode.open rather than showTextDocument');
+        }
         if (mode === 'slow-runtime-restore' || mode === 'blocked-restore-budget') {
             await waitFor(
                 () => pendingInactiveRestoreEntered && pendingDirectRestoreEntered,

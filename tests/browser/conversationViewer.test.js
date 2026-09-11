@@ -8,6 +8,42 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const { chromium } = require('playwright-chromium');
+
+test('CONVERSATION-LOCAL-FILE-LINKS-001 external Markdown is rendered without comment or AI controls', async t => {
+    const { buildReadOnlyMarkdownPreview } = require('../../out/dashboard/markdownReviewCommand');
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const page = await browser.newPage({ viewport: { width: 360, height: 700 } });
+    const errors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    await page.addInitScript(() => { window.acquireVsCodeApi = () => ({ postMessage: message => { window.lastLink = message; } }); });
+    const assets = { nonce: 'testnonce', csp: 'https://preview.test', css: 'https://preview.test/conversationViewer.css',
+        katex: 'https://preview.test/katex.min.css', purify: 'https://preview.test/purify.js', mermaidRuntime: 'https://preview.test/runtime.js', mermaid: 'https://preview.test/mermaid.js' };
+    await page.route('https://preview.test/**', route => {
+        const url = route.request().url();
+        const body = url.endsWith('katex.min.css') ? fs.readFileSync(path.join(__dirname, '../../media/katex.min.css'), 'utf8')
+            : url.endsWith('purify.js') ? purifyScript : url.endsWith('runtime.js') ? conversationMermaidScript : url.endsWith('mermaid.js') ? mermaidScript
+            : url.endsWith('.css') ? fs.readFileSync(path.join(__dirname, '../../media/conversationViewer.css'), 'utf8')
+                : buildReadOnlyMarkdownPreview('/tmp/report.md', '# Report\n\n**Read only**\n\n$x^2$\n\n[Image](/tmp/image.png)\n\n```sh\necho hello\n```\n\n```diff\n--- a/demo.txt\n+++ b/demo.txt\n@@ -1 +1 @@\n-old\n+new\n```\n\n```mermaid\ngraph TD\nA-->B\n```', assets);
+        return route.fulfill({ body, contentType: url.endsWith('.js') ? 'application/javascript' : url.endsWith('.css') ? 'text/css' : 'text/html' });
+    });
+    await page.goto('https://preview.test/');
+    assert.equal(await page.locator('h1').innerText(), 'Report');
+    assert.equal(await page.locator('textarea, [data-markdown-workspace-comment-composer], [data-markdown-workspace-comment-send]').count(), 0);
+    assert.match(await page.locator('header').innerText(), /Read-only.*Outside workspace/);
+    assert.match(await page.locator('.katex').evaluate(el => getComputedStyle(el).fontFamily), /KaTeX/);
+    assert.equal(await page.locator('main button').count(), 0, 'no inert or executable controls in a read-only preview');
+    assert.match(await page.locator('main').innerText(), /old/);
+    assert.match(await page.locator('main').innerText(), /new/);
+    try { await page.locator('.conversation-mermaid-image').waitFor({ state: 'visible', timeout: 5000 }); }
+    catch (error) { assert.fail(errors.join('\n') + '\n' + await page.locator('main').innerText()); }
+    await page.getByRole('link', { name: 'Image', exact: true }).click();
+    assert.equal((await page.evaluate(() => window.lastLink)).type, 'open-link');
+    await page.locator('[data-open-source]').click();
+    assert.equal((await page.evaluate(() => window.lastLink)).type, 'open-source');
+    await page.screenshot({ path: '/tmp/external-markdown-readonly.png' });
+});
 const {
     ConversationCommentFileStore,
 } = require('../../out/aiSessions/conversation/commentStore');

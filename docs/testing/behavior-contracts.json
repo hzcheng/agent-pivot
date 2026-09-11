@@ -1670,15 +1670,17 @@
   {
     "id": "CONVERSATION-LOCAL-FILE-LINKS-001",
     "domain": "webview",
-    "title": "AI Conversation renders absolute local file references as clickable links and opens their exact line in the workspace host",
+    "title": "AI Conversation opens trusted local links and explicitly confirmed external files, with native image viewing and isolated read-only Markdown",
     "priority": "P1",
     "status": "automated",
     "owners": [
       "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/contract/dashboardBoundaries.test.js",
       "tests/browser/conversationViewer.test.js"
     ],
     "evidence": [
       "src/dashboard.ts",
+      "src/dashboard/markdownReviewCommand.ts",
       "src/aiSessions/conversation/composition.ts",
       "src/aiSessions/conversation/markdown.ts",
       "src/aiSessions/conversation/viewer.ts",

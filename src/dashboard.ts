@@ -261,7 +261,8 @@ import { getDashboardBootContent } from './dashboard/bootContent';
 import { getAgentPivotConfiguration } from './configuration';
 import { DashboardCommandRegistration } from './dashboard/commandRegistration';
 import { ActiveTerminalFileReferenceController } from './dashboard/activeTerminalFileReference';
-import { isSameMarkdownReviewWorktree, MarkdownReviewCandidate, MarkdownReviewCommandController } from './dashboard/markdownReviewCommand';
+import { isSameMarkdownReviewWorktree, MarkdownReviewCandidate, MarkdownReviewCommandController, LocalFileReviewController, buildReadOnlyMarkdownPreview } from './dashboard/markdownReviewCommand';
+import { parseConversationLocalFileLink, parseConversationWorkspaceFileLink } from './aiSessions/conversation/markdown';
 import DashboardDiagnostics from './dashboard/diagnostics';
 import { getErrorContent } from './dashboard/errorContent';
 import { GroupCollapseController } from './dashboard/groupCollapseController';
@@ -1775,6 +1776,7 @@ async function initializeDashboard(
         handle => clearTimeout(handle),
     );
     let conversationCapability: ConversationCapability;
+    let localFileOpenGeneration = 0;
     const aiSessionDashboardController = ownResource(() => new AiSessionDashboardController<
         AiSessionPresentationTransaction<vscode.Terminal>
     >({
@@ -2123,6 +2125,9 @@ async function initializeDashboard(
             } : undefined;
         },
         openLocalFile: async (targetFile, viewerTarget) => {
+            const generation = ++localFileOpenGeneration;
+            const navigation = conversationNavigationIntent;
+            const current = () => generation === localFileOpenGeneration && navigation === conversationNavigationIntent;
             const actionTarget = getCurrentWorkspaceActionTarget(
                 viewerTarget.projectId
             );
@@ -2154,40 +2159,58 @@ async function initializeDashboard(
             const roots = 'relativePath' in targetFile && authoritativeRoots.length > 0
                 ? authoritativeRoots
                 : [...authoritativeRoots, ...workspaceRoots];
-            for (const rootPath of roots) {
-                let canonicalRoot: string;
-                try {
-                    canonicalRoot = await realpathPath(rootPath);
-                } catch (_error) {
-                    continue;
-                }
-                const candidate = 'relativePath' in targetFile
-                    ? path.resolve(canonicalRoot, targetFile.relativePath)
-                    : path.resolve(targetFile.fsPath);
-                // Resolve both ends before containment testing. This rejects a
-                // model-supplied traversal and a seemingly local symlink that
-                // leaves an opened workspace root.
-                let canonicalCandidate: string;
-                try {
-                    canonicalCandidate = await realpathPath(candidate);
-                } catch (_error) {
-                    continue;
-                }
-                if (!isWorkspaceHostPathContained(
-                    canonicalRoot,
-                    canonicalCandidate
-                )) {
-                    continue;
-                }
-                const position = new vscode.Position(
-                    targetFile.line - 1,
-                    targetFile.column - 1
-                );
-                await vscode.window.showTextDocument(
-                    vscode.Uri.file(canonicalCandidate),
-                    { selection: new vscode.Range(position, position) }
-                );
+            const controller = new LocalFileReviewController({
+                confirm: async (file, editable) => await vscode.window.showWarningMessage(
+                    `Open this file outside the workspace?\n${file}\nOnly this file will be opened. Its contents are not sent to AI. ${editable ? 'The source editor may allow changes to this file.' : 'Markdown previews are read-only.'}`,
+                    { modal: true }, 'Open file'
+                ) === 'Open file',
+                inform: message => vscode.window.showWarningMessage(message),
+                log: error => logError('Could not open Conversation file link', error),
+                openNative: async (file, line, column) => {
+                    const position = new vscode.Position(line - 1, column - 1);
+                    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(file), {
+                        preview: true, selection: new vscode.Range(position, position),
+                    });
+                },
+                preview: async (file, markdown, line, column) => {
+                    const panel = vscode.window.createWebviewPanel('agentPivot.readOnlyDocument',
+                        `${path.basename(file)} (read-only)`, vscode.ViewColumn.Beside,
+                        { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
+                    context.subscriptions.push(panel);
+                    const asset = (name: string) => panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', name)).toString();
+                    panel.webview.html = buildReadOnlyMarkdownPreview(file, markdown, {
+                        nonce: randomBytes(18).toString('hex'), csp: panel.webview.cspSource,
+                        css: asset('conversationViewer.css'), katex: asset('katex.min.css'), purify: asset('purify.min.js'), mermaidRuntime: asset('conversationMermaidScripts.js'), mermaid: asset('mermaid.min.js'),
+                    }, line, column);
+                    let alive = true;
+                    panel.onDidDispose(() => { alive = false; });
+                    panel.webview.onDidReceiveMessage(async message => {
+                        if (alive && message?.type === 'open-source') {
+                            await controller.open({ fsPath: file, line, column }, [], () => alive, true, true);
+                            return;
+                        }
+                        if (!alive || message?.type !== 'open-link' || typeof message.href !== 'string' || message.href.length > 8192) { return; }
+                        const local = parseConversationLocalFileLink(message.href);
+                        const relative = parseConversationWorkspaceFileLink(message.href);
+                        if (local || relative) {
+                            await controller.open(local || { fsPath: path.resolve(path.dirname(file), relative!.relativePath),
+                                line: relative!.line, column: relative!.column }, [], () => alive);
+                        } else if (/^https:\/\//i.test(message.href)) {
+                            await vscode.env.openExternal(vscode.Uri.parse(message.href));
+                        } else {
+                            void vscode.window.showWarningMessage('This link cannot be opened from the read-only preview.');
+                        }
+                    });
+                },
+            });
+            if ('relativePath' in targetFile && !roots.length) {
+                void vscode.window.showWarningMessage('The file’s workspace is no longer available.');
                 return;
+            }
+            if ('relativePath' in targetFile) {
+                await controller.openRelative(targetFile, roots, current);
+            } else {
+                await controller.open(targetFile, roots, current);
             }
         },
         readWorkspaceMarkdown: async (targetFile, viewerTarget) => {

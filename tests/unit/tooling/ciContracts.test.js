@@ -588,3 +588,27 @@ test('RELEASE-MARKETPLACE-PUBLISH-001 retries a release without letting an uncha
 test('RELEASE-MARKETPLACE-PUBLISH-001 survives the release packager YAML round-trip', () => {
     validateReleaseWorkflow(yaml.safeDump(yaml.load(releaseWorkflow)));
 });
+
+test('MANAGED-REMOTE-PERFORMANCE-001 runs the timing budget outside coverage in a required Linux shard', () => {
+    assert.equal(packageScripts['test:managed-remote-performance'],
+        'node scripts/run-managed-remote-performance-checks.js');
+    for (const command of ['test:ci:linux', 'test:ci:linux:browser']) {
+        assert.ok(packageScripts[command].split(' && ').includes('npm run test:managed-remote-performance'),
+            `${command} must retain the standalone timing budget`);
+    }
+    assert.ok(!packageScripts['test:deterministic:run'].includes('test:managed-remote-performance'),
+        'coverage must not instrument the timing measurement');
+});
+
+test('MANAGED-REMOTE-PERFORMANCE-001 the isolated gate still rejects a 200ms regression', () => {
+    const filename = path.resolve(__dirname, '../../../scripts/run-managed-remote-performance-checks.js');
+    const source = fs.readFileSync(filename, 'utf8');
+    const realRequire = require('node:module').createRequire(filename);
+    let calls = 0;
+    assert.throws(() => require('node:vm').runInNewContext(source, {
+        require: name => name === 'node:perf_hooks'
+            ? { performance: { now: () => calls++ === 0 ? 0 : 200 } }
+            : realRequire(name),
+        console: { log: () => assert.fail('an over-budget run must not report success') },
+    }, { filename }), /merge \+ materialize took 200\.0ms/);
+});

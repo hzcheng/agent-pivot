@@ -607,3 +607,92 @@ test('OPEN-OPEN-PROJECT-INCREMENTAL-RENDERING-001 renderer-ready replay never fa
     assert.deepEqual(refreshes, []);
     assert.deepEqual(errors, [['Failed to post OPEN WORKSPACE update message.', 'webview closed']]);
 });
+
+
+test('OPEN-WORKSPACE-SAVED-SSH-001 renders a saved SSH window using its own UI-host authority', async () => {
+    const { findManagedProjectForOpenProject } = loadWithFakeVscode(
+        '../../../out/projects/openProjectMatcher');
+    // Runtime evidence from the uquant window: the workspace host publishes a
+    // file URI and the UI bridge supplies this SSH authority for the same path.
+    const remotePath = '/home/hzcheng/Documents/projects/Repos/uquant';
+    const current = makeRecord({ name: 'uquant', uri: `file://${remotePath}`, environment: 'ssh' });
+    current.roots = current.roots.map(root => ({ ...root, hostPath: remotePath }));
+    const authoritative = makeRecord({
+        name: 'uquant', environment: 'ssh',
+        uri: `vscode-remote://ssh-remote%2Bhome-book-7f75${remotePath}`,
+    });
+    const machineId = 'machine:732ebf9f4f65e40e4643088f2c390b7c';
+    const environmentId = `host:${machineId}`;
+    const catalog = {
+        lifecycle: 'active',
+        catalog: {
+            machines: [{ id: machineId }],
+            environments: [{ id: environmentId, machineId, kind: 'host' }],
+            projects: [{ id: 'uquant', environmentId, remotePath, name: 'Saved uquant', color: '#123456' }],
+        },
+    };
+    const lookup = workspace => {
+        const uri = new URL(workspace.navigationUri);
+        return findManagedProjectForOpenProject(catalog, {
+            scheme: uri.protocol.slice(0, -1), authority: decodeURIComponent(uri.host),
+            path: decodeURIComponent(uri.pathname),
+        })?.project;
+    };
+    const posted = [];
+    const controller = new OpenWorkspaceDashboardController(createOptions({
+        getCurrentWorkspace: () => current,
+        isWorkspaceSavedAsProject: workspace => Boolean(lookup(workspace)),
+        getWorkspaceProjectName: workspace => lookup(workspace)?.name || '',
+        getWorkspaceProjectColor: workspace => lookup(workspace)?.color || '',
+        getCurrentWorkspaceAiSessions: workspace => {
+            assert.strictEqual(workspace, current, 'session hydration keeps the workspace-host identity');
+            return null;
+        },
+        postMessage: message => { posted.push(message); return true; },
+    }));
+    controller.setBridgeStatus('ready');
+    let revision = 0;
+    async function render(records) {
+        controller.setAggregate(makeAggregate(records, { semanticRevision: `ssh-save-${++revision}` }));
+        await controller.postUpdated();
+        return posted.at(-1).html;
+    }
+    const own = workspace => makeRegistration(SELF, 4000, '', { workspace });
+    const peer = makeRegistration(OLDER, 3900, '', { workspace: authoritative });
+    assert.match(await render([peer]), /class="open-window-save"/,
+        'another window at the saved path must not supply our SSH identity');
+    const html = await render([peer, own(authoritative)]);
+    assert.doesNotMatch(html, /class="open-window-save"/,
+        'the saved current SSH window must not offer Save');
+    assert.match(html, /Saved uquant/);
+    assert.equal(controller.getCards().find(card => card.kind === 'current').color, '#123456');
+    for (const invalid of [
+        { ...authoritative, navigationUri: authoritative.navigationUri + '-old' },
+        { ...authoritative, kind: 'savedMultiRoot' },
+        { ...authoritative, environment: 'devContainer' },
+        { ...authoritative, navigationUri: `file://${remotePath}` },
+        { ...authoritative, navigationUri: `vscode-remote://dev-container%2Bother${remotePath}` },
+        { ...authoritative, navigationUri: 'invalid-uri' },
+        { ...authoritative, navigationUri: `vscode-remote://ssh-remote%2Bother-machine${remotePath}` },
+    ]) {
+        assert.match(await render([peer, own(invalid)]), /class="open-window-save"/,
+            'stale or unrelated registrations must not mark the current project as saved');
+    }
+    // A local window must never borrow a remote Machine identity.
+    current.environment = 'local';
+    assert.match(await render([own({ ...authoritative, environment: 'local' })]), /class="open-window-save"/);
+    current.environment = 'ssh';
+    // Some hosts already expose the authoritative URI: keep matching it directly.
+    current.navigationUri = authoritative.navigationUri;
+    assert.doesNotMatch(await render([own(authoritative)]), /class="open-window-save"/);
+    current.navigationUri = `file://${remotePath}`;
+    await render([own(authoritative)]);
+    catalog.catalog.projects = [];
+    assert.equal(controller.getCards().find(card => card.kind === 'current').showSaveAction, true);
+    // Managed catalog mutations explicitly invalidate pending publications.
+    controller.invalidatePendingUpdates();
+    await controller.postUpdated();
+    assert.match(posted.at(-1).html, /class="open-window-save"/,
+        'removing the saved project invalidates the cached saved state');
+    assert.equal(current.navigationUri, `file://${remotePath}`);
+});

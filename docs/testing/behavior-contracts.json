@@ -7162,6 +7162,21 @@
     ]
   },
   {
+    "id": "OPEN-WORKSPACE-SAVED-SSH-001",
+    "domain": "open-project",
+    "title": "Saved SSH current windows use their own matching UI-host authority for saved state, name and color while retaining workspace-host session identity",
+    "priority": "P0",
+    "status": "automated",
+    "owners": [
+      "tests/contract/openProjects/dashboardController.test.js"
+    ],
+    "evidence": [
+      "src/openWorkspaces/dashboardController.ts",
+      "src/projects/openProjectMatcher.ts",
+      "src/webview/webviewWindowSwitcherContent.ts"
+    ]
+  },
+  {
     "id": "MANAGED-REMOTE-NAVIGATION-001",
     "domain": "project",
     "title": "Managed Project rows reuse a proven current-Machine authority and use the local UI host only for cross-Machine navigation",
@@ -7220,11 +7235,14 @@
     "priority": "P0",
     "status": "automated",
     "owners": [
-      "tests/contract/projects/managedRemotePerformance.test.js"
+      "tests/contract/projects/managedRemotePerformance.test.js",
+      "tests/unit/tooling/ciContracts.test.js",
+      "scripts/run-managed-remote-performance-checks.js"
     ],
     "evidence": [
       "src/projects/managedRemote/merge.ts",
-      "src/projects/managedRemote/payload.ts"
+      "src/projects/managedRemote/payload.ts",
+      "tests/fixtures/managedRemoteCatalog.js"
     ]
   },
   {

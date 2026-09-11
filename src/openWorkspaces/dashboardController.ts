@@ -1,6 +1,7 @@
 'use strict';
 
 import * as crypto from 'crypto';
+import { URL } from 'url';
 
 import type { AttentionAggregate } from '../aiSessions/attentionAggregate';
 import type { WorkspaceAiSessionViewModel } from '../aiSessions/types';
@@ -393,21 +394,22 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
             workspace,
             projection
         ) || undefined;
+        const projectWorkspace = this.getCurrentProjectWorkspace(workspace);
         return {
             id: projectId,
             kind: 'current',
             workspaceKind: workspace.kind,
             showSaveAction: workspace.kind === 'untitledMultiRoot'
-                || !this.options.isWorkspaceSavedAsProject(workspace),
+                || !this.options.isWorkspaceSavedAsProject(projectWorkspace),
             pinned,
             runningSessionCount: (aiSessions?.activeSessions || [])
                 .filter(session => session.executionState === 'running').length,
             navigationIdentity,
             scopeIdentity: workspace.scopeIdentity,
-            name: this.getWorkspaceProjectName(workspace) || workspace.displayName,
+            name: this.getWorkspaceProjectName(projectWorkspace) || workspace.displayName,
             environment: workspace.environment,
             environmentLabel: this.getEnvironmentLabel(workspace.environment),
-            color: this.getWorkspaceCardColor(workspace),
+            color: this.getWorkspaceCardColor(projectWorkspace),
             roots: workspace.roots
                 .slice()
                 .sort((left, right) => left.ordinal - right.ordinal || left.id.localeCompare(right.id))
@@ -415,6 +417,31 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
             aiSessions,
             attentionCount: aiSessions?.attentionCount || 0,
         };
+    }
+
+    private getCurrentProjectWorkspace(workspace: OpenWorkspace): OpenWorkspace {
+        // The SSH Extension Host sees file URIs. Only our own UI-host
+        // registration can restore the Machine authority for project lookup;
+        // session hydration must retain the original workspace-host identity.
+        if (workspace.environment !== 'ssh') { return workspace; }
+        const registered = this.aggregate?.registrations.find(registration =>
+            registration.instanceId === this.options.getBridgeInstanceId())?.workspace;
+        if (!registered || registered.kind !== workspace.kind
+            || registered.environment !== workspace.environment) { return workspace; }
+        try {
+            const local = new URL(workspace.navigationUri);
+            const remote = new URL(registered.navigationUri);
+            if (local.protocol !== 'file:' || local.host
+                || remote.protocol !== 'vscode-remote:'
+                || !decodeURIComponent(remote.host).startsWith('ssh-remote+')
+                || decodeURIComponent(local.pathname) !== decodeURIComponent(remote.pathname)) {
+                return workspace;
+            }
+            return { ...workspace, navigationUri: registered.navigationUri };
+        } catch (error) {
+            this.options.logError('Failed to resolve current SSH project URI', error);
+            return workspace;
+        }
     }
 
     private getEnvironmentLabel(environment: OpenWorkspace['environment']): string {
@@ -506,7 +533,7 @@ export class OpenWorkspaceDashboardController<TTerminal = unknown> {
                     root.hostPath,
                     root.ordinal,
                 ]),
-                saved: this.options.isWorkspaceSavedAsProject(workspace),
+                saved: this.options.isWorkspaceSavedAsProject(this.getCurrentProjectWorkspace(workspace)),
             } : null,
         ]);
     }

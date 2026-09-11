@@ -4,6 +4,23 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-11
+
+### Added
+
+- Review rendered Markdown beside AI Conversation, with inline comments,
+  resizable comment panels, keyboard save shortcuts, refresh and batch AI sending.
+- Open local screenshot and report links from AI Conversation. External files
+  require explicit confirmation; external Markdown uses an isolated read-only
+  preview with Mermaid and KaTeX rendering.
+
+### Changed
+
+- Align Agent Pivot and Attention UI Bridge at version 1.5.0 for this release.
+  Preserve the existing file-transfer and attention bridge functionality.
+- Continue publishing through the VS Code Marketplace with the existing
+  Workspace Trust declaration and progressively rendered AI Conversation.
+
 ## [1.4.3] - 2026-09-09
 
 ### Fixed

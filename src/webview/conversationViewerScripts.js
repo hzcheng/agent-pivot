@@ -4151,7 +4151,16 @@
     }
 
     function restoreConversationFrame(frame) {
-        messages.replaceChildren.apply(messages, frame.nodes);
+        // A matching preflight already attached these nodes. Replacing them
+        // again disconnects the whole transcript and invalidates its layout.
+        // Compare every child so an altered or detached frame still restores.
+        var alreadyAttached = messages.childNodes.length === frame.nodes.length
+            && frame.nodes.every(function (node, index) {
+                return messages.childNodes[index] === node;
+            });
+        if (!alreadyAttached) {
+            messages.replaceChildren.apply(messages, frame.nodes);
+        }
         state.messageIds = frame.messageIds;
         state.messageSignatures = frame.messageSignatures;
         state.worklogExpanded = frame.worklogExpanded;
@@ -4244,6 +4253,72 @@
         window.setTimeout(function () {
             window.setTimeout(apply, 0);
         }, 0);
+    }
+
+    function supportsCompressedPages() {
+        return typeof DecompressionStream === 'function'
+            && typeof TextDecoder === 'function'
+            && typeof Blob === 'function'
+            && typeof Blob.prototype.stream === 'function';
+    }
+
+    async function applyCompressedPage(message) {
+        var reader;
+        var plain = Object.assign({}, message, { html: '' });
+        delete plain.htmlGzip;
+        delete plain.htmlBytes;
+        try {
+            if (!supportsCompressedPages()
+                || typeof message.htmlGzip !== 'string'
+                || message.html !== undefined
+                || !Number.isSafeInteger(message.htmlBytes)
+                || message.htmlBytes < 0 || message.htmlBytes > 16 * 1024 * 1024
+                || message.htmlGzip.length > 24 * 1024 * 1024
+                || !validPage(plain)) {
+                throw new Error('Invalid compressed conversation page');
+            }
+            if (message.subscriptionGeneration < state.subscriptionGeneration
+                || (message.subscriptionGeneration === state.subscriptionGeneration
+                    && message.requestId <= state.latestRequestId)) return;
+            var encoded = atob(message.htmlGzip);
+            var bytes = Uint8Array.from(encoded, function (value) {
+                return value.charCodeAt(0);
+            });
+            reader = new Blob([bytes]).stream()
+                .pipeThrough(new DecompressionStream('gzip')).getReader();
+            var decoder = new TextDecoder('utf-8', { fatal: true });
+            var parts = [];
+            var size = 0;
+            while (true) {
+                var chunk = await reader.read();
+                if (chunk.done) break;
+                size += chunk.value.byteLength;
+                if (size > message.htmlBytes) {
+                    throw new Error('Compressed conversation page exceeds its size');
+                }
+                parts.push(decoder.decode(chunk.value, { stream: true }));
+            }
+            if (size !== message.htmlBytes) {
+                throw new Error('Compressed conversation page size mismatch');
+            }
+            parts.push(decoder.decode());
+            // Decompression yields. The normal page gate rechecks generation
+            // and request ordering before touching any authoritative state.
+            plain.html = parts.join('');
+            applyPage(plain);
+        } catch (_error) {
+            if (message.subscriptionGeneration < state.subscriptionGeneration
+                || (message.subscriptionGeneration === state.subscriptionGeneration
+                    && message.requestId < state.latestRequestId)) return;
+            // Retained Host publications are uncompressed, so the existing
+            // correlated recovery path can rebuild without this wire feature.
+            requestConversationResync(message, new Error('Compressed page apply failed'));
+        } finally {
+            if (reader) {
+                try { await reader.cancel(); } catch (_cancelError) { /* already errored */ }
+                reader.releaseLock();
+            }
+        }
     }
 
     function applyPage(message) {
@@ -5824,6 +5899,11 @@
         if (applyLoadingNotice(event.data)) return;
         if (applyEarlierPageResult(event.data)) return;
         if (applyHistoryChunk(event.data)) return;
+        if (event.data && event.data.type === 'conversation-viewer-page'
+            && event.data.htmlGzip !== undefined) {
+            void applyCompressedPage(event.data);
+            return;
+        }
         try {
             applyPage(event.data);
         } catch (_applyError) {
@@ -5853,7 +5933,9 @@
     post({
         type: 'conversation-viewer-capabilities',
         version: 1,
-        capabilities: ['tail-patch', 'frame-preflight'],
+        capabilities: ['tail-patch', 'frame-preflight'].concat(
+            supportsCompressedPages() ? ['gzip-html'] : []
+        ),
         documentId: document.body.getAttribute('data-document-id') || '',
     });
     postFocusState();

@@ -1,5 +1,7 @@
 'use strict';
 
+import { isDeepStrictEqual } from 'util';
+
 import type { AiSessionProviderId } from '../models';
 import type { AiSessionRuntimeIdentity, AiSessionTmuxLayout } from './runtimeTypes';
 import {
@@ -50,6 +52,8 @@ export type TmuxAttachProcessId = number | PromiseLike<number | undefined>;
 export class TmuxAttachBindingStore {
     private writeQueue: Promise<void> = Promise.resolve();
     private errorReported = false;
+    private readonly failedWrites = new Set<string>();
+    private readonly obsoleteProcesses = new Map<string, Set<number>>();
 
     constructor(
         private readonly state: TmuxAttachBindingState,
@@ -135,15 +139,16 @@ export class TmuxAttachBindingStore {
                 return;
             }
             const previous = this.readRecovery(token, false);
-            await this.writeProcessBinding(pid, binding);
-            await this.state.update(getRecoveryBindingKey(token), {
-                version: 1,
-                processId: pid,
-                binding: cloneBinding(binding),
-            });
-            if (previous && previous.processId !== pid) {
-                await this.removeProcessBindings(previous.processId);
-            }
+            this.rememberObsoleteProcess(token, previous?.processId);
+            await this.writeBatch([
+                ...this.processBindingUpdates(pid, binding),
+                [getRecoveryBindingKey(token), {
+                    version: 1,
+                    processId: pid,
+                    binding: cloneBinding(binding),
+                }],
+            ]);
+            await this.clearObsoleteProcesses(token, pid);
         }).catch(error => this.reportErrorOnce(error));
     }
 
@@ -153,11 +158,38 @@ export class TmuxAttachBindingStore {
         }
         this.writeQueue = this.writeQueue.then(async () => {
             const previous = this.readRecovery(token, false);
-            await this.state.update(getRecoveryBindingKey(token), undefined);
-            if (previous) {
-                await this.removeProcessBindings(previous.processId);
-            }
+            this.rememberObsoleteProcess(token, previous?.processId);
+            await this.writeBatch([[getRecoveryBindingKey(token), undefined]]);
+            await this.clearObsoleteProcesses(token);
         }).catch(error => this.reportErrorOnce(error));
+    }
+
+    // Retain rollover cleanup across partial/optimistic Memento failures.
+    // The recovery key may already expose the new PID when a retry begins.
+    private rememberObsoleteProcess(token: string, processId?: number): void {
+        if (processId === undefined) {
+            return;
+        }
+        let pending = this.obsoleteProcesses.get(token);
+        if (!pending) {
+            this.obsoleteProcesses.set(token, pending = new Set());
+        }
+        pending.add(processId);
+    }
+
+    private async clearObsoleteProcesses(token: string, currentProcessId?: number): Promise<void> {
+        const pending = this.obsoleteProcesses.get(token);
+        if (!pending) {
+            return;
+        }
+        if (currentProcessId !== undefined) {
+            pending.delete(currentProcessId);
+        }
+        for (const processId of pending) {
+            await this.removeProcessBindings(processId);
+            pending.delete(processId);
+        }
+        this.obsoleteProcesses.delete(token);
     }
 
     flush(): Promise<void> {
@@ -204,24 +236,53 @@ export class TmuxAttachBindingStore {
         }
     }
 
+    // Recovery and process records are independently complete. Launch their
+    // updates together so VS Code can persist one Memento batch across SSH.
+    // Always drain failed batches before advancing the serialized queue.
+    private async writeBatch(updates: Array<[string, unknown]>): Promise<void> {
+        const results = await Promise.all(updates.map(async ([key, value]) => {
+            try {
+                if (!this.failedWrites.has(key)
+                    && isDeepStrictEqual(this.state.get(key, undefined), value)) {
+                    return { failed: false };
+                }
+                await this.state.update(key, value);
+                this.failedWrites.delete(key);
+                return { failed: false };
+            } catch (error) {
+                // Memento may expose an optimistic value before its write
+                // fails. A retry must still reach durable storage.
+                this.failedWrites.add(key);
+                return { failed: true, error };
+            }
+        }));
+        const failure = results.find(result => result.failed);
+        if (failure) {
+            throw failure.error;
+        }
+    }
+
+    private processBindingUpdates(
+        processId: number,
+        record: TmuxAttachBinding | null
+    ): Array<[string, unknown]> {
+        return [
+            [getBindingKey(processId), record?.version === 3
+                ? cloneBinding(record) : undefined],
+            [getLegacyBindingKey(processId), record?.version === 2
+                ? cloneBinding(record) : undefined],
+        ];
+    }
+
     private async removeProcessBindings(processId: number): Promise<void> {
-        await this.state.update(getBindingKey(processId), undefined);
-        await this.state.update(getLegacyBindingKey(processId), undefined);
+        await this.writeBatch(this.processBindingUpdates(processId, null));
     }
 
     private async writeProcessBinding(
         processId: number,
         record: TmuxAttachBinding | null
     ): Promise<void> {
-        if (!record) {
-            await this.removeProcessBindings(processId);
-        } else if (record.version === 3) {
-            await this.state.update(getBindingKey(processId), cloneBinding(record));
-            await this.state.update(getLegacyBindingKey(processId), undefined);
-        } else {
-            await this.state.update(getLegacyBindingKey(processId), cloneBinding(record));
-            await this.state.update(getBindingKey(processId), undefined);
-        }
+        await this.writeBatch(this.processBindingUpdates(processId, record));
     }
 
     private enqueueRecoveryMigration(
@@ -230,12 +291,14 @@ export class TmuxAttachBindingStore {
         binding: TmuxAttachBinding
     ): void {
         this.writeQueue = this.writeQueue.then(async () => {
-            await this.writeProcessBinding(processId, binding);
-            await this.state.update(getRecoveryBindingKey(token), {
-                version: 1,
-                processId,
-                binding: cloneBinding(binding),
-            });
+            await this.writeBatch([
+                ...this.processBindingUpdates(processId, binding),
+                [getRecoveryBindingKey(token), {
+                    version: 1,
+                    processId,
+                    binding: cloneBinding(binding),
+                }],
+            ]);
         }).catch(error => this.reportErrorOnce(error));
     }
 }

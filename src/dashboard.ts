@@ -2643,6 +2643,8 @@ async function initializeDashboard(
                     target.projectId,
                     target.provider,
                     target.sessionId,
+                    { revealTerminal: !openWhenClosed
+                        && !conversationCapability.viewer.isOpen() },
                 );
             } catch (error) {
                 outcome = 'focus-error';

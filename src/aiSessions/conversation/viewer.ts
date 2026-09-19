@@ -1,6 +1,7 @@
 'use strict';
 
 import { createHash } from 'crypto';
+import { gzipSync } from 'zlib';
 import { URL } from 'url';
 import * as vscode from 'vscode';
 import { AGENT_PIVOT_CONVERSATION_VIEW_TYPE } from '../../constants';
@@ -360,6 +361,9 @@ export interface ConversationViewerPageMessage {
     subscriptionGeneration: number;
     updateKind: 'initial' | 'navigation' | 'refresh';
     html?: string;
+    /** Negotiated wire-only compression; retained publications stay plain. */
+    htmlGzip?: string;
+    htmlBytes?: number;
     htmlSignature: string;
     /** Wire-only: when set, `html` is omitted and the Webview replaces just
      * this trailing interaction group with `tailHtml`. */
@@ -539,6 +543,7 @@ export class ConversationViewer implements ConversationViewerApi {
     // normal loading notice it must never reach an older retained document,
     // which would not understand the cancellation message.
     private webviewFramePreflightCapable = false;
+    private webviewGzipHtmlCapable = false;
     // Monotonic identity of the document most recently rendered for this
     // panel; the capabilities handshake echoes it back, so only the running
     // document's advertisement arms delta deliveries.
@@ -1742,6 +1747,7 @@ export class ConversationViewer implements ConversationViewerApi {
                     .includes('tail-patch');
                 this.webviewFramePreflightCapable = parsed.capabilities
                     .includes('frame-preflight');
+                this.webviewGzipHtmlCapable = parsed.capabilities.includes('gzip-html');
             }
             return;
         }
@@ -3931,7 +3937,7 @@ export class ConversationViewer implements ConversationViewerApi {
             && !this.progressivePublication
             ? tailSplit
             : undefined;
-        const wire: ConversationViewerPageMessage = sameAsApplied
+        let wire: ConversationViewerPageMessage = sameAsApplied
             ? { ...publication, html: undefined }
             : frameRestorable
                 ? { ...publication, html: undefined, restoreFrame: true }
@@ -3943,13 +3949,25 @@ export class ConversationViewer implements ConversationViewerApi {
                         tailHtml: tailPatch.tailHtml,
                     }
                     : publication;
+        // Remote Webviews share the SSH connection with terminals and other
+        // extensions. Compress large full pages only after a document-bound
+        // capability handshake; cache restores/deltas remain the cheaper path.
+        if (this.webviewGzipHtmlCapable && typeof wire.html === 'string') {
+            const htmlBytes = Buffer.byteLength(wire.html, 'utf8');
+            if (htmlBytes >= 64 * 1024 && htmlBytes <= 16 * 1024 * 1024) {
+                const htmlGzip = gzipSync(wire.html, { level: 1 }).toString('base64');
+                if (htmlGzip.length < htmlBytes * 0.8) {
+                    wire = { ...wire, html: undefined, htmlGzip, htmlBytes };
+                }
+            }
+        }
         let delivered = false;
         try {
             this.recordPublicationDelivery(
                 publication,
                 'message',
                 wire.html === undefined
-                    ? Buffer.byteLength(wire.tailHtml || '', 'utf8')
+                    ? Buffer.byteLength(wire.htmlGzip || wire.tailHtml || '', 'utf8')
                     : Buffer.byteLength(wire.html, 'utf8')
             );
             delivered = await panel.webview.postMessage(wire);
@@ -5242,6 +5260,7 @@ export class ConversationViewer implements ConversationViewerApi {
         this.currentDocumentId = String(++this.documentSerial);
         this.webviewTailPatchCapable = false;
         this.webviewFramePreflightCapable = false;
+        this.webviewGzipHtmlCapable = false;
         return renderConversationViewerDocument({
             panel,
             target,

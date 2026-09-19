@@ -2121,6 +2121,8 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus
         'a row click must use the shared terminal-focus queue');
     assert.ok(preparedStart >= 0,
         'a row click must start a snapshot transaction in its own execution path');
+    assert.match(navigationPath[0], /revealTerminal: !openWhenClosed\s*&& !conversationCapability\.viewer\.isOpen\(\)/,
+        'conversation navigation must avoid the terminal-focus RPC while terminal-only navigation still reveals it');
     assert.ok(focusStart >= 0 && applyStart >= 0,
         'the shared path must explicitly await focus and its prepared apply');
     assert.ok(focusedBranch,

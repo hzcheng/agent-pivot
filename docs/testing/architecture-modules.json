@@ -444,6 +444,7 @@
             "publicEntrypoints": [
                 "src/aiSessions/activeTerminalHighlight.ts",
                 "src/aiSessions/aliasStore.ts",
+                "src/aiSessions/codexManagedRun.ts",
                 "src/aiSessions/codexProfileNames.ts",
                 "src/aiSessions/codexProfiles.ts",
                 "src/aiSessions/codexRolloutContentSignature.ts",

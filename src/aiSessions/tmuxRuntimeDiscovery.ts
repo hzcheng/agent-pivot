@@ -492,6 +492,7 @@ export class TmuxRuntimeDiscovery {
                     observedSessionId = await this.options.codexRootThreadObserver.observe({
                         panePid: row.panePid,
                         currentSessionId: locatorKnown.sessionId,
+                        markerPath,
                         runStartedAtMs,
                     });
                 } catch (e) {

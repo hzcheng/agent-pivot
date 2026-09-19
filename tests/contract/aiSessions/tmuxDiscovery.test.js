@@ -383,6 +383,7 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 SESSION-ALIAS-THREAD-SWITCH-001 rebinds one
     assert.deepEqual(observed, [{
         panePid: 4321,
         currentSessionId: 'old-root',
+        markerPath: known.markerPath,
         runStartedAtMs: known.runStartedAtMs,
     }]);
     assert.deepEqual(discovery.getActive().map(runtime => runtime.identity.sessionId), ['new-root']);

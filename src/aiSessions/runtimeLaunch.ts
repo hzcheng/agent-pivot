@@ -1,6 +1,7 @@
 'use strict';
 
 import type { AiSessionLaunchSpec } from './launchSpec';
+import { prepareCodexManagedLaunch } from './codexManagedRun';
 import type {
     AiSessionLazyRuntimeLaunch,
     AiSessionRuntimeLaunchInput,
@@ -15,7 +16,7 @@ export function createSingleUseLaunchSpecFactory(
             throw new Error('The AI session launch specification was already created.');
         }
         used = true;
-        return cloneAiSessionLaunchSpec(createLaunchSpec());
+        return prepareCodexManagedLaunch(cloneAiSessionLaunchSpec(createLaunchSpec()));
     };
 }
 

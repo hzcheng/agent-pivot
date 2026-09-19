@@ -1,75 +1,100 @@
 # Live conversation output
 
-The conversation viewer preserves the existing terminal/tmux launch, input,
-approval, and reconnect workflow. It does not generate turns itself.
+## Codex terminal ownership
 
-## Sources and limits
+On Unix hosts, new and resumed Codex terminals launched by Agent Pivot use a
+terminal-owned companion app-server and the original Codex TUI connected through
+`--remote unix://`. The packaged `dist/codexTerminal.js` runner owns the server
+for the lifetime of that terminal, independently of the extension host. Existing
+running terminals must be closed and reopened once to use this launch path.
+Reloading the extension alone cannot migrate an already-running ordinary CLI.
 
-- Codex: on Unix hosts, attach to the existing local shared app-server socket
-  under `CODEX_HOME/app-server-control/app-server-control.sock`. Check
-  `thread/loaded/list` before joining with `thread/resume`, without configuration
-  overrides. Consume item start/completion, agent-message deltas, and turn
-  lifecycle notifications. Never launch a daemon, send a turn, or answer approval
-  requests. Unsupported/missing daemons fall back to durable history.
-- Kimi/Claude: watch the visible transcript at 150 ms intervals, independently of
-  the slower all-session discovery poll. This exposes content as soon as the CLI
-  persists it; it cannot reconstruct tokens absent from that CLI's transcript.
-- Publication coalesces bursts, waits for the preceding publication to settle,
-  and uses a 100 ms completion floor for live updates. Ordinary discovery keeps
-  its existing slower throttle.
+The TUI remains responsible for prompts, approvals, and turns. A private local
+WebSocket relay observes successful non-ephemeral `thread/start`, `thread/resume`,
+and `thread/fork` replies to identify the terminal's selected root. Ephemeral
+naming helpers and the conversation viewer's separate observer connection cannot
+rebind the terminal. Every root selection preserves and verifies the Agent Pivot
+working directory and all runtime workspace roots. Initial explicit resume
+permission choices travel in the resume request because the remote TUI rejects
+those command-line flags.
+
+Private run metadata links the selection to the wrapper PID and process start
+identity. Pending terminal matching waits for this exact selection; tmux discovery
+also requires the wrapper to belong to the pane process tree. Per-session socket
+records let the conversation feed follow this companion instead of an unrelated
+shared daemon. Normal exit, SIGHUP, SIGTERM, startup cancellation, and companion
+failure clean up owned records and sockets. A hard kill of the wrapper is not a
+guaranteed companion cleanup path; stale PID records are rejected by readers.
+
+Custom `-p` profile launches retain ordinary CLI behavior and print an explicit
+notice that live text is unavailable: remote TUI mode cannot safely preserve all
+profile configuration. Unsupported CLIs and Windows also retain ordinary launch
+and durable-history rendering. The managed path was verified with Codex 0.155.0;
+capability probing requires Unix remote transport, and mismatched workspace-root
+responses stop the launch rather than silently continuing in another scope.
+
+## Conversation sources and limits
+
+- Codex joins loaded threads through the managed socket, or an existing shared
+  app-server socket when no managed run exists. It consumes item and turn events
+  plus assistant text deltas. The viewer never sends a turn or answers approvals.
+  An ordinary standalone CLI is not loaded in that shared daemon, so creating a
+  new ordinary terminal alone does not enable streaming.
+- Kimi and Claude watch the visible transcript every 150 ms independently of
+  slower session discovery. They expose text when the CLI persists it; they
+  cannot reconstruct tokens absent from the transcript.
+- Publication coalesces bursts and waits for in-flight refreshes, with a 100 ms
+  completion floor for live updates. Ordinary discovery keeps its slower throttle.
 
 The Codex feed retains at most two recent turns per subscription, eight watched
 sessions, a 4 Mi-character tail, and a 64 MiB incoming WebSocket frame. Budget
-failures disable the live connection for that subscription instead of repeatedly
-pulling an oversized history. Disconnects clear the transient overlay and trigger
-an authoritative history refresh. Missing transports retry while watched;
-unsubscribing releases sockets and timers. Turn/item completion replaces partial
-text rather than appending it again.
+failures disable the connection for that subscription. Disconnects clear the
+transient overlay and refresh authoritative history. Missing transports retry
+while watched; unsubscribing releases sockets and timers. Completed items replace
+partial text without appending duplicates. If attachment misses an item's start,
+a suffix is not displayed as a complete message; item completion restores it.
 
-Joining in the middle of an already-started item may miss its prefix: no suffix
-is shown without its item start. The completed item restores the complete text.
-Windows currently uses the durable-history fallback.
+## Real remote evidence (2026-09-19)
 
-## Real protocol evidence (2026-09-19)
+The two reported failing chats were ordinary CLI sessions absent from the shared
+server's loaded-thread list. The installed extension was current, so stale bytes
+were not the cause. A shared-server producer test demonstrated only its transport,
+not the user's terminal workflow. Native TUI recording and targeted diagnostic
+logs did not contain the required text deltas and were not enabled in user config.
 
-Host: reddev-container, Codex CLI 0.155.0, shared app-server 0.154.0.
-The Unix socket requires a WebSocket HTTP upgrade; it is not raw JSONL.
-The existing private stdio app-server only supplies persisted history and cannot
-receive another client's token deltas.
+Isolated probes on reddev-container used the actual Codex 0.155.0 TUI, compiled
+managed runner, production live feed, conversation adapter, and process-tree root
+observer. All prompts requested integers 1 through 300 without tools, under
+read-only sandbox and `never` approval policy. No user chat was interrupted,
+prompted, or reconfigured.
 
-A disposable test conversation, with read-only sandbox and no tools, exercised
-separate producer and observer connections. The observer received agent-message
-deltas while the original client remained attached. Mid-generation `thread/read`
-contained the user item but no partial agent text. An initial two-turn page on
-resume was 2060 bytes but omitted even the in-progress user item; the live feed
-therefore uses the bounded full resume response to seed the current turn.
+| Actual terminal launch | Pre-completion snapshots | Final assistant characters |
+| --- | ---: | ---: |
+| New | 300 | 1091 |
+| Resume the same probe thread | 284 | 2182 across both turns |
+| New with an additional workspace root | 297 | 1091 |
+| `/new` inside a running multi-root TUI | 193 | 1091 |
 
-The compiled feed plus production conversation adapter were then run against a
-real test turn. They observed 317 notifications, produced 272 pre-completion
-snapshots containing assistant text, and converged to exactly 691 characters
-(the expected sequence of integers 1 through 200). The test thread was archived.
-A second probe attached while idle, then began the next turn through the original
-client. It observed 198 in-progress snapshots and retained the preceding two-character
-reply plus all 291 characters of the new reply. This covers the normal workflow
-of leaving the conversation viewer open before submitting another prompt.
-No existing user thread was prompted, interrupted, or reconfigured by the probe.
+Each probe verified the requested effective directory, full root scope, root
+identity, and cleanup after terminating its own wrapper. Final text matched the
+expected sequence exactly. These results establish provider-to-adapter streaming;
+the browser contract separately verifies successive visible assistant updates
+before completion and a single final response.
 
-Contract coverage includes live-to-final reconciliation, unloaded-thread fallback,
-disconnect, response/delta ordering in a single receive batch, oversized-tail
-circuit breaking, replacement-subscription disposal, transcript append/disposal,
-and coalesced publication with an in-flight refresh.
+## Automated verification
 
-## Verification
+Contract fixtures exercise actual wrapper child processes and WebSocket sockets:
+new/resume/multi-root launch, `/new`/resume/fork root transitions, helper isolation,
+exact pending matching, partial-to-final reconciliation, unsupported/profile
+fallback, startup failure, cancellation during listen, and invalid root responses.
+Metadata tests cover private files, stale process identities, and pane ownership.
+Feed tests cover ordering, disconnect, unloaded threads, bounded tails, and
+subscription replacement. Browser tests cover incremental display without final
+response duplication.
 
-- Focused adapter/coordinator/transport tests and the 230-test local conversation
-  browser suite passed.
-- The full Linux CI command exited successfully: 1501 unit, 1384 contract,
-  509 integration, and 545 browser tests passed, followed by architecture,
-  behavior, performance, release packaging, and coverage checks. Changed-line
-  coverage: 92.20% (319/346).
-- Known pre-existing harness limitation: `run-ai-session-safety-checks.js` exits
-  zero without its final success banner in the terminal-binding fixture, as
-  already reproduced on the clean base during the preceding switching work.
-  The aggregate exit code is therefore not evidence that every assertion in
-  that individual script executed. Runtime binding/persistence was not changed
-  here; the focused conversation tests above completed with explicit totals.
+The complete Linux CI command includes behavior, deterministic tests, browser,
+performance, architecture, safety, release packaging, and coverage gates.
+Known baseline limitation: `run-ai-session-safety-checks.js` exits zero without
+its final success banner in the terminal-binding fixture, reproduced on clean
+`origin/main`. Its exit code alone does not prove every assertion executed;
+focused binding and launcher tests have explicit completed totals.

@@ -3,6 +3,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { readCodexManagedRun } from './codexManagedRun';
 
 const DEFAULT_MAX_PROCESSES = 128;
 const DEFAULT_MAX_DESCRIPTORS = 1024;
@@ -12,6 +13,7 @@ const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$/;
 
 export interface CodexRootThreadObservationRequest {
     panePid: number;
+    markerPath?: string;
     currentSessionId: string;
     runStartedAtMs: number;
 }
@@ -73,6 +75,21 @@ export class ProcCodexRootThreadObserver implements CodexRootThreadObserver {
     }
 
     private observeLinux(request: CodexRootThreadObservationRequest): string | null {
+        const managedFile = request.markerPath ? `${request.markerPath}.stream.json` : undefined;
+        if (managedFile && fs.existsSync(managedFile)) {
+            const run = readCodexManagedRun(managedFile, this.procRoot);
+            if (!run || run.startedAt < request.runStartedAtMs) { return null; }
+            const queue = [request.panePid];
+            const visited = new Set<number>();
+            while (queue.length && visited.size < this.maxProcesses) {
+                const pid = queue.shift() as number;
+                if (visited.has(pid)) { continue; }
+                visited.add(pid);
+                if (pid === run.pid) { return run.sessionId; }
+                queue.push(...readChildren(this.procRoot, pid));
+            }
+            return null;
+        }
         const sessionsRoot = fs.realpathSync(path.join(this.codexHome, 'sessions'));
         if (!fs.statSync(sessionsRoot).isDirectory()) {
             return null;

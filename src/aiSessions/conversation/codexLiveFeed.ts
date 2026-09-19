@@ -2,6 +2,7 @@
 
 import * as os from 'os';
 import * as path from 'path';
+import { resolveCodexManagedSocket } from '../codexManagedRun';
 import type { AiSessionDisposable } from '../types';
 
 // ws handles framing, fragmentation, ping/pong and bounded payloads. Never
@@ -24,7 +25,7 @@ export class CodexLiveFeed implements AiSessionDisposable {
     private disposed = false;
     private revision = 0;
 
-    constructor(private readonly socketPath = path.join(
+    constructor(private readonly socketPath: string | ((sessionId: string) => string) = sessionId => resolveCodexManagedSocket(sessionId) || path.join(
         process.env.CODEX_HOME || path.join(os.homedir(), '.codex'),
         'app-server-control', 'app-server-control.sock'
     )) {}
@@ -84,7 +85,8 @@ export class CodexLiveFeed implements AiSessionDisposable {
 
     private connect(sessionId: string, entry: Entry): void {
         if (entry.stopped || this.disposed) { return; }
-        const socket = new WebSocket(`ws+unix://${this.socketPath}:/`, {
+        const socketPath = typeof this.socketPath === 'function' ? this.socketPath(sessionId) : this.socketPath;
+        const socket = new WebSocket(`ws+unix://${socketPath}:/`, {
             maxPayload: 64 * 1024 * 1024,
             handshakeTimeout: 3000,
             perMessageDeflate: false,

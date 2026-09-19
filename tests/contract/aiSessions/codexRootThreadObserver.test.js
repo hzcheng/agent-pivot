@@ -166,3 +166,18 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 contains proc races, cycles, invalid reques
         assert.equal(await missingSessions.observe(), null);
     });
 });
+
+test('RUNTIME-TMUX-THREAD-SWITCH-001 follows only the managed root selected by this pane, not helper threads', async t => {
+    const h = createHarness(t);
+    const markerPath = path.join(h.root, 'session.done');
+    const stat = `${CHILD_PID} (node) S ${Array(18).fill('0').join(' ')} 123\n`;
+    fs.writeFileSync(path.join(h.procRoot, String(CHILD_PID), 'stat'), stat);
+    fs.writeFileSync(markerPath + '.stream.json', JSON.stringify({
+        version: 1, runId: 'a'.repeat(32), state: 'running', pid: CHILD_PID,
+        processStart: '123', startedAt: STARTED_AT_MS, cwd: '/work', sessionId: 'selected-root',
+    }), { mode: 0o600 });
+    addSession(h, CHILD_PID, 'helper-title', { originator: 'codex-app-server' });
+    assert.equal(await h.observe({ markerPath }), 'selected-root');
+    fs.writeFileSync(path.join(h.procRoot, String(CHILD_PID), 'stat'), stat.replace('123', '456'));
+    assert.equal(await h.observe({ markerPath }), null, 'PID reuse must invalidate the run');
+});

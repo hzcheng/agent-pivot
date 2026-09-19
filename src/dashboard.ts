@@ -1399,7 +1399,13 @@ async function initializeDashboard(
         getRegisteredAiSessionProviders,
         getAiSessionRuntimeById,
         getAiSessionRuntimeCollision,
-        getLaunchOptions: () => readAiSessionLaunchOptions(vscode.workspace),
+        getLaunchOptions: () => ({
+            ...readAiSessionLaunchOptions(vscode.workspace),
+            ...(process.platform === 'win32'
+                || !existsSync(path.join(context.extensionPath, 'dist', 'codexTerminal.js')) ? {} : {
+                codexStreamRunner: path.join(context.extensionPath, 'dist', 'codexTerminal.js'),
+            }),
+        }),
         aiSessionProfileController,
         getCodexDefaultProfile: () => readCodexDefaultProfile(vscode.workspace),
         getCodexProfileSupport: () => codexProfileSupportProbe.isSupported(),

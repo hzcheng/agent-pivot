@@ -4696,6 +4696,8 @@
     "status": "automated",
     "owners": [
       "tests/contract/aiSessions/codexConversationAdapter.test.js",
+      "tests/contract/aiSessions/codexLiveFeed.test.js",
+      "tests/browser/conversationViewer.test.js",
       "tests/contract/aiSessions/kimiConversationAdapter.test.js",
       "tests/contract/aiSessions/claudeConversationAdapter.test.js",
       "tests/integration/dashboard/conversationViewer.test.js",
@@ -5064,6 +5066,8 @@
     "status": "automated",
     "owners": [
       "tests/unit/aiSessions/commandBuilders.test.js",
+      "tests/unit/aiSessions/codexManagedPending.test.js",
+      "tests/contract/aiSessions/codexTerminal.test.js",
       "tests/platform/windows/commandBuilders.test.js"
     ],
     "evidence": [

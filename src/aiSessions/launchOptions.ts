@@ -11,6 +11,8 @@ export interface AiSessionLaunchOptions {
      * never read from settings inside command builders.
      */
     codexProfile?: string;
+    /** Packaged companion entry point; absent on unsupported hosts. */
+    codexStreamRunner?: string;
 }
 
 interface ConfigurationReader {

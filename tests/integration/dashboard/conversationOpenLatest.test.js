@@ -2127,6 +2127,10 @@ test('CONVERSATION-FOLLOW-ACTIVE-SESSION-001 delegates Active Session card focus
         'the shared path must explicitly await focus and its prepared apply');
     assert.ok(focusedBranch,
         'a prepared apply must remain inside the successful current-intent focus branch');
+    const presentationStart = focusedBranch[1].indexOf('postActiveAiSessionTerminalPresentation();');
+    assert.ok(presentationStart >= 0
+        && presentationStart < focusedBranch[1].indexOf('await preparedConversation.apply();'),
+    'confirmed focus must publish before the remote Viewer receipt, outside the card-refresh debounce');
     assert.match(focusedBranch[1], /await preparedConversation\.apply\(\)/,
         'only successful focus for the current intent may apply a prepared snapshot');
     assert.ok(

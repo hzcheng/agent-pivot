@@ -853,6 +853,7 @@ async function initializeDashboard(
         getActiveTerminalHighlighter: () => activeAiSessionTerminalHighlighter,
         getTmuxFocusedRuntimeMonitor: () => tmuxFocusedRuntimeMonitor,
         publishRestoredAttachTerminal: () => publishRestoredTmuxAttachTerminal(),
+        publishFocusedTerminalPresentation: () => postActiveAiSessionTerminalPresentation(),
     }));
     const evaluateAiSessionAttention = aiSessionAttentionEvent.evaluateAttention;
     const hasLiveTmuxOwnership = aiSessionAttentionEvent.hasLiveTmuxOwnership;
@@ -2652,6 +2653,10 @@ async function initializeDashboard(
             }
             focusMs = Date.now() - focusStartedAt;
             if (focused && intent === conversationNavigationIntent) {
+                // A row click is explicit navigation, not a noisy runtime probe.
+                // Publish the authoritative focus without the 3s card-refresh
+                // debounce or waiting for the Conversation Webview receipt.
+                postActiveAiSessionTerminalPresentation();
                 const conversationStartedAt = Date.now();
                 try {
                     conversationApplied = true;
@@ -4451,7 +4456,10 @@ async function initializeDashboard(
         isVisible: () => provider.visible,
         getActiveTerminal: () => vscode.window.activeTerminal || null,
         syncFocusedRuntime: terminal => tmuxRuntimeBackend.syncFocusedRuntime(terminal),
-        refresh: refreshAiSessionViewsIncrementally,
+        refresh: () => {
+            postActiveAiSessionTerminalPresentation();
+            refreshAiSessionViewsIncrementally();
+        },
         onError: error => logAiSessionRuntimeFailure('sync-focused-runtime', error),
         setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
         clearInterval: handle => clearInterval(handle as NodeJS.Timeout),

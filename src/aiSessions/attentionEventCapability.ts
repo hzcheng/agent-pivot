@@ -90,6 +90,8 @@ export interface AiSessionAttentionEventCapabilityOptions {
     /** Late-bound: the monitor is constructed after this capability. */
     getTmuxFocusedRuntimeMonitor: () => TmuxFocusedRuntimeMonitor<vscode.Terminal>;
     publishRestoredAttachTerminal: () => void;
+    /** Publish confirmed focus without waiting for the card-refresh debounce. */
+    publishFocusedTerminalPresentation?: () => void;
 }
 
 export interface AiSessionAttentionEventCapability {
@@ -428,6 +430,12 @@ export function createAiSessionAttentionEventCapability(
     function registerTerminalEventHandlers(): vscode.Disposable {
         const activeListener = onDidChangeActiveTerminal(() => {
             getActiveTerminalHighlighter().sync();
+            // Terminal.show() can resolve before activeTerminal changes. A
+            // tmux-to-tmux switch may leave the direct highlighter null, so
+            // this event must also publish the newly authoritative terminal.
+            if (isVisible()) {
+                options.publishFocusedTerminalPresentation?.();
+            }
             void getTmuxFocusedRuntimeMonitor().request();
             refreshAiSessionViewsIncrementally();
             void runSafeAiSessionRuntimeLifecycleTask(

@@ -889,3 +889,117 @@ test('PERSIST-STORE-001 counts corrupt and oversized open-workspace records, ign
     assert.deepEqual(stale.registrations, []);
     assert.equal(stale.counters.expired, 1);
 });
+
+test('PERSIST-AI-SESSION-TMUX-ATTACH-V3-001 batches remote attach writes and skips unchanged state', async () => {
+    const values = new Map();
+    const pending = [];
+    const state = {
+        get: (key, fallback) => values.has(key) ? values.get(key) : fallback,
+        update: (key, value) => new Promise(resolve => {
+            pending.push({ key, value, finish() { values.set(key, value); resolve(); } });
+        }),
+    };
+    const binding = {
+        version: 2, layout: 'project', workspaceScopeIdentity: 'scope:remote',
+        workspaceNavigationIdentity: 'navigation:remote',
+        workspaceRootHostPaths: ['/work/remote'], cwd: '/work/remote',
+        sessionName: 'project', windowName: 'one', provider: 'codex',
+        sessionId: 'one', terminalNamePrefix: 'Codex: remote',
+    };
+    const token = '1234567890abcdef1234567890abcdef';
+    const store = new TmuxAttachBindingStore(state);
+    store.setRecovery(token, 42, binding);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pending.length, 2, 'process and recovery writes start together; absent legacy cleanup is free');
+    pending.splice(0).forEach(write => write.finish());
+    await store.flush();
+    store.setRecovery(token, 42, { ...binding });
+    await store.flush();
+    assert.equal(pending.length, 0, 'unchanged focus does not wait for storage RPCs');
+    store.setRecovery(token, 43, { ...binding, windowName: 'two', sessionId: 'two' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pending.length, 2);
+    assert.ok(values.get(`${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}42`),
+        'old PID remains recoverable until replacement is durable');
+    pending.splice(0).forEach(write => write.finish());
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pending.length, 1, 'old PID cleanup follows the completed replacement');
+    pending.splice(0).forEach(write => write.finish());
+    await store.flush();
+    assert.equal(store.getRecovery(token).processId, 43);
+    assert.equal(store.get(42), null);
+});
+
+test('PERSIST-AI-SESSION-TMUX-ATTACH-V3-001 drains failed batches and retries optimistic Memento values', async () => {
+    const values = new Map();
+    const pending = [];
+    const errors = [];
+    const state = {
+        get: (key, fallback) => values.has(key) ? values.get(key) : fallback,
+        update: (key, value) => {
+            values.set(key, value); // Memento exposes pending values before durable completion.
+            return new Promise((resolve, reject) => pending.push({ key, resolve, reject }));
+        },
+    };
+    const binding = {
+        version: 2, layout: 'session', workspaceScopeIdentity: 'scope:remote',
+        workspaceNavigationIdentity: 'navigation:remote',
+        workspaceRootHostPaths: ['/work/remote'], cwd: '/work/remote',
+        sessionName: 'one', provider: 'claude', sessionId: 'one',
+        terminalNamePrefix: 'Claude: remote',
+    };
+    const token = '1234567890abcdef1234567890abcdef';
+    const store = new TmuxAttachBindingStore(state, error => errors.push(error));
+    store.setRecovery(token, 42, binding);
+    store.setRecovery(token, 42, binding);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pending.length, 2);
+    pending[0].reject(new Error('disk unavailable'));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pending.length, 2, 'failure must not let the next batch overtake an unfinished write');
+    pending[1].resolve();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pending.length, 3, 'failed optimistic value must be written again');
+    assert.equal(pending[2].key, pending[0].key);
+    pending[2].resolve();
+    await store.flush();
+    assert.equal(errors.length, 1);
+});
+
+test('PERSIST-AI-SESSION-TMUX-ATTACH-V3-001 preserves rollover cleanup after a partial remote write failure', async () => {
+    for (const retry of ['set', 'remove']) {
+        const values = new Map();
+        let failProcessWrite = false;
+        const state = {
+            get: (key, fallback) => values.has(key) ? values.get(key) : fallback,
+            update: async (key, value) => {
+                values.set(key, value);
+                if (failProcessWrite && key === `${AI_SESSION_TMUX_ATTACH_PROCESS_BINDING_LEGACY_KEY_PREFIX}43`) {
+                    failProcessWrite = false;
+                    throw new Error('process write failed after optimistic update');
+                }
+            },
+        };
+        const binding = {
+            version: 2, layout: 'session', workspaceScopeIdentity: 'scope:remote',
+            workspaceNavigationIdentity: 'navigation:remote',
+            workspaceRootHostPaths: ['/work/remote'], cwd: '/work/remote',
+            sessionName: 'one', provider: 'codex', sessionId: 'one',
+            terminalNamePrefix: 'Codex: remote',
+        };
+        const token = '1234567890abcdef1234567890abcdef';
+        const store = new TmuxAttachBindingStore(state);
+        store.setRecovery(token, 42, binding);
+        await store.flush();
+        failProcessWrite = true;
+        store.setRecovery(token, 43, binding);
+        await store.flush();
+        assert.ok(store.get(42), 'failed replacement keeps the old process binding');
+        if (retry === 'set') store.setRecovery(token, 43, binding);
+        else store.removeRecovery(token);
+        await store.flush();
+        assert.equal(store.get(42), null, `${retry} must finish abandoned rollover cleanup`);
+        if (retry === 'remove') assert.equal(store.get(43), null);
+        else assert.equal(store.getRecovery(token).processId, 43);
+    }
+});

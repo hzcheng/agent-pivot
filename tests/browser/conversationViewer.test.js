@@ -5367,6 +5367,39 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        .replace(/    function supportsCompressedPages\(\) \{[\s\S]*?(?=    function applyPage\(message\) \{)/, '')
+        .replace(
+            "        if (event.data && event.data.type === 'conversation-viewer-page'\n"
+                + "            && event.data.htmlGzip !== undefined) {\n"
+                + "            void applyCompressedPage(event.data);\n"
+                + "            return;\n"
+                + "        }\n"
+                + "        try {\n"
+                + "            applyPage(event.data);",
+            "        try {\n"
+                + "            applyPage(event.data);"
+        )
+        .replace(
+            "        capabilities: ['tail-patch', 'frame-preflight'].concat(\n"
+                + "            supportsCompressedPages() ? ['gzip-html'] : []\n"
+                + "        ),\n",
+            "        capabilities: ['tail-patch', 'frame-preflight'],\n"
+        )
+        .replace(
+            "    function restoreConversationFrame(frame) {\n"
+                + "        // A matching preflight already attached these nodes. Replacing them\n"
+                + "        // again disconnects the whole transcript and invalidates its layout.\n"
+                + "        // Compare every child so an altered or detached frame still restores.\n"
+                + "        var alreadyAttached = messages.childNodes.length === frame.nodes.length\n"
+                + "            && frame.nodes.every(function (node, index) {\n"
+                + "                return messages.childNodes[index] === node;\n"
+                + "            });\n"
+                + "        if (!alreadyAttached) {\n"
+                + "            messages.replaceChildren.apply(messages, frame.nodes);\n"
+                + "        }\n",
+            "    function restoreConversationFrame(frame) {\n"
+                + "        messages.replaceChildren.apply(messages, frame.nodes);\n"
+        )
         .replaceAll('            syncMarkdownWorkspaceBatchAction();\n', '')
         .replace('            markdownWorkspaceRecipientName = conversationDisplayName.textContent;\n', '')
         .replace('        if (applyMarkdownWorkspaceRefreshResult(event.data)) return;\n', '')
@@ -15599,6 +15632,40 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 bounds initial and incremental 
         100,
         'the restored frame brings back the full session DOM'
     );
+
+    await measurePublication(
+        switchPage(5, 'warm-b', 'sig-warm-b1', undefined)
+    );
+    await sendPage(page, {
+        type: 'conversation-viewer-loading',
+        version: 1,
+        subscriptionGeneration: 6,
+        preflight: true,
+        target: { projectId: 'project-1', provider: 'codex', sessionId: 'warm-a' },
+    });
+    const adoption = await page.evaluate(message => {
+        const root = document.querySelector('[data-conversation-messages]');
+        const observer = new MutationObserver(() => {});
+        observer.observe(root, { childList: true });
+        const started = performance.now();
+        window.dispatchEvent(new MessageEvent('message', { data: message }));
+        root.offsetHeight;
+        const durationMs = performance.now() - started;
+        const mutations = observer.takeRecords().length;
+        observer.disconnect();
+        return {
+            mutations,
+            durationMs,
+            loading: document.body.hasAttribute('data-conversation-loading'),
+        };
+    }, switchPage(6, 'warm-a', 'sig-warm-a1', undefined));
+    t.diagnostic(`initial=${initialMs.toFixed(1)}ms`
+        + ` incremental=${incrementalMs.toFixed(1)}ms`
+        + ` restore=${restoreMs.toFixed(1)}ms`
+        + ` preview-adoption=${adoption.durationMs.toFixed(1)}ms`);
+    assert.equal(adoption.loading, false, 'the authoritative page settles the preview');
+    assert.equal(adoption.mutations, 0,
+        'confirming an unchanged preview must not detach and reinsert the transcript');
 });
 
 test('CONVERSATION-READING-FOCUS-001 never restores a stale refresh anchor after the reader scrolls during Mermaid rendering', async t => {
@@ -21780,7 +21847,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies a streaming tail patch 
     ), [{
         type: 'conversation-viewer-capabilities',
         version: 1,
-        capabilities: ['tail-patch', 'frame-preflight'],
+        capabilities: ['tail-patch', 'frame-preflight', 'gzip-html'],
         documentId: '',
     }]);
     await sendPage(page, {
@@ -22218,4 +22285,89 @@ test('CONVERSATION-MARKDOWN-RESOURCES-001 displays an SVG and activates a siblin
     await page.setViewportSize({ width: 400, height: 750 });
     assert.equal(await image.isVisible(), true);
     await page.screenshot({ path: '/tmp/markdown-preview-resources-narrow.png' });
+});
+
+function compressedTestPage(overrides = {}) {
+    const { gzipSync } = require('node:zlib');
+    const message = { ...hostileConversationPage, htmlSignature: 'gzip-test',
+        target: { projectId: 'project-1', provider: 'codex', sessionId: 'session-telemetry',
+            interactionId: 'input-4', displayName: 'Remote conversation' },
+        ...overrides };
+    return { ...message, html: undefined, htmlBytes: Buffer.byteLength(message.html),
+        htmlGzip: gzipSync(message.html).toString('base64') };
+}
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 decompresses remote pages before sanitizing and acknowledging', async t => {
+    const page = await openViewerPage(t);
+    assert.ok((await postedMessages(page)).some(m =>
+        m.type === 'conversation-viewer-capabilities' && m.capabilities.includes('gzip-html')));
+    await sendPage(page, compressedTestPage());
+    await page.waitForFunction(() => document.querySelector('[data-message-id="message-hostile"]'));
+    assert.equal(await page.evaluate(() => window.__executed), undefined);
+    assert.equal(await page.locator('[data-conversation-messages] script').count(), 0);
+    await page.waitForFunction(() => window.__postedMessages.some(m =>
+        m.type === 'conversation-viewer-applied' && m.htmlSignature === 'gzip-test'));
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 rejects corrupt or oversized compressed pages with correlated recovery', async t => {
+    const page = await openViewerPage(t);
+    const payload = compressedTestPage();
+    for (const change of [ { htmlGzip: 'broken' }, { htmlBytes: 1 }, { htmlBytes: 17 * 1024 * 1024 } ]) {
+        payload.requestId += 1;
+        await sendPage(page, { ...payload, ...change });
+        await page.waitForFunction(id => window.__postedMessages.some(m =>
+            m.type === 'conversation-viewer-request-sync' && m.requestId === id), payload.requestId);
+    }
+    assert.equal(await page.locator('[data-message-id="message-hostile"]').count(), 0);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 ignores a compressed page that finishes after a newer publication', async t => {
+    const page = await openViewerPage(t);
+    const payload = compressedTestPage();
+    await page.evaluate(() => {
+        window.DecompressionStream = function () {
+            let finish;
+            const gate = new Promise(resolve => { finish = resolve; });
+            return new TransformStream({
+                start(controller) {
+                    window.__finishDecode = html => {
+                        controller.enqueue(new TextEncoder().encode(html));
+                        finish();
+                    };
+                },
+                transform() { return gate; },
+            });
+        };
+    });
+    await sendPage(page, payload);
+    await page.waitForFunction(() => typeof window.__finishDecode === 'function');
+    await sendPage(page, { ...hostileConversationPage, requestId: 10,
+        htmlSignature: 'newer', html: '<article data-message-id="newer" data-interaction-id="input-4">newer content</article>' });
+    await page.evaluate(html => window.__finishDecode(html), hostileConversationPage.html);
+    // A task boundary lets the pending stream continuation attempt its apply.
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+    assert.equal(await page.locator('[data-message-id="newer"]').count(), 1);
+    assert.equal(await page.locator('[data-message-id="message-hostile"]').count(), 0);
+});
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 ignores stale decompression failures without invalidating the new page', async t => {
+    const page = await openViewerPage(t);
+    await page.evaluate(() => {
+        window.DecompressionStream = function () {
+            let fail;
+            const gate = new Promise((_resolve, reject) => { fail = reject; });
+            window.__failDecode = () => fail(new Error('late decode failure'));
+            return new TransformStream({ transform() { return gate; } });
+        };
+    });
+    await sendPage(page, compressedTestPage());
+    await page.waitForFunction(() => typeof window.__failDecode === 'function');
+    const newer = { ...hostileConversationPage, requestId: 10,
+        htmlSignature: 'newer-stable', html: '<article data-message-id="newer" data-interaction-id="input-4">newer content</article>' };
+    await sendPage(page, newer);
+    await page.evaluate(() => window.__failDecode());
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+    await sendPage(page, { ...newer, requestId: 11, updateKind: 'refresh', html: undefined });
+    assert.equal((await postedMessages(page)).filter(m => m.type === 'conversation-viewer-request-sync').length, 0);
+    assert.equal(await page.locator('[data-message-id="newer"]').count(), 1);
 });

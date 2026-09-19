@@ -3533,3 +3533,34 @@ test('OPEN-WINDOW-VIEW-STATE-PERSISTENCE-001 boot imports the legacy webview sub
         window.__postedMessages.filter(message => message.type === 'migrate-ai-session-view-state'));
     assert.equal(after.length, 1);
 });
+
+
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 paints focus changes without fading the old or new outline', async t => {
+    for (const width of [170, 360]) {
+        const page = await openCardPage(t, [
+            session('codex', 'session-a', true),
+            session('codex', 'session-b', false),
+        ], { width, height: 700 });
+        await page.addStyleTag({ content: ':root { --vscode-focusBorder: rgb(0, 122, 204); --steward-foreground: #ddd; --vscode-sideBar-background: #202020; } body { background: #202020; }' });
+        await postHostMessage(page, presentationMessage([
+            session('codex', 'session-a', false),
+            session('codex', 'session-b', true),
+        ], 2, { revealFocused: true }));
+        const focused = row(page, 'codex', 'session-b');
+        assert.equal(await focused.getAttribute('data-session-focused'), '');
+        assert.equal(await row(page, 'codex', 'session-a').getAttribute('data-session-focused'), null);
+        for (const id of ['session-a', 'session-b']) {
+            const feedback = await row(page, 'codex', id).evaluate(node => ({
+                transitions: getComputedStyle(node).transitionProperty,
+                stripeDuration: getComputedStyle(node, '::before').transitionDuration,
+                outline: getComputedStyle(node).borderTopColor,
+            }));
+            assert.equal(feedback.transitions, 'transform');
+            assert.equal(feedback.stripeDuration, '0s');
+            if (id === 'session-b') assert.equal(feedback.outline, 'rgb(0, 122, 204)');
+        }
+        if (process.env.CHAT_FOCUS_SCREENSHOTS) {
+            await page.screenshot({ path: path.join(process.env.CHAT_FOCUS_SCREENSHOTS, `focus-${width}.png`) });
+        }
+    }
+});

@@ -216,6 +216,7 @@ function createFixture(overrides = {}) {
         postOpenWorkspacesUpdated: () => {
             calls.push(['post-open-workspaces']);
         },
+        publishFocusedTerminalPresentation: overrides.publishFocusedTerminalPresentation,
         getActiveTerminalHighlighter: () => highlighter,
         getTmuxFocusedRuntimeMonitor: () => ({
             request: async () => {
@@ -640,4 +641,24 @@ test('RUNTIME-WORKSPACE-TOPOLOGY-CONTINUITY-001 keeps attention ownership after 
     });
     assert.equal(ambiguous.capability.getRuntimeById('codex', 'session-a').state, 'conflict',
         'attention must surface cross-scope ambiguity instead of selecting the newer scope');
+});
+
+
+test('ACTIVE-SESSION-FOCUS-REVEAL-001 publishes delayed terminal activation without waiting for card refresh', () => {
+    const first = { name: 'attach-a' };
+    const second = { name: 'attach-b' };
+    const published = [];
+    const options = { activeTerminal: first, highlighterIdentity: null };
+    options.publishFocusedTerminalPresentation = () => published.push(options.activeTerminal);
+    const { capability, listeners, calls } = createFixture(options);
+    capability.registerTerminalEventHandlers();
+    // show(true) has returned, but VS Code has not emitted its real focus change yet.
+    assert.deepEqual(published, []);
+    options.activeTerminal = second;
+    listeners.activeTerminal();
+    assert.deepEqual(published, [second], 'tmux focus publishes synchronously even when the direct highlighter stays null');
+    assert.ok(calls.some(call => call[0] === 'schedule-refresh'), 'full card work remains coalesced');
+    options.visible = false;
+    listeners.activeTerminal();
+    assert.deepEqual(published, [second], 'a hidden sidebar does not receive an eager presentation');
 });

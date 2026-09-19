@@ -10025,3 +10025,45 @@ test('CONVERSATION-MARKDOWN-RESOURCES-001 publishes mapped images and document-r
     assert.deepEqual(sources, [{ relativePath: 'docs/coord/src/foo.ts', line: 12, column: 3 }]);
     viewer.dispose();
 });
+
+test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 negotiates compressed full pages and retains plain recovery', async () => {
+    const { gunzipSync } = require('node:zlib');
+    const { viewer, panel } = createViewer({
+        readPage: async request => {
+            const result = page(request.sessionId, request.anchorInteractionId);
+            result.messages[0].markdown = 'Long remote conversation 你好 '.repeat(6000);
+            return result;
+        },
+    });
+    try {
+        await viewer.open(target('compression-a'));
+        await viewer.follow(target('compression-b'));
+        let message = panel.postedMessages.filter(m => m.type === 'conversation-viewer-page').at(-1);
+        assert.equal(typeof message.html, 'string', 'legacy documents get plain HTML');
+        const documentId = decodeDocumentId(panel.webview.html);
+        await panel.receive({ type: 'conversation-viewer-capabilities', version: 1,
+            documentId: 'stale-document', capabilities: ['gzip-html'] });
+        await viewer.follow(target('compression-c'));
+        message = panel.postedMessages.filter(m => m.type === 'conversation-viewer-page').at(-1);
+        assert.equal(message.htmlGzip, undefined, 'stale documents cannot arm compression');
+        await panel.receive({ type: 'conversation-viewer-capabilities', version: 1,
+            documentId, capabilities: ['gzip-html'] });
+        await viewer.follow(target('compression-d'));
+        message = panel.postedMessages.filter(m => m.type === 'conversation-viewer-page').at(-1);
+        assert.equal(message.html, undefined);
+        const decoded = gunzipSync(Buffer.from(message.htmlGzip, 'base64')).toString('utf8');
+        assert.equal(Buffer.byteLength(decoded), message.htmlBytes);
+        assert.ok(message.htmlGzip.length < message.htmlBytes / 4);
+        assert.match(decoded, /你好/);
+        await panel.receive({ type: 'conversation-viewer-request-sync', version: 1,
+            subscriptionGeneration: message.subscriptionGeneration, requestId: message.requestId,
+            htmlSignature: message.htmlSignature, ...{
+                projectId: message.target.projectId, provider: message.target.provider,
+                sessionId: message.target.sessionId,
+            } });
+        // Recovery rebuilds from the retained publication, without compression.
+        const recovered = decodeInitialPublication(panel.webview.html);
+        assert.equal(recovered.htmlGzip, undefined);
+        assert.equal(recovered.html, decoded);
+    } finally { viewer.dispose(); }
+});

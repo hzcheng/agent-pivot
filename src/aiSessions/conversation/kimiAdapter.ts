@@ -139,6 +139,7 @@ export interface KimiConversationAdapterOptions {
         sessionId: string
     ): AiSessionConversationSourceCandidate | null;
     watchSessionChanges(onDidChange: () => void): AiSessionDisposable;
+    watchTranscript?(sessionId: string, onChange: () => void): AiSessionDisposable;
     now(): number;
     setTimeout(callback: () => void, delayMs: number): TimerHandle;
     clearTimeout(handle: TimerHandle): void;
@@ -556,6 +557,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
     private readonly historyIndexStartTimers = new Map<string, {
         timer?: TimerHandle;
     }>();
+    private readonly transcriptWatches = new Set<AiSessionDisposable>();
     private readonly subscriptions = new Map<string, Set<() => void>>();
     private readonly revisionCounters = new Map<string, number>();
     private readonly loadQueues = new Map<string, Promise<void>>();
@@ -723,7 +725,7 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         return entries;
     }
 
-    watch(sessionId: string, onChange: () => void): AiSessionDisposable {
+    watch(sessionId: string, onChange: (streaming?: boolean) => void): AiSessionDisposable {
         if (this.disposed) {
             return { dispose() {} };
         }
@@ -745,6 +747,8 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
             retained.dispose();
             throw error;
         }
+        const transcriptWatch = this.options.watchTranscript?.(sessionId, () => onChange(true));
+        if (transcriptWatch) { this.transcriptWatches.add(transcriptWatch); }
         let active = true;
         return {
             dispose: () => {
@@ -752,6 +756,8 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
                     return;
                 }
                 active = false;
+                transcriptWatch?.dispose();
+                this.transcriptWatches.delete(transcriptWatch);
                 callbacks.delete(listener);
                 if (!callbacks.size) {
                     this.subscriptions.delete(sessionId);
@@ -782,6 +788,8 @@ export class KimiConversationAdapter implements ConversationProviderAdapter {
         }
         this.providerWatch?.dispose();
         this.providerWatch = undefined;
+        this.transcriptWatches.forEach(watch => watch.dispose());
+        this.transcriptWatches.clear();
         this.subscriptions.clear();
         this.cache.clear();
         this.revisionCounters.clear();

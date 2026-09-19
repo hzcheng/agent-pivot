@@ -161,8 +161,8 @@ function adapterReturning(calls, provider, overrides = {}) {
                 },
             };
         },
-        invalidate(sessionId) {
-            invalidations.get(sessionId)?.();
+        invalidate(sessionId, streaming) {
+            invalidations.get(sessionId)?.(streaming);
         },
         disposedWatches,
         dispose() {},
@@ -1289,4 +1289,33 @@ test('CONVERSATION-PROGRESS-VISIBILITY-001 coordinator preserves progress and pr
         assert.equal(page.messages[2].role, 'progress');
         coordinator.dispose();
     }
+});
+
+
+test('SESSION-CONVERSATION-COORDINATOR-001 streaming coalesces bursts at 100ms without overlapping publication', async t => {
+    const harness = createCoordinatorHarness();
+    t.after(() => harness.coordinator.dispose());
+    const pending = deferred();
+    const publications = [];
+    harness.coordinator.watch('codex', 'session-a', () => {
+        publications.push(harness.clock.now());
+        return publications.length === 1 ? pending.promise : true;
+    });
+    harness.adapters.codex.invalidate('session-a');
+    harness.adapters.codex.invalidate('session-a', true);
+    harness.clock.advanceTo(50);
+    await settle();
+    assert.deepEqual(publications, [50]);
+    for (let i = 0; i < 100; i++) { harness.adapters.codex.invalidate('session-a', true); }
+    harness.clock.advanceTo(100);
+    await settle();
+    assert.deepEqual(publications, [50]);
+    pending.resolve(true);
+    await settle();
+    harness.clock.advanceTo(199);
+    await settle();
+    assert.deepEqual(publications, [50]);
+    harness.clock.advanceTo(200);
+    await settle();
+    assert.deepEqual(publications, [50, 200]);
 });

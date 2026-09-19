@@ -604,5 +604,5 @@ export interface ConversationProviderAdapter extends AiSessionDisposable {
     getCacheDiagnostics?(
         sessionId: string
     ): ConversationCacheDiagnostics | undefined;
-    watch(sessionId: string, onChange: () => void): AiSessionDisposable;
+    watch(sessionId: string, onChange: (streaming?: boolean) => void): AiSessionDisposable;
 }

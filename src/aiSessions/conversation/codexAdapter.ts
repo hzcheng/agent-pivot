@@ -84,6 +84,10 @@ interface CodexRolloutTelemetrySnapshot {
 
 export interface CodexConversationAdapterOptions {
     client: CodexConversationClient;
+    liveFeed?: {
+        watch(sessionId: string, callback: () => void): AiSessionDisposable;
+        read(sessionId: string): { turns: unknown[]; revision: number } | undefined;
+    };
     watchSessionChanges(onDidChange: () => void): AiSessionDisposable;
     setTimeout(callback: () => void, delayMs: number): TimerHandle;
     clearTimeout(handle: TimerHandle): void;
@@ -1196,6 +1200,7 @@ function normalizeRateLimits(value: unknown): ConversationTelemetry['rateLimits'
 }
 
 export class CodexConversationAdapter implements ConversationProviderAdapter {
+    private readonly liveWatches = new Set<AiSessionDisposable>();
     private readonly subscriptions = new Map<string, Set<() => void>>();
     private providerWatch?: AiSessionDisposable;
     private invalidationTimer?: TimerHandle;
@@ -1712,7 +1717,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         };
     }
 
-    watch(sessionId: string, onChange: () => void): AiSessionDisposable {
+    watch(sessionId: string, onChange: (streaming?: boolean) => void): AiSessionDisposable {
         if (this.disposed) {
             return { dispose() {} };
         }
@@ -1732,6 +1737,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             }
             throw error;
         }
+        const liveWatch = this.options.liveFeed?.watch(sessionId, () => onChange(true));
+        if (liveWatch) { this.liveWatches.add(liveWatch); }
         let active = true;
         return {
             dispose: () => {
@@ -1739,6 +1746,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     return;
                 }
                 active = false;
+                liveWatch?.dispose();
+                this.liveWatches.delete(liveWatch);
                 callbacks.delete(listener);
                 if (!callbacks.size) {
                     this.subscriptions.delete(sessionId);
@@ -1767,6 +1776,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.loadedConversationCache.clear();
         this.loadedConversationCacheChars = 0;
         this.materializationQueues.clear();
+        this.liveWatches.forEach(watch => watch.dispose());
+        this.liveWatches.clear();
         this.subscriptions.clear();
         this.options.client.dispose();
     }
@@ -1872,6 +1883,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 && signature !== undefined
                 && (outcome.kind === 'incremental'
                     || outcome.kind === 'windowed'
+                    || !!this.options.liveFeed?.read(sessionId)
                     || outcome.characters >= LARGE_CONVERSATION_CACHE_CHARS
                     || this.now() - startedAt
                         >= LARGE_CONVERSATION_CACHE_MIN_READ_MS)) {
@@ -1904,6 +1916,25 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         value: LoadedConversation
     ): LoadedConversation {
         const split = splitSubagentSessionId(sessionId);
+        const live = this.options.liveFeed?.read(sessionId);
+        if (!split.subagentId && live) {
+            try {
+                const normalized = normalizeThreadRead(
+                    { thread: { id: sessionId, turns: live.turns } },
+                    sessionId,
+                    undefined,
+                    this.options.readGoalTurns?.(sessionId)
+                ).interactions;
+                const turnIds = new Set(normalized.map(interaction => interaction.providerTurnId));
+                value = {
+                    interactions: value.interactions.filter(interaction =>
+                        !turnIds.has(interaction.providerTurnId)).concat(normalized),
+                    sourceRevision: `${value.sourceRevision}:live:${live.revision}`,
+                };
+            } catch (_error) {
+                // Protocol drift must not hide the durable conversation.
+            }
+        }
         if (split.subagentId || !value.interactions.length) {
             return value;
         }

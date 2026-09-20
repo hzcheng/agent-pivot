@@ -4040,17 +4040,17 @@ test('CONVERSATION-MESSAGE-BOOKMARK-001 bookmarks an input from its card without
         const cardRect = card.getBoundingClientRect();
         const starRect = star.getBoundingClientRect();
         return {
-            insideCard: starRect.top >= cardRect.top
-                && starRect.bottom <= cardRect.bottom + 1
+            belowCard: starRect.top >= cardRect.bottom - 2
+                && starRect.bottom <= cardRect.bottom + 40
                 && starRect.right <= cardRect.right
                 && starRect.left > cardRect.left + cardRect.width / 2,
             starColor: getComputedStyle(star).color,
         };
     });
     assert.equal(
-        starGeometry.insideCard,
+        starGeometry.belowCard,
         true,
-        'the star sits inside the right edge of the input card'
+        'the star parks below the input bubble\'s right edge'
     );
     assert.notEqual(
         starGeometry.starColor,
@@ -4554,23 +4554,26 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
                 && Math.abs(
                     (corner.top + corner.bottom) - (star.top + star.bottom)
                 ) <= 4,
-            cornerInside: corner.top >= cardBounds.top - 1
-                && corner.bottom <= cardBounds.bottom + 1,
+            cornerBelowBubble: corner.top >= cardBounds.bottom - 2
+                && corner.bottom <= cardBounds.bottom + 40,
             cardHasNoRow: !card.querySelector(
                 '.conversation-message-actions'
             ),
-            answerRowBelow: answerRow.top >= answerMarkdown.bottom - 1,
+            // The floating action bar overlaps the answer's last line by a
+            // few pixels so the pointer path stays contiguous.
+            answerRowHugsBottom: answerRow.top >= answerMarkdown.bottom - 8
+                && answerRow.top <= answerMarkdown.bottom + 4,
             answerRowLeft: answerCopy.left
                 - answer.getBoundingClientRect().left < 48,
         };
     });
     assert.deepEqual(actionRows, {
         cornerBesideStar: true,
-        cornerInside: true,
+        cornerBelowBubble: true,
         cardHasNoRow: true,
-        answerRowBelow: true,
+        answerRowHugsBottom: true,
         answerRowLeft: true,
-    }, 'the user card clusters its controls with the star while the answer keeps a bottom row');
+    }, 'the user bubble parks its controls below the card while the answer floats a compact action bar');
     assert.equal(
         await userCopy.locator('svg').count(),
         1,

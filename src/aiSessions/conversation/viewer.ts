@@ -5444,17 +5444,23 @@ function toolIconKind(name: string | undefined): string {
 
 function toolIcon(name: string | undefined): string {
     const paths: Record<string, string> = {
-        terminal: '<path d="M4 5h16v14H4z"/><path d="m7 9 3 3-3 3M12 15h4"/>',
-        file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/>',
-        edit: '<path d="m4 16 9-9 3 3-9 9-4 1z"/><path d="m12 6 3 3"/>',
-        search: '<circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/>',
-        git: '<circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 6h3a4 4 0 0 1 4 4v6"/><path d="M8 6h10"/>',
-        web: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16"/>',
-        tool: '<path d="m14.7 6.3 3 3-8.8 8.8-3.8.8.8-3.8z"/><path d="m13 8 3 3"/>',
+        terminal: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="m8.5 9.5 3 2.5-3 2.5"/><path d="M13 14.5h2.5"/>',
+        file: '<path d="M6.25 4.25A1.25 1.25 0 0 1 7.5 3h5.75L18 7.75v11a1.25 1.25 0 0 1-1.25 1.25H7.5A1.25 1.25 0 0 1 6.25 18.75z"/><path d="M13 3v4.75H18"/>',
+        edit: '<path d="m5 19 .85-3.25L14.6 7a1.8 1.8 0 0 1 2.55 0l.85.85a1.8 1.8 0 0 1 0 2.55L9.25 19.15z"/><path d="m13.5 8.25 2.75 2.75"/>',
+        search: '<circle cx="11" cy="11" r="6.25"/><path d="m15.5 15.5 4.75 4.75"/>',
+        git: '<circle cx="6.5" cy="6" r="2.25"/><circle cx="17.5" cy="18" r="2.25"/><circle cx="17.5" cy="6" r="2.25"/><path d="M8.75 6h4.5a4.25 4.25 0 0 1 4.25 4.25v5.5"/><path d="M6.5 8.25v7.5a2 2 0 0 0 2 2h4.5"/>',
+        web: '<circle cx="12" cy="12" r="8.25"/><path d="M3.75 12h16.5"/><path d="M12 3.75c2.3 2.2 3.5 5.05 3.5 8.25s-1.2 6.05-3.5 8.25c-2.3-2.2-3.5-5.05-3.5-8.25s1.2-6.05 3.5-8.25z"/>',
+        tool: '<path d="M14.9 6.1a4.4 4.4 0 0 0-5.9 5.5L4 16.6a1.77 1.77 0 0 0 2.5 2.5l5-5a4.4 4.4 0 0 0 5.5-5.9l-2.7 2.7-2.3-.6-.6-2.3z"/>',
     };
     return `<svg class="conversation-tool-icon conversation-tool-icon-${toolIconKind(
         name
-    )}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[toolIconKind(name)]}</svg>`;
+    )}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[toolIconKind(name)]}</svg>`;
+}
+
+// Disclosure chevron for collapsible rows: a real icon that rotates open,
+// replacing the old CSS border-triangle.
+function chevronIcon(): string {
+    return '<svg class="conversation-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 6.5 5.5 5.5-5.5 5.5"/></svg>';
 }
 
 function toolActionLabel(name: string | undefined, running: boolean): string {
@@ -5811,7 +5817,7 @@ function renderWorklogRow(
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(worklogId))}"
     data-interaction-id="${escapeAttribute(interactionId)}"
     data-worklog-id="${escapeAttribute(worklogId)}">
-    <button class="conversation-worklog-toggle"><span class="conversation-worklog-label">${escapeAttribute(label)}</span></button>
+    <button class="conversation-worklog-toggle"><span class="conversation-worklog-label">${escapeAttribute(label)}</span>${chevronIcon()}</button>
 </article>`;
 }
 
@@ -5842,7 +5848,7 @@ function renderToolGroupRow(
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(toolGroup.id))}"
     data-interaction-id="${escapeAttribute(interactionId)}"
     data-tool-group-id="${escapeAttribute(toolGroup.id)}"${worklogAttribute}>
-    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${escapeAttribute(label)}</span></button>
+    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${escapeAttribute(label)}</span>${chevronIcon()}</button>
 </article>`;
 }
 

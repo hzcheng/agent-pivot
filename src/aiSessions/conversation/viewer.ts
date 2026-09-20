@@ -5444,7 +5444,9 @@ function toolIconKind(name: string | undefined): string {
 
 function toolIcon(name: string | undefined): string {
     const paths: Record<string, string> = {
-        terminal: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="m8.5 9.5 3 2.5-3 2.5"/><path d="M13 14.5h2.5"/>',
+        // Codex-style terminal: a generously rounded frame with a centered
+        // prompt, larger than the original glyph so it reads at row size.
+        terminal: '<rect x="3" y="4" width="18" height="16" rx="4.5"/><path d="m8 9 3.5 3-3.5 3"/><path d="M13 15h3.5"/>',
         file: '<path d="M6.25 4.25A1.25 1.25 0 0 1 7.5 3h5.75L18 7.75v11a1.25 1.25 0 0 1-1.25 1.25H7.5A1.25 1.25 0 0 1 6.25 18.75z"/><path d="M13 3v4.75H18"/>',
         edit: '<path d="m5 19 .85-3.25L14.6 7a1.8 1.8 0 0 1 2.55 0l.85.85a1.8 1.8 0 0 1 0 2.55L9.25 19.15z"/><path d="m13.5 8.25 2.75 2.75"/>',
         search: '<circle cx="11" cy="11" r="6.25"/><path d="m15.5 15.5 4.75 4.75"/>',

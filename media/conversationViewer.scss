@@ -972,14 +972,22 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     position: relative;
     margin: 0.75rem 0;
 
+    // Mouse clicks focus the article too; a ring around the flat row reads
+    // as a stray purple box. Keyboard navigation keeps a real indicator.
     &:focus {
+        outline: none;
+    }
+
+    &:focus-visible {
         outline: 1px solid var(--vscode-focusBorder);
         outline-offset: 2px;
     }
 }
 
+// The selected reading anchor is a quiet accent tick on the row's leading
+// edge, not a full ring around flat content.
 .conversation-selected-interaction {
-    box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+    box-shadow: inset 3px 0 0 var(--vscode-focusBorder);
 }
 
 .conversation-has-comment {

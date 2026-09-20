@@ -11976,17 +11976,25 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 presents User as a right-aligned bub
             await user.evaluate(element => {
                 element.classList.add('conversation-selected-interaction');
                 element.tabIndex = -1;
-                element.focus();
             });
+            // A real mouse click moves focus onto the article without
+            // painting a ring around the flat row; keyboard-driven focus
+            // still matches :focus-visible.
+            await user.click();
             const indicators = await user.evaluate(element => {
                 const style = getComputedStyle(element);
                 return {
                     boxShadow: style.boxShadow,
                     outlineWidth: Number.parseFloat(style.outlineWidth),
+                    active: document.activeElement === element,
                 };
             });
-            assert.notEqual(indicators.boxShadow, 'none');
-            assert.equal(indicators.outlineWidth, 1);
+            assert.match(indicators.boxShadow, /inset/,
+                'the selection anchor is a quiet leading-edge tick, not a full ring');
+            assert.equal(indicators.active, true,
+                'the click still focuses the article');
+            assert.equal(indicators.outlineWidth, 0,
+                'mouse-path focus no longer rings the flat row');
 
             await page.emulateMedia({ forcedColors: 'active' });
             const forcedColors = await user.evaluate(element => {

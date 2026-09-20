@@ -103,7 +103,7 @@ test('WORKTREE-GROUPING-UI-001 renders CHATS and ALL tabs with the tree in CHATS
         'the CHATS tab pair carries the view-menu trigger');
 });
 
-test('WORKTREE-GROUPING-UI-001 gives each worktree group a bounded surface and header divider', async t => {
+test('WORKTREE-GROUPING-UI-001 keeps worktree groups flat with quiet header rows', async t => {
     const page = await openSurfacePage(320);
     t.after(() => page.close());
     await page.addStyleTag({ content: `
@@ -122,20 +122,19 @@ test('WORKTREE-GROUPING-UI-001 gives each worktree group a bounded surface and h
         const headerStyle = getComputedStyle(group.querySelector('.ai-session-worktree-header'));
         return {
             background: groupStyle.backgroundColor,
-            borderTopColor: groupStyle.borderTopColor,
+            borderTopWidth: groupStyle.borderTopWidth,
             toolbarBorderBottomWidth: toolbarStyle.borderBottomWidth,
-            toolbarBorderBottomColor: toolbarStyle.borderBottomColor,
             headerBorderBottomWidth: headerStyle.borderBottomWidth,
         };
     });
-    assert.equal(appearance.background, 'rgb(32, 32, 32)',
-        'the worktree must stand apart from the surrounding sidebar');
-    assert.equal(appearance.borderTopColor, 'rgb(102, 102, 102)');
-    assert.equal(appearance.toolbarBorderBottomWidth, '1px',
-        'the full toolbar must separate the group identity from its child sessions');
-    assert.equal(appearance.toolbarBorderBottomColor, 'rgb(102, 102, 102)');
+    assert.equal(appearance.background, 'rgba(0, 0, 0, 0)',
+        'flat groups carry no card surface of their own');
+    assert.equal(appearance.borderTopWidth, '0px',
+        'flat groups carry no card border');
+    assert.equal(appearance.toolbarBorderBottomWidth, '0px',
+        'the toolbar rides the same flat row, with no divider beneath it');
     assert.equal(appearance.headerBorderBottomWidth, '0px',
-        'the divider belongs to the full-width toolbar, not only the title button');
+        'the title button itself never draws a divider');
 
     const header = page.locator(
         '.ai-session-worktree-group:not(.ai-session-worktree-anchor) .ai-session-worktree-header'
@@ -150,7 +149,7 @@ test('WORKTREE-GROUPING-UI-001 gives each worktree group a bounded surface and h
     assert.equal(focus.outlineColor, 'rgb(110, 168, 254)');
 });
 
-test('WORKTREE-GROUPING-UI-001 keeps a low-contrast fallback group visible at default and minimum widths', async t => {
+test('WORKTREE-GROUPING-UI-001 keeps flat groups readable at default and minimum widths', async t => {
     for (const width of [320, 170]) {
         const page = await openSurfacePage(width);
         t.after(() => page.close());
@@ -158,8 +157,6 @@ test('WORKTREE-GROUPING-UI-001 keeps a low-contrast fallback group visible at de
             :root {
                 --vscode-panel-border: #666;
                 --vscode-list-hoverBackground: #2a2a2a;
-                --vscode-editorWidget-background: initial;
-                --vscode-widget-border: initial;
             }
         ` });
         await page.evaluate(() => {
@@ -176,23 +173,19 @@ test('WORKTREE-GROUPING-UI-001 keeps a low-contrast fallback group visible at de
         const header = group.locator('.ai-session-worktree-header');
         const computed = await group.evaluate(element => {
             const style = getComputedStyle(element);
-            return { background: style.backgroundColor, borderTopColor: style.borderTopColor };
+            return { background: style.backgroundColor, borderTopWidth: style.borderTopWidth };
         });
-        assert.equal(computed.background, 'rgb(24, 24, 24)',
-            'the absent widget token falls back to the sidebar surface');
-        assert.equal(computed.borderTopColor, 'rgb(102, 102, 102)',
-            'the absent widget border falls back to the panel border');
+        assert.equal(computed.background, 'rgba(0, 0, 0, 0)',
+            'flat groups let the sidebar surface show through');
+        assert.equal(computed.borderTopWidth, '0px',
+            'flat groups carry no border at any width');
 
         const restingPixels = await group.screenshot();
         await header.hover();
         assert.equal(await header.evaluate(element => getComputedStyle(element).backgroundColor),
             'rgb(42, 42, 42)', 'hover must use the visible list-hover surface');
         assert.notDeepEqual(await group.screenshot(), restingPixels,
-            `hover must remain visible above the fallback group surface at ${width}px`);
-        await page.mouse.move(1, 850);
-        await page.addStyleTag({ content: '.ai-session-worktree-group { background-image: none !important; }' });
-        assert.notDeepEqual(await group.screenshot(), restingPixels,
-            `the fallback overlay must remain visible in the ${width}px rendered worktree`);
+            `hover must remain visible above the sidebar surface at ${width}px`);
     }
 });
 

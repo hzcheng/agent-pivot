@@ -752,10 +752,10 @@ test('OPEN-WINDOW-SWITCHER-UI-001 WORKTREE-GROUPING-UI-001 aligns the Windows ra
         worktreeToolbarHeight: geometry.worktreeToolbarHeight,
         worktreeHeaderHeight: geometry.worktreeHeaderHeight,
     }, {
-        windowRowHeight: 32,
-        worktreeToolbarHeight: 32,
-        worktreeHeaderHeight: 32,
-    }, 'Window rows and Worktree Group titles must share the same 32px visual rhythm');
+        windowRowHeight: 28,
+        worktreeToolbarHeight: 28,
+        worktreeHeaderHeight: 28,
+    }, 'Window rows and Worktree Group titles must share the same 28px visual rhythm');
     assert.equal(geometry.windowRowLeft, geometry.worktreeGroupLeft,
         'Window rows must start at the same horizontal position as Worktree Groups');
     assert.equal(geometry.windowRowWidth, geometry.worktreeGroupWidth,

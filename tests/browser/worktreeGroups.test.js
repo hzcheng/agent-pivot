@@ -523,8 +523,8 @@ test('WORKTREE-GROUPS-UI-001 stays usable at the 170px minimum sidebar width', a
         `the quick-create icon is centered (${layout.quickCenterOffset}px offset)`);
     assert.ok(layout.actionStyles.flat().every(action => action.borderLeftWidth === '0px'),
         'row actions have no vertical separators');
-    assert.ok(layout.actionStyles.flat().every(action => action.color === 'rgb(221, 221, 221)'),
-        'row action icons inherit the normal foreground color');
+    assert.ok(layout.actionStyles.flat().every(action => action.color === 'rgb(170, 170, 170)'),
+        'row action icons stay quiet in the muted description foreground');
     assert.ok(layout.actionStyles.flat().every(action => action.height === 24),
         'quick-create, preset, and more actions share the same 24px hit area');
     assert.ok(layout.actionStyles.every(actions => actions.every(action =>

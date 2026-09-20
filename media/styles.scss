@@ -1538,9 +1538,13 @@ body .project {
         max-width: calc(100% - 76px);
         min-width: 0;
         padding: 4px 10px;
-        background: var(--steward-project-card-bg);
-        border: 1pt solid transparent;
+        background: var(--vscode-input-background, var(--steward-project-card-bg));
+        border: 1px solid transparent;
         border-radius: 999px;
+
+        &:focus-within {
+            border-color: var(--vscode-focusBorder);
+        }
 
         &:hover,
         &:active,
@@ -1580,10 +1584,10 @@ body .project {
         background: transparent;
         color: var(--steward-foreground);
         outline-color: transparent;
-        padding: 0 8px;
-        text-align: center;
+        padding: 0 6px;
+        text-align: left;
         font-family: var(--vscode-font-family);
-        font-size: 1.2em;
+        font-size: 1em;
         border: 0;
     }
 
@@ -1594,28 +1598,27 @@ body .project {
         align-items: center;
         justify-content: center;
         flex: 0 0 auto;
-        width: 30px;
-        height: 30px;
+        width: 26px;
+        height: 26px;
         margin-left: 4px;
         padding: 0;
-        color: var(--steward-foreground);
+        color: var(--vscode-descriptionForeground, var(--steward-foreground));
         background: transparent;
         border: 1px solid transparent;
-        border-radius: 7px;
+        border-radius: 5px;
         cursor: pointer;
         opacity: 1;
         transition: background $defaultTransition, border-color $defaultTransition, color $defaultTransition, opacity $defaultTransition;
 
         &:hover:not(:disabled) {
-            color: var(--vscode-focusBorder);
+            color: var(--steward-foreground);
             background: var(--vscode-list-hoverBackground);
-            border-color: var(--vscode-panel-border);
             opacity: 1;
         }
 
         svg {
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             fill: currentColor;
         }
     }
@@ -1650,21 +1653,8 @@ body .project {
     margin-top: 9px;
     padding: 2px 10px 0;
     border-bottom: 1px solid var(--vscode-panel-border);
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, 0) 72%),
-        var(--vscode-editor-background);
+    background: var(--vscode-editor-background);
     box-sizing: border-box;
-}
-
-.dashboard-tab-list::before {
-    position: absolute;
-    right: 0;
-    bottom: -1px;
-    left: 0;
-    height: 1px;
-    background: rgba(255, 255, 255, .035);
-    content: "";
-    pointer-events: none;
 }
 
 .dashboard-tab-button {
@@ -1672,52 +1662,38 @@ body .project {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 5px;
     min-width: 0;
-    min-height: 34px;
-    padding: 7px 8px 8px;
+    min-height: 30px;
+    padding: 5px 8px 7px;
     overflow: hidden;
-    border: 1px solid transparent;
-    border-radius: 7px 7px 0 0;
+    border: 0;
+    border-radius: 0;
     color: var(--vscode-descriptionForeground);
     background: transparent;
     font-family: var(--vscode-font-family);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .06em;
     cursor: pointer;
     isolation: isolate;
     transition: color 120ms ease, border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 
     &[aria-selected="true"] {
         color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
-        font-weight: 700;
-        border-color: rgba(255, 255, 255, .045);
-        border-bottom-color: transparent;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045);
+        font-weight: 600;
     }
 
     &:hover {
         color: var(--vscode-foreground);
-        background: rgba(255, 255, 255, .035);
     }
-}
-
-.dashboard-tab-button::before {
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: inherit;
-    background: transparent;
-    content: "";
-}
-
-.dashboard-tab-button[aria-selected="true"]::before {
-    background: linear-gradient(180deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .018));
 }
 
 .dashboard-tab-button::after {
     position: absolute;
-    right: 12px;
+    right: 8px;
     bottom: -1px;
-    left: 12px;
+    left: 8px;
     height: 2px;
     border-radius: 999px 999px 0 0;
     background: transparent;
@@ -1726,7 +1702,6 @@ body .project {
 
 .dashboard-tab-button[aria-selected="true"]::after {
     background: var(--vscode-focusBorder);
-    box-shadow: 0 0 12px rgba(76, 154, 255, .24);
 }
 
 .dashboard-tab-icon {
@@ -1734,15 +1709,15 @@ body .project {
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    width: 19px;
-    height: 19px;
+    width: 15px;
+    height: 15px;
     color: currentColor;
     opacity: .72;
 }
 
 .dashboard-tab-icon svg {
-    width: 19px;
-    height: 19px;
+    width: 15px;
+    height: 15px;
     stroke-width: 2;
     transform-origin: center;
     vector-effect: non-scaling-stroke;
@@ -2777,13 +2752,12 @@ body .project {
             min-width: 0;
             min-height: 20px;
             padding: 0 6px;
-            border-bottom: 1px solid var(--vscode-panel-border, currentColor);
             color: var(--vscode-descriptionForeground);
             background: transparent;
-            font-size: 10px;
-            font-weight: 700;
+            font-size: 11px;
+            font-weight: 600;
             line-height: 1;
-            letter-spacing: .08em;
+            letter-spacing: .06em;
 
             .group-title-text {
                 margin-right: 0;
@@ -2997,7 +2971,7 @@ body .project {
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 32px;
+    height: 28px;
     padding: 0 6px 0 0;
     margin: 0;
     border: 0;
@@ -3244,6 +3218,17 @@ body .project {
 
     &:hover .open-window-pin:not(.active),
     &:focus-within .open-window-pin:not(.active) {
+        opacity: 1;
+    }
+
+    // Same quiet-by-default treatment for the row menu trigger; an open
+    // menu pins it visible.
+    .open-window-more:not([aria-expanded="true"]) {
+        opacity: 0;
+    }
+
+    &:hover .open-window-more,
+    &:focus-within .open-window-more {
         opacity: 1;
     }
 
@@ -4538,9 +4523,9 @@ body.steward-sidebar {
                 color: var(--vscode-descriptionForeground);
                 background: transparent;
                 font-family: var(--vscode-font-family);
-                font-size: 9px;
-                font-weight: 700;
-                letter-spacing: .04em;
+                font-size: 11px;
+                font-weight: 600;
+                letter-spacing: .06em;
                 cursor: pointer;
                 transition:
                     color $defaultTransition,
@@ -4566,9 +4551,9 @@ body.steward-sidebar {
         .ai-session-worktree-list {
             display: flex;
             flex-direction: column;
-            gap: 5px;
+            gap: 2px;
             min-width: 0;
-            margin-top: 6px;
+            margin-top: 4px;
         }
 
         .ai-session-grouping-control {
@@ -4661,14 +4646,12 @@ body.steward-sidebar {
 
         .ai-session-worktree-group {
             box-sizing: border-box;
-            border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
-            border-radius: 7px;
-            // A worktree is a named container, not just spacing around its
-            // sessions. Use a distinct widget surface and a light overlay so
-            // its boundary remains legible in low-contrast themes too.
-            background-color: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
-            background-image: linear-gradient(rgba(127, 127, 127, .06), rgba(127, 127, 127, .06));
-            overflow: hidden;
+            // Flat list groups, Codex-style: no card chrome, whitespace and
+            // the tree guide carry the grouping.
+            border: 0;
+            border-radius: 6px;
+            background: none;
+            margin: 1px 0;
         }
 
         // Tree rows always fill the same list column. List-view launcher
@@ -4680,12 +4663,13 @@ body.steward-sidebar {
         .ai-session-worktree-header {
             display: flex;
             align-items: center;
-            gap: 5px;
+            gap: 6px;
             box-sizing: border-box;
             width: 100%;
-            min-height: 32px;
-            padding: 4px 6px;
+            min-height: 28px;
+            padding: 2px 6px;
             border: 0;
+            border-radius: 6px;
             color: var(--vscode-foreground);
             background: transparent;
             font-family: var(--vscode-font-family);
@@ -4707,7 +4691,6 @@ body.steward-sidebar {
             display: flex;
             align-items: stretch;
             width: 100%;
-            border-bottom: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
         }
 
         // `hidden` must beat the flex display while the rename editor owns
@@ -4727,8 +4710,12 @@ body.steward-sidebar {
             flex: 0 0 auto;
             align-items: stretch;
             gap: 2px;
-            // 32px toolbar 节奏下保持 24px 命中区（与窗口行的触控目标一致）。
-            padding: 4px 0 4px 3px;
+            // 26px toolbar 节奏下保持 22px 命中区。
+            padding: 2px 0 2px 3px;
+            // Quiet until the row is hovered or focused; the menu-open state
+            // pins the controls visible so the open menu never orphans them.
+            opacity: 0;
+            transition: opacity 120ms ease;
 
             button {
                 display: inline-flex;
@@ -4736,12 +4723,12 @@ body.steward-sidebar {
                 justify-content: center;
                 align-self: stretch;
                 box-sizing: border-box;
-                width: 24px;
-                min-width: 24px;
+                width: 22px;
+                min-width: 22px;
                 padding: 0;
                 border: 0;
                 border-radius: 4px;
-                color: var(--vscode-foreground);
+                color: var(--vscode-descriptionForeground);
                 background: transparent;
                 cursor: pointer;
 
@@ -4768,18 +4755,20 @@ body.steward-sidebar {
 
         .ai-session-worktree-more {
             display: inline-flex;
-            flex: 0 0 24px;
+            flex: 0 0 22px;
             align-items: center;
             justify-content: center;
             align-self: stretch;
             box-sizing: border-box;
-            min-width: 24px;
-            margin: 4px 3px 4px 2px;
+            min-width: 22px;
+            margin: 2px 3px 2px 2px;
             border: 0;
             border-radius: 4px;
-            color: var(--vscode-foreground);
+            color: var(--vscode-descriptionForeground);
             background: transparent;
             cursor: pointer;
+            opacity: 0;
+            transition: opacity 120ms ease;
 
             svg {
                 width: 13px;
@@ -4797,6 +4786,16 @@ body.steward-sidebar {
                 opacity: .55;
                 cursor: progress;
             }
+        }
+
+        // Row actions stay out of the way until the row is hovered or used.
+        .ai-session-worktree-toolbar:hover .ai-session-worktree-launch-actions,
+        .ai-session-worktree-toolbar:hover .ai-session-worktree-more,
+        .ai-session-worktree-toolbar:focus-within .ai-session-worktree-launch-actions,
+        .ai-session-worktree-toolbar:focus-within .ai-session-worktree-more,
+        .ai-session-worktree-launch-actions:has([aria-expanded="true"]),
+        .ai-session-worktree-more[aria-expanded="true"] {
+            opacity: 1;
         }
 
         .ai-session-list-launch-rail {
@@ -4833,15 +4832,22 @@ body.steward-sidebar {
 
         .ai-session-worktree-indicator {
             flex: 0 0 auto;
-            color: var(--vscode-descriptionForeground);
+            width: 6px;
+            height: 6px;
+            margin: 0 3px;
+            border-radius: 999px;
+            background: var(--vscode-descriptionForeground);
+            opacity: 0.4;
         }
 
         .ai-session-worktree-group[data-worktree-activity="active"] .ai-session-worktree-indicator {
-            color: var(--vscode-terminal-ansiGreen, #89d185);
+            background: var(--vscode-terminal-ansiGreen, #89d185);
+            opacity: 1;
         }
 
         .ai-session-worktree-group[data-worktree-activity="attention"] .ai-session-worktree-indicator {
-            color: var(--vscode-notificationsWarningIcon-foreground, #cca700);
+            background: var(--vscode-notificationsWarningIcon-foreground, #cca700);
+            opacity: 1;
         }
 
         .ai-session-worktree-title {
@@ -4850,18 +4856,32 @@ body.steward-sidebar {
             min-width: 10ch;
             flex: 1 1 auto;
             overflow: hidden;
-            font-size: 10px;
-            font-weight: 600;
+            font-size: 12px;
+            font-weight: 500;
             text-overflow: ellipsis;
             white-space: nowrap;
         }
 
         .ai-session-worktree-health,
-        .ai-session-worktree-head,
         .ai-session-worktree-count {
             flex: 0 0 auto;
             color: var(--vscode-descriptionForeground);
-            font-size: 8px;
+            font-size: 10px;
+        }
+
+        // The git head state ('contained in base', 'detached · …') reads as
+        // noise in a narrow sidebar; the header tooltip carries it instead.
+        .ai-session-worktree-head {
+            display: none;
+        }
+
+        .ai-session-worktree-count {
+            min-width: 16px;
+            padding: 0 4px;
+            border-radius: 999px;
+            background: rgba(127, 127, 127, .16);
+            text-align: center;
+            line-height: 1.5;
         }
 
         .ai-session-worktree-health {
@@ -4879,8 +4899,8 @@ body.steward-sidebar {
             transition: transform $defaultTransition;
 
             svg {
-                width: 11px;
-                height: 11px;
+                width: 12px;
+                height: 12px;
             }
         }
 
@@ -4891,12 +4911,11 @@ body.steward-sidebar {
         .ai-session-worktree-session-list {
             display: flex;
             flex-direction: column;
-            gap: 2px;
-            // Indent under the group header so the cards read as belonging
-            // to the worktree, with a quiet tree guide along the edge.
-            margin-left: 7px;
-            padding: 0 3px 3px 9px;
-            border-left: 1px solid var(--vscode-panel-border);
+            gap: 1px;
+            // Indent under the group header with a whisper-quiet tree guide.
+            margin: 0 0 2px 11px;
+            padding: 0 2px 2px 7px;
+            border-left: 1px solid color-mix(in srgb, var(--vscode-panel-border) 55%, transparent);
 
             // The display rule above outranks the UA [hidden] style, so the
             // collapse toggle must win explicitly.
@@ -4908,9 +4927,11 @@ body.steward-sidebar {
         .ai-session-worktree-empty,
         .ai-session-worktree-truncated,
         .ai-session-worktree-empty-state {
-            padding: 5px 7px;
+            padding: 2px 7px 4px;
             color: var(--vscode-descriptionForeground);
-            font-size: 9px;
+            font-size: 10px;
+            font-style: italic;
+            opacity: 0.75;
         }
 
         .ai-session-worktree-empty-state {
@@ -5706,7 +5727,7 @@ body.steward-sidebar {
             border-radius: 999px;
             color: var(--vscode-badge-foreground);
             background: var(--vscode-badge-background);
-            font-size: 8px;
+            font-size: 9px;
             letter-spacing: 0;
             line-height: 1;
         }
@@ -6015,13 +6036,12 @@ body.steward-sidebar {
             display: block;
             box-sizing: border-box;
             position: relative;
-            min-height: 30px;
+            min-height: 26px;
             padding: 0;
             border: 1px solid transparent;
-            border-radius: 8px;
+            border-radius: 6px;
             color: var(--steward-foreground);
             background: transparent;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
             cursor: default;
             overflow: hidden;
             // Focus feedback must paint in the same frame as the Host update.
@@ -6043,7 +6063,6 @@ body.steward-sidebar {
             &:hover {
                 border-color: var(--vscode-panel-border);
                 background: var(--vscode-list-hoverBackground);
-                box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 
                 &::before {
                     opacity: 0.78;
@@ -6078,7 +6097,7 @@ body.steward-sidebar {
             gap: 6px;
             box-sizing: border-box;
             width: 100%;
-            min-height: 28px;
+            min-height: 24px;
             padding: 0 40px 0 7px;
             border: 0;
             border-radius: 7px;
@@ -6515,9 +6534,9 @@ body.steward-sidebar {
 
         .codex-session-name {
             color: var(--steward-foreground);
-            font-size: 11px;
-            font-weight: 650;
-            line-height: 1;
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1.2;
             min-width: 96px;
         }
 

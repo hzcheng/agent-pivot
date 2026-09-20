@@ -5476,10 +5476,87 @@ function toolActionLabel(name: string | undefined, running: boolean): string {
     }
 }
 
+// Expanded tool rows present a short past-tense verb plus the cleaned-up
+// argument, Codex-style: the provider's raw item name ('commandExecution')
+// is transport metadata, not display text. Unknown kinds fall back to the
+// raw name so unfamiliar tools stay identifiable.
+function toolVerbLabel(name: string | undefined): string {
+    switch (toolIconKind(name)) {
+    case 'terminal':
+        return 'Ran';
+    case 'file':
+        return 'Read';
+    case 'edit':
+        return 'Edited';
+    case 'search':
+        return 'Searched';
+    case 'git':
+        return 'Used Git';
+    case 'web':
+        return 'Browsed';
+    default:
+        return '';
+    }
+}
+
+const SHELL_WRAPPER_PATTERN =
+    /^(?:\S*[/\\])?(?:bash|zsh|sh|dash|ksh|fish|pwsh|powershell)(?:\.exe)?\s+((?:-[a-zA-Z0-9]+\s+)*)("[\s\S]*"|'[\s\S]*'|\S[\s\S]*)$/;
+
+// Providers hand us the literal terminal invocation, which usually starts
+// with a shell wrapper such as `/bin/zsh -lc "cd … && …"`. Codex shows the
+// command the user actually asked for, so unwrap one shell layer.
+function unwrapShellCommand(command: string): string {
+    const match = SHELL_WRAPPER_PATTERN.exec(command.trim());
+    if (!match) {
+        return command;
+    }
+    const flags = match[1].trim().split(/\s+/).filter(Boolean);
+    if (!flags.some(flag => /^-[a-zA-Z]*c$/.test(flag))) {
+        return command;
+    }
+    let inner = match[2].trim();
+    const quote = inner[0];
+    if ((quote === '"' || quote === "'")
+        && inner.length > 1
+        && inner.endsWith(quote)) {
+        inner = inner.slice(1, -1);
+        if (quote === '"') {
+            inner = inner.replace(/\\(["\\$`])/g, '$1');
+        }
+    }
+    return inner.trim() || command;
+}
+
+function cleanToolSummaryForDisplay(
+    name: string | undefined,
+    summary: string
+): string {
+    let text = summary.trim();
+    const normalizedName = (name || '').trim();
+    if (normalizedName && text.startsWith(normalizedName)) {
+        text = text.slice(normalizedName.length).trim();
+    }
+    const kind = toolIconKind(name);
+    if (kind === 'terminal') {
+        text = unwrapShellCommand(text);
+    } else if (kind === 'edit') {
+        // fileChange summaries carry a leading change kind ('update a.ts');
+        // the verb label already says what happened.
+        text = text.replace(
+            /^(?:add|create|update|delete|edit|modify|write)\s+/i,
+            ''
+        );
+    }
+    return text;
+}
+
 function renderToolMessage(message: ConversationMessage): string {
     const tool = message.tool;
-    const summary = tool ? escapeAttribute(tool.summary) : '';
-    const name = tool ? escapeAttribute(tool.name) : '';
+    const summary = tool
+        ? escapeAttribute(cleanToolSummaryForDisplay(tool.name, tool.summary))
+        : '';
+    const verb = tool ? toolVerbLabel(tool.name) : '';
+    const name = tool ? escapeAttribute(verb || tool.name) : '';
     const diffs = tool?.diffs;
     const totals = diffs?.length
         ? diffs.reduce(
@@ -5501,9 +5578,9 @@ function renderToolMessage(message: ConversationMessage): string {
         : '';
     const icon = toolIcon(tool?.name);
     const body = tool && (tool.detail || diffsHtml)
-        ? `<details class="conversation-tool-call"><summary>${icon}<span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</summary>
+        ? `<details class="conversation-tool-call"><summary>${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</summary>
 ${diffsHtml}${detailHtml}</details>`
-        : `<div class="conversation-tool-call conversation-tool-call-static">${icon}<span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</div>`;
+        : `<div class="conversation-tool-call conversation-tool-call-static">${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</div>`;
     return `<article class="conversation-message conversation-message-tool"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
@@ -5528,7 +5605,7 @@ function renderProgressMessage(message: ConversationMessage): string {
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
-    <span class="conversation-role">Assistant</span>
+    <span class="conversation-role conversation-visually-hidden">Assistant</span>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
@@ -5681,6 +5758,8 @@ interface ConversationToolGroup {
     firstMessageId: string;
     toolMessageIds: Set<string>;
     latestTool: ConversationMessage;
+    /** Distinct collapsed-row action labels in first-use order. */
+    labels: string[];
 }
 
 function toolGroups(
@@ -5702,11 +5781,19 @@ function toolGroups(
     });
     return rawGroups.map(messages => {
         const firstMessageId = messages[0].id;
+        const labels: string[] = [];
+        messages.forEach(message => {
+            const label = toolActionLabel(message.tool?.name, false);
+            if (!labels.includes(label)) {
+                labels.push(label);
+            }
+        });
         return {
             id: `${interactionId}:tool-group:${firstMessageId}`,
             firstMessageId,
             toolMessageIds: new Set(messages.map(message => message.id)),
             latestTool: messages[messages.length - 1],
+            labels,
         };
     });
 }
@@ -5738,6 +5825,16 @@ function renderToolGroupRow(
     const worklogAttribute = worklogId
         ? ` data-worklog-id="${escapeAttribute(worklogId)}"`
         : '';
+    // Codex-style collapsed rows name every distinct action in the group
+    // ('Read file · Ran command'); while the group is live its latest action
+    // switches to the running form.
+    const labels = toolGroup.labels.length
+        ? [...toolGroup.labels]
+        : [toolActionLabel(tool?.name, false)];
+    if (running && labels.length) {
+        labels[labels.length - 1] = toolActionLabel(tool?.name, true);
+    }
+    const label = labels.join(' · ');
     return `<article class="conversation-message conversation-message-tool conversation-message-tool-group${running
         ? ' conversation-tool-group-running'
         : ''}"
@@ -5745,7 +5842,7 @@ function renderToolGroupRow(
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(toolGroup.id))}"
     data-interaction-id="${escapeAttribute(interactionId)}"
     data-tool-group-id="${escapeAttribute(toolGroup.id)}"${worklogAttribute}>
-    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${toolActionLabel(tool?.name, running)}</span></button>
+    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${escapeAttribute(label)}</span></button>
 </article>`;
 }
 
@@ -5796,7 +5893,7 @@ function renderMessage(
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
-    <span class="conversation-role">User</span>
+    <span class="conversation-role conversation-visually-hidden">User</span>
     <button class="conversation-message-bookmark" title="Bookmark this input"></button>
     <section class="conversation-message-corner">${inputClock}<button class="conversation-message-copy" title="Copy input"></button></section>
     <section class="conversation-markdown">${renderConversationMarkdown(
@@ -5811,7 +5908,7 @@ function renderMessage(
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
-    <span class="conversation-role">Assistant</span>
+    <span class="conversation-role conversation-visually-hidden">Assistant</span>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>

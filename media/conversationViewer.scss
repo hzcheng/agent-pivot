@@ -896,8 +896,12 @@ button {
 }
 
 .conversation-messages {
-    width: min(100%, 70rem);
+    // A Codex-style reading column: narrow enough for prose, centered in the
+    // scroll area. Tool output, diffs, and diagrams scroll inside their own
+    // blocks instead of widening the conversation.
+    width: min(100%, 48rem);
     margin: 0 auto;
+    line-height: 1.65;
 }
 
 // A reused panel switching sessions keeps a cache miss visibly loading, but
@@ -908,7 +912,7 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
 .conversation-working {
     display: flex;
-    width: min(100%, 70rem);
+    width: min(100%, 48rem);
     align-items: center;
     gap: 0.4rem;
     margin: 0.25rem auto 0.75rem;
@@ -1002,20 +1006,34 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     background: var(--vscode-editor-findMatchBackground);
 }
 
+// Codex-style prompt: a quiet right-aligned bubble. The article itself stays
+// full-width and transparent so selection outlines, comment markers, and the
+// hover corner actions keep anchoring to the same box as before.
 .conversation-message-user {
-    margin: 1rem 0 1.25rem;
-    padding: 0.875rem 1rem 1rem;
-    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
-    border-left: 4px solid var(--vscode-button-background);
-    border-radius: 4px;
-    background: var(--vscode-input-background, var(--vscode-textBlockQuote-background));
+    display: flex;
+    justify-content: flex-end;
+    margin: 1.75rem 0 1rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+
+    > .conversation-markdown {
+        max-width: min(85%, 40rem);
+        padding: 0.5rem 0.9rem;
+        border-radius: 1.15rem;
+        background: var(
+            --vscode-input-background,
+            var(--vscode-textBlockQuote-background)
+        );
+    }
 }
 
+// Assistant text is a plain reading flow: no card, label, or separator —
+// whitespace alone separates turns.
 .conversation-message-assistant {
-    margin: 0.75rem 0 1rem;
-    padding: 0.75rem 0.25rem 1rem;
+    margin: 0.5rem 0 1.5rem;
+    padding: 0;
     border: 0;
-    border-bottom: 1px solid var(--vscode-panel-border);
     background: transparent;
 }
 
@@ -1572,29 +1590,10 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     font-style: italic;
 }
 
-.conversation-role {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: var(--vscode-descriptionForeground);
-    font-weight: 600;
-}
-
-.conversation-message-user .conversation-role {
-    display: inline-flex;
-    align-items: center;
-    min-height: 1.25rem;
-    padding: 0.1rem 0.45rem;
-    border-radius: 999px;
-    color: var(--vscode-button-foreground);
-    background: var(--vscode-button-background);
-    font-size: 0.75rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
+// Role labels render only for assistive technology: the visual design
+// distinguishes speaker by layout (right-aligned bubble vs. reading flow).
 .conversation-message-tool {
-    margin: 0.375rem 0 0.375rem 1.25rem;
+    margin: 0.125rem 0;
     font-size: 0.85em;
     color: var(--vscode-descriptionForeground);
 }
@@ -1617,7 +1616,9 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     display: inline-flex;
     max-width: min(100%, 42rem);
     align-items: center;
-    padding: 0.15rem 0.4rem 0.15rem 0;
+    padding: 0.2rem 0.45rem;
+    margin-left: -0.45rem;
+    border-radius: 6px;
     border: none;
     background: transparent;
     color: var(--vscode-descriptionForeground);
@@ -1637,6 +1638,7 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     &:hover,
     &:focus-visible {
         color: var(--vscode-foreground);
+        background: var(--vscode-list-hoverBackground);
     }
 
     &:focus-visible {
@@ -1691,7 +1693,9 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     max-width: min(100%, 42rem);
     align-items: center;
     gap: 0.35rem;
-    padding: 0.1rem 0.4rem 0.1rem 0;
+    padding: 0.2rem 0.45rem;
+    margin-left: -0.45rem;
+    border-radius: 6px;
     border: none;
     background: transparent;
     color: var(--vscode-descriptionForeground);
@@ -1710,6 +1714,7 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
     &:hover {
         color: var(--vscode-foreground);
+        background: var(--vscode-list-hoverBackground);
     }
 
     &:focus-visible {
@@ -1747,6 +1752,9 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     font-size: 0.95rem;
     line-height: 1;
     cursor: pointer;
+    // The bubble stays clean until hovered; a set bookmark never hides.
+    opacity: 0;
+    transition: opacity 120ms ease;
 
     &::before {
         content: '\2606';
@@ -1757,10 +1765,15 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
             --vscode-charts-yellow,
             var(--vscode-editorWarning-foreground)
         );
+        opacity: 1;
 
         &::before {
             content: '\2605';
         }
+    }
+
+    &:focus-visible {
+        opacity: 1;
     }
 
     &:hover {
@@ -1822,6 +1835,11 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     opacity: 1;
 }
 
+.conversation-message-user:hover > .conversation-message-bookmark,
+.conversation-message-user:focus-within > .conversation-message-bookmark {
+    opacity: 1;
+}
+
 .conversation-message-time {
     align-self: center;
     margin-left: 0.2rem;
@@ -1875,13 +1893,16 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     summary {
         display: flex;
         align-items: center;
+        padding: 0.18rem 0.45rem;
+        margin-left: -0.45rem;
+        border-radius: 6px;
         cursor: pointer;
         overflow: hidden;
-        text-overflow: ellipsis;
         white-space: nowrap;
 
         &:hover {
             color: var(--vscode-foreground);
+            background: var(--vscode-list-hoverBackground);
         }
     }
 
@@ -1889,7 +1910,8 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
         margin-left: 0.35rem;
     }
 
-    &[open] summary {
+    &[open] summary,
+    &[open] summary .conversation-tool-summary {
         white-space: normal;
     }
 }
@@ -1897,13 +1919,28 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 .conversation-tool-call-static {
     display: flex;
     align-items: center;
+    padding: 0.18rem 0.45rem;
+    margin-left: -0.45rem;
+    border-radius: 6px;
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .conversation-tool-call-static > * + * {
     margin-left: 0.35rem;
+}
+
+// The summary is a real element (not a loose text node) so long commands
+// ellipsize inside the flex row instead of clipping at the window edge.
+.conversation-tool-summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-tool-summary:empty {
+    display: none;
 }
 
 .conversation-diff {
@@ -2116,7 +2153,8 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
 
 .conversation-tool-name {
-    font-weight: 600;
+    flex: 0 0 auto;
+    font-weight: 500;
     color: var(--vscode-foreground);
     opacity: 0.85;
 }
@@ -3705,7 +3743,8 @@ button.conversation-comment-status-chip {
     }
 
     .conversation-message-actions,
-    .conversation-message-corner {
+    .conversation-message-corner,
+    .conversation-message-bookmark {
         transition: none;
     }
 
@@ -3742,19 +3781,8 @@ button.conversation-comment-status-chip {
         outline-color: Highlight;
     }
 
-    .conversation-message-user {
-        border-color: CanvasText;
-        border-left-color: Highlight;
-    }
-
-    .conversation-message-user .conversation-role {
+    .conversation-message-user > .conversation-markdown {
         border: 1px solid CanvasText;
-        color: HighlightText;
-        background: Highlight;
-    }
-
-    .conversation-message-assistant {
-        border-bottom-color: CanvasText;
     }
 
     .conversation-markdown th,

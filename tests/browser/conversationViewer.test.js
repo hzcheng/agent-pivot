@@ -12106,6 +12106,14 @@ test('CONVERSATION-TOOL-DISPLAY-002 renders tool rows as one muted run with mono
             .count(),
         1
     );
+    assert.deepEqual(
+        await commandRow.locator('svg.conversation-tool-icon-terminal rect')
+            .evaluate(frame => Object.fromEntries(
+                ['x', 'y', 'width', 'height', 'rx'].map(name => [name, frame.getAttribute(name)])
+            )),
+        { x: '3', y: '4', width: '18', height: '16', rx: '4.5' },
+        'sanitizing must preserve the frame position and rounded corners, not only the rect tag'
+    );
 
     const styles = await commandRow.evaluate(element => {
         const verb = element.querySelector('.conversation-tool-name');

@@ -16,7 +16,7 @@
         'data-conversation-table-id',
         'data-conversation-diff-file-id', 'data-conversation-math-token',
         'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',
-        'x1', 'y1', 'x2', 'y2',
+        'x', 'y', 'rx', 'x1', 'y1', 'x2', 'y2',
         'pathLength', 'stroke-dasharray', 'stroke-dashoffset', 'transform',
         'data-message-id', 'data-conversation-message-id',
         'data-interaction-id', 'data-worklog-id', 'data-tool-group-id', 'data-conversation-run-command',

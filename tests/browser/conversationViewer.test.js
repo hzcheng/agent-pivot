@@ -11995,8 +11995,8 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 presents User as a right-aligned bub
             });
             assert.equal(indicators.boxShadow, 'none',
                 'the user row itself carries no selection chrome');
-            assert.match(indicators.bubbleBoxShadow, /inset/,
-                'the selection tick hugs the prompt bubble, not the row edge');
+            assert.equal(indicators.bubbleBoxShadow, 'none',
+                'the reading anchor is state, not a visual mark on the bubble');
             assert.equal(indicators.active, true,
                 'the click still focuses the article');
             assert.equal(indicators.outlineWidth, 0,
@@ -12009,8 +12009,8 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 presents User as a right-aligned bub
                 element.classList.add('conversation-selected-interaction');
                 return getComputedStyle(element).boxShadow;
             });
-            assert.match(assistantTick, /inset/,
-                'assistant rows keep the leading-edge selection tick');
+            assert.equal(assistantTick, 'none',
+                'assistant rows carry no selection chrome either');
 
             await page.emulateMedia({ forcedColors: 'active' });
             const forcedColors = await user.evaluate(element => {

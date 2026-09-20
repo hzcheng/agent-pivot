@@ -984,20 +984,12 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     }
 }
 
-// The selected reading anchor is a quiet accent tick on the row's leading
-// edge, not a full ring around flat content.
+// The selected reading anchor is functional state (refresh gating,
+// navigation) — not a visual affordance. Codex-style: no persistent
+// selection chrome at all; keyboard focus still marks the row via
+// :focus-visible, and forced-colors keeps a visible indicator below.
 .conversation-selected-interaction {
-    box-shadow: inset 3px 0 0 var(--vscode-focusBorder);
-}
-
-// On right-aligned prompt bubbles the tick belongs to the bubble itself,
-// not the row's far leading edge.
-.conversation-message-user.conversation-selected-interaction {
     box-shadow: none;
-
-    > .conversation-markdown {
-        box-shadow: inset 3px 0 0 var(--vscode-focusBorder);
-    }
 }
 
 .conversation-has-comment {
@@ -3552,6 +3544,11 @@ button.conversation-comment-status-chip {
 }
 
 @media (forced-colors: active) {
+    // High contrast keeps the reading anchor visible.
+    .conversation-selected-interaction {
+        box-shadow: inset 3px 0 0 Highlight;
+    }
+
     .conversation-project-comment-tag,
     .conversation-comments-filter-chip,
     .conversation-comments-filter-dot {

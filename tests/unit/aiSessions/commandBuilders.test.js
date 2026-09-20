@@ -227,3 +227,21 @@ test('SESSION-CODEX-PROFILE-LAUNCH-001 drops invalid profile names at the flag b
 test('SESSION-COMMAND-BUILDER-001 quotes PowerShell single quotes without interpolation', () => {
     assert.equal(commands.quotePowerShellArg("O'Brien & 100%"), "'O''Brien & 100%'");
 });
+
+test('SESSION-COMMAND-BUILDER-001 routes new and resumed Codex terminals through the managed streaming runner', () => {
+    const options = { yolo: true, codexStreamRunner: '/extension path/dist/codexTerminal.js' };
+    for (const resume of [false, true]) {
+        const build = value => resume
+            ? commands.buildCodexResumeLaunchSpec(sessionId, directoryScope, markerPath, value, title)
+            : commands.buildCodexNewSessionLaunchSpec(directoryScope, title, markerPath, value);
+        const ordinary = build({ yolo: true });
+        const managed = build(options);
+        assert.equal(managed.executable, 'env', 'terminal must start the companion runner');
+        assert.deepEqual(managed.args.slice(0, 3), ['ELECTRON_RUN_AS_NODE=1', process.execPath, options.codexStreamRunner]);
+        const payload = JSON.parse(managed.args[3]);
+        assert.deepEqual(payload.args, ordinary.args, 'preserve prompt, resume id and approval selection');
+        assert.equal(payload.cwd, cwd);
+        assert.equal(managed.cwd, cwd);
+        assert.equal(managed.markerPath, markerPath);
+    }
+});

@@ -56,6 +56,7 @@ interface SharedWatch {
     adapterSubscription: AiSessionDisposable;
     timer?: TimerHandle;
     dirtySinceMs?: number;
+    streaming?: boolean;
     inFlight?: Promise<void>;
     lastCompletionAtMs?: number;
 }
@@ -316,7 +317,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
                 };
                 created.adapterSubscription = adapter.watch(
                     sessionId,
-                    () => this.scheduleInvalidation(created)
+                    streaming => this.scheduleInvalidation(created, streaming)
                 );
                 watch = created;
                 this.watches.set(key, watch);
@@ -548,10 +549,15 @@ export class ConversationCoordinator implements AiSessionDisposable {
         this.cursorKeysBySession.delete(key);
     }
 
-    private scheduleInvalidation(watch: SharedWatch): void {
+    private scheduleInvalidation(watch: SharedWatch, streaming = false): void {
         if (this.disposed || this.watches.get(watch.key) !== watch) {
             return;
         }
+        if (streaming && !watch.streaming && watch.timer !== undefined) {
+            this.clearTimer(watch.timer);
+            watch.timer = undefined;
+        }
+        watch.streaming = watch.streaming || streaming;
         if (watch.dirtySinceMs === undefined) {
             watch.dirtySinceMs = this.now();
         }
@@ -569,11 +575,11 @@ export class ConversationCoordinator implements AiSessionDisposable {
         }
         const now = this.now();
         const debounceDeadline = watch.dirtySinceMs
-            + CONVERSATION_LIMITS.invalidationDebounceMs;
+            + (watch.streaming ? 50 : CONVERSATION_LIMITS.invalidationDebounceMs);
         const rateFloor = watch.lastCompletionAtMs === undefined
             ? debounceDeadline
             : watch.lastCompletionAtMs
-                + CONVERSATION_LIMITS.invalidationMinIntervalMs;
+                + (watch.streaming ? 100 : CONVERSATION_LIMITS.invalidationMinIntervalMs);
         const deadline = Math.max(debounceDeadline, rateFloor);
         let firedSynchronously = false;
         const timer = this.setTimer(() => {
@@ -597,6 +603,7 @@ export class ConversationCoordinator implements AiSessionDisposable {
             return;
         }
         watch.dirtySinceMs = undefined;
+        watch.streaming = false;
         const inFlight = Promise.resolve().then(() => Promise.all(
             Array.from(watch.listeners).map(async listener => {
                 try {

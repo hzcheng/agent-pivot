@@ -35,8 +35,20 @@ function buildClaudeAdditionalDirectoryArgs(scope: AiSessionDirectoryScope): str
     return additionalDirectories.length ? ['--add-dir', ...additionalDirectories] : [];
 }
 
-export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS, prompt: string = null): AiSessionLaunchSpec {
+function managedCodexLaunch(spec: AiSessionLaunchSpec, scope: AiSessionDirectoryScope,
+    options: AiSessionLaunchOptions): AiSessionLaunchSpec {
+    if (!options.codexStreamRunner) { return spec; }
     return {
+        executable: 'env',
+        args: ['ELECTRON_RUN_AS_NODE=1', process.execPath, options.codexStreamRunner,
+            JSON.stringify({ args: spec.args, cwd: scope.primaryCwd, markerPath: spec.markerPath })],
+        cwd: scope.primaryCwd,
+        markerPath: spec.markerPath,
+    };
+}
+
+export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS, prompt: string = null): AiSessionLaunchSpec {
+    return managedCodexLaunch({
         executable: 'codex',
         args: [
             'resume',
@@ -49,11 +61,11 @@ export function buildCodexResumeLaunchSpec(sessionId: string, scope: AiSessionDi
         ],
         markerPath,
         windowsDirectShell: 'current',
-    };
+    }, scope, launchOptions);
 }
 
 export function buildCodexNewSessionLaunchSpec(scope: AiSessionDirectoryScope, prompt: string = null, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS): AiSessionLaunchSpec {
-    return {
+    return managedCodexLaunch({
         executable: 'codex',
         args: [
             ...codexProfileArgs(launchOptions),
@@ -64,7 +76,7 @@ export function buildCodexNewSessionLaunchSpec(scope: AiSessionDirectoryScope, p
         ],
         markerPath,
         windowsDirectShell: 'powershell',
-    };
+    }, scope, launchOptions);
 }
 
 export function buildKimiResumeLaunchSpec(sessionId: string, scope: AiSessionDirectoryScope, markerPath: string = null, launchOptions: AiSessionLaunchOptions = SAFE_LAUNCH_OPTIONS, prompt: string = null): AiSessionLaunchSpec {

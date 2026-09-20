@@ -21924,6 +21924,78 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies a streaming tail patch 
     ).length, 0, 'an HTML-free delta applies cleanly after the patch');
 });
 
+test('CONVERSATION-LIVE-UPDATE-JOURNEY-001 keeps a rendered Mermaid figure through streaming tail patches', async t => {
+    const page = await openViewerPage(t, { controlledMermaid: true });
+    // A complete diagram inside the streaming tail group: every patch
+    // replaces the group in place, so without preservation each delta
+    // would drop the rendered figure and re-render it — a visible flash.
+    const tail = text => `<article data-message-id="msg-1"
+        data-interaction-id="msg-1">
+        <section class="conversation-markdown"><p>${text}</p>
+            <pre><code class="language-mermaid">flowchart TB
+                A[Rendered once] --&gt; B[Never flashed]</code></pre>
+        </section>
+    </article>`;
+    await sendPage(page, {
+        type: 'conversation-viewer-page',
+        version: 1,
+        requestId: 1,
+        subscriptionGeneration: 1,
+        updateKind: 'initial',
+        html: messageHtml('msg', 1, 0) + tail('chunk one'),
+        htmlSignature: 'sig-initial',
+        outline: progressiveOutline(2),
+        selectedInteractionId: 'msg-1',
+        selectedInput: 1,
+        totalInputs: 2,
+        partial: false,
+        atLatest: true,
+        stale: false,
+        subagents: [],
+        activeSubagent: null,
+    });
+    await page.waitForFunction(() => window.__mermaidRenders.length === 1);
+    await page.evaluate(() => {
+        window.__mermaidRenders[0].resolve({
+            svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>',
+        });
+    });
+    await page.locator('.conversation-mermaid-image').waitFor();
+    await page.evaluate(() => {
+        window.__renderedFigure = document.querySelector(
+            '.conversation-mermaid-image'
+        );
+    });
+
+    await sendPage(page, tailPatchPage({
+        tailInteractionId: 'msg-1',
+        tailHtml: tail('chunk one plus more'),
+        outline: progressiveOutline(2),
+        selectedInteractionId: 'msg-1',
+        selectedInput: 1,
+        totalInputs: 2,
+    }));
+
+    await page.waitForFunction(() => window.__postedMessages.some(message =>
+        message.type === 'conversation-viewer-applied'
+            && message.requestId === 2
+    ));
+    assert.equal(await page.evaluate(() =>
+        document.querySelector('.conversation-mermaid-image')
+            === window.__renderedFigure
+    ), true, 'the rendered figure survives a tail patch');
+    assert.equal(
+        await page.evaluate(() => window.__mermaidRenders.length),
+        1,
+        'a tail patch must not re-render the unchanged diagram'
+    );
+    assert.equal(
+        (await page.locator('[data-message-id="msg-1"]').textContent())
+            .includes('chunk one plus more'),
+        true
+    );
+});
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-002 requests an earlier page when the transcript reaches its top', async t => {
     const page = await openViewerPage(t);
     await sendPage(page, {
@@ -22370,4 +22442,19 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 ignores stale decompression fai
     await sendPage(page, { ...newer, requestId: 11, updateKind: 'refresh', html: undefined });
     assert.equal((await postedMessages(page)).filter(m => m.type === 'conversation-viewer-request-sync').length, 0);
     assert.equal(await page.locator('[data-message-id="newer"]').count(), 1);
+});
+
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 renders successive assistant chunks before completion without duplicating the final reply', async t => {
+    const page = await openViewerPage(t);
+    const reply = (text, state) => `<article data-message-id="live-assistant" data-interaction-id="input-4" data-response-state="${state}"><section class="conversation-markdown"><p>${text}</p></section></article>`;
+    const steps = [['First', 'inProgress'], ['First second', 'inProgress'], ['First second third', 'completed']];
+    for (const [index, [text, state]] of steps.entries()) {
+        await sendPage(page, {
+            ...hostileConversationPage, requestId: index + 1,
+            updateKind: index ? 'refresh' : 'initial', html: reply(text, state),
+        });
+        const message = page.locator('[data-message-id="live-assistant"]');
+        assert.equal(await message.count(), 1);
+        assert.equal((await message.textContent()).trim(), text);
+    }
 });

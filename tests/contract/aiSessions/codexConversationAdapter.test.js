@@ -3818,3 +3818,130 @@ test('SESSION-AI-SESSION-CODEX-CONVERSATION-006 resume epochs reuse item ids acr
     assert.ok(outline.interactions.length >= 1,
         'the conversation reads instead of failing on epoch id reuse');
 });
+
+test('CONVERSATION-LIVE-001 live overlay pins interaction ids across durable and synthetic-id views', async t => {
+    // Verified against a real 0.155 companion: an interrupted turn's
+    // in-memory view carries synthetic item ids (item-1, item-2, …) while
+    // the rollout replay exposes the real server ids. The viewer anchors
+    // its selection on interaction ids; an id flip permanently wedges its
+    // refresh gates (every refresh republishes stale content).
+    const thread = {
+        thread: {
+            id: sessionId,
+            turns: [{
+                id: 'turn-old',
+                status: 'completed',
+                items: [{
+                    id: 'u-old', type: 'userMessage',
+                    content: [{ type: 'text', text: 'earlier question' }],
+                }, {
+                    id: 'a-old', type: 'agentMessage', text: 'earlier answer',
+                }],
+            }, {
+                id: 'turn-tail',
+                status: 'interrupted',
+                items: [{
+                    id: 'u-tail-real', type: 'userMessage',
+                    content: [{ type: 'text', text: 'latest question' }],
+                }, {
+                    id: 'a-tail-real', type: 'agentMessage',
+                    text: 'partial durable answer',
+                }],
+            }],
+        },
+    };
+    let liveState;
+    const harness = createAdapter(thread, {
+        client: {
+            async request() { return clone(thread); },
+            dispose() {},
+        },
+        // Not part of the shared helper signature; attach after creation.
+    });
+    t.after(() => harness.adapter.dispose());
+    harness.adapter.options.liveFeed = {
+        watch: () => ({ dispose() {} }),
+        read: () => liveState,
+    };
+
+    // Durable-only baseline: the tail interaction carries the rollout id.
+    const baseline = await harness.adapter.readOutline(sessionId);
+    assert.equal(baseline.interactions.at(-1).id, 'u-tail-real');
+
+    // The live overlay reports the same turn with synthetic ids and newer
+    // text: the emitted interaction keeps the durable id but live content.
+    liveState = {
+        revision: 7,
+        turns: [{
+            id: 'turn-tail',
+            status: 'interrupted',
+            items: [{
+                id: 'item-1', type: 'userMessage',
+                content: [{ type: 'text', text: 'latest question' }],
+            }, {
+                id: 'item-2', type: 'agentMessage',
+                text: 'partial durable answer plus live tail',
+            }],
+        }],
+    };
+    const overlaid = await harness.adapter.readOutline(sessionId);
+    assert.equal(overlaid.interactions.at(-1).id, 'u-tail-real',
+        'the live overlay must not flip the interaction id');
+    assert.equal(overlaid.interactions.length, 2);
+
+    // A newer turn arrives, pushing turn-old out of the live tail window;
+    // turn-old falls back to the rollout view while turn-tail stays live.
+    // Neither id may flip for anchored readers.
+    liveState = {
+        revision: 9,
+        turns: [{
+            id: 'turn-tail',
+            status: 'interrupted',
+            items: [{
+                id: 'item-1', type: 'userMessage',
+                content: [{ type: 'text', text: 'latest question' }],
+            }, {
+                id: 'item-2', type: 'agentMessage',
+                text: 'partial durable answer plus live tail',
+            }],
+        }, {
+            id: 'turn-new',
+            status: 'inProgress',
+            items: [{
+                id: 'u-new', type: 'userMessage',
+                content: [{ type: 'text', text: 'newest question' }],
+            }, {
+                id: 'a-new', type: 'agentMessage', text: 'streaming',
+            }],
+        }],
+    };
+    const afterWindow = await harness.adapter.readOutline(sessionId);
+    assert.deepEqual(
+        afterWindow.interactions.map(interaction => interaction.id),
+        ['u-old', 'u-tail-real', 'u-new'],
+        'ids stay stable and chronological across the live window slide'
+    );
+
+    // Finally turn-tail leaves the live window too: the rollout view (real
+    // ids) takes over — the pin still prevents a flip for anchored readers.
+    liveState = {
+        revision: 11,
+        turns: [{
+            id: 'turn-new',
+            status: 'inProgress',
+            items: [{
+                id: 'u-new', type: 'userMessage',
+                content: [{ type: 'text', text: 'newest question' }],
+            }, {
+                id: 'a-new', type: 'agentMessage', text: 'streaming more',
+            }],
+        }],
+    };
+    const tailGone = await harness.adapter.readOutline(sessionId);
+    assert.equal(
+        tailGone.interactions.find(interaction =>
+            interaction.providerTurnId === 'turn-tail')?.id,
+        'u-tail-real',
+        'a turn leaving the live window must not flip its id back'
+    );
+});

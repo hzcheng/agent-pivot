@@ -1,5 +1,8 @@
 'use strict';
 
+import { existsSync } from 'fs';
+import { readCodexManagedRun } from './codexManagedRun';
+
 import type { AiSessionProviderId, CodexSession } from '../models';
 import { compareAiSessionUpdatedAt } from './sessionHelpers';
 import { normalizeAiSessionProjectPath } from './sessionHelpers';
@@ -15,7 +18,7 @@ type AiSessionPendingTerminalProvider = Pick<
 export type PendingAiSessionRuntimeMatchInput = Pick<
     AiSessionPendingRuntimeSnapshot,
     'identity' | 'createdAt' | 'excludedSessionIds'
->;
+> & { markerPath?: string };
 
 export function getAiSessionIdsForCwd(
     providerId: AiSessionProviderId,
@@ -50,6 +53,15 @@ export function findPendingAiSessionTerminalMatch(
     const createdAt = Date.parse(pendingRuntime.createdAt);
     if (!comparableCwd || !Number.isFinite(createdAt)) {
         return null;
+    }
+    const managedFile = pendingRuntime.markerPath ? `${pendingRuntime.markerPath}.stream.json` : undefined;
+    if (providerId === 'codex' && managedFile && existsSync(managedFile)) {
+        const run = readCodexManagedRun(managedFile);
+        if (!run || run.startedAt < createdAt
+            || normalizeAiSessionProjectPath(run.cwd) !== comparableCwd) { return null; }
+        return sessionResult.sessions.find(session => session.id === run.sessionId
+            && !pendingRuntime.excludedSessionIds.includes(session.id)
+            && !claimedSessionKeys.has(getSessionKey(providerId, session.id))) || null;
     }
     return sessionResult.sessions
         .filter(session => {

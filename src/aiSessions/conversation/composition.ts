@@ -3,6 +3,8 @@
 import * as childProcess from 'child_process';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
+import { CodexLiveFeed } from './codexLiveFeed';
+import { watchConversationTranscript } from './transcriptWatch';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { AGENT_PIVOT_DASHBOARD_VIEW_ID } from '../../constants';
@@ -313,8 +315,13 @@ function createAvailableConversationCapability(
     const codexGoalTurns = new CodexRolloutGoalTurnsReader();
     const changesCollector = new ChangesCollector({ now: options.now });
     const commitsCollector = new CommitsCollector();
+    const codexLiveFeed = ownership.own(new CodexLiveFeed(undefined, {
+        onDiagnostic: options.onDiagnostic,
+    }));
     const codexAdapter = ownership.own(factories.createCodexAdapter({
+        liveFeed: codexLiveFeed,
         client: codexClient,
+        onDiagnostic: options.onDiagnostic,
         watchSessionChanges: onDidChange =>
             options.services.codex.watchSessionChanges(onDidChange),
         setTimeout: options.setTimer,
@@ -359,6 +366,10 @@ function createAvailableConversationCapability(
     }));
     ownership.transfer(codexClient);
     const kimiAdapter = ownership.own(factories.createKimiAdapter({
+        watchTranscript: (sessionId, onChange) => watchConversationTranscript(
+            () => options.services.kimi.resolveConversationSource?.(sessionId)?.sourcePath,
+            onChange
+        ),
         resolveSource: sessionId =>
             options.services.kimi.resolveConversationSource?.(sessionId)
             || null,
@@ -371,6 +382,12 @@ function createAvailableConversationCapability(
             worktreeResolver.resolve(candidatePath),
     }));
     const claudeAdapter = ownership.own(factories.createClaudeAdapter({
+        watchTranscript: (sessionId, onChange) => watchConversationTranscript(
+            () => options.services.claude.resolveConversationSource?.(
+                sessionId, getWorkspaceRootHostPaths(options)
+            )?.sourcePath,
+            onChange
+        ),
         resolveSource: sessionId =>
             options.services.claude.resolveConversationSource?.(
                 sessionId,

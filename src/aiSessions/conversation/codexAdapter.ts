@@ -38,6 +38,7 @@ import {
     ConversationSnapshot,
     ConversationSubagentEntry,
     ConversationTelemetry,
+    SanitizedConversationDiagnostic,
 } from './types';
 import {
     isSubagentId,
@@ -73,6 +74,10 @@ export interface CodexConversationClient extends AiSessionDisposable {
     ): Promise<string | undefined>;
 }
 
+function hashLiveSessionId(sessionId: string): string {
+    return createHash('sha256').update(sessionId, 'utf8').digest('hex').slice(0, 12);
+}
+
 interface CodexRolloutTelemetrySnapshot {
     model?: string;
     context?: {
@@ -84,6 +89,10 @@ interface CodexRolloutTelemetrySnapshot {
 
 export interface CodexConversationAdapterOptions {
     client: CodexConversationClient;
+    liveFeed?: {
+        watch(sessionId: string, callback: () => void): AiSessionDisposable;
+        read(sessionId: string): { turns: unknown[]; revision: number } | undefined;
+    };
     watchSessionChanges(onDidChange: () => void): AiSessionDisposable;
     setTimeout(callback: () => void, delayMs: number): TimerHandle;
     clearTimeout(handle: TimerHandle): void;
@@ -123,6 +132,9 @@ export interface CodexConversationAdapterOptions {
     // model (when known) lets the host match sessions started outside the
     // extension, which have no recorded profile decision.
     getSessionProfileContextWindow?(sessionId: string, model?: string): number | undefined;
+    // Sanitized diagnostics for the live-overlay merge. Emitted at most once
+    // per session per outcome so a persistently drifting server cannot spam.
+    onDiagnostic?(diagnostic: SanitizedConversationDiagnostic): void;
     now?(): number;
 }
 
@@ -1196,6 +1208,17 @@ function normalizeRateLimits(value: unknown): ConversationTelemetry['rateLimits'
 }
 
 export class CodexConversationAdapter implements ConversationProviderAdapter {
+    private readonly liveWatches = new Set<AiSessionDisposable>();
+    private readonly liveMergeReported = new Set<string>();
+    // Interaction ids seen across the live-overlay boundary are not stable:
+    // an interrupted turn's in-memory view carries synthetic per-turn item
+    // ids (item-1, …) while the rollout replay exposes the real server ids.
+    // The viewer anchors its selection, cursors, and render cache on
+    // interaction ids, so a mid-session flip permanently wedges its refresh
+    // gates. Pin every emitted interaction id per (session, turn, position):
+    // the first emission wins and the pin applies to live overlays and
+    // durable reloads alike until the turn leaves both views.
+    private readonly interactionIdPins = new Map<string, Map<string, string[]>>();
     private readonly subscriptions = new Map<string, Set<() => void>>();
     private providerWatch?: AiSessionDisposable;
     private invalidationTimer?: TimerHandle;
@@ -1712,7 +1735,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         };
     }
 
-    watch(sessionId: string, onChange: () => void): AiSessionDisposable {
+    watch(sessionId: string, onChange: (streaming?: boolean) => void): AiSessionDisposable {
         if (this.disposed) {
             return { dispose() {} };
         }
@@ -1732,6 +1755,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             }
             throw error;
         }
+        const liveWatch = this.options.liveFeed?.watch(sessionId, () => onChange(true));
+        if (liveWatch) { this.liveWatches.add(liveWatch); }
         let active = true;
         return {
             dispose: () => {
@@ -1739,6 +1764,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                     return;
                 }
                 active = false;
+                liveWatch?.dispose();
+                this.liveWatches.delete(liveWatch);
                 callbacks.delete(listener);
                 if (!callbacks.size) {
                     this.subscriptions.delete(sessionId);
@@ -1767,6 +1794,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         this.loadedConversationCache.clear();
         this.loadedConversationCacheChars = 0;
         this.materializationQueues.clear();
+        this.liveWatches.forEach(watch => watch.dispose());
+        this.liveWatches.clear();
         this.subscriptions.clear();
         this.options.client.dispose();
     }
@@ -1872,6 +1901,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
                 && signature !== undefined
                 && (outcome.kind === 'incremental'
                     || outcome.kind === 'windowed'
+                    || !!this.options.liveFeed?.read(sessionId)
                     || outcome.characters >= LARGE_CONVERSATION_CACHE_CHARS
                     || this.now() - startedAt
                         >= LARGE_CONVERSATION_CACHE_MIN_READ_MS)) {
@@ -1904,6 +1934,76 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         value: LoadedConversation
     ): LoadedConversation {
         const split = splitSubagentSessionId(sessionId);
+        const live = this.options.liveFeed?.read(sessionId);
+        if (!split.subagentId && live) {
+            try {
+                const normalized = normalizeThreadRead(
+                    { thread: { id: sessionId, turns: live.turns } },
+                    sessionId,
+                    undefined,
+                    this.options.readGoalTurns?.(sessionId)
+                ).interactions;
+                const turnIds = new Set(normalized.map(interaction => interaction.providerTurnId));
+                const pins = this.interactionIdPinsFor(sessionId);
+                // The durable base holds the ids the viewer already anchors
+                // on; prefer them over freshly normalized live ids, then
+                // record the winner as the pin for this (turn, position).
+                const durablePositions = new Map<object, number>();
+                const durableIdsByTurn = new Map<string, string[]>();
+                const durableTurnCounts = new Map<string, number>();
+                for (const interaction of value.interactions) {
+                    if (typeof interaction.providerTurnId !== 'string'
+                        || !interaction.providerTurnId) {
+                        continue;
+                    }
+                    const position = durableTurnCounts.get(interaction.providerTurnId) || 0;
+                    durableTurnCounts.set(interaction.providerTurnId, position + 1);
+                    durablePositions.set(interaction, position);
+                    const ids = durableIdsByTurn.get(interaction.providerTurnId) || [];
+                    ids[position] = interaction.id;
+                    durableIdsByTurn.set(interaction.providerTurnId, ids);
+                }
+                const stabilized = this.stabilizeInteractionIds(
+                    pins, normalized, durableIdsByTurn
+                );
+                // A turn that fell out of the live tail window is re-read
+                // from the rollout with its real server ids; re-apply the
+                // pins so the emitted outline does not flip those ids back.
+                const retained = value.interactions
+                    .filter(interaction => !turnIds.has(interaction.providerTurnId))
+                    .map(interaction => {
+                        const turnPins = typeof interaction.providerTurnId === 'string'
+                            ? pins.get(interaction.providerTurnId)
+                            : undefined;
+                        if (!turnPins) {
+                            return interaction;
+                        }
+                        const pinned = turnPins[durablePositions.get(interaction) ?? -1];
+                        return pinned && pinned !== interaction.id
+                            ? { ...interaction, id: pinned }
+                            : interaction;
+                    });
+                value = {
+                    interactions: retained.concat(stabilized),
+                    sourceRevision: `${value.sourceRevision}:live:${live.revision}`,
+                };
+                this.pruneInteractionIdPins(pins, value.interactions, turnIds);
+            } catch (_error) {
+                // Protocol drift must not hide the durable conversation.
+                if (!this.liveMergeReported.has(sessionId)) {
+                    this.liveMergeReported.add(sessionId);
+                    try {
+                        this.options.onDiagnostic?.({
+                            event: 'codex-conversation-live-feed',
+                            provider: 'codex',
+                            category: 'protocol',
+                            note: 'live-merge-failed',
+                            sessionIdHash: hashLiveSessionId(sessionId),
+                        });
+                    } catch (_ignored) { /* Diagnostics must never break reads. */ }
+                }
+            }
+        }
         if (split.subagentId || !value.interactions.length) {
             return value;
         }
@@ -1914,6 +2014,68 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         return interactions === value.interactions
             ? value
             : { interactions, sourceRevision: value.sourceRevision };
+    }
+
+    private interactionIdPinsFor(sessionId: string): Map<string, string[]> {
+        let pins = this.interactionIdPins.get(sessionId);
+        if (!pins) {
+            pins = new Map();
+            this.interactionIdPins.set(sessionId, pins);
+        }
+        return pins;
+    }
+
+    // Stabilize freshly normalized live interactions against previously
+    // emitted ids. A pin already recorded for (turn, position) wins; else
+    // the id of the durable interaction this live interaction replaces
+    // wins; else the live id is pinned for future reads.
+    private stabilizeInteractionIds(
+        pins: Map<string, string[]>,
+        liveInteractions: ConversationInteraction[],
+        durableIdsByTurn: Map<string, string[]>
+    ): ConversationInteraction[] {
+        const liveTurnCounts = new Map<string, number>();
+        return liveInteractions.map(interaction => {
+            const turnId = interaction.providerTurnId;
+            if (typeof turnId !== 'string' || !turnId) {
+                return interaction;
+            }
+            const position = liveTurnCounts.get(turnId) || 0;
+            liveTurnCounts.set(turnId, position + 1);
+            let turnPins = pins.get(turnId);
+            if (!turnPins) {
+                turnPins = [];
+                pins.set(turnId, turnPins);
+            }
+            const pinned = turnPins[position]
+                ?? durableIdsByTurn.get(turnId)?.[position]
+                ?? interaction.id;
+            turnPins[position] = pinned;
+            return pinned === interaction.id
+                ? interaction
+                : { ...interaction, id: pinned };
+        });
+    }
+
+    // Pins outlive their turn only while the turn is still visible in the
+    // live tail or the durable base; once both have dropped it, the pin
+    // can never be observed again.
+    private pruneInteractionIdPins(
+        pins: Map<string, string[]>,
+        interactions: readonly ConversationInteraction[],
+        liveTurnIds: ReadonlySet<string>
+    ): void {
+        const alive = new Set<string>(liveTurnIds);
+        for (const interaction of interactions) {
+            if (typeof interaction.providerTurnId === 'string') {
+                alive.add(interaction.providerTurnId);
+            }
+        }
+        for (const turnId of Array.from(pins.keys())) {
+            if (!alive.has(turnId)) {
+                pins.delete(turnId);
+            }
+        }
     }
 
     private async loadConversation(

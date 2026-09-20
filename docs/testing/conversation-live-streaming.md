@@ -71,6 +71,12 @@ transient overlay and refresh authoritative history. Missing transports retry
 while watched; unsubscribing releases sockets and timers. Completed items replace
 partial text without appending duplicates. If attachment misses an item's start,
 a suffix is not displayed as a complete message; item completion restores it.
+A resume snapshot taken mid-turn omits the already-started agentMessage item
+entirely, while later deltas carry its real id — the feed synthesizes the item
+from the method-scoped delta, and retains the last in-flight text per (session,
+turn) across detach/reattach so a session switch away and back no longer drops
+everything already streamed. Seeded-but-never-confirmed items are dropped when
+the turn completes, and the retained record is discarded with it.
 
 ## Real remote evidence (2026-09-19)
 

@@ -22,6 +22,8 @@ interface Entry {
     sessionIdHash?: string;
     socketKind?: 'managed' | 'shared';
     deltas: number;
+    /** Item ids seeded from retained text, awaiting a confirming delta. */
+    seeded?: Set<string>;
     socket?: any;
     timer?: ReturnType<typeof setTimeout>;
     stopped: boolean;
@@ -37,6 +39,12 @@ export class CodexLiveFeed implements AiSessionDisposable {
     private readonly entries = new Map<string, Entry>();
     private readonly onDiagnostic?: CodexLiveFeedOptions['onDiagnostic'];
     private readonly resolveSocket: (sessionId: string, entry: Entry) => string;
+    // The resume snapshot of a turn already in flight omits its
+    // already-started agentMessage item, so the text streamed before a
+    // viewer detach (session switch, socket reconnect) would vanish until
+    // the next delta or completion. Retain the last in-flight text per
+    // (session, turn) and re-seed the item on the next attach.
+    private readonly retainedStreams = new Map<string, Map<string, { itemId: string; text: string }>>();
     private disposed = false;
     private revision = 0;
 
@@ -107,7 +115,7 @@ export class CodexLiveFeed implements AiSessionDisposable {
             active = false;
             owned.listeners.delete(callback);
             if (!owned.listeners.size) {
-                this.stop(owned);
+                this.stop(sessionId, owned);
                 if (this.entries.get(sessionId) === owned) {
                     this.entries.delete(sessionId);
                 }
@@ -117,15 +125,63 @@ export class CodexLiveFeed implements AiSessionDisposable {
 
     dispose(): void {
         this.disposed = true;
-        this.entries.forEach(entry => this.stop(entry));
+        this.entries.forEach((entry, sessionId) => this.stop(sessionId, entry));
         this.entries.clear();
     }
 
-    private stop(entry: Entry): void {
+    private stop(sessionId: string, entry: Entry): void {
+        this.retainInflight(sessionId, entry);
         entry.stopped = true;
         clearTimeout(entry.timer);
         entry.socket?.terminate();
         entry.turns = [];
+    }
+
+    // Re-seed a freshly snapshotted in-progress turn from text retained at
+    // detach: the snapshot omits the already-started agentMessage item, so
+    // without this the streamed text vanishes until the next delta lands.
+    // Seeded items carry no new content — only what was already streamed —
+    // and an item whose id never streams again is dropped at turn end.
+    private reseedFromRetained(sessionId: string, entry: Entry): void {
+        const retained = this.retainedStreams.get(sessionId);
+        if (!retained) { return; }
+        for (const turn of entry.turns) {
+            if (turn?.status !== 'inProgress' || !Array.isArray(turn.items)) {
+                continue;
+            }
+            if (turn.items.some(item => item?.type === 'agentMessage')) {
+                continue;
+            }
+            const kept = retained.get(turn.id);
+            if (kept?.text) {
+                turn.items.push({ id: kept.itemId, type: 'agentMessage', text: kept.text });
+                if (!entry.seeded) { entry.seeded = new Set(); }
+                entry.seeded.add(kept.itemId);
+            }
+        }
+    }
+
+    private retainInflight(sessionId: string, entry: Entry): void {
+        const byTurn = new Map<string, { itemId: string; text: string }>();
+        for (const turn of entry.turns || []) {
+            if (turn?.status !== 'inProgress' || !Array.isArray(turn?.items)) {
+                continue;
+            }
+            for (const item of turn.items) {
+                if (item?.type === 'agentMessage' && typeof item.text === 'string'
+                    && item.text && !item.completed) {
+                    byTurn.set(turn.id, { itemId: item.id, text: item.text });
+                }
+            }
+        }
+        if (byTurn.size) {
+            this.retainedStreams.set(sessionId, byTurn);
+            while (this.retainedStreams.size > 16) {
+                const oldest = this.retainedStreams.keys().next().value;
+                if (typeof oldest !== 'string') { break; }
+                this.retainedStreams.delete(oldest);
+            }
+        }
     }
 
     private changed(entry: Entry): void {
@@ -193,6 +249,7 @@ export class CodexLiveFeed implements AiSessionDisposable {
                         throw new Error('Missing live turns');
                     }
                     entry.turns = turns.slice(-2);
+                    this.reseedFromRetained(sessionId, entry);
                     if ((entry.bytes = JSON.stringify(entry.turns).length) > MAX_BYTES) {
                         retry = false;
                         throw new Error('Live tail exceeds budget');
@@ -221,7 +278,7 @@ export class CodexLiveFeed implements AiSessionDisposable {
                 // Approval requests remain owned by the existing terminal client.
                 if (!initialized || !ready || message.id !== undefined
                     || message.params?.threadId !== sessionId) { return; }
-                if (this.accept(entry, message.method, message.params)) {
+                if (this.accept(sessionId, entry, message.method, message.params)) {
                     if (message.method === 'item/agentMessage/delta') {
                         entry.bytes += message.params.delta.length;
                         entry.deltas += 1;
@@ -249,6 +306,7 @@ export class CodexLiveFeed implements AiSessionDisposable {
             pending.clear();
             if (entry.socket !== socket) { return; }
             entry.socket = undefined;
+            this.retainInflight(sessionId, entry);
             this.report(entry, 'close', {
                 liveTurns: entry.turns.length,
                 count: entry.deltas,
@@ -261,7 +319,7 @@ export class CodexLiveFeed implements AiSessionDisposable {
         });
     }
 
-    private accept(entry: Entry, method: string, params: any): boolean {
+    private accept(sessionId: string, entry: Entry, method: string, params: any): boolean {
         if (method === 'turn/started') {
             const turn = params.turn;
             if (!turn || typeof turn.id !== 'string' || !Array.isArray(turn.items)) { return false; }
@@ -273,13 +331,22 @@ export class CodexLiveFeed implements AiSessionDisposable {
         if (!turn) { return false; }
         if (method === 'turn/completed') {
             turn.status = params.turn.status;
+            // A seeded item that never streamed again carried only what was
+            // already visible; the turn is over, so it must not linger.
+            if (entry.seeded?.size) {
+                turn.items = turn.items.filter(item => !entry.seeded?.has(item?.id));
+                entry.seeded.clear();
+            }
+            this.retainedStreams.get(sessionId)?.delete(turnId);
             return true;
         }
         if (method === 'item/started' || method === 'item/completed') {
             const item = params.item;
             if (!item || typeof item.id !== 'string') { return false; }
             const index = turn.items.findIndex(value => value.id === item.id);
+            if (method === 'item/completed') { item.completed = true; }
             if (index < 0) { turn.items.push(item); } else { turn.items[index] = item; }
+            entry.seeded?.delete(item.id);
             return true;
         }
         if (method === 'item/agentMessage/delta' && typeof params.delta === 'string') {
@@ -290,11 +357,16 @@ export class CodexLiveFeed implements AiSessionDisposable {
                 // item's real id. The method scope proves the item type, so
                 // synthesize the item instead of dropping the delta — the
                 // completed item still replaces it wholesale at completion.
-                item = { id: params.itemId, type: 'agentMessage', text: '' };
+                // Attach-time seeding keeps the text streamed before a
+                // detach; the retained prefix belongs to this exact item id.
+                const kept = this.retainedStreams.get(sessionId)?.get(turnId);
+                item = { id: params.itemId, type: 'agentMessage',
+                    text: kept?.itemId === params.itemId ? kept.text : '' };
                 turn.items.push(item);
             }
             if (item?.type !== 'agentMessage') { return false; }
             item.text = (item.text || '') + params.delta;
+            entry.seeded?.delete(params.itemId);
             return true;
         }
         return false;

@@ -110,6 +110,34 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 a mid-turn attach still receiv
     assert.ok(changes >= 3, 'deltas and completion each publish');
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 detach retains in-flight text and re-seeds the next attach snapshot', { skip: process.platform === 'win32' }, async t => {
+    // Verified against a real 0.155 companion: the resume snapshot of a
+    // running turn omits the already-started agentMessage item. Without
+    // retention, switching away mid-turn loses everything already streamed.
+    const h = await harness(t);
+    let watch = h.feed.watch('session-a', () => {});
+    await until(() => h.feed.read('session-a'));
+    h.notify('item/agentMessage/delta', { turnId: 'turn-a', itemId: 'agent-a', delta: 'streamed before detach' });
+    await until(() => h.feed.read('session-a').turns[0].items[1]?.text === 'streamed before detach');
+    watch.dispose();
+    assert.equal(h.feed.read('session-a'), undefined, 'detach releases the live view');
+
+    // Re-attach: the fresh snapshot still lacks the item, so the retained
+    // text re-seeds it instead of reverting to the user message alone.
+    watch = h.feed.watch('session-a', () => {});
+    await until(() => h.feed.read('session-a')?.turns[0].items.length === 2);
+    assert.equal(h.feed.read('session-a').turns[0].items[1].text, 'streamed before detach');
+
+    // The stream continues from the retained prefix and completion still
+    // replaces the item wholesale.
+    h.notify('item/agentMessage/delta', { turnId: 'turn-a', itemId: 'agent-a', delta: ' + after reattach' });
+    await until(() => h.feed.read('session-a').turns[0].items[1].text === 'streamed before detach + after reattach');
+    h.notify('item/completed', { turnId: 'turn-a', item: { id: 'agent-a', type: 'agentMessage', text: 'final' } });
+    h.notify('turn/completed', { turn: { id: 'turn-a', status: 'completed' } });
+    await until(() => h.feed.read('session-a').turns[0].items[1].text === 'final');
+    watch.dispose();
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 viewing an unloaded thread never resumes it', { skip: process.platform === 'win32' }, async t => {
     const h = await harness(t, false);
     h.feed.watch('session-a', () => {});

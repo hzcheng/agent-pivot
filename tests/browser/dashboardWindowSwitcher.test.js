@@ -647,11 +647,11 @@ test('OPEN-WINDOW-SWITCHER-UI-001 keeps bridge status in the WINDOWS title row w
     assert.equal(layout.statusDisplay, 'flex', 'ready state reserves the fixed horizontal status slot');
     assert.equal(layout.statusSharesHeader, true,
         'bridge status stays in the WINDOWS title row instead of creating a second row');
-    assert.equal(layout.headerFontSize, '10px');
-    assert.equal(layout.headerBorderBottomWidth, '1px',
-        'a hairline separates the WINDOWS label from its rows');
-    assert.ok(layout.headerHeight <= 21,
-        'the navigation label stays compact, including its one-pixel separator');
+    assert.equal(layout.headerFontSize, '11px');
+    assert.equal(layout.headerBorderBottomWidth, '0px',
+        'the flat section label carries no hairline of its own');
+    assert.ok(layout.headerHeight <= 22,
+        'the navigation label stays compact');
     assert.ok(layout.rowGap <= 2,
         'the first window row follows the WINDOWS title without a blank status row; only rail inset is allowed');
 });

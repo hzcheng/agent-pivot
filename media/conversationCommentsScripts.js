@@ -2407,6 +2407,17 @@
                 item.append(input, hint);
                 item.appendChild(buildCommentTagsRow(projectStack, comment));
                 window.setTimeout(function () {
+                    // The open timer must not steal focus from or collapse a
+                    // selection that already raced ahead of it — a fast
+                    // select-all + type would otherwise append behind the
+                    // original text instead of replacing it.
+                    if (!input.isConnected) {
+                        return;
+                    }
+                    if (document.activeElement === input
+                        && input.selectionStart !== input.selectionEnd) {
+                        return;
+                    }
                     autosizeCommentInput(input);
                     input.focus();
                     input.setSelectionRange(

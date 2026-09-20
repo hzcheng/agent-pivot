@@ -8365,11 +8365,77 @@ test('CONVERSATION-TOOL-CALL-VISIBILITY-001 publishes collapsible tool-call mark
     });
 
     await viewer.open(target('session-a', 'input-1'));
-    const html = panel.webview.html;
+    const html = decodeInitialPublication(panel.webview.html).html;
     assert.equal(html.includes('conversation-tool-call'), true);
-    assert.equal(html.includes('Shell npm test'), true);
+    // Codex-style rows lead with a short verb, not the raw tool name, and
+    // the summary no longer repeats that name.
+    assert.equal(html.includes('conversation-tool-name">Ran</span>'), true);
+    assert.equal(html.includes('npm test'), true);
+    assert.equal(html.includes('Shell npm test'), false);
     assert.equal(html.includes('9 passing'), true);
     assert.equal(html.includes('conversation-message-tool'), true);
+});
+
+test('CONVERSATION-TOOL-DISPLAY-001 cleans shell wrappers from command rows and summarizes mixed groups', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1']
+        ),
+        readPage: async request => ({
+            ...page(request.sessionId, 'input-1', 'visible'),
+            messages: [
+                {
+                    id: 'input-1:user',
+                    interactionId: 'input-1',
+                    role: 'user',
+                    markdown: 'Check the viewer',
+                },
+                {
+                    id: 'input-1:tool:0',
+                    interactionId: 'input-1',
+                    role: 'tool',
+                    markdown: '',
+                    tool: {
+                        name: 'Read',
+                        summary: 'Read src/viewer.ts',
+                    },
+                },
+                {
+                    id: 'input-1:tool:1',
+                    interactionId: 'input-1',
+                    role: 'tool',
+                    markdown: '',
+                    tool: {
+                        name: 'commandExecution',
+                        summary: 'commandExecution /bin/zsh -lc "cd /repo && npm test"',
+                        detail: 'ok',
+                    },
+                },
+                {
+                    id: 'input-1:assistant:0',
+                    interactionId: 'input-1',
+                    role: 'assistant',
+                    markdown: 'Done.',
+                },
+            ],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = decodeInitialPublication(panel.webview.html).html;
+    // Collapsed groups name every distinct action, Codex-style.
+    assert.match(
+        html,
+        /conversation-tool-group-label">Read file · Ran command<\/span>/
+    );
+    // Expanded rows drop the provider item name and unwrap one shell layer.
+    assert.equal(html.includes('commandExecution'), false);
+    assert.equal(html.includes('/bin/zsh -lc'), false);
+    assert.equal(html.includes('cd /repo &amp;&amp; npm test'), true);
+    // The file row leads with its verb and keeps the path.
+    assert.equal(html.includes('conversation-tool-name">Read</span>'), true);
+    assert.equal(html.includes('src/viewer.ts'), true);
 });
 
 test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 CONVERSATION-QUESTION-OPTION-HIERARCHY-001 publishes numbered question options with distinct labels and descriptions', async () => {

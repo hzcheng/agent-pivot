@@ -3140,24 +3140,30 @@ function assertConversationEmphasisTheme(styles, fixture) {
         `Assistant body must use the ${fixture.name} editor foreground`
     );
     assert.equal(
-        styles.assistantRoleColor,
-        fixture.tokens.descriptionForeground,
-        `Assistant role must use the ${fixture.name} muted description foreground`
+        styles.userRoleHidden,
+        true,
+        'User role label must be visually hidden; layout carries the speaker'
     );
     assert.equal(
-        styles.userRoleColor,
-        fixture.tokens.buttonForeground,
-        `User pill foreground must use the ${fixture.name} button foreground`
-    );
-    assert.equal(
-        styles.userRoleBackground,
-        fixture.tokens.buttonBackground,
-        `User pill background must use the ${fixture.name} button background`
+        styles.assistantRoleHidden,
+        true,
+        'Assistant role label must be visually hidden; layout carries the speaker'
     );
     assert.equal(
         styles.userBackground,
+        'rgba(0, 0, 0, 0)',
+        'User article stays transparent; only the bubble carries a surface'
+    );
+    assert.equal(
+        styles.userBubbleBackground,
         fixture.tokens.inputBackground,
-        `User surface must use the ${fixture.name} input background`
+        `User bubble must use the ${fixture.name} input background`
+    );
+    assert.equal(styles.userBorderTop, 0);
+    assert.equal(styles.userBorderLeft, 0);
+    assert.ok(
+        styles.userBubbleRadius >= 12,
+        'User bubble must use a generous chat-bubble radius'
     );
     assertMessageFillsReadingArea(
         styles.userBounds,
@@ -3169,42 +3175,43 @@ function assertConversationEmphasisTheme(styles, fixture) {
         'Assistant',
         styles.messagesBounds
     );
+    assert.ok(
+        Math.abs(styles.userBubbleBounds.right - styles.userBounds.right) <= 1,
+        'User bubble must hug the reading area\'s right edge'
+    );
+    assert.ok(
+        styles.userBubbleBounds.left > styles.userBounds.left + 1,
+        'User bubble must shrink to its content instead of filling the row'
+    );
+    assert.equal(
+        styles.assistantBackground,
+        'rgba(0, 0, 0, 0)',
+        'Assistant stays a plain transparent reading flow'
+    );
+    assert.equal(
+        styles.assistantBorderBottom,
+        0,
+        'Assistant turns separate with whitespace, not a rule'
+    );
     for (const [name, textAlign] of [
         ['User', styles.userTextAlign],
         ['Assistant', styles.assistantTextAlign],
     ]) {
         assert.ok(
             textAlign !== 'right' && textAlign !== 'end',
-            `${name} message must not be right/end aligned`
+            `${name} message text must stay left/start aligned`
         );
     }
 }
 
 function assertConversationEmphasisForcedColors(styles) {
-    assert.deepEqual(styles.userPerimeterWidths, {
-        top: 1,
-        right: 1,
-        bottom: 1,
-        left: 4,
-    });
-    assert.deepEqual(styles.userRoleBorderWidths, {
+    assert.deepEqual(styles.userBubblePerimeterWidths, {
         top: 1,
         right: 1,
         bottom: 1,
         left: 1,
     });
-    assert.deepEqual(styles.userRoleBorderStyles, {
-        top: 'solid',
-        right: 'solid',
-        bottom: 'solid',
-        left: 'solid',
-    });
-    assert.notEqual(
-        styles.userRoleColor,
-        styles.userRoleBackground,
-        'forced-colors User pill foreground and background must remain distinct'
-    );
-    assert.equal(styles.assistantSeparatorWidth, 1);
+    assert.equal(styles.assistantSeparatorWidth, 0);
 }
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 acquires one real document API and delegates HTTPS links only to native Webview navigation', async t => {
@@ -4033,17 +4040,17 @@ test('CONVERSATION-MESSAGE-BOOKMARK-001 bookmarks an input from its card without
         const cardRect = card.getBoundingClientRect();
         const starRect = star.getBoundingClientRect();
         return {
-            insideCard: starRect.top >= cardRect.top
-                && starRect.bottom <= cardRect.top + cardRect.height / 2
+            belowCard: starRect.top >= cardRect.bottom - 2
+                && starRect.bottom <= cardRect.bottom + 40
                 && starRect.right <= cardRect.right
                 && starRect.left > cardRect.left + cardRect.width / 2,
             starColor: getComputedStyle(star).color,
         };
     });
     assert.equal(
-        starGeometry.insideCard,
+        starGeometry.belowCard,
         true,
-        'the star sits in the top-right corner of the input card'
+        'the star parks below the input bubble\'s right edge'
     );
     assert.notEqual(
         starGeometry.starColor,
@@ -4547,24 +4554,26 @@ test('CONVERSATION-COPY-ACTIONS-001 copies user inputs and assistant answers thr
                 && Math.abs(
                     (corner.top + corner.bottom) - (star.top + star.bottom)
                 ) <= 4,
-            cornerInside: corner.top >= cardBounds.top - 1
-                && corner.bottom <= cardBounds.top
-                    + cardBounds.height / 2,
+            cornerBelowBubble: corner.top >= cardBounds.bottom - 2
+                && corner.bottom <= cardBounds.bottom + 40,
             cardHasNoRow: !card.querySelector(
                 '.conversation-message-actions'
             ),
-            answerRowBelow: answerRow.top >= answerMarkdown.bottom - 1,
+            // The floating action bar overlaps the answer's last line by a
+            // few pixels so the pointer path stays contiguous.
+            answerRowHugsBottom: answerRow.top >= answerMarkdown.bottom - 8
+                && answerRow.top <= answerMarkdown.bottom + 4,
             answerRowLeft: answerCopy.left
                 - answer.getBoundingClientRect().left < 48,
         };
     });
     assert.deepEqual(actionRows, {
         cornerBesideStar: true,
-        cornerInside: true,
+        cornerBelowBubble: true,
         cardHasNoRow: true,
-        answerRowBelow: true,
+        answerRowHugsBottom: true,
         answerRowLeft: true,
-    }, 'the user card clusters its controls with the star while the answer keeps a bottom row');
+    }, 'the user bubble parks its controls below the card while the answer floats a compact action bar');
     assert.equal(
         await userCopy.locator('svg').count(),
         1,
@@ -11834,7 +11843,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
     );
 });
 
-test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block and keeps Assistant quiet', async t => {
+test('CONVERSATION-VIEWER-USER-EMPHASIS-001 presents User as a right-aligned bubble and Assistant as a quiet reading flow', async t => {
     const interactionId = 'input-emphasis';
     for (const fixture of viewerThemeFixtures) {
         const { page } = await openHostViewerDocument(t, {
@@ -11879,8 +11888,14 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block
             );
             const userStyle = getComputedStyle(element);
             const assistantStyle = getComputedStyle(assistantElement);
-            const userRoleStyle = getComputedStyle(userRole);
-            const assistantRoleStyle = getComputedStyle(assistantRole);
+            const userBubbleStyle = getComputedStyle(userBody);
+            const roleHidden = role => {
+                const bounds = role.getBoundingClientRect();
+                const style = getComputedStyle(role);
+                return (bounds.width <= 1 && bounds.height <= 1)
+                    || style.display === 'none'
+                    || style.visibility === 'hidden';
+            };
             const messagesBounds = messagesElement.getBoundingClientRect();
             const userBounds = element.getBoundingClientRect();
             const assistantBounds = assistantElement.getBoundingClientRect();
@@ -11888,13 +11903,16 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block
                 userBackground: userStyle.backgroundColor,
                 userBorderTop: Number.parseFloat(userStyle.borderTopWidth),
                 userBorderLeft: Number.parseFloat(userStyle.borderLeftWidth),
-                userRadius: Number.parseFloat(userStyle.borderTopLeftRadius),
-                userRoleDisplay: userRoleStyle.display,
-                userRoleColor: userRoleStyle.color,
-                userRoleBackground: userRoleStyle.backgroundColor,
-                userRoleRadius: Number.parseFloat(
-                    userRoleStyle.borderTopLeftRadius
+                userBubbleBackground: userBubbleStyle.backgroundColor,
+                userBubbleRadius: Number.parseFloat(
+                    userBubbleStyle.borderTopLeftRadius
                 ),
+                userBubbleBounds: {
+                    left: userBody.getBoundingClientRect().left,
+                    right: userBody.getBoundingClientRect().right,
+                },
+                userRoleHidden: roleHidden(userRole),
+                assistantRoleHidden: roleHidden(assistantRole),
                 userBodyColor: getComputedStyle(userBody).color,
                 userTextAlign: getComputedStyle(userBody).textAlign,
                 assistantBackground: assistantStyle.backgroundColor,
@@ -11905,7 +11923,6 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block
                     assistantStyle.borderBottomWidth
                 ),
                 assistantBodyColor: getComputedStyle(assistantBody).color,
-                assistantRoleColor: assistantRoleStyle.color,
                 assistantTextAlign: getComputedStyle(assistantBody).textAlign,
                 messagesBounds: {
                     left: messagesBounds.left,
@@ -11920,18 +11937,18 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block
         });
 
         assert.notEqual(
-            styles.userBackground,
+            styles.userBubbleBackground,
             'rgba(0, 0, 0, 0)',
-            'User prompt must have its own filled surface'
+            'User prompt bubble must have its own filled surface'
         );
-        assert.equal(styles.userBorderTop, 1);
-        assert.equal(styles.userBorderLeft, 4);
-        assert.ok(styles.userRadius >= 4);
-        assert.equal(styles.userRoleDisplay, 'inline-flex');
-        assert.ok(styles.userRoleRadius >= 100);
+        assert.equal(styles.userBorderTop, 0);
+        assert.equal(styles.userBorderLeft, 0);
+        assert.ok(styles.userBubbleRadius >= 12);
+        assert.equal(styles.userRoleHidden, true);
+        assert.equal(styles.assistantRoleHidden, true);
         assert.equal(styles.assistantBackground, 'rgba(0, 0, 0, 0)');
         assert.equal(styles.assistantBorderLeft, 0);
-        assert.equal(styles.assistantBorderBottom, 1);
+        assert.equal(styles.assistantBorderBottom, 0);
         assertConversationEmphasisTheme(styles, fixture);
 
         assert.throws(
@@ -11947,9 +11964,12 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block
         assert.throws(
             () => assertConversationEmphasisTheme({
                 ...styles,
-                assistantRoleColor: fixture.tokens.editorForeground,
+                userBubbleBounds: {
+                    ...styles.userBubbleBounds,
+                    right: styles.userBubbleBounds.right - 24,
+                },
             }, fixture),
-            /Assistant role must use the .* muted description foreground/
+            /User bubble must hug the reading area's right edge/
         );
 
         if (fixture.name === 'dark') {
@@ -11973,31 +11993,16 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 makes User a full-width Prompt block
                 const assistantElement = document.querySelector(
                     '.conversation-message-assistant'
                 );
-                const role = element.querySelector('.conversation-role');
-                const userStyle = getComputedStyle(element);
-                const roleStyle = getComputedStyle(role);
+                const bubble = element.querySelector('.conversation-markdown');
+                const bubbleStyle = getComputedStyle(bubble);
                 const assistantStyle = getComputedStyle(assistantElement);
                 return {
-                    userPerimeterWidths: {
-                        top: Number.parseFloat(userStyle.borderTopWidth),
-                        right: Number.parseFloat(userStyle.borderRightWidth),
-                        bottom: Number.parseFloat(userStyle.borderBottomWidth),
-                        left: Number.parseFloat(userStyle.borderLeftWidth),
+                    userBubblePerimeterWidths: {
+                        top: Number.parseFloat(bubbleStyle.borderTopWidth),
+                        right: Number.parseFloat(bubbleStyle.borderRightWidth),
+                        bottom: Number.parseFloat(bubbleStyle.borderBottomWidth),
+                        left: Number.parseFloat(bubbleStyle.borderLeftWidth),
                     },
-                    userRoleBorderWidths: {
-                        top: Number.parseFloat(roleStyle.borderTopWidth),
-                        right: Number.parseFloat(roleStyle.borderRightWidth),
-                        bottom: Number.parseFloat(roleStyle.borderBottomWidth),
-                        left: Number.parseFloat(roleStyle.borderLeftWidth),
-                    },
-                    userRoleBorderStyles: {
-                        top: roleStyle.borderTopStyle,
-                        right: roleStyle.borderRightStyle,
-                        bottom: roleStyle.borderBottomStyle,
-                        left: roleStyle.borderLeftStyle,
-                    },
-                    userRoleColor: roleStyle.color,
-                    userRoleBackground: roleStyle.backgroundColor,
                     assistantSeparatorWidth: Number.parseFloat(
                         assistantStyle.borderBottomWidth
                     ),

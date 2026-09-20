@@ -1364,6 +1364,20 @@
     ]
   },
   {
+    "id": "CONVERSATION-TOOL-DISPLAY-001",
+    "domain": "webview",
+    "title": "Tool rows present a short verb plus a cleaned argument (no raw provider item names, no shell wrappers), and collapsed groups name every distinct action in order",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "media/conversationViewer.scss"
+    ]
+  },
+  {
     "id": "CONVERSATION-COMMENTS-LAYOUT-001",
     "domain": "webview",
     "title": "The tabbed Comments panel keeps a compact grouped action bar and clamps long card bodies behind a Show more toggle (full text kept in the DOM) across extreme widths while remaining collapsible, resizable, and locally restorable",
@@ -2283,7 +2297,7 @@
   {
     "id": "CONVERSATION-VIEWER-USER-EMPHASIS-001",
     "domain": "webview",
-    "title": "AI Conversation presents User prompts as dominant full-width blocks",
+    "title": "AI Conversation presents User prompts as right-aligned bubbles and Assistant turns as a quiet reading flow, Codex-style",
     "priority": "P1",
     "status": "automated",
     "owners": [

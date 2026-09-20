@@ -5444,17 +5444,23 @@ function toolIconKind(name: string | undefined): string {
 
 function toolIcon(name: string | undefined): string {
     const paths: Record<string, string> = {
-        terminal: '<path d="M4 5h16v14H4z"/><path d="m7 9 3 3-3 3M12 15h4"/>',
-        file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/>',
-        edit: '<path d="m4 16 9-9 3 3-9 9-4 1z"/><path d="m12 6 3 3"/>',
-        search: '<circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/>',
-        git: '<circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 6h3a4 4 0 0 1 4 4v6"/><path d="M8 6h10"/>',
-        web: '<circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16"/>',
-        tool: '<path d="m14.7 6.3 3 3-8.8 8.8-3.8.8.8-3.8z"/><path d="m13 8 3 3"/>',
+        terminal: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="m8.5 9.5 3 2.5-3 2.5"/><path d="M13 14.5h2.5"/>',
+        file: '<path d="M6.25 4.25A1.25 1.25 0 0 1 7.5 3h5.75L18 7.75v11a1.25 1.25 0 0 1-1.25 1.25H7.5A1.25 1.25 0 0 1 6.25 18.75z"/><path d="M13 3v4.75H18"/>',
+        edit: '<path d="m5 19 .85-3.25L14.6 7a1.8 1.8 0 0 1 2.55 0l.85.85a1.8 1.8 0 0 1 0 2.55L9.25 19.15z"/><path d="m13.5 8.25 2.75 2.75"/>',
+        search: '<circle cx="11" cy="11" r="6.25"/><path d="m15.5 15.5 4.75 4.75"/>',
+        git: '<circle cx="6.5" cy="6" r="2.25"/><circle cx="17.5" cy="18" r="2.25"/><circle cx="17.5" cy="6" r="2.25"/><path d="M8.75 6h4.5a4.25 4.25 0 0 1 4.25 4.25v5.5"/><path d="M6.5 8.25v7.5a2 2 0 0 0 2 2h4.5"/>',
+        web: '<circle cx="12" cy="12" r="8.25"/><path d="M3.75 12h16.5"/><path d="M12 3.75c2.3 2.2 3.5 5.05 3.5 8.25s-1.2 6.05-3.5 8.25c-2.3-2.2-3.5-5.05-3.5-8.25s1.2-6.05 3.5-8.25z"/>',
+        tool: '<path d="M14.9 6.1a4.4 4.4 0 0 0-5.9 5.5L4 16.6a1.77 1.77 0 0 0 2.5 2.5l5-5a4.4 4.4 0 0 0 5.5-5.9l-2.7 2.7-2.3-.6-.6-2.3z"/>',
     };
     return `<svg class="conversation-tool-icon conversation-tool-icon-${toolIconKind(
         name
-    )}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[toolIconKind(name)]}</svg>`;
+    )}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[toolIconKind(name)]}</svg>`;
+}
+
+// Disclosure chevron for collapsible rows: a real icon that rotates open,
+// replacing the old CSS border-triangle.
+function chevronIcon(): string {
+    return '<svg class="conversation-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9.5 6.5 5.5 5.5-5.5 5.5"/></svg>';
 }
 
 function toolActionLabel(name: string | undefined, running: boolean): string {
@@ -5476,10 +5482,87 @@ function toolActionLabel(name: string | undefined, running: boolean): string {
     }
 }
 
+// Expanded tool rows present a short past-tense verb plus the cleaned-up
+// argument, Codex-style: the provider's raw item name ('commandExecution')
+// is transport metadata, not display text. Unknown kinds fall back to the
+// raw name so unfamiliar tools stay identifiable.
+function toolVerbLabel(name: string | undefined): string {
+    switch (toolIconKind(name)) {
+    case 'terminal':
+        return 'Ran';
+    case 'file':
+        return 'Read';
+    case 'edit':
+        return 'Edited';
+    case 'search':
+        return 'Searched';
+    case 'git':
+        return 'Used Git';
+    case 'web':
+        return 'Browsed';
+    default:
+        return '';
+    }
+}
+
+const SHELL_WRAPPER_PATTERN =
+    /^(?:\S*[/\\])?(?:bash|zsh|sh|dash|ksh|fish|pwsh|powershell)(?:\.exe)?\s+((?:-[a-zA-Z0-9]+\s+)*)("[\s\S]*"|'[\s\S]*'|\S[\s\S]*)$/;
+
+// Providers hand us the literal terminal invocation, which usually starts
+// with a shell wrapper such as `/bin/zsh -lc "cd … && …"`. Codex shows the
+// command the user actually asked for, so unwrap one shell layer.
+function unwrapShellCommand(command: string): string {
+    const match = SHELL_WRAPPER_PATTERN.exec(command.trim());
+    if (!match) {
+        return command;
+    }
+    const flags = match[1].trim().split(/\s+/).filter(Boolean);
+    if (!flags.some(flag => /^-[a-zA-Z]*c$/.test(flag))) {
+        return command;
+    }
+    let inner = match[2].trim();
+    const quote = inner[0];
+    if ((quote === '"' || quote === "'")
+        && inner.length > 1
+        && inner.endsWith(quote)) {
+        inner = inner.slice(1, -1);
+        if (quote === '"') {
+            inner = inner.replace(/\\(["\\$`])/g, '$1');
+        }
+    }
+    return inner.trim() || command;
+}
+
+function cleanToolSummaryForDisplay(
+    name: string | undefined,
+    summary: string
+): string {
+    let text = summary.trim();
+    const normalizedName = (name || '').trim();
+    if (normalizedName && text.startsWith(normalizedName)) {
+        text = text.slice(normalizedName.length).trim();
+    }
+    const kind = toolIconKind(name);
+    if (kind === 'terminal') {
+        text = unwrapShellCommand(text);
+    } else if (kind === 'edit') {
+        // fileChange summaries carry a leading change kind ('update a.ts');
+        // the verb label already says what happened.
+        text = text.replace(
+            /^(?:add|create|update|delete|edit|modify|write)\s+/i,
+            ''
+        );
+    }
+    return text;
+}
+
 function renderToolMessage(message: ConversationMessage): string {
     const tool = message.tool;
-    const summary = tool ? escapeAttribute(tool.summary) : '';
-    const name = tool ? escapeAttribute(tool.name) : '';
+    const summary = tool
+        ? escapeAttribute(cleanToolSummaryForDisplay(tool.name, tool.summary))
+        : '';
+    const verb = tool ? toolVerbLabel(tool.name) : '';
+    const name = tool ? escapeAttribute(verb || tool.name) : '';
     const diffs = tool?.diffs;
     const totals = diffs?.length
         ? diffs.reduce(
@@ -5501,9 +5584,9 @@ function renderToolMessage(message: ConversationMessage): string {
         : '';
     const icon = toolIcon(tool?.name);
     const body = tool && (tool.detail || diffsHtml)
-        ? `<details class="conversation-tool-call"><summary>${icon}<span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</summary>
+        ? `<details class="conversation-tool-call"><summary>${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</summary>
 ${diffsHtml}${detailHtml}</details>`
-        : `<div class="conversation-tool-call conversation-tool-call-static">${icon}<span class="conversation-tool-name">${name}</span> ${summary}${totalsBadge}</div>`;
+        : `<div class="conversation-tool-call conversation-tool-call-static">${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</div>`;
     return `<article class="conversation-message conversation-message-tool"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
@@ -5528,7 +5611,7 @@ function renderProgressMessage(message: ConversationMessage): string {
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
-    <span class="conversation-role">Assistant</span>
+    <span class="conversation-role conversation-visually-hidden">Assistant</span>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>
@@ -5681,6 +5764,8 @@ interface ConversationToolGroup {
     firstMessageId: string;
     toolMessageIds: Set<string>;
     latestTool: ConversationMessage;
+    /** Distinct collapsed-row action labels in first-use order. */
+    labels: string[];
 }
 
 function toolGroups(
@@ -5702,11 +5787,19 @@ function toolGroups(
     });
     return rawGroups.map(messages => {
         const firstMessageId = messages[0].id;
+        const labels: string[] = [];
+        messages.forEach(message => {
+            const label = toolActionLabel(message.tool?.name, false);
+            if (!labels.includes(label)) {
+                labels.push(label);
+            }
+        });
         return {
             id: `${interactionId}:tool-group:${firstMessageId}`,
             firstMessageId,
             toolMessageIds: new Set(messages.map(message => message.id)),
             latestTool: messages[messages.length - 1],
+            labels,
         };
     });
 }
@@ -5724,7 +5817,7 @@ function renderWorklogRow(
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(worklogId))}"
     data-interaction-id="${escapeAttribute(interactionId)}"
     data-worklog-id="${escapeAttribute(worklogId)}">
-    <button class="conversation-worklog-toggle"><span class="conversation-worklog-label">${escapeAttribute(label)}</span></button>
+    <button class="conversation-worklog-toggle"><span class="conversation-worklog-label">${escapeAttribute(label)}</span>${chevronIcon()}</button>
 </article>`;
 }
 
@@ -5738,6 +5831,16 @@ function renderToolGroupRow(
     const worklogAttribute = worklogId
         ? ` data-worklog-id="${escapeAttribute(worklogId)}"`
         : '';
+    // Codex-style collapsed rows name every distinct action in the group
+    // ('Read file · Ran command'); while the group is live its latest action
+    // switches to the running form.
+    const labels = toolGroup.labels.length
+        ? [...toolGroup.labels]
+        : [toolActionLabel(tool?.name, false)];
+    if (running && labels.length) {
+        labels[labels.length - 1] = toolActionLabel(tool?.name, true);
+    }
+    const label = labels.join(' · ');
     return `<article class="conversation-message conversation-message-tool conversation-message-tool-group${running
         ? ' conversation-tool-group-running'
         : ''}"
@@ -5745,7 +5848,7 @@ function renderToolGroupRow(
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(toolGroup.id))}"
     data-interaction-id="${escapeAttribute(interactionId)}"
     data-tool-group-id="${escapeAttribute(toolGroup.id)}"${worklogAttribute}>
-    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${toolActionLabel(tool?.name, running)}</span></button>
+    <button class="conversation-tool-group-toggle"><span class="conversation-tool-group-icon">${toolIcon(tool?.name)}</span><span class="conversation-tool-group-label">${escapeAttribute(label)}</span>${chevronIcon()}</button>
 </article>`;
 }
 
@@ -5796,7 +5899,7 @@ function renderMessage(
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
-    <span class="conversation-role">User</span>
+    <span class="conversation-role conversation-visually-hidden">User</span>
     <button class="conversation-message-bookmark" title="Bookmark this input"></button>
     <section class="conversation-message-corner">${inputClock}<button class="conversation-message-copy" title="Copy input"></button></section>
     <section class="conversation-markdown">${renderConversationMarkdown(
@@ -5811,7 +5914,7 @@ function renderMessage(
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
-    <span class="conversation-role">Assistant</span>
+    <span class="conversation-role conversation-visually-hidden">Assistant</span>
     <section class="conversation-markdown">${renderConversationMarkdown(
         message.markdown
     )}</section>

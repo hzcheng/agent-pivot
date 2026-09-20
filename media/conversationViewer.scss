@@ -990,6 +990,16 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     box-shadow: inset 3px 0 0 var(--vscode-focusBorder);
 }
 
+// On right-aligned prompt bubbles the tick belongs to the bubble itself,
+// not the row's far leading edge.
+.conversation-message-user.conversation-selected-interaction {
+    box-shadow: none;
+
+    > .conversation-markdown {
+        box-shadow: inset 3px 0 0 var(--vscode-focusBorder);
+    }
+}
+
 .conversation-has-comment {
     box-shadow: inset 3px 0 0 var(--vscode-editorWarning-foreground);
 }

@@ -11983,18 +11983,34 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 presents User as a right-aligned bub
             await user.click();
             const indicators = await user.evaluate(element => {
                 const style = getComputedStyle(element);
+                 const bubbleStyle = getComputedStyle(
+                     element.querySelector('.conversation-markdown')
+                 );
                 return {
                     boxShadow: style.boxShadow,
+                     bubbleBoxShadow: bubbleStyle.boxShadow,
                     outlineWidth: Number.parseFloat(style.outlineWidth),
                     active: document.activeElement === element,
                 };
             });
-            assert.match(indicators.boxShadow, /inset/,
-                'the selection anchor is a quiet leading-edge tick, not a full ring');
+            assert.equal(indicators.boxShadow, 'none',
+                'the user row itself carries no selection chrome');
+            assert.match(indicators.bubbleBoxShadow, /inset/,
+                'the selection tick hugs the prompt bubble, not the row edge');
             assert.equal(indicators.active, true,
                 'the click still focuses the article');
             assert.equal(indicators.outlineWidth, 0,
                 'mouse-path focus no longer rings the flat row');
+
+            const assistantTick = await page.evaluate(() => {
+                const element = document.querySelector(
+                    '.conversation-message-assistant'
+                );
+                element.classList.add('conversation-selected-interaction');
+                return getComputedStyle(element).boxShadow;
+            });
+            assert.match(assistantTick, /inset/,
+                'assistant rows keep the leading-edge selection tick');
 
             await page.emulateMedia({ forcedColors: 'active' });
             const forcedColors = await user.evaluate(element => {

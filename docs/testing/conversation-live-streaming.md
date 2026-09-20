@@ -26,12 +26,21 @@ shared daemon. Normal exit, SIGHUP, SIGTERM, startup cancellation, and companion
 failure clean up owned records and sockets. A hard kill of the wrapper is not a
 guaranteed companion cleanup path; stale PID records are rejected by readers.
 
-Custom `-p` profile launches retain ordinary CLI behavior and print an explicit
-notice that live text is unavailable: remote TUI mode cannot safely preserve all
-profile configuration. Unsupported CLIs and Windows also retain ordinary launch
-and durable-history rendering. The managed path was verified with Codex 0.155.0;
-capability probing requires Unix remote transport, and mismatched workspace-root
-responses stop the launch rather than silently continuing in another scope.
+`codex app-server` rejects `--profile` outright, and a remote-mode TUI never
+sends the profile's `model_provider` to the server — so a `-p` launch flattens
+its profile-v2 file (`<CODEX_HOME>/<name>.config.toml`) into top-priority `-c`
+overrides on the companion. Values pass through verbatim; the TUI keeps its
+original `-p` flags for its own local config and ships the profile's model and
+reasoning settings in `thread/start`. A legacy `[profiles.<name>]` table in the
+base config.toml is selected on the companion through `-c profile="<name>"`.
+Profiles using constructs a flat `-c` list cannot express (arrays of tables,
+quoted key segments) still fall back to ordinary CLI behavior with the explicit
+notice, as do unsupported CLIs and Windows. The managed path was verified with
+Codex 0.155.0 on reddev-container; capability probing requires Unix remote
+transport, and mismatched workspace-root responses stop the launch rather than
+silently continuing in another scope. The launch's own directory scope is
+applied after profile overrides, so a profile can never widen the requested
+workspace roots.
 
 ## Conversation sources and limits
 

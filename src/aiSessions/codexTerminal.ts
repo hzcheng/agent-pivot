@@ -9,11 +9,63 @@ import { randomBytes } from 'crypto';
 import {
     CodexManagedRun, codexStreamRegistry, processStartIdentity, writePrivateJson,
 } from './codexManagedRun';
+import {
+    CodexProfileOverrideError, flattenCodexProfileToml,
+} from './codexProfileOverrides';
 const WebSocket = require('ws');
 const MAX_FRAME = 64 * 1024 * 1024;
 function canonicalDirectory(value: unknown): string | undefined {
     try { return typeof value === 'string' && path.isAbsolute(value) ? fs.realpathSync(value) : undefined; }
     catch (_error) { return undefined; }
+}
+
+/** Extracts the `-p`/`--profile` value from launch args, if present. */
+function profileFromArgs(args: string[]): string | undefined {
+    for (let i = 0; i < args.length; i++) {
+        if ((args[i] === '-p' || args[i] === '--profile') && i + 1 < args.length) {
+            return args[i + 1];
+        }
+        const inline = args[i].startsWith('--profile=') ? args[i].slice('--profile'.length + 1)
+            : args[i].startsWith('-p=') ? args[i].slice(3)
+                : undefined;
+        if (inline) { return inline; }
+    }
+    return undefined;
+}
+
+/**
+ * `codex app-server` rejects `--profile`, and a remote-mode TUI never sends
+ * the profile's `model_provider` to the server — the companion must receive
+ * the profile content itself. Profile-v2 files become flat `-c` overrides;
+ * a legacy `[profiles.<name>]` table in config.toml is selected through the
+ * `profile` key. Returns undefined when neither resolves: the launch keeps
+ * the ordinary terminal path.
+ */
+function companionProfileOverrides(profile: string): string[] | undefined {
+    const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+    const profileFile = path.join(codexHome, `${profile}.config.toml`);
+    try {
+        if (fs.statSync(profileFile).isFile()) {
+            const flattened = flattenCodexProfileToml(fs.readFileSync(profileFile, 'utf8'));
+            const overrides: string[] = [];
+            for (const override of flattened) {
+                overrides.push('-c', override);
+            }
+            return overrides;
+        }
+    } catch (error) {
+        if (error instanceof CodexProfileOverrideError) {
+            process.stderr.write(`[Agent Pivot] The Codex profile '${profile}' uses configuration that cannot join the streaming launch.\n`);
+            return undefined;
+        }
+    }
+    try {
+        const base = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+        if (new RegExp(`^\\s*\\[profiles\\.${profile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]`, 'm').test(base)) {
+            return ['-c', `profile=${JSON.stringify(profile)}`];
+        }
+    } catch (_error) { /* No base config: fall through to the fallback. */ }
+    return undefined;
 }
 
 export interface CodexTerminalLaunch {
@@ -82,7 +134,13 @@ export async function runCodexTerminal(input: CodexTerminalLaunch): Promise<numb
         try {
             help = execFileSync('codex', ['--help'], { encoding: 'utf8', timeout: 5000, maxBuffer: 256 * 1024 });
         } catch (_error) { help = ''; }
-        if (!help.includes('--remote') || !help.includes('unix://') || input.args.includes('-p')) {
+        let profileOverrides: string[] | undefined;
+        const requestedProfile = profileFromArgs(input.args);
+        if (requestedProfile) {
+            profileOverrides = companionProfileOverrides(requestedProfile);
+        }
+        if (!help.includes('--remote') || !help.includes('unix://')
+            || (requestedProfile && !profileOverrides)) {
             unlinkOwned(marker);
             process.stderr.write('[Agent Pivot] This Codex launch uses ordinary terminal mode; live text is unavailable.\n');
             return await startTerminal(input.args);
@@ -115,6 +173,11 @@ export async function runCodexTerminal(input: CodexTerminalLaunch): Promise<numb
             } else { tuiArgs.push(input.args[i]); }
         }
         const serverArgs = ['app-server', '--listen', `unix://${backend}`];
+        if (profileOverrides) {
+            serverArgs.push(...profileOverrides);
+        }
+        // The launch's own directory scope always wins over profile content:
+        // the relay asserts the served roots match this exact request.
         if (extraDirectories.length) {
             serverArgs.push('-c', `sandbox_workspace_write.writable_roots=${JSON.stringify(extraDirectories)}`);
         }

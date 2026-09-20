@@ -131,3 +131,52 @@ test('SESSION-COMMAND-BUILDER-001 preserves profile and unsupported CLI launches
         });
     }
 });
+
+test('SESSION-COMMAND-BUILDER-001 routes profile launches through the managed runner with the profile as companion config', { skip: process.platform === 'win32', timeout: 20000 }, async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-profile-'));
+    const bin = path.join(root, 'bin'); fs.mkdirSync(bin);
+    fs.copyFileSync(path.join(__dirname, '../../fixtures/aiSessions/codexManagedCli.js'), path.join(bin, 'codex'));
+    fs.chmodSync(path.join(bin, 'codex'), 0o700);
+    // A profile-v2 file in CODEX_HOME: the wrapper must flatten it into
+    // companion -c overrides instead of falling back to the plain CLI.
+    fs.writeFileSync(path.join(root, 'my-profile.config.toml'), [
+        'model_provider = "codewiz"',
+        'model = "codewiz:kimi3"',
+        '[model_providers.codewiz]',
+        'base_url = "http://127.0.0.1:18089"',
+        'wire_api = "responses"',
+    ].join('\n'));
+    const markerPath = path.join(root, 'terminal.done');
+    const control = path.join(root, 'control');
+    const child = spawn(process.execPath, [path.resolve(__dirname, '../../../out/aiSessions/codexTerminalMain.js'),
+        JSON.stringify({ args: ['resume', '-p', 'my-profile', 'root-a', 'hello'], cwd: root, markerPath })], {
+        env: { ...process.env, CODEX_HOME: root, PATH: bin + path.delimiter + process.env.PATH,
+            AP_TEST_WS: require.resolve('ws'), AP_TEST_CONTROL: control },
+        stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stderr = ''; child.stderr.on('data', data => { stderr += data; });
+    const done = new Promise(resolve => child.once('exit', resolve));
+    t.after(async () => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+        await done; fs.rmSync(root, { recursive: true, force: true });
+    });
+    const until = async predicate => {
+        for (let n = 0; n < 500 && !predicate(); n++) await new Promise(r => setTimeout(r, 20));
+        assert.ok(predicate(), 'managed profile launch did not reach the expected state: ' + stderr);
+    };
+    await until(() => fs.existsSync(control + '.serverArgv'));
+    const serverArgv = JSON.parse(fs.readFileSync(control + '.serverArgv', 'utf8'));
+    const overrides = [];
+    for (let i = 0; i < serverArgv.length; i++) {
+        if (serverArgv[i] === '-c') overrides.push(serverArgv[i + 1]);
+    }
+    assert.ok(overrides.includes('model_provider="codewiz"'), JSON.stringify(overrides));
+    assert.ok(overrides.includes('model_providers.codewiz.base_url="http://127.0.0.1:18089"'), JSON.stringify(overrides));
+    assert.ok(overrides.includes('model_providers.codewiz.wire_api="responses"'), JSON.stringify(overrides));
+    assert.equal(fs.existsSync(control + '.ordinary'), false, 'a supported profile must not fall back to the plain CLI');
+    assert.doesNotMatch(stderr, /live text is unavailable/);
+    // The TUI still receives the original profile flags.
+    await until(() => fs.existsSync(control + '.created'));
+    child.kill('SIGTERM');
+    await done;
+});

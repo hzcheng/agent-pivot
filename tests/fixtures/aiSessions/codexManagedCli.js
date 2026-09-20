@@ -52,6 +52,7 @@ if (args.includes('--help')) {
         }
     }));
     mark('server', process.pid);
+    mark('serverArgv', process.argv.slice(2));
     server.listen(args[args.indexOf('--listen') + 1].slice('unix://'.length));
 } else {
     mark('terminalSpawned');

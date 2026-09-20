@@ -4915,7 +4915,7 @@ body.steward-sidebar {
             // Indent under the group header with a whisper-quiet tree guide.
             margin: 0 0 2px 11px;
             padding: 0 2px 2px 7px;
-            border-left: 1px solid color-mix(in srgb, var(--vscode-panel-border) 55%, transparent);
+            border-left: 1px solid rgba(127, 127, 127, .22);
 
             // The display rule above outranks the UA [hidden] style, so the
             // collapse toggle must win explicitly.

@@ -5380,6 +5380,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
         .replace("        'data-tool-kind',\n", '')
         // The previous generation stripped <rect> from published icons.
         .replace("'svg', 'polyline', 'circle', 'path', 'line', 'rect',", "'svg', 'polyline', 'circle', 'path', 'line',")
+        // The previous generation also stripped rect geometry attributes.
+        .replace("'x', 'y', 'rx', 'x1', 'y1', 'x2', 'y2',", "'x1', 'y1', 'x2', 'y2',")
         .replace(/    function supportsCompressedPages\(\) \{[\s\S]*?(?=    function applyPage\(message\) \{)/, '')
         .replace(
             "        if (event.data && event.data.type === 'conversation-viewer-page'\n"

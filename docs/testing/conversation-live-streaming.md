@@ -40,6 +40,15 @@ responses stop the launch rather than silently continuing in another scope.
   plus assistant text deltas. The viewer never sends a turn or answers approvals.
   An ordinary standalone CLI is not loaded in that shared daemon, so creating a
   new ordinary terminal alone does not enable streaming.
+- The live overlay replaces durable tail-turn content by turn id, but pins every
+  emitted interaction id per (session, turn, position): an interrupted turn's
+  in-memory view carries synthetic per-turn item ids (`item-1`, …) while the
+  rollout replay exposes the real server ids. Without pinning, the first live
+  overlay after opening a chat with an interrupted tail turn flips the
+  interaction id, the viewer's anchored selection vanishes from every later
+  outline, and its refresh gate fails closed — live deltas keep arriving but
+  never render. Pins prefer the id already emitted (durable base first) and
+  re-apply to durable reloads after a turn leaves the live tail window.
 - Kimi and Claude watch the visible transcript every 150 ms independently of
   slower session discovery. They expose text when the CLI persists it; they
   cannot reconstruct tokens absent from the transcript.
@@ -80,6 +89,21 @@ identity, and cleanup after terminating its own wrapper. Final text matched the
 expected sequence exactly. These results establish provider-to-adapter streaming;
 the browser contract separately verifies successive visible assistant updates
 before completion and a single final response.
+
+## Managed-path failure investigation (2026-09-20)
+
+The first shipped managed path stalled on real chats whose tail turn had been
+interrupted: refreshes republished unchanged content while deltas arrived.
+Sanitized diagnostics added for this investigation (feed connect/loaded/ready/
+first-delta/close, live-merge failures, viewer refresh-gate failures) located
+the drop at the viewer's selection gate. Direct companion probes then showed the
+interrupted turn's in-memory items use synthetic `item-N` ids while the rollout
+replay uses server ids, flipping the overlay's interaction id. Pinning (above)
+fixed it: with an interrupted tail turn present, a real injected turn streamed
+95 growing refreshes with zero gate failures in the production extension.
+
+Fixtures for this path must model both item-id dialects for interrupted turns;
+the contract test derives both shapes from the same turn.
 
 ## Automated verification
 

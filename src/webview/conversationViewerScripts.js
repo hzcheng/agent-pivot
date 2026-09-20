@@ -4974,6 +4974,25 @@
             signatures.set(id, node.outerHTML);
         });
         var removed = patch.current.slice(patch.groupStart);
+        // Mirror the reconcile path's mermaid handling: move figures whose
+        // source is unchanged (and in-flight renders) onto the incoming
+        // nodes. Without this, every streaming patch drops the tail group's
+        // rendered diagrams and re-renders them — a visible flash per delta.
+        var removedById = new Map();
+        removed.forEach(function (node) {
+            var id = conversationMessageId(node);
+            if (id && !removedById.has(id)) {
+                removedById.set(id, node);
+            }
+        });
+        var preservedMermaidSources = new Set();
+        patch.inserted.forEach(function (node) {
+            var oldNode = removedById.get(conversationMessageId(node));
+            if (oldNode && !preservedMermaidSources.has(oldNode)) {
+                preservedMermaidSources.add(oldNode);
+                preserveMermaidContent(oldNode, node);
+            }
+        });
         removed.forEach(function (node) {
             releaseMermaidObjectUrls(node);
         });

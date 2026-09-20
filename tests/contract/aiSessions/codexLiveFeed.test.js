@@ -90,6 +90,26 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 live deltas reach the adapter 
     assert.equal(h.feed.read('session-a'), undefined);
 });
 
+test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 a mid-turn attach still receives deltas for items missing from the snapshot', { skip: process.platform === 'win32' }, async t => {
+    // Verified against a real 0.155 companion: thread/resume mid-turn omits
+    // the already-started agentMessage item from the turn snapshot, while
+    // later deltas carry its real id. The feed must synthesize the item
+    // from the method-scoped delta instead of dropping the stream.
+    const h = await harness(t);
+    let changes = 0;
+    h.feed.watch('session-a', () => { changes++; });
+    await until(() => h.feed.read('session-a'));
+    assert.equal(h.feed.read('session-a').turns[0].items.length, 1,
+        'the snapshot has only the user item');
+    h.notify('item/agentMessage/delta', { turnId: 'turn-a', itemId: 'agent-a', delta: 'Hello' });
+    h.notify('item/agentMessage/delta', { turnId: 'turn-a', itemId: 'agent-a', delta: ' there' });
+    await until(() => h.feed.read('session-a').turns[0].items.length === 2
+        && h.feed.read('session-a').turns[0].items[1].text === 'Hello there');
+    h.notify('item/completed', { turnId: 'turn-a', item: { id: 'agent-a', type: 'agentMessage', text: 'Hello there, full text' } });
+    await until(() => h.feed.read('session-a').turns[0].items[1].text === 'Hello there, full text');
+    assert.ok(changes >= 3, 'deltas and completion each publish');
+});
+
 test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 viewing an unloaded thread never resumes it', { skip: process.platform === 'win32' }, async t => {
     const h = await harness(t, false);
     h.feed.watch('session-a', () => {});

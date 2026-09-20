@@ -283,7 +283,16 @@ export class CodexLiveFeed implements AiSessionDisposable {
             return true;
         }
         if (method === 'item/agentMessage/delta' && typeof params.delta === 'string') {
-            const item = turn.items.find(value => value.id === params.itemId);
+            let item = turn.items.find(value => value.id === params.itemId);
+            if (!item && typeof params.itemId === 'string' && params.itemId) {
+                // A client that attached mid-turn gets a snapshot without the
+                // already-started agentMessage item, but its deltas carry the
+                // item's real id. The method scope proves the item type, so
+                // synthesize the item instead of dropping the delta — the
+                // completed item still replaces it wholesale at completion.
+                item = { id: params.itemId, type: 'agentMessage', text: '' };
+                turn.items.push(item);
+            }
             if (item?.type !== 'agentMessage') { return false; }
             item.text = (item.text || '') + params.delta;
             return true;

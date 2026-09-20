@@ -414,7 +414,8 @@ export interface ConversationResponseEnvelope<T> {
 
 export interface SanitizedConversationDiagnostic {
     event: 'conversation-source' | 'conversation-read'
-        | 'codex-conversation-app-server' | 'conversation-follow';
+        | 'codex-conversation-app-server' | 'conversation-follow'
+        | 'codex-conversation-live-feed';
     provider?: AiSessionProviderId;
     category: 'spawn' | 'timeout' | 'protocol' | 'oversized' | 'exit'
         | 'unavailable' | 'malformed' | 'partial'
@@ -426,6 +427,17 @@ export interface SanitizedConversationDiagnostic {
     sessionIdHash?: string;
     /** Present only when a subagent effective id differs from sessionId. */
     effectiveSessionIdHash?: string;
+    /** Live-feed lifecycle step ('resolve' | 'open' | 'loaded' | 'ready'
+     * | 'delta' | 'close' | 'retry'); values are fixed literals, never
+     * provider payload content. */
+    note?: string;
+    /** Live-feed socket target: the managed companion or the shared
+     * daemon fallback. */
+    socketKind?: 'managed' | 'shared';
+    /** Whether thread/loaded/list contained the watched session. */
+    threadLoaded?: boolean;
+    /** Live turn snapshot size at ready time. */
+    liveTurns?: number;
     /** Whether the authoritative snapshot came from warmup or a fresh read. */
     snapshotSource?: 'warm' | 'fresh';
     /** An empty warm snapshot was discarded and confirmed by a fresh read. */

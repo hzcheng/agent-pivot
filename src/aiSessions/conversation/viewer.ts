@@ -3325,6 +3325,12 @@ export class ConversationViewer implements ConversationViewerApi {
             if (outline.provider !== target.provider
                 || outline.sessionId !== this.effectiveSessionId(target)
                 || !outline.interactions.length) {
+                this.emitDiagnostic('refresh-outline-invalid', {
+                    updateKind,
+                    outlineInteractions: outline.interactions.length,
+                    sessionMatches: outline.sessionId
+                        === this.effectiveSessionId(target),
+                });
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
@@ -3347,6 +3353,11 @@ export class ConversationViewer implements ConversationViewerApi {
                 && !advanceToLatest
                 && (!previousSelectedInteractionId
                     || !containsSelectedInteraction(previousSelectedInteractionId))) {
+                this.emitDiagnostic('refresh-selection-lost', {
+                    hadSelection: Boolean(previousSelectedInteractionId),
+                    outlineInteractions: outline.interactions.length,
+                    followLatest,
+                });
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
@@ -3540,6 +3551,10 @@ export class ConversationViewer implements ConversationViewerApi {
             if (page.provider !== target.provider
                 || page.sessionId !== this.effectiveSessionId(target)
                 || page.sourceRevision !== outline.sourceRevision) {
+                this.emitDiagnostic('refresh-revision-mismatch', {
+                    updateKind,
+                    pageRevisionMatches: page.sourceRevision === outline.sourceRevision,
+                });
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
@@ -3563,6 +3578,11 @@ export class ConversationViewer implements ConversationViewerApi {
                         : page.anchorInteractionId,
                     this.outlineController.selectedInput()!
                 ))) {
+                this.emitDiagnostic('refresh-outline-replace-failed', {
+                    updateKind,
+                    anchor: page.anchorInteractionId,
+                    outlineInteractions: outline.interactions.length,
+                });
                 await this.publishFailure(replaceDocument, updateKind);
                 return false;
             }
@@ -3625,6 +3645,11 @@ export class ConversationViewer implements ConversationViewerApi {
                 || abortController.signal.aborted) {
                 return false;
             }
+            this.emitDiagnostic('refresh-read-failed', {
+                updateKind,
+                errorName: isStaleRevision(_error) ? 'staleRevision'
+                    : _error instanceof Error ? _error.name : 'unknown',
+            });
             await this.publishFailure(replaceDocument, updateKind);
             return false;
         } finally {
@@ -3861,6 +3886,11 @@ export class ConversationViewer implements ConversationViewerApi {
             return;
         }
         if (this.pages.length) {
+            if (!this.stale) {
+                // First failure in a streak: later ones are the same
+                // condition republishing retained content, so stay quiet.
+                this.emitDiagnostic('refresh-republish-stale', { updateKind });
+            }
             this.stale = true;
             const publication = this.createPublication(
                 this.currentRequestId,

@@ -315,10 +315,13 @@ function createAvailableConversationCapability(
     const codexGoalTurns = new CodexRolloutGoalTurnsReader();
     const changesCollector = new ChangesCollector({ now: options.now });
     const commitsCollector = new CommitsCollector();
-    const codexLiveFeed = ownership.own(new CodexLiveFeed());
+    const codexLiveFeed = ownership.own(new CodexLiveFeed(undefined, {
+        onDiagnostic: options.onDiagnostic,
+    }));
     const codexAdapter = ownership.own(factories.createCodexAdapter({
         liveFeed: codexLiveFeed,
         client: codexClient,
+        onDiagnostic: options.onDiagnostic,
         watchSessionChanges: onDidChange =>
             options.services.codex.watchSessionChanges(onDidChange),
         setTimeout: options.setTimer,

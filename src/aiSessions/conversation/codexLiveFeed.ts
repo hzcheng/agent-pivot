@@ -4,31 +4,80 @@ import * as os from 'os';
 import * as path from 'path';
 import { resolveCodexManagedSocket } from '../codexManagedRun';
 import type { AiSessionDisposable } from '../types';
+import type { SanitizedConversationDiagnostic } from './types';
 
 // ws handles framing, fragmentation, ping/pong and bounded payloads. Never
 // launch a daemon or a turn here: this connection only joins loaded threads.
 const WebSocket = require('ws');
 const MAX_BYTES = 4 * 1024 * 1024;
 
+export interface CodexLiveFeedOptions {
+    onDiagnostic?(diagnostic: SanitizedConversationDiagnostic): void;
+}
+
 interface Entry {
     listeners: Set<() => void>;
     turns: any[];
     revision: number;
+    sessionIdHash?: string;
+    socketKind?: 'managed' | 'shared';
+    deltas: number;
     socket?: any;
     timer?: ReturnType<typeof setTimeout>;
     stopped: boolean;
     bytes: number;
 }
 
+function hashSessionId(sessionId: string): string {
+    return require('crypto').createHash('sha256')
+        .update(sessionId, 'utf8').digest('hex').slice(0, 12);
+}
+
 export class CodexLiveFeed implements AiSessionDisposable {
     private readonly entries = new Map<string, Entry>();
+    private readonly onDiagnostic?: CodexLiveFeedOptions['onDiagnostic'];
+    private readonly resolveSocket: (sessionId: string, entry: Entry) => string;
     private disposed = false;
     private revision = 0;
 
-    constructor(private readonly socketPath: string | ((sessionId: string) => string) = sessionId => resolveCodexManagedSocket(sessionId) || path.join(
-        process.env.CODEX_HOME || path.join(os.homedir(), '.codex'),
-        'app-server-control', 'app-server-control.sock'
-    )) {}
+    constructor(
+        socketPath: string | ((sessionId: string) => string) | undefined = undefined,
+        options: CodexLiveFeedOptions = {}
+    ) {
+        this.onDiagnostic = options.onDiagnostic;
+        if (socketPath === undefined) {
+            this.resolveSocket = (sessionId, entry) => {
+                const managed = resolveCodexManagedSocket(sessionId);
+                entry.socketKind = managed ? 'managed' : 'shared';
+                return managed || path.join(
+                    process.env.CODEX_HOME || path.join(os.homedir(), '.codex'),
+                    'app-server-control', 'app-server-control.sock'
+                );
+            };
+        } else if (typeof socketPath === 'function') {
+            this.resolveSocket = sessionId => socketPath(sessionId);
+        } else {
+            this.resolveSocket = () => socketPath;
+        }
+    }
+
+    private report(
+        entry: Entry,
+        note: string,
+        extra: Partial<SanitizedConversationDiagnostic> = {}
+    ): void {
+        try {
+            this.onDiagnostic?.({
+                event: 'codex-conversation-live-feed',
+                provider: 'codex',
+                category: 'unknownSession',
+                note,
+                sessionIdHash: entry.sessionIdHash,
+                ...(entry.socketKind ? { socketKind: entry.socketKind } : {}),
+                ...extra,
+            });
+        } catch (_error) { /* Diagnostics must never break the feed. */ }
+    }
 
     read(sessionId: string): { turns: unknown[]; revision: number } | undefined {
         const entry = this.entries.get(sessionId);
@@ -45,7 +94,8 @@ export class CodexLiveFeed implements AiSessionDisposable {
         let entry = this.entries.get(sessionId);
         if (!entry) {
             if (this.entries.size >= 8) { return { dispose() {} }; }
-            entry = { listeners: new Set(), turns: [], revision: 0, stopped: false, bytes: 0 };
+            entry = { listeners: new Set(), turns: [], revision: 0, stopped: false, bytes: 0,
+                deltas: 0, sessionIdHash: hashSessionId(sessionId) };
             this.entries.set(sessionId, entry);
             this.connect(sessionId, entry);
         }
@@ -85,7 +135,8 @@ export class CodexLiveFeed implements AiSessionDisposable {
 
     private connect(sessionId: string, entry: Entry): void {
         if (entry.stopped || this.disposed) { return; }
-        const socketPath = typeof this.socketPath === 'function' ? this.socketPath(sessionId) : this.socketPath;
+        const socketPath = this.resolveSocket(sessionId, entry);
+        this.report(entry, 'connect');
         const socket = new WebSocket(`ws+unix://${socketPath}:/`, {
             maxPayload: 64 * 1024 * 1024,
             handshakeTimeout: 3000,
@@ -129,6 +180,7 @@ export class CodexLiveFeed implements AiSessionDisposable {
                     cursor = result.nextCursor;
                     if (!cursor) { break; }
                 }
+                this.report(entry, 'loaded-list', { threadLoaded: loaded });
                 if (!loaded || entry.stopped) { socket.close(); return; }
                 await request('thread/resume', {
                     threadId: sessionId,
@@ -146,6 +198,7 @@ export class CodexLiveFeed implements AiSessionDisposable {
                         throw new Error('Live tail exceeds budget');
                     }
                     ready = true;
+                    this.report(entry, 'ready', { liveTurns: entry.turns.length });
                     this.changed(entry);
                 });
             })().catch(() => socket.terminate());
@@ -171,6 +224,10 @@ export class CodexLiveFeed implements AiSessionDisposable {
                 if (this.accept(entry, message.method, message.params)) {
                     if (message.method === 'item/agentMessage/delta') {
                         entry.bytes += message.params.delta.length;
+                        entry.deltas += 1;
+                        if (entry.deltas === 1) {
+                            this.report(entry, 'delta', { count: 1 });
+                        }
                     } else {
                         entry.bytes = JSON.stringify(entry.turns).length;
                     }
@@ -192,6 +249,10 @@ export class CodexLiveFeed implements AiSessionDisposable {
             pending.clear();
             if (entry.socket !== socket) { return; }
             entry.socket = undefined;
+            this.report(entry, 'close', {
+                liveTurns: entry.turns.length,
+                count: entry.deltas,
+            });
             if (entry.turns.length) { entry.turns = []; this.changed(entry); }
             if (retry && !entry.stopped && !this.disposed) {
                 entry.timer = setTimeout(() => this.connect(sessionId, entry), 3000);

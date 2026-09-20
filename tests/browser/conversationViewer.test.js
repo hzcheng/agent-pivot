@@ -5378,6 +5378,8 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     const previousViewerScript = viewerScript
         // The previous generation did not tag tool rows with data-tool-kind.
         .replace("        'data-tool-kind',\n", '')
+        // The previous generation stripped <rect> from published icons.
+        .replace("'svg', 'polyline', 'circle', 'path', 'line', 'rect',", "'svg', 'polyline', 'circle', 'path', 'line',")
         .replace(/    function supportsCompressedPages\(\) \{[\s\S]*?(?=    function applyPage\(message\) \{)/, '')
         .replace(
             "        if (event.data && event.data.type === 'conversation-viewer-page'\n"
@@ -12096,6 +12098,13 @@ test('CONVERSATION-TOOL-DISPLAY-002 renders tool rows as one muted run with mono
         await readRow.locator('.conversation-tool-call')
             .getAttribute('data-tool-kind'),
         'file'
+    );
+    // The sanitizer must keep the terminal icon's rounded frame (<rect>);
+    // a frameless prompt means the allowlist regressed.
+    assert.equal(
+        await commandRow.locator('svg.conversation-tool-icon-terminal rect')
+            .count(),
+        1
     );
 
     const styles = await commandRow.evaluate(element => {

@@ -6,7 +6,7 @@
         'strong', 'em', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
         'a', 'img', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'progress',
         'span', 'section', 'article', 'details', 'summary', 'button',
-        'svg', 'polyline', 'circle', 'path', 'line',
+        'svg', 'polyline', 'circle', 'path', 'line', 'rect',
     ];
     var allowedAttributes = [
         'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open', 'type',

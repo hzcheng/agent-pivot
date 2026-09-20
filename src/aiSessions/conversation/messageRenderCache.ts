@@ -128,6 +128,9 @@ export interface ConversationMessageRenderContext {
     showThinking: boolean;
     responseState?: ConversationResponseState;
     clock?: ConversationClockTime;
+    /** True when this message is the in-flight tool call of a live group;
+     * the row renders in a pending (faded) style. */
+    runningTool?: boolean;
 }
 
 /**
@@ -142,6 +145,7 @@ export function createMessageRenderSignature(
         context.sessionId,
         context.showThinking ? '1' : '0',
         context.responseState ?? '',
+        context.runningTool ? '1' : '0',
         context.clock?.label ?? '',
         context.clock?.title ?? '',
     ].join('\u0001');

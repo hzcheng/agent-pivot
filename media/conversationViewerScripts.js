@@ -20,6 +20,7 @@
         'pathLength', 'stroke-dasharray', 'stroke-dashoffset', 'transform',
         'data-message-id', 'data-conversation-message-id',
         'data-interaction-id', 'data-worklog-id', 'data-tool-group-id', 'data-conversation-run-command',
+        'data-tool-kind',
     ];
     var maxMermaidDiagrams = 40;
     var conversationMathStyleToken = document.body.getAttribute(

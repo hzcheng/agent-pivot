@@ -8438,6 +8438,63 @@ test('CONVERSATION-TOOL-DISPLAY-001 cleans shell wrappers from command rows and 
     assert.equal(html.includes('src/viewer.ts'), true);
 });
 
+test('CONVERSATION-TOOL-DISPLAY-002 tags row kinds for monospace commands and fades the in-flight call of a live group', async () => {
+    const { viewer, panel } = createViewer({
+        readOutline: async (_provider, sessionId) => outline(
+            sessionId,
+            ['input-1'],
+            { responseStates: { 'input-1': 'inProgress' } }
+        ),
+        readPage: async request => ({
+            ...page(request.sessionId, 'input-1', 'visible', {
+                responseStates: { 'input-1': 'inProgress' },
+            }),
+            messages: [
+                {
+                    id: 'input-1:user',
+                    interactionId: 'input-1',
+                    role: 'user',
+                    markdown: 'Check the repo state',
+                },
+                {
+                    id: 'input-1:tool:0',
+                    interactionId: 'input-1',
+                    role: 'tool',
+                    markdown: '',
+                    tool: { name: 'Read', summary: 'Read README.md' },
+                },
+                {
+                    id: 'input-1:tool:1',
+                    interactionId: 'input-1',
+                    role: 'tool',
+                    markdown: '',
+                    tool: {
+                        name: 'commandExecution',
+                        summary: 'commandExecution git status',
+                    },
+                },
+            ],
+        }),
+    });
+
+    await viewer.open(target('session-a', 'input-1'));
+    const html = decodeInitialPublication(panel.webview.html).html;
+    // The kind attribute lets the stylesheet render command rows in the
+    // editor's monospace face, Codex-style.
+    assert.equal(html.includes('data-tool-kind="terminal"'), true);
+    assert.equal(html.includes('data-tool-kind="file"'), true);
+    // While the turn is live, only the in-flight call fades.
+    assert.match(
+        html,
+        /conversation-message-tool-running"\s+data-message-id="input-1:tool:1"/
+    );
+    assert.equal(
+        html.match(/conversation-message-tool-running/g)?.length,
+        1,
+        'completed calls in the same group keep full opacity'
+    );
+});
+
 test('CONVERSATION-PLAN-QUESTION-VISIBILITY-001 CONVERSATION-QUESTION-OPTION-HIERARCHY-001 publishes numbered question options with distinct labels and descriptions', async () => {
     const { viewer, panel } = createViewer({
         readOutline: async (_provider, sessionId) => outline(

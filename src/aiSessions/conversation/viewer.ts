@@ -5556,8 +5556,12 @@ function cleanToolSummaryForDisplay(
     return text;
 }
 
-function renderToolMessage(message: ConversationMessage): string {
+function renderToolMessage(
+    message: ConversationMessage,
+    running = false
+): string {
     const tool = message.tool;
+    const kind = toolIconKind(tool?.name);
     const summary = tool
         ? escapeAttribute(cleanToolSummaryForDisplay(tool.name, tool.summary))
         : '';
@@ -5584,10 +5588,13 @@ function renderToolMessage(message: ConversationMessage): string {
         : '';
     const icon = toolIcon(tool?.name);
     const body = tool && (tool.detail || diffsHtml)
-        ? `<details class="conversation-tool-call"><summary>${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</summary>
+        ? `<details class="conversation-tool-call" data-tool-kind="${kind}"><summary>${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</summary>
 ${diffsHtml}${detailHtml}</details>`
-        : `<div class="conversation-tool-call conversation-tool-call-static">${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</div>`;
-    return `<article class="conversation-message conversation-message-tool"
+        // The sanitizer allowlist has no 'div', so static rows use a section.
+        : `<section class="conversation-tool-call conversation-tool-call-static" data-tool-kind="${kind}">${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</section>`;
+    return `<article class="conversation-message conversation-message-tool${running
+        ? ' conversation-message-tool-running'
+        : ''}"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
@@ -5874,10 +5881,11 @@ function renderWorklogEntry(
 function renderMessage(
     message: ConversationMessage,
     showThinking: boolean,
-    clock?: ConversationClockTime
+    clock?: ConversationClockTime,
+    runningTool = false
 ): string {
     if (message.role === 'tool') {
-        return renderToolMessage(message);
+        return renderToolMessage(message, runningTool);
     }
     if (message.role === 'thinking') {
         return showThinking ? renderThinkingMessage(message) : '';
@@ -6008,24 +6016,36 @@ function renderMessages(
                 : message.role === 'assistant'
                     ? answerClock
                     : undefined;
+            const toolGroup = toolGroupByMessageId.get(message.id);
+            const toolGroupStart = toolGroupStarts.get(message.id);
+            // Codex-style: while a group is live, its in-flight call (the
+            // latest tool event of the trailing group) renders in a pending
+            // faded style. Without provider tool lifecycle data, only call a
+            // tool running when it is also the latest event of the turn.
+            const toolRunning = info?.responseState === 'inProgress'
+                && toolGroup !== undefined
+                && toolGroup === toolGroupsForInteraction[
+                    toolGroupsForInteraction.length - 1
+                ]
+                && toolGroup.latestTool.id === message.id
+                && group[group.length - 1]?.id === message.id;
             const messageSignature = createMessageRenderSignature({
                 sessionId,
                 showThinking,
                 responseState: info?.responseState,
+                runningTool: toolRunning,
                 clock,
             });
             const entry = renderCache.render(
                 `${sessionId}\u0001${message.id}`,
                 messageSignature,
-                () => renderMessage(message, showThinking, clock)
+                () => renderMessage(message, showThinking, clock, toolRunning)
             );
             contentStream.mixMessage(
                 message,
                 messageSignature,
                 entry.version
             );
-            const toolGroup = toolGroupByMessageId.get(message.id);
-            const toolGroupStart = toolGroupStarts.get(message.id);
             const isWorklogEntryForTurn = worklogId !== undefined
                 && isWorklogEntry(message, showThinking);
             // A turn can remain live while the model summarizes a completed

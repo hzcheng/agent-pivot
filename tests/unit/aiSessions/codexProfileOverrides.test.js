@@ -71,7 +71,7 @@ test('SESSION-CODEX-PROFILE-LAUNCH-001 handles dotted, escaped, literal, and mul
     assert.equal(entries[3], 'web_search="live"');
 });
 
-test('SESSION-CODEX-PROFILE-LAUNCH-001 rejects arrays of tables, quoted keys, and malformed input', () => {
+test('SESSION-CODEX-PROFILE-LAUNCH-001 rejects arrays of tables, non-bare root keys, and malformed input', () => {
     assert.throws(
         () => flattenCodexProfileToml('[[projects.alpha]]\npath = "/a"\n'),
         CodexProfileOverrideError
@@ -92,4 +92,52 @@ test('SESSION-CODEX-PROFILE-LAUNCH-001 rejects arrays of tables, quoted keys, an
         () => flattenCodexProfileToml('roots = ["/a"\n'),
         CodexProfileOverrideError
     );
+});
+
+
+test('SESSION-CODEX-PROFILE-LAUNCH-001 preserves quoted project paths and sibling trust settings', () => {
+    const source = [
+        'model = "kimi-code:k3"',
+        '[projects."/home/hzcheng/projects/repos/deer-flow"]',
+        'trust_level = "trusted"',
+        '[projects."/tmp/repo.with.dots"]',
+        'trust_level = "untrusted"',
+        '[projects.plain]',
+        'trust_level = "trusted"',
+    ].join('\n');
+    const entries = flattenCodexProfileToml(source);
+    assert.equal(entries[0], 'model="kimi-code:k3"');
+    assert.equal(entries.length, 2, 'one parent override must preserve all siblings');
+    assert.equal(entries[1], 'projects={"/home/hzcheng/projects/repos/deer-flow"={trust_level="trusted"},"/tmp/repo.with.dots"={trust_level="untrusted"},plain={trust_level="trusted"}}');
+});
+
+test('SESSION-CODEX-PROFILE-LAUNCH-001 decodes literal, escaped and Unicode keys without splitting dots', () => {
+    const entries = flattenCodexProfileToml(String.raw`
+[projects.'/tmp/literal.repo']
+trust_level = "trusted"
+[projects."/tmp/quoted\"repo"]
+trust_level = "untrusted"
+[projects."/tmp/\U0001F600"]
+trust_level = "trusted"
+[projects."/tmp/\\U0001F600"]
+trust_level = "untrusted"
+`);
+    assert.deepEqual(entries, ['projects={"/tmp/literal.repo"={trust_level="trusted"},"/tmp/quoted\\"repo"={trust_level="untrusted"},"/tmp/😀"={trust_level="trusted"},"/tmp/\\\\U0001F600"={trust_level="untrusted"}}']);
+});
+
+test('SESSION-CODEX-PROFILE-LAUNCH-001 rejects conflicting grouped keys and invalid quoted keys', () => {
+    for (const source of [
+        '[projects."/tmp/a"]\nx=1\nx=2',
+        '[projects."/tmp/a"]\nx=1\nx.y=2',
+        '[projects."/tmp/a"]\nx.y=2\nx=1',
+        '[projects."""/tmp/a"""]\nx=1',
+        String.raw`[projects."\U00110000"]` + '\nx=1',
+        String.raw`[projects."\U0000D800"]` + '\nx=1',
+        String.raw`[projects."\q"]` + '\nx=1',
+    ]) assert.throws(() => flattenCodexProfileToml(source), CodexProfileOverrideError);
+});
+
+test('SESSION-CODEX-PROFILE-LAUNCH-001 retains TOML escaping for DEL and empty nested keys', () => {
+    assert.deepEqual(flattenCodexProfileToml(String.raw`[projects."/tmp/\u007f"]` + '\nx=1\n[projects.""]\nx=2'),
+        [String.raw`projects={"/tmp/\u007f"={x=1},""={x=2}}`]);
 });

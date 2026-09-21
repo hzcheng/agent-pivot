@@ -33,8 +33,10 @@ overrides on the companion. Values pass through verbatim; the TUI keeps its
 original `-p` flags for its own local config and ships the profile's model and
 reasoning settings in `thread/start`. A legacy `[profiles.<name>]` table in the
 base config.toml is selected on the companion through `-c profile="<name>"`.
-Profiles using constructs a flat `-c` list cannot express (arrays of tables,
-quoted key segments) still fall back to ordinary CLI behavior with the explicit
+Quoted nested keys (including project paths containing dots) are emitted inside
+one inline table per root, preserving sibling entries and lower configuration
+layers. Profiles using unsupported constructs (arrays of tables or non-bare root
+keys) still fall back to ordinary CLI behavior with the explicit
 notice, as do unsupported CLIs and Windows. The managed path was verified with
 Codex 0.155.0 on reddev-container; capability probing requires Unix remote
 transport, and mismatched workspace-root responses stop the launch rather than
@@ -137,3 +139,16 @@ Known baseline limitation: `run-ai-session-safety-checks.js` exits zero without
 its final success banner in the terminal-binding fixture, reproduced on clean
 `origin/main`. Its exit code alone does not prove every assertion executed;
 focused binding and launcher tests have explicit completed totals.
+
+
+### Quoted profile regression verification (2026-09-21)
+
+The reported Kimi profile contained a valid quoted project-path table that the
+old converter rejected, causing ordinary-terminal fallback. An isolated real
+Codex 0.155.0 terminal using the unchanged remote profile and `kimi-code:k3`
+produced 13 pre-completion snapshots, followed by exactly the expected 291
+characters (integers 1 through 100). The probe verified read-only sandbox,
+requested directory scope, terminal/root binding, and cleanup. A separate
+`config/read` probe confirmed inline project-table overrides preserve unrelated
+project trust settings from the base config. No existing user terminal or
+profile file was changed.

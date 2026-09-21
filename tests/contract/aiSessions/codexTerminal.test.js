@@ -145,6 +145,8 @@ test('SESSION-COMMAND-BUILDER-001 routes profile launches through the managed ru
         '[model_providers.codewiz]',
         'base_url = "http://127.0.0.1:18089"',
         'wire_api = "responses"',
+        '[projects."/home/hzcheng/projects/repos/deer-flow"]',
+        'trust_level = "trusted"',
     ].join('\n'));
     const markerPath = path.join(root, 'terminal.done');
     const control = path.join(root, 'control');
@@ -173,10 +175,25 @@ test('SESSION-COMMAND-BUILDER-001 routes profile launches through the managed ru
     assert.ok(overrides.includes('model_provider="codewiz"'), JSON.stringify(overrides));
     assert.ok(overrides.includes('model_providers.codewiz.base_url="http://127.0.0.1:18089"'), JSON.stringify(overrides));
     assert.ok(overrides.includes('model_providers.codewiz.wire_api="responses"'), JSON.stringify(overrides));
+    assert.ok(overrides.includes('projects={"/home/hzcheng/projects/repos/deer-flow"={trust_level="trusted"}}'));
     assert.equal(fs.existsSync(control + '.ordinary'), false, 'a supported profile must not fall back to the plain CLI');
     assert.doesNotMatch(stderr, /live text is unavailable/);
     // The TUI still receives the original profile flags.
     await until(() => fs.existsSync(control + '.created'));
+    const run = readCodexManagedRun(markerPath + '.stream.json');
+    const feed = new CodexLiveFeed(run.socketPath);
+    t.after(() => feed.dispose());
+    let partials = 0;
+    feed.watch('root-a', () => {
+        const turn = feed.read('root-a')?.turns[0];
+        if (turn?.status === 'inProgress' && turn.items[1]?.text) partials++;
+    });
+    await new Promise(resolve => setTimeout(resolve, 200));
+    fs.writeFileSync(control + '.go', '');
+    await until(() => feed.read('root-a')?.turns[0]?.status === 'completed');
+    assert.ok(partials > 1, 'quoted profile must deliver text before completion');
+    assert.equal(feed.read('root-a').turns[0].items[1].text, '0123456789');
+    feed.dispose();
     child.kill('SIGTERM');
     await done;
 });

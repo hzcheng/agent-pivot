@@ -12,10 +12,11 @@
  * the base config.toml, and unrelated base keys still apply.
  *
  * The parser below exists to find top-level entry boundaries and to REJECT
- * constructs that cannot be represented as a flat `-c` list. Values pass
+ * constructs that cannot be represented as a `-c` list. Values pass
  * through verbatim from the source text; nothing is re-serialized, so a
- * string/number/array/datetime keeps its exact bytes. Unsupported input
- * (arrays of tables, quoted key segments, malformed syntax) throws —
+ * string/number/array/datetime keeps its exact bytes. Quoted nested keys are grouped into inline tables because the CLI splits
+ * override paths on dots without understanding quotes. Unsupported input
+ * (arrays of tables, non-bare root keys, malformed syntax) throws —
  * callers fall back to the ordinary terminal path.
  */
 
@@ -37,7 +38,7 @@ export function flattenCodexProfileToml(source: string): string[] {
     if (source.length > 256 * 1024) {
         throw new CodexProfileOverrideError('profile file too large');
     }
-    const entries: string[] = [];
+    const entries: { path: string[]; value: string }[] = [];
     let section: Section = { path: [] };
     let index = 0;
     const length = source.length;
@@ -83,9 +84,25 @@ export function flattenCodexProfileToml(source: string): string[] {
     const readKeySegment = (): string => {
         const char = source[index];
         if (char === '"' || char === "'") {
-            // Quoted key segments cannot survive codex's dotted -c parser
-            // reliably; reject rather than silently mis-nest.
-            throw new CodexProfileOverrideError('quoted key segments are unsupported');
+            const start = index;
+            if (source.slice(index, index + 3) === char.repeat(3)) {
+                fail('multiline keys are unsupported');
+            }
+            readString();
+            const raw = source.slice(start, index);
+            if (char === "'") { return raw.slice(1, -1); }
+            try {
+                // TOML basic keys share JSON escapes, plus eight-digit Unicode.
+                const json = raw.replace(/\\(?:U([0-9a-fA-F]{8})|.)/g, (escape, code) => {
+                    if (!code) { return escape; }
+                    const point = parseInt(code, 16);
+                    if (point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)) {
+                        fail('invalid Unicode key');
+                    }
+                    return JSON.stringify(String.fromCodePoint(point)).slice(1, -1);
+                });
+                return JSON.parse(json);
+            } catch (_error) { return fail('invalid quoted key'); }
         }
         const start = index;
         while (index < length && /[A-Za-z0-9_-]/.test(source[index])) { index++; }
@@ -168,7 +185,48 @@ export function flattenCodexProfileToml(source: string): string[] {
         index++;
         skipInlineWhitespaceAndComments(false);
         const value = readValue();
-        entries.push([...section.path, ...keyPath].join('.') + '=' + value);
+        entries.push({ path: [...section.path, ...keyPath], value });
     }
-    return entries;
+    const groupedRoots = new Set<string>();
+    for (const entry of entries) {
+        if (!BARE_KEY.test(entry.path[0])) { fail('non-bare root keys are unsupported'); }
+        if (entry.path.some(segment => !BARE_KEY.test(segment))) {
+            groupedRoots.add(entry.path[0]);
+        }
+    }
+    interface TableNode { value?: string; children: Map<string, TableNode>; }
+    const tables = new Map<string, TableNode>();
+    for (const entry of entries) {
+        const root = entry.path[0];
+        if (!groupedRoots.has(root)) { continue; }
+        let node = tables.get(root);
+        if (!node) { node = { children: new Map() }; tables.set(root, node); }
+        for (const segment of entry.path.slice(1)) {
+            if (node.value !== undefined) { fail('conflicting table value'); }
+            let child = node.children.get(segment);
+            if (!child) { child = { children: new Map() }; node.children.set(segment, child); }
+            node = child;
+        }
+        if (node.value !== undefined || node.children.size) { fail('duplicate or conflicting key'); }
+        node.value = entry.value;
+    }
+    const renderTable = (node: TableNode): string => node.value !== undefined
+        ? node.value
+        : '{' + Array.from(node.children, ([key, child]) =>
+            (BARE_KEY.test(key) ? key : JSON.stringify(key).replace(/\u007f/g, '\\u007f')) + '=' + renderTable(child)
+        ).join(',') + '}';
+    const emitted = new Set<string>();
+    const overrides: string[] = [];
+    for (const entry of entries) {
+        const root = entry.path[0];
+        if (!groupedRoots.has(root)) {
+            overrides.push(entry.path.join('.') + '=' + entry.value);
+        } else if (!emitted.has(root)) {
+            // Emit the complete table once: separate overrides would replace
+            // siblings within this CLI layer. Lower config layers still merge.
+            overrides.push(root + '=' + renderTable(tables.get(root)));
+            emitted.add(root);
+        }
+    }
+    return overrides;
 }

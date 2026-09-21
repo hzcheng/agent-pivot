@@ -5003,15 +5003,17 @@
   {
     "id": "SESSION-CODEX-PROFILE-LAUNCH-001",
     "domain": "session",
-    "title": "Codex launch argv injects a validated -p profile for new and resumed sessions only",
+    "title": "Codex launches preserve validated profiles and quoted project keys in streaming companion configuration",
     "priority": "P1",
     "status": "automated",
     "owners": [
-      "tests/unit/aiSessions/commandBuilders.test.js"
+      "tests/unit/aiSessions/commandBuilders.test.js",
+      "tests/unit/aiSessions/codexProfileOverrides.test.js"
     ],
     "evidence": [
       "src/aiSessions/commandBuilders.ts",
-      "src/aiSessions/launchOptions.ts"
+      "src/aiSessions/launchOptions.ts",
+      "src/aiSessions/codexProfileOverrides.ts"
     ]
   },
   {

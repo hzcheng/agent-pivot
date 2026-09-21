@@ -5376,6 +5376,12 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // The previous generation did not tag tool rows with data-tool-kind.
+        .replace("        'data-tool-kind',\n", '')
+        // The previous generation stripped <rect> from published icons.
+        .replace("'svg', 'polyline', 'circle', 'path', 'line', 'rect',", "'svg', 'polyline', 'circle', 'path', 'line',")
+        // The previous generation also stripped rect geometry attributes.
+        .replace("'x', 'y', 'rx', 'x1', 'y1', 'x2', 'y2',", "'x1', 'y1', 'x2', 'y2',")
         .replace(/    function supportsCompressedPages\(\) \{[\s\S]*?(?=    function applyPage\(message\) \{)/, '')
         .replace(
             "        if (event.data && event.data.type === 'conversation-viewer-page'\n"
@@ -12035,6 +12041,113 @@ test('CONVERSATION-VIEWER-USER-EMPHASIS-001 presents User as a right-aligned bub
             assertConversationEmphasisForcedColors(forcedColors);
         }
     }
+});
+
+test('CONVERSATION-TOOL-DISPLAY-002 renders tool rows as one muted run with monospace commands and a faded in-flight call', async t => {
+    const interactionId = 'input-tool-display';
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true,
+        themeFixture: viewerThemeFixtures[0],
+        interactionIds: [interactionId],
+        interactionId,
+        responseStates: { [interactionId]: 'inProgress' },
+        pageOverrides: {
+            messages: [{
+                id: `${interactionId}:user`,
+                interactionId,
+                role: 'user',
+                markdown: 'Check the repo state.',
+            }, {
+                id: `${interactionId}:tool:0`,
+                interactionId,
+                role: 'tool',
+                markdown: '',
+                tool: { name: 'Read', summary: 'Read viewer.ts' },
+            }, {
+                id: `${interactionId}:tool:1`,
+                interactionId,
+                role: 'tool',
+                markdown: '',
+                tool: {
+                    name: 'commandExecution',
+                    summary: 'commandExecution git status',
+                },
+            }],
+            interactionStates: [{
+                interactionId,
+                responseState: 'inProgress',
+            }],
+            previousCursor: undefined,
+            nextCursor: undefined,
+            isStart: true,
+            isEnd: true,
+        },
+    });
+
+    const readRow = page.locator(
+        '.conversation-message-tool:not(.conversation-message-tool-group)'
+    ).first();
+    const commandRow = page.locator(
+        '.conversation-message-tool:not(.conversation-message-tool-group)'
+    ).nth(1);
+    assert.equal(
+        await commandRow.locator('.conversation-tool-call')
+            .getAttribute('data-tool-kind'),
+        'terminal',
+        'command rows must declare their kind for the monospace treatment'
+    );
+    assert.equal(
+        await readRow.locator('.conversation-tool-call')
+            .getAttribute('data-tool-kind'),
+        'file'
+    );
+    // The sanitizer must keep the terminal icon's rounded frame (<rect>);
+    // a frameless prompt means the allowlist regressed.
+    assert.equal(
+        await commandRow.locator('svg.conversation-tool-icon-terminal rect')
+            .count(),
+        1
+    );
+    assert.deepEqual(
+        await commandRow.locator('svg.conversation-tool-icon-terminal rect')
+            .evaluate(frame => Object.fromEntries(
+                ['x', 'y', 'width', 'height', 'rx'].map(name => [name, frame.getAttribute(name)])
+            )),
+        { x: '3', y: '4', width: '18', height: '16', rx: '4.5' },
+        'sanitizing must preserve the frame position and rounded corners, not only the rect tag'
+    );
+
+    const styles = await commandRow.evaluate(element => {
+        const verb = element.querySelector('.conversation-tool-name');
+        const summary = element.querySelector('.conversation-tool-summary');
+        const verbStyle = getComputedStyle(verb);
+        const summaryStyle = getComputedStyle(summary);
+        return {
+            verbColor: verbStyle.color,
+            summaryColor: summaryStyle.color,
+            verbWeight: verbStyle.fontWeight,
+            summaryWeight: summaryStyle.fontWeight,
+            summaryFont: summaryStyle.fontFamily,
+            runningOpacity: getComputedStyle(element).opacity,
+        };
+    });
+    // Codex-style: verb and target read as one muted text run — no weight
+    // or color contrast of its own.
+    assert.equal(styles.verbColor, styles.summaryColor);
+    assert.equal(styles.verbWeight, styles.summaryWeight);
+    // Commands render in the editor's monospace face.
+    assert.match(styles.summaryFont, /mono/i);
+    // The in-flight call of a live group fades, Codex-style pending state.
+    assert.equal(styles.runningOpacity, '0.55');
+
+    const readOpacity = await readRow.evaluate(
+        element => getComputedStyle(element).opacity
+    );
+    assert.equal(
+        readOpacity,
+        '1',
+        'completed calls in the same group keep full opacity'
+    );
 });
 
 test('WEBVIEW-AI-SESSION-CONVERSATION-VIEWER-001 sanitizes hostile HTML, preserves one native HTTPS path, and keeps the viewer open on Escape', async t => {

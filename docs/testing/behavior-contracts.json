@@ -1378,6 +1378,22 @@
     ]
   },
   {
+    "id": "CONVERSATION-TOOL-DISPLAY-002",
+    "domain": "webview",
+    "title": "Tool rows read as one muted text run (no verb emphasis), command rows render in the editor monospace face via data-tool-kind, and the in-flight call of a live group fades",
+    "priority": "P2",
+    "status": "automated",
+    "owners": [
+      "tests/integration/dashboard/conversationViewer.test.js",
+      "tests/browser/conversationViewer.test.js"
+    ],
+    "evidence": [
+      "src/aiSessions/conversation/viewer.ts",
+      "media/conversationViewer.scss",
+      "src/webview/conversationViewerScripts.js"
+    ]
+  },
+  {
     "id": "CONVERSATION-COMMENTS-LAYOUT-001",
     "domain": "webview",
     "title": "The tabbed Comments panel keeps a compact grouped action bar and clamps long card bodies behind a Show more toggle (full text kept in the DOM) across extreme widths while remaining collapsible, resizable, and locally restorable",

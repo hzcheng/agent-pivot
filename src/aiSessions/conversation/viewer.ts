@@ -5444,7 +5444,9 @@ function toolIconKind(name: string | undefined): string {
 
 function toolIcon(name: string | undefined): string {
     const paths: Record<string, string> = {
-        terminal: '<rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="m8.5 9.5 3 2.5-3 2.5"/><path d="M13 14.5h2.5"/>',
+        // Codex-style terminal: a generously rounded frame with a centered
+        // prompt, larger than the original glyph so it reads at row size.
+        terminal: '<rect x="3" y="4" width="18" height="16" rx="4.5"/><path d="m8 9 3.5 3-3.5 3"/><path d="M13 15h3.5"/>',
         file: '<path d="M6.25 4.25A1.25 1.25 0 0 1 7.5 3h5.75L18 7.75v11a1.25 1.25 0 0 1-1.25 1.25H7.5A1.25 1.25 0 0 1 6.25 18.75z"/><path d="M13 3v4.75H18"/>',
         edit: '<path d="m5 19 .85-3.25L14.6 7a1.8 1.8 0 0 1 2.55 0l.85.85a1.8 1.8 0 0 1 0 2.55L9.25 19.15z"/><path d="m13.5 8.25 2.75 2.75"/>',
         search: '<circle cx="11" cy="11" r="6.25"/><path d="m15.5 15.5 4.75 4.75"/>',
@@ -5556,8 +5558,12 @@ function cleanToolSummaryForDisplay(
     return text;
 }
 
-function renderToolMessage(message: ConversationMessage): string {
+function renderToolMessage(
+    message: ConversationMessage,
+    running = false
+): string {
     const tool = message.tool;
+    const kind = toolIconKind(tool?.name);
     const summary = tool
         ? escapeAttribute(cleanToolSummaryForDisplay(tool.name, tool.summary))
         : '';
@@ -5584,10 +5590,13 @@ function renderToolMessage(message: ConversationMessage): string {
         : '';
     const icon = toolIcon(tool?.name);
     const body = tool && (tool.detail || diffsHtml)
-        ? `<details class="conversation-tool-call"><summary>${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</summary>
+        ? `<details class="conversation-tool-call" data-tool-kind="${kind}"><summary>${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</summary>
 ${diffsHtml}${detailHtml}</details>`
-        : `<div class="conversation-tool-call conversation-tool-call-static">${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</div>`;
-    return `<article class="conversation-message conversation-message-tool"
+        // The sanitizer allowlist has no 'div', so static rows use a section.
+        : `<section class="conversation-tool-call conversation-tool-call-static" data-tool-kind="${kind}">${icon}<span class="conversation-tool-name">${name}</span><span class="conversation-tool-summary">${summary}</span>${totalsBadge}</section>`;
+    return `<article class="conversation-message conversation-message-tool${running
+        ? ' conversation-message-tool-running'
+        : ''}"
     data-message-id="${escapeAttribute(message.id)}"
     data-conversation-message-id="${escapeAttribute(encodeURIComponent(message.id))}"
     data-interaction-id="${escapeAttribute(message.interactionId)}">
@@ -5874,10 +5883,11 @@ function renderWorklogEntry(
 function renderMessage(
     message: ConversationMessage,
     showThinking: boolean,
-    clock?: ConversationClockTime
+    clock?: ConversationClockTime,
+    runningTool = false
 ): string {
     if (message.role === 'tool') {
-        return renderToolMessage(message);
+        return renderToolMessage(message, runningTool);
     }
     if (message.role === 'thinking') {
         return showThinking ? renderThinkingMessage(message) : '';
@@ -6008,24 +6018,36 @@ function renderMessages(
                 : message.role === 'assistant'
                     ? answerClock
                     : undefined;
+            const toolGroup = toolGroupByMessageId.get(message.id);
+            const toolGroupStart = toolGroupStarts.get(message.id);
+            // Codex-style: while a group is live, its in-flight call (the
+            // latest tool event of the trailing group) renders in a pending
+            // faded style. Without provider tool lifecycle data, only call a
+            // tool running when it is also the latest event of the turn.
+            const toolRunning = info?.responseState === 'inProgress'
+                && toolGroup !== undefined
+                && toolGroup === toolGroupsForInteraction[
+                    toolGroupsForInteraction.length - 1
+                ]
+                && toolGroup.latestTool.id === message.id
+                && group[group.length - 1]?.id === message.id;
             const messageSignature = createMessageRenderSignature({
                 sessionId,
                 showThinking,
                 responseState: info?.responseState,
+                runningTool: toolRunning,
                 clock,
             });
             const entry = renderCache.render(
                 `${sessionId}\u0001${message.id}`,
                 messageSignature,
-                () => renderMessage(message, showThinking, clock)
+                () => renderMessage(message, showThinking, clock, toolRunning)
             );
             contentStream.mixMessage(
                 message,
                 messageSignature,
                 entry.version
             );
-            const toolGroup = toolGroupByMessageId.get(message.id);
-            const toolGroupStart = toolGroupStarts.get(message.id);
             const isWorklogEntryForTurn = worklogId !== undefined
                 && isWorklogEntry(message, showThinking);
             // A turn can remain live while the model summarizes a completed

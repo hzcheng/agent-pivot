@@ -1603,9 +1603,17 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 // Role labels render only for assistive technology: the visual design
 // distinguishes speaker by layout (right-aligned bubble vs. reading flow).
 .conversation-message-tool {
-    margin: 0.125rem 0;
-    font-size: 0.85em;
+    // Codex-style activity rows read at nearly body size in one uniform
+    // muted tone; tighter line-height keeps the row pitch compact.
+    margin: 0.1rem 0;
+    font-size: 0.92em;
+    line-height: 1.45;
     color: var(--vscode-descriptionForeground);
+}
+
+// While a group is live, its in-flight call fades like Codex's pending row.
+.conversation-message-tool-running {
+    opacity: 0.55;
 }
 
 .conversation-message[hidden] {
@@ -1614,12 +1622,12 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
 .conversation-message-worklog {
     margin: 0.375rem 0;
-    font-size: 0.85em;
+    font-size: 0.92em;
 }
 
 .conversation-message-tool-group {
     margin: 0.375rem 0;
-    font-size: 0.85em;
+    font-size: 0.92em;
 }
 
 .conversation-tool-group-toggle {
@@ -1669,8 +1677,10 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 .conversation-tool-group-icon,
 .conversation-tool-icon {
     display: inline-block;
-    width: 15px;
-    height: 15px;
+    // Em-sized so the glyph scales with the row font instead of drifting
+    // against it, Codex-style: roughly one cap-height square.
+    width: 1.15em;
+    height: 1.15em;
     flex: 0 0 auto;
     vertical-align: -0.18em;
 }
@@ -2160,9 +2170,13 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
 
 .conversation-tool-name {
     flex: 0 0 auto;
-    font-weight: 500;
-    color: var(--vscode-foreground);
-    opacity: 0.85;
+    // Codex-style: verb and target read as one muted text run, so the verb
+    // carries no extra weight or color of its own.
+}
+
+// Commands are code: render them in the editor's monospace face, Codex-style.
+.conversation-tool-call[data-tool-kind='terminal'] .conversation-tool-summary {
+    font-family: var(--vscode-editor-font-family, monospace);
 }
 
 .conversation-tool-detail {

@@ -6,7 +6,7 @@
         'strong', 'em', 'del', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
         'a', 'img', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'progress',
         'span', 'section', 'article', 'details', 'summary', 'button',
-        'svg', 'polyline', 'circle', 'path', 'line',
+        'svg', 'polyline', 'circle', 'path', 'line', 'rect',
     ];
     var allowedAttributes = [
         'href', 'src', 'alt', 'title', 'class', 'style', 'start', 'max', 'value', 'open', 'type',
@@ -16,10 +16,11 @@
         'data-conversation-table-id',
         'data-conversation-diff-file-id', 'data-conversation-math-token',
         'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'points', 'cx', 'cy', 'r', 'd', 'width', 'height',
-        'x1', 'y1', 'x2', 'y2',
+        'x', 'y', 'rx', 'x1', 'y1', 'x2', 'y2',
         'pathLength', 'stroke-dasharray', 'stroke-dashoffset', 'transform',
         'data-message-id', 'data-conversation-message-id',
         'data-interaction-id', 'data-worklog-id', 'data-tool-group-id', 'data-conversation-run-command',
+        'data-tool-kind',
     ];
     var maxMermaidDiagrams = 40;
     var conversationMathStyleToken = document.body.getAttribute(

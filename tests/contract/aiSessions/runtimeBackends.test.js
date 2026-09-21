@@ -3,6 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {
+    createDeferred,
     createDirectRuntimeHarness,
     createTmuxRuntimeHarness,
     defineRuntimeContract,
@@ -316,6 +317,28 @@ for (const layout of ['project', 'session']) {
             focusCount + 1,
             'metadata mismatch is accepted only while the exact durable rebind exists'
         );
+    });
+
+    test(`RUNTIME-TMUX-TERMINATE-SESSION-001 [tmux ${layout}] closes without waiting for unrelated terminal restoration`, async () => {
+        const harness = createTmuxRuntimeHarness(layout);
+        const runtime = await harness.backend.ensureResume(fakeResumeRequest(`close-during-restore-${layout}`), layout);
+        const processId = createDeferred();
+        const restoringTerminal = plainRestoredTerminal('unrelated-terminal', processId.promise);
+        const restore = harness.backend.restoreAttachTerminals([restoringTerminal]);
+        await new Promise(resolve => setImmediate(resolve));
+        let closed = false;
+        const close = harness.backend.terminate(runtime).then(() => { closed = true; });
+        try {
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(closed, true, 'closing a verified tmux target must not wait for another terminal PID');
+            assert.equal(harness.terminateCount(), 1);
+            assert.equal(harness.backend.getActive().length, 0);
+            assert.equal(restoringTerminal.disposed, false);
+        } finally {
+            processId.resolve(9999);
+            await Promise.all([restore, close]);
+        }
+        assert.equal(harness.backend.getActive().length, 0, 'late restoration must not resurrect the closed runtime');
     });
 
     test(`RUNTIME-TMUX-TERMINATE-SESSION-001 [tmux ${layout}] terminates a pending runtime before promotion`, async () => {

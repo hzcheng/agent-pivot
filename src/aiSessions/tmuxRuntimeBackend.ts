@@ -501,7 +501,9 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
         if (!runtime || runtime.backend !== 'tmux' || !runtime.tmux) {
             return;
         }
-        await this.attachRestoreQueue;
+        // Termination depends on live tmux ownership, not restored viewer terminals.
+        // An unrelated terminal can keep its processId unresolved during reload;
+        // waiting for the restore queue delays closing an already verified chat.
         if (!await this.verifyTerminateTarget(runtime)) {
             return;
         }

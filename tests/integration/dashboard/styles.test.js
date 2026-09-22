@@ -134,7 +134,9 @@ function validatePromptCompactCardStyles(source) {
     assert.ok(promptMotion.includes('.prompt-management-actions'), `${id} missing reduced motion toolbar`);
     assert.ok(promptMotion.includes('transition: none !important'), `${id} missing reduced motion transition`);
 
-    const forcedColors = extractBlock(source, '@media (forced-colors: active)', 1);
+    const forcedColors = extractBlockContaining(
+        source, '@media (forced-colors: active)', '.prompt-management-actions',
+    );
     assert.ok(forcedColors.includes('.prompt-management-actions'), `${id} missing forced-color toolbar`);
     assert.ok(forcedColors.includes('.prompt-default-marker'), `${id} missing forced-color default state`);
 }
@@ -257,7 +259,9 @@ function validateActiveSessionIconAnimation(source) {
         assertDeclarations(ruleForSelector(reducedMotion, selector), id,
             ['animation: none !important', 'transition: none !important']);
     }
-    const forcedColors = extractBlock(source, '@media (forced-colors: active)');
+    const forcedColors = extractBlockContaining(
+        source, '@media (forced-colors: active)', activeSessionIconSelector,
+    );
     assertDeclarations(ruleForSelector(forcedColors, activeSessionIconSelector, 'border: 1px solid CanvasText'), id,
         ['border: 1px solid CanvasText']);
 }

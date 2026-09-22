@@ -111,8 +111,8 @@ export function renderMachineProjectsMachine(machine: MachineRowViewModel): stri
                 <div class="machine-project-menu-shell">
                     <button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-menu" aria-label="More actions for ${escapeAttribute(machine.displayName)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button>
                     <div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
-                        <button type="button" role="menuitem" tabindex="-1" data-action="rename-machine">Rename Machine…</button>
-                        ${machine.renamed ? `<button type="button" role="menuitem" tabindex="-1" data-action="reset-machine-name">Reset to ${escapeAttribute(machine.defaultName)}</button>` : ''}
+                        <button type="button" role="menuitem" tabindex="-1" data-action="rename-machine">Rename…</button>
+                        ${machine.renamed ? `<button type="button" role="menuitem" tabindex="-1" data-action="reset-machine-name" title="Reset to ${escapeAttribute(machine.defaultName)}">Reset name</button>` : ''}
                     </div>
                 </div>
             </div>
@@ -164,11 +164,12 @@ export function renderMachineProjectsProject(project: MachineProjectRowViewModel
                 <div class="machine-project-menu-shell">
                     <button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-project-menu" aria-label="More actions for ${escapeAttribute(project.name)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button>
                     <div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
-                        <button type="button" role="menuitem" tabindex="-1" data-action="open-machine-project-current">Open in Current Window</button>
+                        <button type="button" role="menuitem" tabindex="-1" data-action="open-machine-project-current">Open here</button>
                         <div class="machine-project-menu-separator" role="separator"></div>
-                        <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-local-project-form">Edit Project…</button>
-                        <button type="button" role="menuitem" tabindex="-1" data-action="color-machine-project">Edit Color…</button>
-                        <button type="button" role="menuitem" tabindex="-1" class="danger" data-action="remove-machine-project">Remove Project…</button>
+                        <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-local-project-form">Edit…</button>
+                        <button type="button" role="menuitem" tabindex="-1" data-action="color-machine-project">Color…</button>
+                        <div class="machine-project-menu-separator" role="separator"></div>
+                    <button type="button" role="menuitem" tabindex="-1" class="danger" data-action="remove-machine-project">Remove project…</button>
                     </div>
                 </div>
             </div>

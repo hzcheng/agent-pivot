@@ -811,7 +811,8 @@ test('WORKTREE-ISOLATED-SESSION-001 a worktree row icon seeds the creation form 
         'the row actions affordance is an icon, not an English label');
     await button.click();
     const branchItem = page.locator('#aiSessionWorktreeMenu [data-action="worktree-branch-create"]');
-    assert.equal(await branchItem.textContent(), 'New worktree from feature/auth');
+    assert.equal(await branchItem.textContent(), 'New from branch…');
+    assert.equal(await branchItem.getAttribute('title'), 'New worktree from feature/auth');
     await branchItem.click();
     assert.deepEqual(await postedMessages(page), [{
         type: 'open-worktree-group-form',

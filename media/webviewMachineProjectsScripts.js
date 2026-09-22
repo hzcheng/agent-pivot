@@ -244,6 +244,23 @@ function createMachineProjectsUi() {
         }
     }
 
+    function positionProjectMenu(menu, trigger) {
+        menu.style.left = '0px';
+        menu.style.top = '0px';
+        var anchor = trigger.getBoundingClientRect();
+        var bounds = menu.getBoundingClientRect();
+        var padding = 4;
+        var left = Math.max(padding, Math.min(anchor.right - bounds.width,
+            window.innerWidth - bounds.width - padding));
+        var top = anchor.bottom + padding;
+        if (top + bounds.height > window.innerHeight - padding) {
+            top = anchor.top - bounds.height - padding;
+        }
+        top = Math.max(padding, Math.min(top, window.innerHeight - bounds.height - padding));
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+    }
+
     function toggleProjectMenu(trigger, focusFirst) {
         var shell = trigger && trigger.closest('.machine-project-menu-shell');
         var menu = shell && shell.querySelector('[data-machine-project-menu]');
@@ -253,6 +270,7 @@ function createMachineProjectsUi() {
         if (!opening) return;
         closeTags(false);
         menu.hidden = false;
+        positionProjectMenu(menu, trigger);
         trigger.setAttribute('aria-expanded', 'true');
         activeProjectMenuTrigger = trigger;
         if (focusFirst) {
@@ -1026,6 +1044,9 @@ function createMachineProjectsUi() {
         );
         if (event.target === document
             && activeProjectMenuTrigger.getAttribute('data-action') === 'toggle-machine-menu') {
+            var menu = activeProjectMenuTrigger.closest('.machine-project-menu-shell')
+                .querySelector('[data-machine-project-menu]');
+            if (menu) positionProjectMenu(menu, activeProjectMenuTrigger);
             return;
         }
         if (!row || !row.contains(event.target)) closeProjectMenu(false);
@@ -1160,6 +1181,7 @@ function createMachineProjectsUi() {
     document.addEventListener('focusin', onDocumentFocusIn);
     document.addEventListener('scroll', onDocumentScroll, true);
     window.addEventListener('blur', onWindowBlur);
+    window.addEventListener('resize', function () { closeProjectMenu(false); });
     window.addEventListener('message', onWindowMessage);
     return {
         mount: mount,

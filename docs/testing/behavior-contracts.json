@@ -1,5 +1,19 @@
 [
   {
+    "id": "DASHBOARD-OVERFLOW-MENUS-001",
+    "domain": "webview",
+    "title": "Overflow menus share semantic icons, concise actions and grouped, readable themed surfaces",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/dashboardHeaderLayout.test.js",
+      "tests/browser/machineProjects.test.js",
+      "tests/browser/skillsFolderTree.test.js",
+      "tests/browser/activeSessionCardInteraction.test.js"
+    ],
+    "evidence": ["media/styles.scss", "src/webview/webviewContent.ts", "src/webview/webviewAiSessionContent.ts"]
+  },
+  {
     "id": "CONVERSATION-MARKDOWN-RESOURCES-001",
     "domain": "webview",
     "title": "Markdown review resolves document-relative links and loads workspace SVG images",

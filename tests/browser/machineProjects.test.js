@@ -246,7 +246,18 @@ test('MACHINE-PROJECTS-ACTIONS-001 edits a local Favorite Project inline and pre
     const directoryForm = directory.locator('[data-local-project-form]');
 
     await favorite.locator('[data-action="toggle-machine-project-menu"]').click();
-    await favorite.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    // DASHBOARD-OVERFLOW-MENUS-001: actual local project actions share menu chrome.
+    const menuMetrics = await favorite.locator('[data-machine-project-menu]').evaluate(menu => ({
+        radius: getComputedStyle(menu).borderRadius,
+        icons: Array.from(menu.querySelectorAll('[role="menuitem"]')).map(item =>
+            getComputedStyle(item, '::before').maskImage),
+        separators: menu.querySelectorAll('[role="separator"]').length,
+    }));
+    assert.equal(menuMetrics.radius, '12px');
+    assert.equal(menuMetrics.icons.every(icon => icon !== 'none'), true);
+    assert.equal(menuMetrics.separators, 2, 'separate opening, editing and removal');
+
+    await favorite.getByRole('menuitem', { name: 'Edit…' }).click();
     assert.equal(await favoriteForm.isVisible(), true);
     assert.equal(await directoryForm.isHidden(), true);
     assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'API');
@@ -259,7 +270,7 @@ test('MACHINE-PROJECTS-ACTIONS-001 edits a local Favorite Project inline and pre
         .evaluate(node => document.activeElement === node), true);
 
     await favorite.locator('[data-action="toggle-machine-project-menu"]').click();
-    await favorite.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    await favorite.getByRole('menuitem', { name: 'Edit…' }).click();
     await favoriteForm.locator('input[name="name"]').fill('');
     await favoriteForm.evaluate(node => { node.noValidate = true; node.requestSubmit(); });
     assert.equal(await favoriteForm.locator('[data-local-project-form-error]').textContent(),
@@ -316,22 +327,22 @@ test('MACHINE-PROJECTS-RENAME-001 exposes Rename and Reset from the Machine acti
     const machine = '[data-machine-row]';
 
     await page.click(`${machine} > .machine-row-line [data-action="toggle-machine-menu"]`);
-    assert.equal(await page.getByRole('menuitem', { name: 'Rename Machine…' }).isVisible(), true);
-    assert.equal(await page.getByRole('menuitem', { name: 'Reset to devbox' }).isVisible(), true);
-    await page.getByRole('menuitem', { name: 'Rename Machine…' }).click();
+    assert.equal(await page.getByRole('menuitem', { name: 'Rename…' }).isVisible(), true);
+    assert.equal(await page.getByRole('menuitem', { name: 'Reset name' }).isVisible(), true);
+    await page.getByRole('menuitem', { name: 'Rename…' }).click();
     assert.deepEqual(await page.evaluate(() => window.messages.at(-1)), {
         type: 'rename-machine', machineId: 'machine',
     });
 
     await page.click(`${machine} > .machine-row-line [data-action="toggle-machine-menu"]`);
-    await page.getByRole('menuitem', { name: 'Reset to devbox' }).click();
+    await page.getByRole('menuitem', { name: 'Reset name' }).click();
     assert.deepEqual(await page.evaluate(() => window.messages.at(-1)), {
         type: 'reset-machine-name', machineId: 'machine',
     });
 
     await page.focus(`${machine} > .machine-row-line [data-machine-disclosure="machine"]`);
     await page.keyboard.press('Shift+F10');
-    assert.equal(await page.getByRole('menuitem', { name: 'Rename Machine…' })
+    assert.equal(await page.getByRole('menuitem', { name: 'Rename…' })
         .evaluate(node => document.activeElement === node), true);
 });
 
@@ -534,7 +545,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus af
     await page.click('[data-action="show-add-machine-form"]');
     assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isVisible(), true);
     await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
-    await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
+    await page.getByRole('menuitem', { name: 'Edit…' }).click();
     const form = page.locator('[data-managed-machine-form-operation="editMachine"]');
     assert.equal(await form.isVisible(), true);
     assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isHidden(), true,
@@ -550,13 +561,13 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus af
         .evaluate(node => document.activeElement === node), true);
 
     await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
-    await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
+    await page.getByRole('menuitem', { name: 'Edit…' }).click();
     assert.equal(await form.locator('input[name="name"]').inputValue(), 'Build',
         'Cancel must discard an unsaved edit draft');
     await form.locator('input[name="name"]').fill('Escaped draft');
     await page.keyboard.press('Escape');
     await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
-    await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
+    await page.getByRole('menuitem', { name: 'Edit…' }).click();
     assert.equal(await form.locator('input[name="name"]').inputValue(), 'Build',
         'Escape must discard an unsaved edit draft');
     await form.locator('input[name="name"]').fill('Replacement draft');
@@ -618,7 +629,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a favorite Project inline and preserve
     const directoryForm = directoryRow.locator('[data-managed-project-form]');
 
     await favoriteRow.locator('[data-action="toggle-machine-project-menu"]').click();
-    await favoriteRow.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    await favoriteRow.getByRole('menuitem', { name: 'Edit…' }).click();
     assert.equal(await favoriteForm.isVisible(), true);
     assert.equal(await directoryForm.isHidden(), true,
         'editing a Favorite must open the inline form next to that Favorite');
@@ -634,7 +645,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a favorite Project inline and preserve
         .evaluate(node => document.activeElement === node), true);
 
     await favoriteRow.locator('[data-action="toggle-machine-project-menu"]').click();
-    await favoriteRow.getByRole('menuitem', { name: 'Edit Project…' }).click();
+    await favoriteRow.getByRole('menuitem', { name: 'Edit…' }).click();
     assert.equal(await favoriteForm.locator('input[name="name"]').inputValue(), 'Managed API',
         'Cancel must discard an unsaved Project draft');
     await favoriteForm.locator('input[name="remotePath"]').fill('relative/path');
@@ -697,7 +708,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a favorite Project inline and preserve
 test('MANAGED-REMOTE-MANAGEMENT-003 reports an edit-specific fallback error', async t => {
     const page = await openPage(t, 360, managedMarkup());
     await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
-    await page.getByRole('menuitem', { name: 'Edit Machine…' }).click();
+    await page.getByRole('menuitem', { name: 'Edit…' }).click();
     const form = page.locator('[data-managed-machine-form-operation="editMachine"]');
     await form.evaluate(node => node.requestSubmit());
     const request = await page.evaluate(() => window.messages.at(-1));
@@ -714,7 +725,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 reports an edit-specific fallback error', as
 test('MANAGED-REMOTE-SSH-COMMAND-001 sends a strict row-menu SSH identity intent', async t => {
     const page = await openPage(t, 360, managedMarkup('ready'));
     await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
-    await page.getByRole('menuitem', { name: 'Copy SSH Command' }).click();
+    await page.getByRole('menuitem', { name: 'Copy SSH command' }).click();
 
     const message = await page.evaluate(() => window.messages.at(-1));
     assert.deepEqual(Object.keys(message).sort(), [
@@ -839,4 +850,30 @@ test('MANAGED-REMOTE-MANAGEMENT-003 stays within 260px with endpoint-qualified r
     assert.equal(await page.locator('.machine-projects-toolbar-actions [data-managed-operation="addProject"]').count(), 0);
     assert.equal(await page.locator('.managed-machine-endpoint').count(), 0);
     assert.equal(await page.locator('[data-managed-machine-row] .machine-row-primary').getAttribute('title'), 'Build — dev@build.example.com:22022');
+});
+
+test('DASHBOARD-OVERFLOW-MENUS-001 keeps local and remote menus inside narrow and short viewports', async t => {
+    for (const width of [170, 360]) {
+        for (const html of [markup(), managedMarkup('ready')]) {
+            const page = await openPage(t, width, html);
+            await page.setViewportSize({ width, height: 300 });
+            const triggers = page.locator('[data-action="toggle-machine-menu"], [data-action="toggle-machine-project-menu"]');
+            for (let index = 0; index < await triggers.count(); index++) {
+                const trigger = triggers.nth(index);
+                await trigger.click();
+                const menu = trigger.locator('..').locator('[data-machine-project-menu]');
+                const bounds = await menu.evaluate(el => {
+                    const r = el.getBoundingClientRect();
+                    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom,
+                        icons: Array.from(el.querySelectorAll('[role="menuitem"]')).map(item =>
+                            getComputedStyle(item, '::before').maskImage) };
+                });
+                assert.ok(bounds.left >= 4 && bounds.right <= width - 4, JSON.stringify(bounds));
+                assert.ok(bounds.top >= 4 && bounds.bottom <= 296, JSON.stringify(bounds));
+                assert.ok(bounds.icons.every(icon => icon !== 'none'));
+                await page.keyboard.press('Escape');
+                assert.equal(await trigger.evaluate(el => el === document.activeElement), true);
+            }
+        }
+    }
 });

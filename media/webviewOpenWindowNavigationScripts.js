@@ -369,7 +369,7 @@ var agentPivotOpenWindowNavigation = (function () {
         if (pinItem) {
             pinItem.hidden = !canPin;
             if (canPin) {
-                pinItem.textContent = pinned ? 'Unpin Window' : 'Pin Window';
+                pinItem.textContent = pinned ? 'Unpin' : 'Pin';
             }
         }
         menu.__row = row;

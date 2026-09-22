@@ -1954,7 +1954,7 @@ var agentPivotOpenWindowNavigation = (function () {
         if (pinItem) {
             pinItem.hidden = !canPin;
             if (canPin) {
-                pinItem.textContent = pinned ? 'Unpin Window' : 'Pin Window';
+                pinItem.textContent = pinned ? 'Unpin' : 'Pin';
             }
         }
         menu.__row = row;
@@ -2254,12 +2254,16 @@ function initProjectContextMenus(options) {
             if (!sessionContextMenuElement)
                 return;
             sessionContextMenuElement.querySelectorAll(':scope > *').forEach(element => element.classList.remove('disabled'));
+            var pinMenuItem = sessionContextMenuElement.querySelector('[data-action="pin"]');
+            if (pinMenuItem) pinMenuItem.textContent = sessionRow.hasAttribute('data-session-pinned') ? 'Unpin' : 'Pin';
+            var resumeMenuItem = sessionContextMenuElement.querySelector('[data-action="resume"]');
+            if (resumeMenuItem) resumeMenuItem.textContent = contextMenuAiSessionActive ? 'Focus chat' : 'Resume chat';
             var archiveMenuItem = sessionContextMenuElement.querySelector('[data-action="archive"]');
             var closeMenuItem = sessionContextMenuElement.querySelector('[data-action="close-terminal"]');
             if (archiveMenuItem) archiveMenuItem.classList.toggle('disabled', contextMenuAiSessionActive);
             if (closeMenuItem) {
                 var terminalActionLabel = contextMenuAiSessionBackend === 'tmux'
-                    ? 'Detach Terminal…' : 'Close Terminal…';
+                    ? 'Detach terminal…' : 'Close terminal…';
                 closeMenuItem.textContent = terminalActionLabel;
                 closeMenuItem.setAttribute('aria-label', terminalActionLabel);
                 closeMenuItem.toggleAttribute('hidden', contextMenuAiSessionConflict);
@@ -5503,8 +5507,8 @@ function initProjectAiSessionControls(options) {
         menu.__originButton = button;
         var hasWorktreeTarget = !!(menu.__context.repositoryKey && menu.__context.worktreePath);
         var branchItem = menu.querySelector('[data-action="worktree-branch-create"]');
-        branchItem.textContent = 'New worktree from '
-            + (button.getAttribute('data-worktree-name') || 'this branch');
+        branchItem.textContent = 'New from branch…';
+        branchItem.title = 'New worktree from ' + (button.getAttribute('data-worktree-name') || 'this branch');
         branchItem.hidden = !menu.__context.canBranchCreate || !hasWorktreeTarget;
         // "New worktree…" opens the plain creation form: it replaces the
         // removed surface-level button, and covers multi-root anchors where
@@ -5525,7 +5529,7 @@ function initProjectAiSessionControls(options) {
         removeItem.hidden = !menu.__context.canRemove || !hasWorktreeTarget;
         var removeSeparator = menu.querySelector('[data-worktree-remove-separator]');
         if (removeSeparator) {
-            removeSeparator.hidden = removeItem.hidden && renameItem.hidden;
+            removeSeparator.hidden = removeItem.hidden && groupDeleteItem.hidden;
         }
 
         button.setAttribute('aria-expanded', 'true');
@@ -9507,6 +9511,23 @@ function createMachineProjectsUi() {
         }
     }
 
+    function positionProjectMenu(menu, trigger) {
+        menu.style.left = '0px';
+        menu.style.top = '0px';
+        var anchor = trigger.getBoundingClientRect();
+        var bounds = menu.getBoundingClientRect();
+        var padding = 4;
+        var left = Math.max(padding, Math.min(anchor.right - bounds.width,
+            window.innerWidth - bounds.width - padding));
+        var top = anchor.bottom + padding;
+        if (top + bounds.height > window.innerHeight - padding) {
+            top = anchor.top - bounds.height - padding;
+        }
+        top = Math.max(padding, Math.min(top, window.innerHeight - bounds.height - padding));
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+    }
+
     function toggleProjectMenu(trigger, focusFirst) {
         var shell = trigger && trigger.closest('.machine-project-menu-shell');
         var menu = shell && shell.querySelector('[data-machine-project-menu]');
@@ -9516,6 +9537,7 @@ function createMachineProjectsUi() {
         if (!opening) return;
         closeTags(false);
         menu.hidden = false;
+        positionProjectMenu(menu, trigger);
         trigger.setAttribute('aria-expanded', 'true');
         activeProjectMenuTrigger = trigger;
         if (focusFirst) {
@@ -10289,6 +10311,9 @@ function createMachineProjectsUi() {
         );
         if (event.target === document
             && activeProjectMenuTrigger.getAttribute('data-action') === 'toggle-machine-menu') {
+            var menu = activeProjectMenuTrigger.closest('.machine-project-menu-shell')
+                .querySelector('[data-machine-project-menu]');
+            if (menu) positionProjectMenu(menu, activeProjectMenuTrigger);
             return;
         }
         if (!row || !row.contains(event.target)) closeProjectMenu(false);
@@ -10423,6 +10448,7 @@ function createMachineProjectsUi() {
     document.addEventListener('focusin', onDocumentFocusIn);
     document.addEventListener('scroll', onDocumentScroll, true);
     window.addEventListener('blur', onWindowBlur);
+    window.addEventListener('resize', function () { closeProjectMenu(false); });
     window.addEventListener('message', onWindowMessage);
     return {
         mount: mount,
@@ -10903,6 +10929,10 @@ function initSkillPanel(options) {
         var newItem = appendMenuAction(menu, 'skill-folder-menu-new', 'New subfolder');
         newItem.setAttribute('data-skill-menu-new-folder', folder);
         newItem.setAttribute('data-folder-scope', scope);
+        var separator = document.createElement('div');
+        separator.className = 'custom-context-menu-separator';
+        separator.setAttribute('role', 'separator');
+        menu.appendChild(separator);
         var removeItem = appendMenuAction(menu, 'skill-folder-menu-remove', 'Delete empty folder');
         removeItem.setAttribute('data-skill-remove-folder', folder);
         document.body.appendChild(menu);
@@ -10937,6 +10967,10 @@ function initSkillPanel(options) {
         if (holder && holder.querySelector('[data-skill-centralize]')) {
             var centralizeItem = appendMenuAction(menu, 'skill-menu-centralize', 'Centralize');
             centralizeItem.setAttribute('data-skill-centralize', dirPath);
+            var separator = document.createElement('div');
+            separator.className = 'custom-context-menu-separator';
+            separator.setAttribute('role', 'separator');
+            menu.appendChild(separator);
             var deleteItem = appendMenuAction(menu, 'skill-menu-delete skill-folder-menu-remove', 'Delete');
             deleteItem.setAttribute('data-skill-delete', dirPath);
         }
@@ -10971,7 +11005,7 @@ function initSkillPanel(options) {
             var locationItem = appendMenuAction(
                 menu,
                 'skill-folder-menu-location',
-                'Change Global Skills Location…'
+                'Change location…'
             );
             locationItem.setAttribute('data-change-global-skills-location', '');
         }

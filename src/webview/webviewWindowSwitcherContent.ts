@@ -95,9 +95,9 @@ export function getOpenWindowMenu(): string {
     // behaviors (navigation request protocol / pin / save-current-workspace).
     return `
 <div id="openWindowMenu" class="custom-context-menu open-window-menu" role="menu" aria-label="Window actions">
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="focus-open-window" data-open-window-menu-non-current>Focus Window</div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="toggle-open-workspace-pin" data-open-window-menu-pin>Pin Window</div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="save-current-workspace" data-open-window-menu-current>Save Workspace</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="focus-open-window" data-open-window-menu-non-current>Focus window</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="toggle-open-workspace-pin" data-open-window-menu-pin>Pin</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="save-current-workspace" data-open-window-menu-current>Save workspace…</div>
 </div>`;
 }
 

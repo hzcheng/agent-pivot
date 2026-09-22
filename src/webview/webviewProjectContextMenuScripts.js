@@ -98,12 +98,16 @@ function initProjectContextMenus(options) {
             if (!sessionContextMenuElement)
                 return;
             sessionContextMenuElement.querySelectorAll(':scope > *').forEach(element => element.classList.remove('disabled'));
+            var pinMenuItem = sessionContextMenuElement.querySelector('[data-action="pin"]');
+            if (pinMenuItem) pinMenuItem.textContent = sessionRow.hasAttribute('data-session-pinned') ? 'Unpin' : 'Pin';
+            var resumeMenuItem = sessionContextMenuElement.querySelector('[data-action="resume"]');
+            if (resumeMenuItem) resumeMenuItem.textContent = contextMenuAiSessionActive ? 'Focus chat' : 'Resume chat';
             var archiveMenuItem = sessionContextMenuElement.querySelector('[data-action="archive"]');
             var closeMenuItem = sessionContextMenuElement.querySelector('[data-action="close-terminal"]');
             if (archiveMenuItem) archiveMenuItem.classList.toggle('disabled', contextMenuAiSessionActive);
             if (closeMenuItem) {
                 var terminalActionLabel = contextMenuAiSessionBackend === 'tmux'
-                    ? 'Detach Terminal…' : 'Close Terminal…';
+                    ? 'Detach terminal…' : 'Close terminal…';
                 closeMenuItem.textContent = terminalActionLabel;
                 closeMenuItem.setAttribute('aria-label', terminalActionLabel);
                 closeMenuItem.toggleAttribute('hidden', contextMenuAiSessionConflict);

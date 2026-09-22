@@ -1162,54 +1162,106 @@ body .project {
     opacity: .82;
 }
 
-.machine-project-menu {
-    position: absolute;
-    top: calc(100% + 2px);
-    right: 0;
-    z-index: 130;
-    display: flex;
-    flex-direction: column;
-    min-width: 184px;
-    padding: 4px;
-    border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, var(--vscode-panel-border)));
-    border-radius: 5px;
+// One menu treatment for project, chat, worktree, window and Skills actions.
+// Keep icons in CSS so state-driven textContent updates cannot erase them.
+@mixin overflow-menu-surface {
+    box-sizing: border-box;
+    min-width: min(200px, calc(100vw - 8px));
+    max-width: min(300px, calc(100vw - 8px));
+    max-height: calc(100vh - 8px);
+    overflow-y: auto;
+    padding: 6px;
+    border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, transparent));
+    border-radius: 12px;
     color: var(--vscode-menu-foreground, var(--vscode-foreground));
     background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
-    box-shadow: 0 4px 16px var(--vscode-widget-shadow, rgba(0, 0, 0, .35));
-
-    &[hidden] {
-        display: none;
-    }
-
-    button {
-        min-height: 25px;
-        padding: 3px 8px;
-        border: 0;
-        border-radius: 3px;
-        color: inherit;
-        background: transparent;
-        font-size: 12px;
-        text-align: left;
-        cursor: pointer;
-
-        &:hover,
-        &:focus-visible {
-            outline: 0;
-            color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
-            background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
-        }
-
-        &.danger:hover,
-        &.danger:focus-visible {
-            color: var(--vscode-errorForeground);
-        }
-    }
+    box-shadow: 0 8px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, .18));
+    font-family: var(--vscode-font-family, system-ui, sans-serif);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 20px;
+    white-space: normal;
+    scrollbar-width: thin;
 }
 
-.machine-project-menu-separator {
+@mixin overflow-menu-row {
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 34px;
+    margin: 0;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 6px;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+
+    &::before {
+        content: '';
+        width: 16px;
+        height: 16px;
+        background: currentColor;
+        mask: var(--menu-icon) center / contain no-repeat;
+        // Preserve the glyph silhouette in OS high-contrast themes.
+        forced-color-adjust: none;
+    }
+
+    &:hover:not(.disabled):not(:disabled):not([aria-disabled='true']),
+    &:focus-visible {
+        color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground));
+        background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+    }
+
+    &:focus-visible {
+        outline: 1px solid var(--vscode-menu-selectionBorder, var(--vscode-focusBorder));
+        outline-offset: -1px;
+    }
+
+    &.danger:hover,
+    &.danger:focus-visible,
+    &.skill-folder-menu-remove:hover,
+    &.skill-folder-menu-remove:focus-visible {
+        color: var(--vscode-errorForeground, var(--vscode-menu-foreground));
+    }
+
+    &.disabled,
+    &:disabled,
+    &[aria-disabled='true'] {
+        opacity: .45;
+        cursor: default;
+        pointer-events: none;
+    }
+
+    &[hidden] { display: none; }
+}
+
+.machine-project-menu {
+    @include overflow-menu-surface;
+    position: fixed;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+
+    &[hidden] { display: none; }
+    button { @include overflow-menu-row; }
+}
+
+.machine-project-menu-separator,
+.custom-context-menu .custom-context-menu-separator {
+    flex: 0 0 auto;
     height: 1px;
-    margin: 3px 5px;
+    margin: 6px 4px;
+    border: 0;
     background: var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
+    &[hidden] { display: none; }
 }
 
 .machine-row > .machine-row-line {
@@ -1432,43 +1484,106 @@ body .project {
 }
 
 .custom-context-menu {
+    @include overflow-menu-surface;
     position: fixed;
     z-index: 10000;
     display: none;
-    max-width: calc(100vw - 8px);
-    white-space: nowrap;
 
-    // Values chosen to match vscode theme colors
-    padding: 11px 1px;
-    background: var(--vscode-menu-background);
-    color: var(--vscode-menu-foreground);
-    box-shadow: var(--vscode-widget-shadow) 0px 2px 3px;
+    &.visible { display: block; }
+    .custom-context-menu-item { @include overflow-menu-row; }
+}
 
-    &.visible {
-        display: block;
+// Decorative icons: labels remain the accessible action name.
+:is(.custom-context-menu, .machine-project-menu) {
+    [data-action="open"],
+    [data-action="open-machine-project-current"],
+    [data-action="focus-open-window"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 3h7v7M21 3l-9 9M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5'/%3E%3C/svg%3E");
     }
-
-    .custom-context-menu-item {
-        padding: 5px 26px;
-        outline: none;
-
-        &:hover,
-        &:focus-visible {
-            color: var(--vscode-menu-selectionForeground);
-            background: var(--vscode-menu-selectionBackground);
-        }
-
-        &.disabled {
-            pointer-events: none;
-            opacity: 50%;
-        }
+    [data-action="edit"],
+    [data-action="rename"],
+    [data-action="rename-machine"],
+    [data-action="show-edit-local-project-form"],
+    [data-action="show-edit-project-form"],
+    [data-action="show-edit-machine-form"],
+    [data-action="worktree-group-rename"],
+    .skill-menu-open {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m16 3 5 5-12 12-6 1 1-6L16 3ZM13 6l5 5'/%3E%3C/svg%3E");
     }
-
-    .custom-context-menu-separator {
-        border-top: 1pt solid var(--vscode-menu-separatorBackground);
-        opacity: 50%;
-        margin: 3px 10px;
+    [data-action="pin"],
+    [data-action="toggle-open-workspace-pin"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m15 3 6 6-3 1-4 4 1 4-2 2-9-9 2-2 4 1 4-4 1-3ZM9 15l-6 6'/%3E%3C/svg%3E");
     }
+    [data-action="copy-id"],
+    [data-managed-client-action="copySsh"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 8h12v13H8ZM16 8V3H3v13h5'/%3E%3C/svg%3E");
+    }
+    [data-action="remove"],
+    [data-action="remove-machine-project"],
+    [data-managed-operation="removeProject"],
+    [data-managed-operation="removeMachine"],
+    [data-action="close-terminal"],
+    [data-action="stop-session"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 6 12 12M6 18 18 6'/%3E%3C/svg%3E");
+    }
+    [data-action="archive"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3h18v5H3ZM5 8v13h14V8M10 12h4'/%3E%3C/svg%3E");
+    }
+    .skill-menu-move,
+    .skill-folder-menu-location {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v10H3V6Z'/%3E%3C/svg%3E");
+    }
+    [data-action="open-add-to-workspace"],
+    [data-action="worktree-new"],
+    [data-action="worktree-group-add-repo"],
+    .skill-folder-menu-new {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4v16M4 12h16'/%3E%3C/svg%3E");
+    }
+    [data-action="worktree-branch-create"],
+    [data-action="worktree-group-derive"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 6v12M6 12c0-5 12 0 12-7M3 3h6v4H3ZM3 17h6v4H3ZM15 2h6v4h-6Z'/%3E%3C/svg%3E");
+    }
+    [data-action="merge-worktree-groups"],
+    .skill-menu-centralize,
+    .skill-folder-menu-migrate {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3v4c0 5 12 5 12 10M18 3v18m-4-4 4 4 4-4'/%3E%3C/svg%3E");
+    }
+    [data-action="handoff"],
+    .skill-menu-scope-action {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12h16m-6-6 6 6-6 6'/%3E%3C/svg%3E");
+    }
+    [data-action="reset-machine-name"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11a9 9 0 1 1 2 7M3 4v7h7'/%3E%3C/svg%3E");
+    }
+    [data-action="save-current-workspace"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 3h13l4 4v14H3V3h1ZM7 3v6h9V3M7 21v-8h10v8'/%3E%3C/svg%3E");
+    }
+    [data-action="color"],
+    [data-action="color-machine-project"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1-4 2 2 0 0 1 1-4h3a3 3 0 0 0 3-3 9 9 0 0 0-9-7ZM7 10h.01M10 6h.01M15 6h.01M18 9h.01'/%3E%3C/svg%3E");
+    }
+    [data-action="resume"],
+    [data-action="create-ai-session-preset"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 11a8 8 0 0 1-8 8H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v4ZM7 8h10M7 13h6'/%3E%3C/svg%3E");
+    }
+    [data-managed-operation="resolveMachineConflict"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 3 10 18H2L12 3ZM12 9v5M12 17h.01'/%3E%3C/svg%3E");
+    }
+    .skill-folder-menu-item {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m10 13 4-4M8 16l-2 2a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0M16 8l2-2a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0'/%3E%3C/svg%3E");
+    }
+    [data-managed-client-action="sshTerminal"] {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 6 6-6 6M13 18h7'/%3E%3C/svg%3E");
+    }
+    [data-action="worktree-remove"],
+    [data-action="worktree-group-delete"],
+    .skill-folder-menu-remove {
+        --menu-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7'/%3E%3C/svg%3E");
+    }
+}
+
+@media (forced-colors: active) {
+    .custom-context-menu { border-color: CanvasText; }
 }
 
 // DRAG & DROP
@@ -7348,46 +7463,9 @@ body.steward-sidebar {
         margin-left: 6px;
     }
 
-    // Beautified ⋯ menu: rounded floating card matching the panel aesthetic,
-    // soft elevation, pill-shaped hover rows, danger styling for delete.
-    .skill-folder-menu {
-        min-width: 172px;
-        padding: 4px;
-        border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
-        border-radius: 8px;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, .35), 0 1px 4px rgba(0, 0, 0, .2);
-
-        .custom-context-menu-item {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 18px;
-            margin: 1px 2px;
-            padding: 5px 8px;
-            border-radius: 5px;
-            font-size: 11px;
-        }
-
-        .custom-context-menu-separator {
-            margin: 3px 8px;
-            opacity: 1;
-        }
-
-        .skill-folder-menu-remove {
-            color: var(--vscode-errorForeground, #f48771);
-
-            &:hover,
-            &:focus-visible {
-                background: rgba(244, 71, 71, .12);
-                color: var(--vscode-errorForeground, #f48771);
-            }
-        }
-    }
-
     .skill-folder-menu-item {
-        .skill-folder-menu-agent {
-            font-size: 11px;
-        }
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+        .skill-folder-menu-agent { font: inherit; text-transform: capitalize; }
     }
 
     .skill-folder-more {

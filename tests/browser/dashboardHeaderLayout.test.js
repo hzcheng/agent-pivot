@@ -224,3 +224,63 @@ test('WEBVIEW-DASHBOARD-SCROLLPORT-001 keeps the header outside long Projects an
     assert.deepEqual(ai.header, projects.header,
         'switching between long tabs must not move or narrow the dashboard header');
 });
+
+test('DASHBOARD-OVERFLOW-MENUS-001 gives every action an aligned icon and keeps menus readable across themes and widths', async t => {
+    const page = await openSidebarPage(t, 360);
+    for (const theme of ['light', 'dark']) {
+        await page.addStyleTag({ content: `:root {
+            --vscode-menu-background: ${theme === 'light' ? '#fafafa' : '#252526'};
+            --vscode-menu-foreground: ${theme === 'light' ? '#242424' : '#eeeeee'};
+            --vscode-menu-border: ${theme === 'light' ? '#d5d5d5' : '#505050'};
+            --vscode-menu-separatorBackground: ${theme === 'light' ? '#dedede' : '#454545'};
+            --vscode-widget-shadow: ${theme === 'light' ? '#00000024' : '#00000066'};
+            --vscode-menu-selectionBackground: ${theme === 'light' ? '#e9e9eb' : '#39393c'};
+            --vscode-menu-selectionForeground: ${theme === 'light' ? '#161616' : '#ffffff'};
+        }` });
+        for (const width of [360, 170]) {
+            await page.setViewportSize({ width, height: 600 });
+            for (const id of ['projectContextMenu', 'groupContextMenu', 'aiSessionContextMenu', 'aiSessionWorktreeMenu', 'openWindowMenu', 'aiSessionCreateDropdown']) {
+                const menu = page.locator('#' + id);
+                await menu.evaluate(el => {
+                    el.classList.add('visible');
+                    el.style.left = '4px';
+                    el.style.top = '40px';
+                });
+                if (id === 'aiSessionContextMenu') {
+                    await page.screenshot({ path: `/tmp/overflow-${theme}-${width}.png` });
+                }
+                const metrics = await menu.evaluate(el => {
+                    const rect = el.getBoundingClientRect();
+                    return {
+                        right: rect.right,
+                        radius: parseFloat(getComputedStyle(el).borderRadius),
+                        items: Array.from(el.querySelectorAll('[data-action]')).filter(item => !item.hidden).map(item => {
+                            const icon = getComputedStyle(item, '::before');
+                            return { text: item.textContent.trim(), icon: icon.maskImage, iconWidth: icon.width,
+                                height: item.getBoundingClientRect().height,
+                                overflow: item.scrollWidth > item.clientWidth + 1 };
+                        }),
+                    };
+                });
+                assert.ok(metrics.radius >= 10, `${id} uses the shared rounded surface`);
+                assert.ok(metrics.right <= width, `${id} fits a ${width}px panel`);
+                for (const item of metrics.items) {
+                    assert.notEqual(item.icon, 'none', `${id}: ${item.text} has a semantic icon`);
+                    assert.equal(item.iconWidth, '16px');
+                    assert.ok(item.height >= 32, `${id}: ${item.text} has a readable row height`);
+                    assert.equal(item.overflow, false, `${id}: ${item.text} is not clipped`);
+                }
+                await menu.evaluate(el => el.classList.remove('visible'));
+            }
+        }
+    }
+    await page.emulateMedia({ forcedColors: 'active' });
+    const menu = page.locator('#aiSessionContextMenu');
+    await menu.evaluate(el => el.classList.add('visible'));
+    const icon = await menu.locator('[data-action="rename"]').evaluate(el => ({
+        mask: getComputedStyle(el, '::before').maskImage,
+        color: getComputedStyle(el, '::before').backgroundColor,
+    }));
+    assert.notEqual(icon.mask, 'none');
+    assert.ok(!/rgba\([^)]*, 0\)$/.test(icon.color), 'icons remain visible in forced colors');
+});

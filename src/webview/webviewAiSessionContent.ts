@@ -1468,13 +1468,13 @@ export function getAiSessionWorktreeMenu() {
     return `
 <div id="aiSessionWorktreeMenu" class="custom-context-menu ai-session-worktree-menu" role="menu" aria-label="Worktree actions">
     <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-new">New worktree…</div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-branch-create"></div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-rename" hidden>Rename group</div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-derive" hidden>Derive from this group…</div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-add-repo" hidden>Add repository to group…</div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="merge-worktree-groups" hidden>Merge with another group…</div>
-    <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-group-delete" hidden>Remove group worktrees…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-branch-create">New from branch…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-rename" hidden>Rename group…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-derive" hidden>Derive group…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="worktree-group-add-repo" hidden>Add repository…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="merge-worktree-groups" hidden>Merge groups…</div>
     <div class="custom-context-menu-separator" role="separator" data-worktree-remove-separator></div>
+    <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-group-delete" hidden>Remove group worktrees…</div>
     <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="worktree-remove">Remove worktree</div>
 </div>`;
 }
@@ -1488,7 +1488,7 @@ export function getAiSessionCreateDropdown(project?: AiSessionSurfaceViewModel) 
         profile?: string,
         baseProfile: boolean = false,
     ) => {
-        const label = getQuickCreateTooltip(provider, profile || '');
+        const label = profile ? `Codex · ${profile}` : getAiProviderLabel(provider);
         return `<div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="create-ai-session-preset" data-provider="${provider}"${profile ? ` data-profile="${escapeAttribute(profile)}"` : ''}${baseProfile ? ' data-codex-profile-base="true"' : ''}>${escapeAttribute(label)}</div>`;
     };
     return `
@@ -1504,33 +1504,15 @@ export function getAiSessionCreateDropdown(project?: AiSessionSurfaceViewModel) 
 export function getAiSessionContextMenu() {
     return `
 <div id="aiSessionContextMenu" class="custom-context-menu" role="menu" aria-label="AI Session actions">
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="resume">
-        Focus / Resume Chat
-    </div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="handoff">
-        Hand off to New Chat…
-    </div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="rename">
-        Rename Chat
-    </div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="copy-id">
-        Copy Chat ID
-    </div>
-
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="pin">Pin</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="rename">Rename…</div>
     <div class="custom-context-menu-separator" role="separator"></div>
-
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="pin">
-        Pin / Unpin Chat
-    </div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="close-terminal">
-        Close Terminal…
-    </div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="stop-session" hidden>
-        Close Chat…
-    </div>
-    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="archive">
-        Archive Chat
-    </div>
-</div>
-`;
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="resume">Resume chat</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="handoff">Hand off…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="copy-id">Copy chat ID</div>
+    <div class="custom-context-menu-separator" role="separator"></div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="close-terminal">Close terminal…</div>
+    <div class="custom-context-menu-item danger" role="menuitem" tabindex="-1" data-action="stop-session" hidden>Close chat…</div>
+    <div class="custom-context-menu-item" role="menuitem" tabindex="-1" data-action="archive">Archive chat</div>
+</div>`;
 }

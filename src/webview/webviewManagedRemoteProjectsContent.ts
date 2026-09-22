@@ -94,8 +94,9 @@ function renderProject(
             <div class="machine-project-actions">
                 <button type="button" class="machine-pointer-action machine-favorite-action${project.favorite ? ' is-active' : ''}" ${operationAttributes('toggleFavorite', project.id)} aria-label="${project.favorite ? 'Remove' : 'Add'} ${escapeAttribute(project.name)} ${project.favorite ? 'from' : 'to'} Favorites" title="${project.favorite ? 'Remove from Favorites' : 'Add to Favorites'}">${project.favorite ? Icons.starFilled : Icons.star}</button>
                 <div class="machine-project-menu-shell"><button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-project-menu" aria-label="More actions for ${escapeAttribute(project.name)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button><div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
-                    <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-project-form" data-managed-target-id="${escapeAttribute(project.id)}">Edit Project…</button>
-                    <button type="button" role="menuitem" tabindex="-1" class="danger" ${operationAttributes('removeProject', project.id)}>Remove Project…</button>
+                    <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-project-form" data-managed-target-id="${escapeAttribute(project.id)}">Edit…</button>
+                    <div class="machine-project-menu-separator" role="separator"></div>
+                    <button type="button" role="menuitem" tabindex="-1" class="danger" ${operationAttributes('removeProject', project.id)}>Remove project…</button>
                 </div></div>
             </div>
         </div>
@@ -129,11 +130,13 @@ function renderMachine(
             <div class="machine-row-actions">
                 <button type="button" class="machine-pointer-action machine-primary-action" data-managed-client-action="openMachine" data-managed-target-id="${escapeAttribute(machine.id)}" aria-label="${escapeAttribute(machine.openable ? openName : `${openName}. Unavailable: ${machine.unavailableReason}`)}" title="${escapeAttribute(openName)}"${machine.openable ? '' : ' disabled'}>${Icons.openNewWindow}</button>
                 <div class="machine-project-menu-shell"><button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-menu" aria-label="More actions for ${escapeAttribute(`${machine.name}, ${machine.endpoint}`)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button><div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
-                    <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-machine-form" data-managed-target-id="${escapeAttribute(machine.id)}">Edit Machine…</button>
-                    ${machine.conflict ? `<button type="button" role="menuitem" tabindex="-1" ${operationAttributes('resolveMachineConflict', machine.id)}>Review Connection Conflict…</button>` : ''}
-                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="sshTerminal" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Open SSH Terminal…</button>
-                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="copySsh" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Copy SSH Command</button>
-                    <button type="button" role="menuitem" tabindex="-1" class="danger" ${operationAttributes('removeMachine', machine.id)}>Remove Machine…</button>
+                    <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-machine-form" data-managed-target-id="${escapeAttribute(machine.id)}">Edit…</button>
+                    ${machine.conflict ? `<button type="button" role="menuitem" tabindex="-1" ${operationAttributes('resolveMachineConflict', machine.id)}>Review conflict…</button>` : ''}
+                    <div class="machine-project-menu-separator" role="separator"></div>
+                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="sshTerminal" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>SSH terminal…</button>
+                    <button type="button" role="menuitem" tabindex="-1" data-managed-client-action="copySsh" data-managed-target-id="${escapeAttribute(machine.id)}"${machine.openable ? '' : ' disabled'}>Copy SSH command</button>
+                    <div class="machine-project-menu-separator" role="separator"></div>
+                    <button type="button" role="menuitem" tabindex="-1" class="danger" ${operationAttributes('removeMachine', machine.id)}>Remove machine…</button>
                 </div></div>
             </div>
         </div>

@@ -2327,7 +2327,8 @@ test('WORKTREE-GROUPS-UI-001 a single-root anchor menu offers branch-seeded work
     const branchItem = menu.locator('[data-action="worktree-branch-create"]');
     assert.equal(await branchItem.isVisible(), true,
         'single-root anchors offer New worktree from Current');
-    assert.match(await branchItem.textContent(), /New worktree from Current/);
+    assert.equal(await branchItem.textContent(), 'New from branch…');
+    assert.equal(await branchItem.getAttribute('title'), 'New worktree from Current');
     assert.equal(await menu.locator('[data-action="worktree-new"]').isHidden(), true,
         'the plain entry hides when the seeded one exists');
     await branchItem.evaluate(item => item.click());

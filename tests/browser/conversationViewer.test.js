@@ -884,6 +884,83 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 restores a stashed frame with s
         `scroll position should return to 240, got ${outcome.scrollTop}`);
 });
 
+// Exercise the real loading protocol with differently sized transcripts.
+for (const scenario of ['preflight', 'cancel', 'cancel-miss', 'changed', 'evicted']) {
+    for (const position of ['middle', 'end']) {
+        test(`CONVERSATION-READING-FOCUS-001 returns to the saved ${position} after ${scenario}`, async t => {
+            const page = await openViewerPage(t);
+            await page.addStyleTag({ content: '.reading-block { height: 160px; margin: 0; } .reading-grown { height: 240px; } html, body { height: 100%; margin: 0; } body { display: flex; flex-direction: column; } [data-conversation-scroll] { flex: 1; min-height: 0; height: auto !important; }' });
+            let generation = 1;
+            const sessionPage = (sessionId, revision = 1) => ({
+                ...hostileConversationPage,
+                requestId: ++generation * 10,
+                subscriptionGeneration: generation,
+                updateKind: 'initial',
+                atLatest: true,
+                html: Array.from({ length: sessionId === 'alpha' ? 16 : 5 }, (_, index) =>
+                    `<article data-message-id="${sessionId}-${index}" data-interaction-id="${sessionId}-input"><section class="conversation-markdown"><p class="reading-block${revision === 2 && (index === 0 || index === 15) ? ' reading-grown' : ''}">${sessionId} ${index} revision ${revision}</p></section></article>`
+                ).join(''),
+                htmlSignature: `${sessionId}-${revision}`,
+                outline: [{ interactionId: `${sessionId}-input`, userPreview: sessionId, responseState: 'complete' }],
+                selectedInteractionId: `${sessionId}-input`,
+                selectedInput: 1, totalInputs: 1,
+                previousCursor: undefined, nextCursor: undefined,
+                target: { projectId: 'project-1', provider: 'codex', sessionId,
+                    interactionId: `${sessionId}-input`, displayName: sessionId },
+                comments: { revision: 0, comments: [] },
+                projectComments: { revision: 0, comments: [] },
+                bookmarks: { revision: 0, interactionIds: [] },
+            });
+            await sendPage(page, sessionPage('beta'));
+            await page.evaluate(() => {
+                const scroll = document.querySelector('[data-conversation-scroll]');
+                scroll.scrollTop = 100;
+                scroll.dispatchEvent(new Event('scroll'));
+            });
+            await sendPage(page, sessionPage('alpha'));
+            if (scenario === 'cancel-miss') {
+                await page.evaluate(() => {
+                    document.querySelector('[data-conversation-status]').textContent = 'Earlier history unavailable. '.repeat(12);
+                });
+            }
+            const before = await page.evaluate(position => {
+                const scroll = document.querySelector('[data-conversation-scroll]');
+                scroll.scrollTop = position === 'end' ? scroll.scrollHeight : 640;
+                scroll.dispatchEvent(new Event('scroll'));
+                return scroll.scrollTop;
+            }, position);
+            assert.ok(before > 100, 'the fixture must have a scrollable transcript');
+            if (scenario === 'preflight' || scenario.startsWith('cancel')) {
+                const loading = { type: 'conversation-viewer-loading', version: 1,
+                    subscriptionGeneration: generation + 1,
+                    target: { projectId: 'project-1', provider: 'codex', sessionId: scenario === 'cancel-miss' ? 'uncached' : 'beta' } };
+                await sendPage(page, { ...loading, preflight: true });
+                await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+                await sendPage(page, scenario.startsWith('cancel')
+                    ? { ...loading, type: 'conversation-viewer-loading-cancel' } : loading);
+            }
+            if (!scenario.startsWith('cancel')) {
+                await sendPage(page, sessionPage('beta'));
+                if (scenario === 'evicted') {
+                    for (let index = 0; index < 5; index++) {
+                        await sendPage(page, sessionPage(`other-${index}`));
+                    }
+                }
+                await sendPage(page, sessionPage('alpha', scenario === 'changed' ? 2 : 1));
+            }
+            await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            const after = await page.evaluate(() => {
+                const scroll = document.querySelector('[data-conversation-scroll]');
+                return { top: scroll.scrollTop, end: scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop };
+            });
+            const expected = before + (scenario === 'changed' ? position === 'end' ? 160 : 80 : 0);
+            assert.ok(Math.abs(after.top - expected) <= 2,
+                `${scenario} must preserve ${position}: expected ${expected}, got ${after.top}`);
+            if (position === 'end') assert.ok(after.end <= 2, 'must still follow the bottom');
+        });
+    }
+}
+
 test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 paints Chat content before deferred decorations and drops stale work', async t => {
     const page = await openViewerPage(t, { controlledMermaid: true });
     await page.evaluate(() => {
@@ -5376,6 +5453,132 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Strip the reading-position fix to preserve the frozen prior generation.
+        .replace(
+            "    var frameCache = new Map();\n"
+                + "    // Reading positions outlive DOM frames and content revisions. Never retain\n"
+                + "    // DOM nodes here, so evicting a heavy frame still releases its transcript.\n"
+                + "    var sessionReadingPositions = new Map();\n"
+                + "    var READING_POSITION_LIMIT = 100;\n"
+                + "    var frameCacheNodes = 0;\n",
+            "    var frameCache = new Map();\n"
+                + "    var frameCacheNodes = 0;\n"
+        )
+        .replace(
+            "        }\n"
+                + "        // Capture the outgoing viewport before the loading label can resize\n"
+                + "        // its header and change the reading anchor's screen coordinates.\n"
+                + "        if (!conversationLoading) {\n",
+            "        }\n"
+                + "        if (!conversationLoading) {\n"
+        )
+        .replace(
+            "        }\n"
+                + "        var previewHit = previewCachedFrame(message.target);\n"
+                + "        conversationLoading = true;\n",
+            "        }\n"
+                + "        conversationLoading = true;\n"
+        )
+        .replace(
+            "        status.textContent = 'Loading conversation\u2026';\n"
+                + "        if (previewHit) {\n",
+            "        status.textContent = 'Loading conversation\u2026';\n"
+                + "        var previewHit = previewCachedFrame(message.target);\n"
+                + "        if (previewHit) {\n"
+        )
+        .replace(
+            "        var restoreStatusText = loadingStatusText;\n"
+                + "        var outgoing = previewFrame && frameCache.get(frameSessionKey(commentTarget));\n"
+                + "        returnPreviewFrameToCache();\n",
+            "        var restoreStatusText = loadingStatusText;\n"
+                + "        returnPreviewFrameToCache();\n"
+        )
+        .replace(
+            "        status.textContent = restoreStatusText || '';\n"
+                + "        if (outgoing) {\n"
+                + "            if (outgoing.followingEnd) reconcileController.scrollToEnd();\n"
+                + "            else {\n"
+                + "                restoreViewportReadingPosition(outgoing.anchor, outgoing.scrollTop);\n"
+                + "                reconcileController.trackEnd();\n"
+                + "            }\n"
+                + "        }\n"
+                + "    }\n",
+            "        status.textContent = restoreStatusText || '';\n"
+                + "    }\n"
+        )
+        .replace(
+            "        mermaidRenderer.closePreview();\n"
+                + "        // A preview handoff can temporarily reattach this document under a\n"
+                + "        // loading header. Its last interactive position remains authoritative.\n"
+                + "        var retainedPosition = conversationLoading && frameCache.get(key);\n"
+                + "        var anchor = retainedPosition ? retainedPosition.anchor : captureReadingAnchor();\n"
+                + "        var scrollTop = retainedPosition ? retainedPosition.scrollTop : scroll.scrollTop;\n"
+                + "        var followingEnd = retainedPosition\n"
+                + "            ? retainedPosition.followingEnd : reconcileController.atEnd();\n"
+                + "        var savedPosition = {\n"
+                + "            scrollTop: scrollTop,\n"
+                + "            anchor: anchor ? {\n"
+                + "                messageId: anchor.messageId,\n"
+                + "                blockIndex: anchor.blockIndex,\n"
+                + "                top: anchor.top,\n"
+                + "                viewportTop: anchor.viewportTop,\n"
+                + "            } : null,\n"
+                + "            followingEnd: followingEnd,\n"
+                + "            selectedInteractionId: restoreTarget\n"
+                + "                ? restoreTarget.interactionId : undefined,\n"
+                + "        };\n"
+                + "        sessionReadingPositions.delete(key);\n"
+                + "        sessionReadingPositions.set(key, savedPosition);\n"
+                + "        if (sessionReadingPositions.size > READING_POSITION_LIMIT) {\n"
+                + "            sessionReadingPositions.delete(sessionReadingPositions.keys().next().value);\n"
+                + "        }\n"
+                + "        var nodes = Array.prototype.slice.call(messages.childNodes);\n",
+            "        mermaidRenderer.closePreview();\n"
+                + "        var anchor = captureReadingAnchor();\n"
+                + "        var scrollTop = scroll.scrollTop;\n"
+                + "        var followingEnd = reconcileController.atEnd();\n"
+                + "        var nodes = Array.prototype.slice.call(messages.childNodes);\n"
+        )
+        .replace(
+            "            messages.replaceChildren.apply(messages, outgoing.nodes);\n"
+                + "            if (outgoing.followingEnd) {\n"
+                + "                reconcileController.scrollToEnd();\n"
+                + "            } else {\n"
+                + "                restoreViewportReadingPosition(outgoing.anchor, outgoing.scrollTop);\n"
+                + "                reconcileController.trackEnd();\n"
+                + "            }\n"
+                + "        }\n",
+            "            messages.replaceChildren.apply(messages, outgoing.nodes);\n"
+                + "        }\n"
+        )
+        .replace(
+            "            // reading position.\n"
+                + "            var savedPosition = frame || sessionReadingPositions.get(\n"
+                + "                frameSessionKey(message.target)\n"
+                + "            );\n"
+                + "            var resumeFramePosition = savedPosition\n"
+                + "                && message.updateKind !== 'navigation'\n"
+                + "                && message.selectedInteractionId\n"
+                + "                    === savedPosition.selectedInteractionId;\n"
+                + "            if (resumeFramePosition && savedPosition.followingEnd\n"
+                + "                && message.atLatest) {\n",
+            "            // reading position.\n"
+                + "            var resumeFramePosition = frame\n"
+                + "                && message.selectedInteractionId\n"
+                + "                    === frame.selectedInteractionId;\n"
+                + "            if (resumeFramePosition && frame.followingEnd\n"
+                + "                && message.atLatest) {\n"
+        )
+        .replace(
+            "                restoreViewportReadingPosition(\n"
+                + "                    savedPosition.anchor,\n"
+                + "                    savedPosition.scrollTop\n"
+                + "                );\n",
+            "                restoreViewportReadingPosition(\n"
+                + "                    frame.anchor,\n"
+                + "                    frame.scrollTop\n"
+                + "                );\n"
+        )
         // The previous generation did not tag tool rows with data-tool-kind.
         .replace("        'data-tool-kind',\n", '')
         // The previous generation stripped <rect> from published icons.

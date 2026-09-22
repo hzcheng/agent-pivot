@@ -3438,6 +3438,7 @@ body .project {
     }
 
     .ai-session-worktree-launch-actions button,
+    .ai-session-worktree-remove,
     .ai-session-worktree-more {
         width: 22px;
         min-width: 22px;
@@ -4904,21 +4905,12 @@ body.steward-sidebar {
             }
         }
 
-        .ai-session-worktree-remove {
-            opacity: 1;
-            padding: 0;
-            margin-right: 0;
-
-            &:hover,
-            &:focus-visible {
-                color: var(--vscode-errorForeground);
-            }
-        }
-
         // Row actions stay out of the way until the row is hovered or used.
         .ai-session-worktree-toolbar:hover .ai-session-worktree-launch-actions,
+        .ai-session-worktree-toolbar:hover .ai-session-worktree-remove,
         .ai-session-worktree-toolbar:hover .ai-session-worktree-more,
         .ai-session-worktree-toolbar:focus-within .ai-session-worktree-launch-actions,
+        .ai-session-worktree-toolbar:focus-within .ai-session-worktree-remove,
         .ai-session-worktree-toolbar:focus-within .ai-session-worktree-more,
         .ai-session-worktree-launch-actions:has([aria-expanded="true"]),
         .ai-session-worktree-more[aria-expanded="true"] {

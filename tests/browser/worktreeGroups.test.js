@@ -2372,11 +2372,33 @@ test('WORKTREE-GROUPS-UI-001 toolbar removal preserves header toggling and targe
     await header.focus();
     await page.keyboard.press('Enter');
     assert.equal(await header.getAttribute('aria-expanded'), 'true');
-    for (const width of [350, 220]) {
+    for (const width of [350, 220, 170]) {
         await page.setViewportSize({ width, height: 900 });
         const bounds = await remove.boundingBox();
         assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
-        assert.equal(await remove.evaluate(element => getComputedStyle(element).opacity), '1');
+        const actionSelector = '[data-group-id="g-1"].ai-session-worktree-group :is(.ai-session-worktree-remove, .ai-session-worktree-more, .ai-session-worktree-launch-actions)';
+        const expectActionsOpacity = opacity => page.waitForFunction(({ selector, opacity }) =>
+            Array.from(document.querySelectorAll(selector)).every(element =>
+                getComputedStyle(element).opacity === opacity), { selector: actionSelector, opacity }, { timeout: 5000 });
+        await page.evaluate(() => document.activeElement.blur());
+        await page.mouse.move(width - 1, 899);
+        await expectActionsOpacity('0');
+        if (process.env.WORKTREE_TOOLBAR_SCREENSHOTS) {
+            await page.screenshot({ path: `/tmp/worktree-toolbar-hidden-${width}.png` });
+        }
+        await header.hover();
+        await expectActionsOpacity('1');
+        await page.mouse.move(width - 1, 899);
+        await expectActionsOpacity('0');
+        await remove.focus();
+        await expectActionsOpacity('1');
+        const more = group.locator('.ai-session-worktree-more');
+        const buttonStyles = element => {
+            const style = getComputedStyle(element);
+            return ['width', 'height', 'margin', 'padding', 'borderRadius', 'transition', 'color', 'backgroundColor']
+                .map(property => style[property]);
+        };
+        assert.deepEqual(await remove.evaluate(buttonStyles), await more.evaluate(buttonStyles));
         if (process.env.WORKTREE_TOOLBAR_SCREENSHOTS) {
             await page.screenshot({ path: `/tmp/worktree-toolbar-${width}.png` });
         }

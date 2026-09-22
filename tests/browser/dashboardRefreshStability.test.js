@@ -462,13 +462,18 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 restores the real Projects scrollport af
     });
     await waitForPageCondition(page, () => {
         const panel = document.querySelector('#dashboard-tab-projects');
-        return panel && panel.scrollHeight > panel.clientHeight;
+        // Initial mounting schedules a scroll restore on the first frame.
+        // Wait for that frame before simulating a user scroll, otherwise it
+        // can reset 80 to 0 between the setup and replacement capture.
+        return panel && panel.getAttribute('data-header-fit-generation') === '1'
+            && panel.scrollHeight > panel.clientHeight;
     });
     const beforeScrollTop = await page.evaluate(() => {
         const panel = document.querySelector('#dashboard-tab-projects');
         panel.scrollTop = 80;
         return panel.scrollTop;
     });
+    assert.equal(beforeScrollTop, 80, 'the fixture must start from a nonzero user scroll');
     await post(page, {
         type: 'projects-panel-updated', version: 1, sequence: 1, mode: 'replace',
         html: longProjectsMarkup(projectIds), searchCatalog: catalog(),

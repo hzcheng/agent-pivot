@@ -170,6 +170,9 @@ export class ConversationTelemetryController {
             || this.options.isSuspended()) {
             return;
         }
+        // A transient read failure must not erase the last snapshot for this target.
+        // reset() clears it when the viewer switches sessions.
+        telemetry ||= this.telemetry;
         this.telemetry = telemetry;
         const message: ConversationViewerTelemetryMessage = {
             type: 'conversation-viewer-telemetry',
@@ -394,7 +397,7 @@ export function renderConversationTelemetry(
                 usedPercent,
                 LIMIT_ICON_SVG
             )}
-            <strong data-telemetry-limit-value>${escapeHtml(visibleValue)}</strong>
+            <strong data-telemetry-limit-value hidden>${escapeHtml(visibleValue)}</strong>
         </div>`;
     }).join('');
     const modelTitle = telemetry?.model
@@ -433,7 +436,7 @@ export function renderConversationTelemetry(
                 contextPercent,
                 CONTEXT_ICON_SVG
             )}
-            <strong data-telemetry-context-value>${hasContext
+            <strong data-telemetry-context-value hidden>${hasContext
                 ? escapeHtml(contextValue)
                 : ''}</strong>
         </div>

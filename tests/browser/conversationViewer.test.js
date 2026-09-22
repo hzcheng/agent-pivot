@@ -17865,6 +17865,23 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
     assert.equal(tooltipState.visibility, 'visible');
     assert.equal(tooltipState.opacity, '1');
     assert.match(tooltipState.content, /Context window/);
+    assert.match(tooltipState.content, /% used/);
+    for (const selector of ['[data-telemetry-context-value]', '[data-telemetry-limit-value]']) {
+        assert.equal(await page.locator(selector).isVisible(), false,
+            'usage percentages are only shown in the tooltip');
+    }
+    assert.match(await page.locator('[data-telemetry-limit]').getAttribute('data-tooltip'), /% used/);
+    if (process.env.TELEMETRY_SCREENSHOTS) {
+        for (const width of [700, 350]) {
+            await page.setViewportSize({ width, height: 500 });
+            await page.mouse.move(0, 490);
+            await page.screenshot({ path: `/tmp/telemetry-icons-${width}.png` });
+        }
+        await page.locator('[data-telemetry-context]').hover();
+        await page.waitForTimeout(600);
+        await page.screenshot({ path: '/tmp/telemetry-icons-hover.png' });
+    }
+
     assert.deepEqual(
         await page.locator(
             '[data-telemetry-context], [data-telemetry-limit]'

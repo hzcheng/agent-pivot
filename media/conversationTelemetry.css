@@ -304,12 +304,13 @@
 .conversation-telemetry-comments,
 .conversation-telemetry-changes {
     display: inline-flex;
+    width: 1.75rem;
     min-width: 1.75rem;
     flex: 0 0 auto;
-    gap: .28rem;
+    gap: 0;
     align-items: center;
     justify-content: center;
-    padding: .15rem .42rem;
+    padding: .15rem;
     font: inherit;
     font-variant-numeric: tabular-nums;
     font-weight: 600;
@@ -462,7 +463,8 @@
     .conversation-telemetry-model,
     .conversation-telemetry-position,
     .conversation-telemetry-subagents,
-    .conversation-telemetry-comments {
+    .conversation-telemetry-comments,
+    .conversation-telemetry-changes {
         height: 1.65rem;
     }
 
@@ -489,10 +491,12 @@
 
     .conversation-telemetry-position,
     .conversation-telemetry-subagents,
-    .conversation-telemetry-comments {
+    .conversation-telemetry-comments,
+    .conversation-telemetry-changes {
+        width: 1.65rem;
         min-width: 1.65rem;
-        gap: .18rem;
-        padding: .1rem .25rem;
+        gap: 0;
+        padding: .1rem;
     }
 }
 
@@ -514,7 +518,8 @@
     .conversation-telemetry-model,
     .conversation-telemetry-position,
     .conversation-telemetry-subagents,
-    .conversation-telemetry-comments {
+    .conversation-telemetry-comments,
+    .conversation-telemetry-changes {
         border-color: ButtonText;
         color: ButtonText;
         background: Canvas;

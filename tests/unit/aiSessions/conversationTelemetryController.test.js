@@ -215,7 +215,7 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 leads the telemetry bar with a provi
 
 test('CONVERSATION-TELEMETRY-CONTROLLER-001 renders the comments pill with dual session · workspace open counts', () => {
     const html = renderConversationTelemetry(undefined, 'kimi');
-    assert.match(html, /data-telemetry-comments-value>0 · 0</);
+    assert.match(html, /data-telemetry-comments-value hidden>0 · 0</);
     assert.match(
         html,
         /0 open session comments · 0 open workspace notes — click to review/

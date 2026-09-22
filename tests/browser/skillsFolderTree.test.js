@@ -144,6 +144,14 @@ test('WEBVIEW-AI-SKILL-PANEL-001 skill rows stay inert and editing requires the 
 
         await page.click('[data-skill-menu="/home/dev/.kimi/skills/demo"]');
         assert.match(await page.locator('.skill-menu').textContent(), /^Edit/);
+        // DASHBOARD-OVERFLOW-MENUS-001: dynamically built skill actions have icons too.
+        const icons = await page.locator('.skill-menu .custom-context-menu-item').evaluateAll(items =>
+            items.map(item => getComputedStyle(item, '::before').maskImage));
+        assert.ok(icons.length > 1);
+        assert.ok(icons.every(icon => icon !== 'none'));
+        assert.equal(await page.locator('.skill-menu [role="separator"]').count(), 1,
+            'deleting a skill is separated from editing and organization');
+        await page.screenshot({ path: '/tmp/overflow-skills.png' });
         await page.click('.skill-menu [data-skill-open]');
         assert.deepEqual(await page.evaluate(() => window.__skillMessages), [{
             type: 'open-skill-file',

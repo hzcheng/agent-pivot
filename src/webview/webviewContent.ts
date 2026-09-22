@@ -841,42 +841,25 @@ function getNoProjectsDiv() {
 
 function getProjectContextMenu() {
     return `
-<div id="projectContextMenu" class="custom-context-menu">
-    <div class="custom-context-menu-item" data-action="open">
-        Open Project In Current Window
-    </div>
-    <div class="custom-context-menu-item not-remote" data-action="open-add-to-workspace">
-        Add To Workspace
-    </div>
-
-    <div class="custom-context-menu-separator"></div>
-    
-    <div class="custom-context-menu-item" data-action="color">
-        Edit Color
-    </div>
-    <div class="custom-context-menu-item" data-action="edit">
-        Edit Project
-    </div>
-    <div class="custom-context-menu-item" data-action="remove">
-        Remove Project
-    </div>
-</div>
-`;
+<div id="projectContextMenu" class="custom-context-menu" role="menu" aria-label="Project actions">
+    <div class="custom-context-menu-item" data-action="open" title="Open project in the current window">Open here</div>
+    <div class="custom-context-menu-item not-remote" data-action="open-add-to-workspace">Add to workspace</div>
+    <div class="custom-context-menu-separator" role="separator"></div>
+    <div class="custom-context-menu-item" data-action="edit">Edit…</div>
+    <div class="custom-context-menu-item" data-action="color">Color…</div>
+    <div class="custom-context-menu-separator" role="separator"></div>
+    <div class="custom-context-menu-item danger" data-action="remove">Remove project</div>
+</div>`;
 }
 
 function getGroupContextMenu() {
     return `
-<div id="groupContextMenu" class="custom-context-menu">   
-    <div class="custom-context-menu-item" data-action="edit">
-        Edit Group
-    </div>
-    <div class="custom-context-menu-item" data-action="remove">
-        Remove Group
-    </div>
-</div>
-`;
+<div id="groupContextMenu" class="custom-context-menu" role="menu" aria-label="Group actions">
+    <div class="custom-context-menu-item" data-action="edit">Edit…</div>
+    <div class="custom-context-menu-separator" role="separator"></div>
+    <div class="custom-context-menu-item danger" data-action="remove">Remove group</div>
+</div>`;
 }
-
 
 function colorDefaults() {
     var colors = INBUILT_COLOR_DEFAULTS

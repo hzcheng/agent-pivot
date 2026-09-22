@@ -931,8 +931,8 @@ function initProjectAiSessionControls(options) {
         menu.__originButton = button;
         var hasWorktreeTarget = !!(menu.__context.repositoryKey && menu.__context.worktreePath);
         var branchItem = menu.querySelector('[data-action="worktree-branch-create"]');
-        branchItem.textContent = 'New worktree from '
-            + (button.getAttribute('data-worktree-name') || 'this branch');
+        branchItem.textContent = 'New from branch…';
+        branchItem.title = 'New worktree from ' + (button.getAttribute('data-worktree-name') || 'this branch');
         branchItem.hidden = !menu.__context.canBranchCreate || !hasWorktreeTarget;
         // "New worktree…" opens the plain creation form: it replaces the
         // removed surface-level button, and covers multi-root anchors where
@@ -953,7 +953,7 @@ function initProjectAiSessionControls(options) {
         removeItem.hidden = !menu.__context.canRemove || !hasWorktreeTarget;
         var removeSeparator = menu.querySelector('[data-worktree-remove-separator]');
         if (removeSeparator) {
-            removeSeparator.hidden = removeItem.hidden && renameItem.hidden;
+            removeSeparator.hidden = removeItem.hidden && groupDeleteItem.hidden;
         }
 
         button.setAttribute('aria-expanded', 'true');

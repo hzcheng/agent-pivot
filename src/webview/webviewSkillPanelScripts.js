@@ -462,6 +462,10 @@ function initSkillPanel(options) {
         var newItem = appendMenuAction(menu, 'skill-folder-menu-new', 'New subfolder');
         newItem.setAttribute('data-skill-menu-new-folder', folder);
         newItem.setAttribute('data-folder-scope', scope);
+        var separator = document.createElement('div');
+        separator.className = 'custom-context-menu-separator';
+        separator.setAttribute('role', 'separator');
+        menu.appendChild(separator);
         var removeItem = appendMenuAction(menu, 'skill-folder-menu-remove', 'Delete empty folder');
         removeItem.setAttribute('data-skill-remove-folder', folder);
         document.body.appendChild(menu);
@@ -496,6 +500,10 @@ function initSkillPanel(options) {
         if (holder && holder.querySelector('[data-skill-centralize]')) {
             var centralizeItem = appendMenuAction(menu, 'skill-menu-centralize', 'Centralize');
             centralizeItem.setAttribute('data-skill-centralize', dirPath);
+            var separator = document.createElement('div');
+            separator.className = 'custom-context-menu-separator';
+            separator.setAttribute('role', 'separator');
+            menu.appendChild(separator);
             var deleteItem = appendMenuAction(menu, 'skill-menu-delete skill-folder-menu-remove', 'Delete');
             deleteItem.setAttribute('data-skill-delete', dirPath);
         }
@@ -530,7 +538,7 @@ function initSkillPanel(options) {
             var locationItem = appendMenuAction(
                 menu,
                 'skill-folder-menu-location',
-                'Change Global Skills Location…'
+                'Change location…'
             );
             locationItem.setAttribute('data-change-global-skills-location', '');
         }

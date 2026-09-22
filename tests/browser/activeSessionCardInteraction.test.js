@@ -3244,6 +3244,14 @@ test('OPEN-TAB-SESSION-SINGLE-LINE-001 renders CHATS and ALL session rows with o
     const moreButton = activeRow.locator('[data-action="open-ai-session-context-menu"]');
     await moreButton.click();
     assert.equal(await page.locator('#aiSessionContextMenu').evaluate(el => el.classList.contains('visible')), true);
+    // DASHBOARD-OVERFLOW-MENUS-001: runtime label updates must preserve decorative icons.
+    assert.equal(await page.locator('#aiSessionContextMenu [data-action="resume"]').innerText(), 'Focus chat');
+    assert.equal(await page.locator('#aiSessionContextMenu [data-action="pin"]').innerText(), 'Pin');
+    for (const action of ['resume', 'pin', 'close-terminal']) {
+        assert.notEqual(await page.locator(`#aiSessionContextMenu [data-action="${action}"]`).evaluate(el =>
+            getComputedStyle(el, '::before').maskImage), 'none');
+    }
+
     assert.equal(await page.locator('#aiSessionContextMenu [data-action="copy-id"]').count(), 1,
         'the row menu must expose Copy Session ID');
     assert.equal(await moreButton.getAttribute('aria-expanded'), 'true');

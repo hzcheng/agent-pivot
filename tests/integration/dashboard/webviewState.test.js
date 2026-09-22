@@ -1473,8 +1473,8 @@ test('CUSTOM-RUNNING-IMAGE-001 full render injects user artwork as CSS variables
         aiSessionRunningIconAnimation: 'custom',
         aiSessionRunningIconCustomImage: imagePath,
     });
-    assert.match(customHtml, /data-session-fx="custom"/,
-        'a running workspace card must use the custom effect when the image resolves');
+    assert.doesNotMatch(customHtml, /data-session-fx=/,
+        'the OPEN surface must not render card effects even when a custom image resolves');
     assert.match(customHtml, /data-session-icon-fx="custom"/,
         'a running Active Session row must use the custom effect when the image resolves');
     assert.ok(customHtml.includes(`--agent-pivot-running-card-image: url("${expectedDataUri}")`),
@@ -1488,8 +1488,8 @@ test('CUSTOM-RUNNING-IMAGE-001 full render injects user artwork as CSS variables
         aiSessionRunningIconAnimation: 'custom',
         aiSessionRunningIconCustomImage: '',
     });
-    assert.match(fallbackHtml, /data-session-fx="current"/,
-        'custom without a readable image must fall back to the current animation');
+    assert.doesNotMatch(fallbackHtml, /data-session-fx=/,
+        'the OPEN surface must not render fallback card effects');
     assert.ok(!fallbackHtml.includes('--agent-pivot-running-card-image'),
         'no image variable may be emitted when the image cannot be resolved');
     assert.ok(!fallbackHtml.includes('data-session-icon-fx="custom"'),

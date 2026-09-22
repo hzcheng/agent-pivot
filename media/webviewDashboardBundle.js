@@ -2944,20 +2944,11 @@ function initAiSessionPresentationDom(options) {
         // and worktree descendant, stacking a delayed native tooltip on top
         // of their fast data-tooltip overlay.
         projectDiv.removeAttribute('title');
-        if (running) {
-            projectDiv.setAttribute('data-session-fx', message.runningCardAnimation);
-        } else {
-            projectDiv.removeAttribute('data-session-fx');
-        }
+        // The OPEN surface fills the sidebar; card edge effects belong only
+        // to project cards. Clear legacy decoration on retained documents too.
+        projectDiv.removeAttribute('data-session-fx');
         var effect = projectDiv.querySelector('.project-session-fx');
-        var showEffect = running && message.runningCardAnimation !== 'none';
-        if (showEffect && !effect) {
-            effect = document.createElement('div');
-            effect.className = 'project-session-fx';
-            projectDiv.appendChild(effect);
-        } else if (!showEffect && effect) {
-            effect.remove();
-        }
+        if (effect) effect.remove();
     }
     function setCurrentOpenWorkspaceSummaryDom(projectDiv, message) {
         var runningBadge = projectDiv.querySelector('.project-codex-badge');

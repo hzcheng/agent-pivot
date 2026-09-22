@@ -417,7 +417,8 @@ test('RUNTIME-TMUX-THREAD-SWITCH-001 renders the rebound root as the only runnin
     }]);
 
     assert.match(html, /class="open-session-surface"/);
-    assert.match(html, /data-session-fx="current"/);
+    assert.doesNotMatch(html, /data-session-fx=/);
+    assert.match(html, /data-session-icon-fx="current"/);
     assert.match(html, /data-execution-state="running"[^>]*data-session-id="new-root"/);
     assert.doesNotMatch(html, /data-execution-state="[^"]+"[^>]*data-session-id="old-root"/);
     assert.match(html, />Old work</);

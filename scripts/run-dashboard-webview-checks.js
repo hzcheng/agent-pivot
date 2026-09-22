@@ -432,8 +432,8 @@ function runDashboardUpdateMessageChecks() {
     assert.ok(aiMessage.html.includes('data-current-workspace'));
     assert.ok(aiMessage.html.includes('data-session-icon-fx="halo"'),
         'AI session incremental updates must use the configured running icon animation');
-    assert.ok(aiMessage.html.includes('data-session-fx="custom"'),
-        'AI session incremental updates must preserve the independent running card animation');
+    assert.ok(!aiMessage.html.includes('project-session-fx'),
+        'AI session incremental updates must not restore retired surface animation');
     assert.strictEqual(workspaceSearchCatalog.version, 3);
     assert.deepStrictEqual(workspaceSearchCatalog.openWorkspaces.map(item => item.current), [true]);
     assert.deepStrictEqual(workspaceSearchCatalog.sessions.map(item => item.action), ['reveal-workspace-session']);
@@ -455,8 +455,8 @@ function runDashboardUpdateMessageChecks() {
     assert.strictEqual(openWorkspacesMessage.html.includes('OTHER WINDOWS'), false);
     assert.ok(openWorkspacesMessage.html.includes('data-session-icon-fx="custom"'),
         'open-workspace incremental updates must use the configured running icon animation');
-    assert.ok(openWorkspacesMessage.html.includes('data-session-fx="breath"'),
-        'open-workspace incremental updates must preserve the independent running card animation');
+    assert.ok(!openWorkspacesMessage.html.includes('project-session-fx'),
+        'open-workspace incremental updates must not restore retired surface animation');
 }
 
 function makeWorkspaceCardFixture(rootCount) {
@@ -575,30 +575,14 @@ function runWorkspaceCardRenderingChecks() {
             backend: 'vscode', attached: true,
         },
     );
-    const orbitHtml = webviewContent.getOpenSessionSurfaceContent(runningCard, false, 'orbit');
-    assert.ok(orbitHtml.includes('class="project-session-fx open-session-surface-fx" data-session-fx="orbit"'));
-    assert.ok(orbitHtml.includes('data-session-fx="orbit"'));
-
     for (const animation of [
-        'current',
-        'sweep',
-        'orbit',
-        'halo',
-        'ripple',
-        'breath',
-        'custom',
+        'current', 'sweep', 'orbit', 'halo', 'ripple', 'breath', 'custom', 'none', 'invalid',
     ]) {
         const animationHtml = webviewContent.getOpenSessionSurfaceContent(runningCard, false, animation);
-        assert.ok(animationHtml.includes(`data-session-fx="${animation}"`),
-            `the current workspace card must accept the ${animation} running animation`);
-        assert.ok(animationHtml.includes('open-session-surface-fx'));
+        assert.strictEqual(animationHtml.includes('project-session-fx'), false,
+            `the OPEN session surface must not render the ${animation} card effect`);
+        assert.strictEqual(animationHtml.includes('data-session-fx'), false);
     }
-    const noneHtml = webviewContent.getOpenSessionSurfaceContent(runningCard, false, 'none');
-    assert.strictEqual(noneHtml.includes('project-session-fx'), false,
-        'none suppresses the optional surface animation layer');
-    const invalidHtml = webviewContent.getOpenSessionSurfaceContent(runningCard, false, 'invalid');
-    assert.ok(invalidHtml.includes('data-session-fx="current"'),
-        'an invalid animation value must fail safely to current');
 
     const idleCard = makeWorkspaceCardFixture(1);
     idleCard.aiSessions.activeSessions = runningCard.aiSessions.activeSessions.filter(

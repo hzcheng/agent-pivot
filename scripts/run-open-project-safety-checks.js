@@ -2185,8 +2185,8 @@ async function runOpenWorkspaceHardeningChecks() {
     await flush();
     assert.strictEqual(posted.length, 1, 'identical semantic workspace updates must be suppressed');
     assert.strictEqual(posted[0].otherWindowsStatus, 'update-required');
-    assert.ok(posted[0].html.includes('data-session-fx="custom"'),
-        'open-workspace controller updates must preserve the independent running card animation');
+    assert.ok(!posted[0].html.includes('project-session-fx'),
+        'open-workspace controller updates must not restore the retired surface animation');
     assert.ok(posted[0].html.includes('data-session-icon-fx="halo"'),
         'open-workspace controller updates must use the configured running icon animation');
     runningIconAnimation = 'custom';

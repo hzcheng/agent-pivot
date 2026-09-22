@@ -8156,8 +8156,8 @@ async function runAiSessionDashboardUnchangedMessageSkipChecks() {
     await controller.refreshNow('watcher');
     await controller.refreshNow('watcher');
     assert.strictEqual(messages.length, 1, 'unchanged watcher messages should not be posted twice');
-    assert.ok(messages[0].html.includes('data-session-fx="custom"'),
-        'AI session controller updates must preserve the independent running card animation');
+    assert.ok(!messages[0].html.includes('project-session-fx'),
+        'AI session controller updates must not restore the retired surface animation');
     assert.ok(messages[0].html.includes('data-session-icon-fx="halo"'),
         'AI session controller updates must use the configured running icon animation');
     assert.strictEqual(diagnostics.some(event => event.event === 'ai-session-message-skip' && event.reason === 'watcher'), true);

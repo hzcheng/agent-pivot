@@ -1492,10 +1492,10 @@ const guards = {
                 .filter(name => name !== 'canApplyAiSessionPresentationDom').some(name =>
                 callArguments(presentationApplyOwner, name).length < 1)
             || !presentationCurrentCardsSource.includes('[data-current-workspace]')
-            // The focused-row projector owns 27 mutations. The former
-            // conversation chevron was removed because the primary action
-            // itself now opens the conversation.
-            || presentationMutationNodes.length !== 27
+            // The projector owns 25 mutations: OPEN surface decoration no
+            // longer sets data-session-fx or creates project-session-fx;
+            // legacy decoration cleanup remains owned by this projector.
+            || presentationMutationNodes.length !== 25
             || presentationMutationNodes.some(({ node, sourceFile }) =>
                 sourceFile.fileName !== webview.fileName
                     || node.pos < presentationDomOwner.pos

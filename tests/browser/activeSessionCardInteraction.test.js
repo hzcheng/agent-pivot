@@ -2600,9 +2600,7 @@ test('ATTENTION-EXECUTION-STATE-SYNC-001 applies every Active Session presentati
                 summaryAttention: Number(summary.getAttribute('data-ai-session-attention-count')),
                 rowRunning: row.getAttribute('data-execution-state') === 'running'
                     && row.getAttribute('data-session-icon-fx') === 'current',
-                cardRunning: card.classList.contains('session-running')
-                    && card.getAttribute('data-session-fx') === 'current'
-                    && !!card.querySelector('.project-session-fx'),
+                cardRunning: card.classList.contains('session-running'),
                 // The switcher row count slots are owned by open-workspaces
                 // envelopes only: an ai-sessions envelope must never touch them.
                 switcherAttention: switcherRow.querySelector('.open-window-attention').textContent,
@@ -3572,3 +3570,29 @@ test('ACTIVE-SESSION-FOCUS-REVEAL-001 paints focus changes without fading the ol
         }
     }
 });
+
+for (const width of [220, 360]) {
+    test(`OPEN-SESSION-SURFACE-NO-ANIMATION-001 keeps running effects on session icons at ${width}px`, async t => {
+        const running = session('codex', 'current-session', true);
+        const page = await openCardPage(t, [running], { width, height: 900 });
+        const surface = page.locator('[data-open-session-surface][data-current-workspace]');
+        async function assertNoSurfaceEffect() {
+            assert.equal(await surface.locator('.project-session-fx').count(), 0,
+                'the full-height session surface must not render the retired card animation');
+            assert.equal(await surface.getAttribute('data-session-fx'), null);
+        }
+        await assertNoSurfaceEffect();
+        await postHostMessage(page, aiSessionsEnvelope([running], 2));
+        await assertNoSurfaceEffect();
+        const icon = row(page, 'codex', 'current-session').locator('.codex-session-icon');
+        assert.notEqual(await icon.evaluate(element => getComputedStyle(element, '::before').animationName), 'none');
+        await postHostMessage(page, aiSessionsEnvelope([{ ...running, executionState: 'stopped' }], 3));
+        await assertNoSurfaceEffect();
+        await postHostMessage(page, openWorkspacesEnvelope([running], 4));
+        await assertNoSurfaceEffect();
+        assert.equal(await row(page, 'codex', 'current-session').getAttribute('data-execution-state'), 'running');
+        if (process.env.SIDEBAR_ANIMATION_SCREENSHOT_DIR) {
+            await page.screenshot({ path: path.join(process.env.SIDEBAR_ANIMATION_SCREENSHOT_DIR, `sidebar-${width}.png`) });
+        }
+    });
+}

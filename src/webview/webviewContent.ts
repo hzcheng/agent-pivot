@@ -29,7 +29,6 @@ import {
     getAiSessionWorktreeMenu,
     getAiSessionsDiv,
     getWorkspaceAiSessionSurface,
-    normalizeRunningCardAnimation,
 } from './webviewAiSessionContent';
 import {
     getEffectiveRunningCardAnimation,
@@ -318,7 +317,7 @@ export function getStewardContent(
 export function getOpenSessionSurfaceContent(
     card: WorkspaceCardViewModel | null,
     hasOtherWindows: boolean = false,
-    runningCardAnimation?: string,
+    _runningCardAnimation?: string,
     runningIconAnimation?: string,
 ): string {
     const currentCard = card && card.kind === 'current' && card.roots.length > 0 ? card : null;
@@ -346,7 +345,6 @@ export function getOpenSessionSurfaceContent(
         }</span>`
         : '';
     return `<div class="open-session-surface" data-open-session-surface data-id="${escapeAttribute(currentCard.id)}" data-current-workspace data-workspace-card-kind="current" data-workspace-navigation-identity="${escapeAttribute(currentCard.navigationIdentity)}" data-workspace-scope-identity="${escapeAttribute(currentCard.scopeIdentity)}" role="region" aria-label="Current window sessions">
-        ${getRunningSessionSurfaceFx(currentCard, runningCardAnimation)}
         ${badge}
         ${getAiSessionsDiv(getWorkspaceAiSessionSurface(currentCard), {
             showRootChips: roots.length > 1,
@@ -403,20 +401,6 @@ export function getOpenWorkspacesGroupContent(
     );
     return `${switcherSection}
 ${currentSection}`;
-}
-
-function getRunningSessionSurfaceFx(
-    card: WorkspaceCardViewModel,
-    runningCardAnimation?: string,
-): string {
-    const runningSessionCount = (card.aiSessions?.activeSessions || [])
-        .filter(session => session.executionState === 'running').length;
-    const sessionFx = runningSessionCount > 0
-        ? normalizeRunningCardAnimation(runningCardAnimation)
-        : '';
-    return sessionFx && sessionFx !== 'none'
-        ? `<div class="project-session-fx open-session-surface-fx" data-session-fx="${sessionFx}"></div>`
-        : '';
 }
 
 function getWorkspaceRemoteType(environment: WorkspaceCardViewModel['environment']): ProjectRemoteType {

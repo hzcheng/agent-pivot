@@ -4753,6 +4753,7 @@ body.steward-sidebar {
             }
         }
 
+        .ai-session-worktree-remove,
         .ai-session-worktree-more {
             display: inline-flex;
             flex: 0 0 22px;
@@ -4785,6 +4786,17 @@ body.steward-sidebar {
             &:disabled {
                 opacity: .55;
                 cursor: progress;
+            }
+        }
+
+        .ai-session-worktree-remove {
+            opacity: 1;
+            padding: 0;
+            margin-right: 0;
+
+            &:hover,
+            &:focus-visible {
+                color: var(--vscode-errorForeground);
             }
         }
 
@@ -4888,24 +4900,6 @@ body.steward-sidebar {
             padding: 1px 3px;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 999px;
-        }
-
-        .ai-session-worktree-chevron {
-            flex: 0 0 auto;
-            display: inline-flex;
-            align-items: center;
-            color: var(--vscode-descriptionForeground);
-            transform: rotate(0deg);
-            transition: transform $defaultTransition;
-
-            svg {
-                width: 12px;
-                height: 12px;
-            }
-        }
-
-        .ai-session-worktree-group[data-worktree-collapsed] .ai-session-worktree-chevron {
-            transform: rotate(-90deg);
         }
 
         .ai-session-worktree-session-list {

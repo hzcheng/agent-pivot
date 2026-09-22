@@ -5703,6 +5703,9 @@ function initProjectAiSessionControls(options) {
         var repositoryKey = group.getAttribute('data-worktree-repository-key');
         var worktreePath = group.getAttribute('data-worktree-path');
         if (!repositoryKey || !worktreePath) return;
+        if (Array.from(pendingManagedWorktreeRemovalRequests.values()).some(pending =>
+            pending.projectId === projectId && pending.repositoryKey === repositoryKey
+            && pending.worktreePath === worktreePath)) return;
         nextManagedWorktreeRemovalRequestId = nextManagedWorktreeRemovalRequestId
             >= Number.MAX_SAFE_INTEGER ? 1 : nextManagedWorktreeRemovalRequestId + 1;
         var requestId = 'worktree-remove-' + managedWorktreeRemovalDocumentNonce
@@ -5817,7 +5820,9 @@ function initProjectAiSessionControls(options) {
                 + CSS.escape(item.repositoryKey) + '"][data-worktree-path="'
                 + CSS.escape(item.worktreePath) + '"]'
             );
-            var button = group && group.querySelector('.ai-session-worktree-more');
+            var selector = pending.button.getAttribute('data-action') === 'remove-managed-worktree'
+                ? '.ai-session-worktree-remove' : '.ai-session-worktree-more';
+            var button = group && group.querySelector(selector);
             if (!button) return;
             pending.button = button;
             setManagedWorktreeRemovalButtonPending(button, 'Preparing worktree removal…');

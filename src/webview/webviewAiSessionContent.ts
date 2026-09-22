@@ -798,6 +798,14 @@ function getWorktreeChatLaunchControls(
         + `</span>`;
 }
 
+function getWorktreeRemoveControl(name: string, canRemove: boolean): string {
+    if (!canRemove) {
+        return '';
+    }
+    const label = `Remove worktree ${name}`;
+    return `<button type="button" class="ai-session-worktree-remove" data-action="remove-managed-worktree" data-can-remove="true" aria-label="${escapeAttribute(label)}" data-tooltip="Remove worktree…">${Icons.trash}</button>`;
+}
+
 function getChatsListLaunchRail(
     project: AiSessionSurfaceViewModel,
     quickCreateProvider: AiSessionProviderId,
@@ -889,9 +897,9 @@ function getWorktreeGroupHtml(
                 ${count > 0
                     ? `<span class="ai-session-worktree-count" aria-hidden="true">${count}</span>`
                     : ''}
-                <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
             ${getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, name, worktree.authority.canResume)}
+            ${getWorktreeRemoveControl(name, canRemove)}
             ${more}
         </div>
         <div class="ai-session-worktree-session-list">${entries.length
@@ -960,7 +968,6 @@ function getWorktreeAnchorHtml(
                 ${count > 0
                     ? `<span class="ai-session-worktree-count" aria-hidden="true">${count}</span>`
                     : ''}
-                <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
             ${getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, 'Current', true)}
             ${more}
@@ -1135,9 +1142,9 @@ function getWorktreeGroupRowHtml(
                 ${count > 0
                     ? `<span class="ai-session-worktree-count" aria-hidden="true">${count}</span>`
                     : ''}
-                <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
             </button>
             ${getWorktreeChatLaunchControls(quickCreateProvider, quickCreateProfile, name, group.canCreateSession && !!primary?.worktreeKey)}
+            ${getWorktreeRemoveControl(name, group.canCreateSession && !!primary?.worktreeKey)}
             ${more}
         </div>
         <div class="ai-session-worktree-session-list">${matched.length
@@ -1188,7 +1195,6 @@ function getUnmanagedWorktreeGroupHtml(
             <span class="ai-session-worktree-indicator" aria-hidden="true"></span>
             <span class="ai-session-worktree-title">Unmanaged</span>
             <span class="ai-session-worktree-count" aria-hidden="true">${count}</span>
-            <span class="ai-session-worktree-chevron" aria-hidden="true">${Icons.chevronDown}</span>
         </button>
         <div class="ai-session-worktree-session-list">${entries.map(entry => entry.html).join('\n')}</div>
     </section>`;

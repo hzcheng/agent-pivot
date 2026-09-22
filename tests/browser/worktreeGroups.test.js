@@ -2352,3 +2352,41 @@ test('WORKTREE-GROUPS-UI-001 a single-root anchor menu offers branch-seeded work
     assert.equal(created[0].currentWorktreeAnchor, true,
         'anchor sessions are restricted to main checkout worktrees');
 });
+
+
+test('WORKTREE-GROUPS-UI-001 toolbar removal preserves header toggling and targets the primary worktree', async t => {
+    const { page } = await openGroupActionsPage(t, () => surface({
+        worktreeGroups: [groupRow(), groupRow({
+            groupId: 'unavailable', displayName: 'Unavailable',
+            canCreateSession: false, members: [],
+        })],
+    }));
+    const group = page.locator('[data-group-id="g-1"].ai-session-worktree-group');
+    const header = group.locator('.ai-session-worktree-header');
+    const remove = group.locator('.ai-session-worktree-remove');
+    assert.equal(await page.locator('.ai-session-worktree-chevron').count(), 0);
+    assert.equal(await page.locator('[data-group-id="unavailable"] .ai-session-worktree-remove').count(), 0);
+    await header.click();
+    assert.equal(await header.getAttribute('aria-expanded'), 'false');
+    await header.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await header.getAttribute('aria-expanded'), 'true');
+    for (const width of [350, 220]) {
+        await page.setViewportSize({ width, height: 900 });
+        const bounds = await remove.boundingBox();
+        assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
+        assert.equal(await remove.evaluate(element => getComputedStyle(element).opacity), '1');
+        if (process.env.WORKTREE_TOOLBAR_SCREENSHOTS) {
+            await page.screenshot({ path: `/tmp/worktree-toolbar-${width}.png` });
+        }
+    }
+    await remove.click();
+    assert.equal(await header.getAttribute('aria-expanded'), 'true', 'removal does not collapse the group');
+    const request = await page.evaluate(() => window.__postedMessages.find(message => message.type === 'remove-managed-worktree'));
+    assert.equal(request.repositoryKey, alphaLoginKey.repositoryKey);
+    assert.equal(request.worktreePath, alphaLoginKey.canonicalWorktreePath);
+    await group.locator('.ai-session-worktree-more').click();
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]').click();
+    assert.equal(await page.evaluate(() => window.__postedMessages.filter(message => message.type === 'remove-managed-worktree').length), 1,
+        'the menu cannot duplicate an in-flight toolbar removal');
+});

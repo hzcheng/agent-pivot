@@ -364,15 +364,10 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         activity: 'idle', sessions: [], authority: { canResume: true, canRemove: true },
     }] });
     const project = page.locator('[data-open-session-surface][data-id="project-a"]');
-    const button = project.locator('.ai-session-worktree-group[data-worktree-path="/repo/.agent-pivot/worktrees/cleanup"] .ai-session-worktree-more');
-    const menu = page.locator('#aiSessionWorktreeMenu');
-    const removeItem = menu.locator('[data-action="worktree-remove"]');
+    const button = project.locator('.ai-session-worktree-group[data-worktree-path="/repo/.agent-pivot/worktrees/cleanup"] .ai-session-worktree-remove');
     const originalAriaLabel = await button.getAttribute('aria-label');
     const originalTooltip = await button.getAttribute('data-tooltip');
     await button.click();
-    assert.equal(await removeItem.isVisible(), true,
-        'a removable worktree offers removal inside its unified menu');
-    await removeItem.click();
     const firstRequest = (await postedMessages(page))[0];
     assert.match(firstRequest.requestId, /^worktree-remove-[a-z0-9]+-1$/,
         'the request id carries a per-document nonce');
@@ -405,7 +400,6 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         /uncommitted changes/);
 
     await button.click();
-    await removeItem.click();
     const retry = (await postedMessages(page)).at(-1);
     assert.match(retry.requestId, /^worktree-remove-[a-z0-9]+-2$/);
     await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
@@ -413,7 +407,7 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 managed removal stays correlated thr
         requestId, status: 'accepted',
     } })), retry.requestId);
     await postAuthoritativeWorktreeRemoval(page, 2);
-    assert.equal(await page.locator('.ai-session-worktree-group[data-worktree-path="/repo/.agent-pivot/worktrees/cleanup"] .ai-session-worktree-more').count(), 0,
+    assert.equal(await page.locator('.ai-session-worktree-group[data-worktree-path="/repo/.agent-pivot/worktrees/cleanup"] .ai-session-worktree-remove').count(), 0,
         'authoritative HTML removes the row before success settles pending');
     await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
         type: 'managed-worktree-removal-settlement', version: 1,
@@ -439,14 +433,13 @@ test('WORKTREE-MANAGED-CLEANUP-PROTOCOL-001 preserves pending removal through an
     const page = await openQuickCreatePage(t, { worktrees: [worktree] });
     const project = page.locator('[data-open-session-surface][data-id="project-a"]');
     const button = project.locator('.ai-session-worktree-group[data-worktree-path="'
-        + key.canonicalWorktreePath + '"] .ai-session-worktree-more');
+        + key.canonicalWorktreePath + '"] .ai-session-worktree-remove');
     await button.click();
-    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]').click();
     const request = (await postedMessages(page)).at(-1);
 
     await postAuthoritativeWorktreeUpdate(page, 2, { worktrees: [worktree] });
     const replacement = project.locator('.ai-session-worktree-group[data-worktree-path="'
-        + key.canonicalWorktreePath + '"] .ai-session-worktree-more');
+        + key.canonicalWorktreePath + '"] .ai-session-worktree-remove');
     assert.equal(await replacement.isDisabled(), true);
     assert.equal(await replacement.getAttribute('aria-busy'), 'true');
     assert.equal(await replacement.getAttribute('aria-label'), 'Preparing worktree removal…');

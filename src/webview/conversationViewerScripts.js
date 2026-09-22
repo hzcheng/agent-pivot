@@ -636,6 +636,10 @@
     // recently departed sessions form the return path, so retain both past
     // the normal budget, but never past the dedicated return-path ceiling.
     var frameCache = new Map();
+    // Reading positions outlive DOM frames and content revisions. Never retain
+    // DOM nodes here, so evicting a heavy frame still releases its transcript.
+    var sessionReadingPositions = new Map();
+    var READING_POSITION_LIMIT = 100;
     var frameCacheNodes = 0;
     // A cached frame can be shown as a non-authoritative preview as soon as
     // the Host announces a target switch. The eventual page still validates
@@ -3186,9 +3190,12 @@
             returnPreviewFrameToCache();
             preflightLoadingRestore = undefined;
         }
+        // Capture the outgoing viewport before the loading label can resize
+        // its header and change the reading anchor's screen coordinates.
         if (!conversationLoading) {
             loadingStatusText = status.textContent;
         }
+        var previewHit = previewCachedFrame(message.target);
         conversationLoading = true;
         loadingTarget = {
             projectId: message.target.projectId,
@@ -3202,7 +3209,6 @@
         document.body.setAttribute('aria-disabled', 'true');
         messages.setAttribute('aria-busy', 'true');
         status.textContent = 'Loading conversation…';
-        var previewHit = previewCachedFrame(message.target);
         if (previewHit) {
             document.body.setAttribute('data-conversation-frame-preview', 'true');
         } else {
@@ -3254,6 +3260,7 @@
             return;
         }
         var restoreStatusText = loadingStatusText;
+        var outgoing = previewFrame && frameCache.get(frameSessionKey(commentTarget));
         returnPreviewFrameToCache();
         var restore = loadingPreflight ? preflightLoadingRestore : undefined;
         if (restore && restore.target) {
@@ -3280,6 +3287,13 @@
         }
         clearConversationLoading();
         status.textContent = restoreStatusText || '';
+        if (outgoing) {
+            if (outgoing.followingEnd) reconcileController.scrollToEnd();
+            else {
+                restoreViewportReadingPosition(outgoing.anchor, outgoing.scrollTop);
+                reconcileController.trackEnd();
+            }
+        }
     }
 
     function clearConversationLoading() {
@@ -4003,9 +4017,30 @@
         // The preview lives under document.body rather than the stashed
         // transcript, so it must not cover the next session's frame.
         mermaidRenderer.closePreview();
-        var anchor = captureReadingAnchor();
-        var scrollTop = scroll.scrollTop;
-        var followingEnd = reconcileController.atEnd();
+        // A preview handoff can temporarily reattach this document under a
+        // loading header. Its last interactive position remains authoritative.
+        var retainedPosition = conversationLoading && frameCache.get(key);
+        var anchor = retainedPosition ? retainedPosition.anchor : captureReadingAnchor();
+        var scrollTop = retainedPosition ? retainedPosition.scrollTop : scroll.scrollTop;
+        var followingEnd = retainedPosition
+            ? retainedPosition.followingEnd : reconcileController.atEnd();
+        var savedPosition = {
+            scrollTop: scrollTop,
+            anchor: anchor ? {
+                messageId: anchor.messageId,
+                blockIndex: anchor.blockIndex,
+                top: anchor.top,
+                viewportTop: anchor.viewportTop,
+            } : null,
+            followingEnd: followingEnd,
+            selectedInteractionId: restoreTarget
+                ? restoreTarget.interactionId : undefined,
+        };
+        sessionReadingPositions.delete(key);
+        sessionReadingPositions.set(key, savedPosition);
+        if (sessionReadingPositions.size > READING_POSITION_LIMIT) {
+            sessionReadingPositions.delete(sessionReadingPositions.keys().next().value);
+        }
         var nodes = Array.prototype.slice.call(messages.childNodes);
         // Pending mermaid renders never settle once detached (isConnected
         // guards drop them); resetting lets a restore re-render from source.
@@ -4082,6 +4117,12 @@
             // Put the actual A document back before stashing it under A.
             restoreFramePresentation(outgoing);
             messages.replaceChildren.apply(messages, outgoing.nodes);
+            if (outgoing.followingEnd) {
+                reconcileController.scrollToEnd();
+            } else {
+                restoreViewportReadingPosition(outgoing.anchor, outgoing.scrollTop);
+                reconcileController.trackEnd();
+            }
         }
         frameCache.set(previewFrame.key, previewFrame.frame);
         frameCacheNodes += previewFrame.frame.nodeCount;
@@ -4651,16 +4692,20 @@
             // A frame restore carrying a fresh navigation target behaves
             // like that navigation, not like a return to the stashed
             // reading position.
-            var resumeFramePosition = frame
+            var savedPosition = frame || sessionReadingPositions.get(
+                frameSessionKey(message.target)
+            );
+            var resumeFramePosition = savedPosition
+                && message.updateKind !== 'navigation'
                 && message.selectedInteractionId
-                    === frame.selectedInteractionId;
-            if (resumeFramePosition && frame.followingEnd
+                    === savedPosition.selectedInteractionId;
+            if (resumeFramePosition && savedPosition.followingEnd
                 && message.atLatest) {
                 reconcileController.scrollToEnd();
             } else if (resumeFramePosition) {
                 restoreViewportReadingPosition(
-                    frame.anchor,
-                    frame.scrollTop
+                    savedPosition.anchor,
+                    savedPosition.scrollTop
                 );
                 reconcileController.trackEnd();
             } else if (openingAtLatest) {

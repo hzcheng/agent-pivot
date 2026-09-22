@@ -11431,6 +11431,26 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     }];
     await settle(addRequest, 1, comments);
 
+    await page.addStyleTag({ content: ':root { --vscode-editorWarning-foreground: #bf8803; }' });
+    // Open comments retain their marker and quote highlight without a full-row rail.
+    const commentedMessage = page.locator('.conversation-has-comment');
+    assert.equal(await commentedMessage.count(), 1);
+    for (const width of [850, 360]) {
+        await page.setViewportSize({ width, height: 600 });
+        assert.equal(await commentedMessage.evaluate(element =>
+            getComputedStyle(element).boxShadow), 'none',
+        'adding a comment must not draw a persistent rail through the message');
+        assert.equal(await commentedMessage.locator('[data-comment-marker]').count(), 1);
+        assert.equal(await page.evaluate(() =>
+            CSS.highlights.get('conversation-comments').size), 1);
+        await page.screenshot({ path: `/tmp/comment-no-rail-${width}.png` });
+    }
+    await page.emulateMedia({ forcedColors: 'active' });
+    assert.equal(await commentedMessage.evaluate(element =>
+        getComputedStyle(element).boxShadow), 'none');
+    await page.emulateMedia({ forcedColors: 'none' });
+    await page.setViewportSize({ width: 850, height: 600 });
+
     const card = page.locator('[data-comment-id="comment-1"]');
     const doneCard = page.locator('[data-comment-id="comment-2"]');
 

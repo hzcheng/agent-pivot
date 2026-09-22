@@ -992,10 +992,6 @@ body[data-conversation-loading='true']:not([data-conversation-frame-preview='tru
     box-shadow: none;
 }
 
-.conversation-has-comment {
-    box-shadow: inset 3px 0 0 var(--vscode-editorWarning-foreground);
-}
-
 .conversation-comment-located {
     outline: 2px solid var(--vscode-editorWarning-foreground);
     outline-offset: 2px;
@@ -3830,10 +3826,6 @@ button.conversation-comment-status-chip {
 
     .conversation-mermaid-error {
         border-left-color: Mark;
-    }
-
-    .conversation-has-comment {
-        box-shadow: inset 3px 0 0 Mark;
     }
 
     .conversation-comment-located {

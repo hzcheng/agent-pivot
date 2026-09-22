@@ -1097,7 +1097,8 @@ function runGlobalStoreLocationChecks() {
     ].map(fileName => fs.readFileSync(
         path.join(__dirname, '..', 'src', 'webview', fileName), 'utf8'
     )).join('\n');
-    assert.ok(sourceScript.includes('Change Global Skills Location…'));
+    assert.ok(sourceScript.includes('Change location…'),
+        'the Global section exposes the concise location action');
     assert.ok(sourceScript.includes("if (scope === 'user')"),
         'the location action is only added to the Global section');
     assert.ok(sourceScript.includes("type: 'change-global-skills-location'"));

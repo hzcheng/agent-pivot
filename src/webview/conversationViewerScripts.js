@@ -640,6 +640,9 @@
     // DOM nodes here, so evicting a heavy frame still releases its transcript.
     var sessionReadingPositions = new Map();
     var READING_POSITION_LIMIT = 100;
+    var pendingReadingRestore;
+    var readingPositionSaveScheduled = false;
+    loadReadingPositions();
     var frameCacheNodes = 0;
     // A cached frame can be shown as a non-authoritative preview as soon as
     // the Host announces a target switch. The eventual page still validates
@@ -3406,6 +3409,7 @@
             || previewFrame.key !== frameSessionKey(nextCommentTarget)) {
             stashCurrentFrame();
         }
+        pendingReadingRestore = undefined;
         telemetryController.resetSession(
             nextCommentTarget,
             message.subscriptionGeneration
@@ -4000,6 +4004,112 @@
         }
     }
 
+    function validReadingPosition(value) {
+        if (!value || typeof value !== 'object'
+            || !Number.isFinite(value.scrollTop) || value.scrollTop < 0
+            || typeof value.followingEnd !== 'boolean'
+            || typeof value.selectedInteractionId !== 'string'
+            || value.selectedInteractionId.length > 1024) return false;
+        var anchor = value.anchor;
+        return anchor === null || (anchor && typeof anchor.messageId === 'string'
+            && anchor.messageId.length <= 1024
+            && Number.isFinite(anchor.top) && Number.isFinite(anchor.viewportTop)
+            && (anchor.blockIndex === undefined
+                || (Number.isSafeInteger(anchor.blockIndex) && anchor.blockIndex >= -1)));
+    }
+
+    function loadReadingPositions() {
+        if (!vscodeApi || typeof vscodeApi.getState !== 'function') return;
+        try {
+            var saved = vscodeApi.getState();
+            var entries = saved && saved.conversationReadingPositions;
+            if (!Array.isArray(entries)) return;
+            entries.slice(-READING_POSITION_LIMIT).forEach(function (entry) {
+                if (Array.isArray(entry) && entry.length === 2
+                    && typeof entry[0] === 'string' && entry[0].length <= 4096
+                    && validReadingPosition(entry[1])) {
+                    sessionReadingPositions.set(entry[0], entry[1]);
+                }
+            });
+        } catch (_error) { /* Local state is best-effort, like the restore target. */ }
+    }
+
+    function rememberReadingPosition(key, anchor, scrollTop, followingEnd) {
+        var savedPosition = {
+            scrollTop: Math.max(0, scrollTop),
+            anchor: anchor ? {
+                messageId: anchor.messageId,
+                blockIndex: anchor.blockIndex,
+                top: anchor.top,
+                viewportTop: anchor.viewportTop,
+            } : null,
+            followingEnd: followingEnd,
+            selectedInteractionId: restoreTarget ? restoreTarget.interactionId : undefined,
+        };
+        sessionReadingPositions.delete(key);
+        sessionReadingPositions.set(key, savedPosition);
+        if (sessionReadingPositions.size > READING_POSITION_LIMIT) {
+            sessionReadingPositions.delete(sessionReadingPositions.keys().next().value);
+        }
+        if (!vscodeApi || typeof vscodeApi.setState !== 'function') return;
+        try {
+            var saved = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() : null;
+            var next = saved && typeof saved === 'object' && !Array.isArray(saved)
+                ? Object.assign({}, saved) : {};
+            next.conversationReadingPositions = Array.from(sessionReadingPositions.entries());
+            vscodeApi.setState(next);
+        } catch (_error) { /* Keep the in-memory return path if storage fails. */ }
+    }
+
+    function saveCurrentReadingPosition() {
+        // A preview, a partial recovery, or a hidden document has temporary
+        // geometry. Never overwrite the last interactive anchor with it.
+        if (!state.initialized || conversationLoading || previewFrame || pendingReadingRestore
+            || document.visibilityState === 'hidden'
+            || (markdownWorkspaceAvailable && !markdownWorkspace.hidden)) return;
+        var key = frameSessionKey(commentTarget);
+        if (key) rememberReadingPosition(key, captureReadingAnchor(), scroll.scrollTop,
+            reconcileController.atEnd());
+    }
+
+    function reportReadingPosition(message, outcome) {
+        if (!validPageTarget(message.target)) return;
+        post({
+            type: 'conversation-viewer-reading-position', version: 1,
+            subscriptionGeneration: message.subscriptionGeneration,
+            requestId: message.requestId,
+            documentId: document.body.getAttribute('data-document-id') || '',
+            projectId: message.target.projectId, provider: message.target.provider,
+            sessionId: message.target.sessionId, outcome: outcome,
+            scrollTop: Math.max(0, scroll.scrollTop),
+            distanceToEnd: Math.max(0, scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop),
+            followingEnd: reconcileController.followingEnd(),
+        });
+    }
+
+    function restorePersistedReadingPosition(savedPosition, message, useViewport) {
+        if (!savedPosition.followingEnd && savedPosition.anchor
+            && !readingAnchorController.findElement(savedPosition.anchor)
+            && messages.querySelector('.conversation-deferred-messages')) {
+            pendingReadingRestore = { position: savedPosition, message: message, useViewport: useViewport };
+            reportReadingPosition(message, 'pending');
+            return;
+        }
+        pendingReadingRestore = undefined;
+        if (savedPosition.followingEnd && message.atLatest) {
+            reconcileController.scrollToEnd();
+        } else {
+            if (useViewport) {
+                restoreViewportReadingPosition(savedPosition.anchor, savedPosition.scrollTop);
+            } else {
+                restoreReadingPosition(savedPosition.anchor, savedPosition.scrollTop);
+            }
+            reconcileController.trackEnd();
+        }
+        reportReadingPosition(message, !savedPosition.followingEnd && savedPosition.anchor
+            && !readingAnchorController.findElement(savedPosition.anchor) ? 'fallback' : 'restored');
+    }
+
     // Stash the live conversation as a detached frame before a session
     // switch resets the viewer state. Only a fully applied page is
     // stashable; the content token is what makes the frame trustworthy.
@@ -4019,28 +4129,13 @@
         mermaidRenderer.closePreview();
         // A preview handoff can temporarily reattach this document under a
         // loading header. Its last interactive position remains authoritative.
-        var retainedPosition = conversationLoading && frameCache.get(key);
+        var retainedPosition = pendingReadingRestore ? pendingReadingRestore.position
+            : conversationLoading && frameCache.get(key);
         var anchor = retainedPosition ? retainedPosition.anchor : captureReadingAnchor();
         var scrollTop = retainedPosition ? retainedPosition.scrollTop : scroll.scrollTop;
         var followingEnd = retainedPosition
             ? retainedPosition.followingEnd : reconcileController.atEnd();
-        var savedPosition = {
-            scrollTop: scrollTop,
-            anchor: anchor ? {
-                messageId: anchor.messageId,
-                blockIndex: anchor.blockIndex,
-                top: anchor.top,
-                viewportTop: anchor.viewportTop,
-            } : null,
-            followingEnd: followingEnd,
-            selectedInteractionId: restoreTarget
-                ? restoreTarget.interactionId : undefined,
-        };
-        sessionReadingPositions.delete(key);
-        sessionReadingPositions.set(key, savedPosition);
-        if (sessionReadingPositions.size > READING_POSITION_LIMIT) {
-            sessionReadingPositions.delete(sessionReadingPositions.keys().next().value);
-        }
+        rememberReadingPosition(key, anchor, scrollTop, followingEnd);
         var nodes = Array.prototype.slice.call(messages.childNodes);
         // Pending mermaid renders never settle once detached (isConnected
         // guards drop them); resetting lets a restore re-render from source.
@@ -4269,6 +4364,7 @@
                 if (reconcileController.followingEnd()) {
                     reconcileController.scrollToEnd();
                 }
+                saveCurrentReadingPosition();
                 acknowledgePage(message);
                 // Check after the applied receipt has released any incoming
                 // document handoff. This also reaches earlier history for a
@@ -4388,22 +4484,24 @@
             if (message.restoreFrame === true) {
                 // The Host believes this frame is cached but it is not (or
                 // its token moved on): request a full resync.
-                requestConversationResync(message);
+                requestConversationResync(message, 'frame-cache-miss');
                 return;
             }
             if (wantsTailPatch) {
                 // The patch base is missing (the visible tail is not the
                 // patched group): resync instead of stranding the stream.
-                requestConversationResync(message);
+                requestConversationResync(message, 'tail-patch-base-mismatch');
                 return;
             }
             if (message.htmlSignature !== state.appliedHtmlSignature) {
                 // A delta that does not match the applied content cannot be
                 // applied; request a full resync instead of staying stale.
-                requestConversationResync(message);
+                requestConversationResync(message, 'delta-signature-mismatch');
                 return;
             }
         }
+        var recoveringDocument = !state.initialized && message.updateKind === 'refresh';
+        if (message.updateKind === 'navigation') pendingReadingRestore = undefined;
         var previousScrollTop = scroll.scrollTop;
         var isLiveRefresh = state.initialized
             && message.updateKind === 'refresh';
@@ -4697,9 +4795,12 @@
             );
             var resumeFramePosition = savedPosition
                 && message.updateKind !== 'navigation'
-                && message.selectedInteractionId
-                    === savedPosition.selectedInteractionId;
-            if (resumeFramePosition && savedPosition.followingEnd
+                && (recoveringDocument || message.selectedInteractionId
+                    === savedPosition.selectedInteractionId);
+            if (resumeFramePosition && (recoveringDocument
+                || messages.querySelector('.conversation-deferred-messages'))) {
+                restorePersistedReadingPosition(savedPosition, message, !recoveringDocument);
+            } else if (resumeFramePosition && savedPosition.followingEnd
                 && message.atLatest) {
                 reconcileController.scrollToEnd();
             } else if (resumeFramePosition) {
@@ -4729,7 +4830,9 @@
             return;
         }
 
-        if (wasFollowingEnd) {
+        if (pendingReadingRestore) {
+            restorePersistedReadingPosition(pendingReadingRestore.position, message, pendingReadingRestore.useViewport);
+        } else if (wasFollowingEnd) {
             reconcileController.scrollToEnd();
         } else {
             restoreReadingPosition(
@@ -4875,6 +4978,10 @@
         }
         reconcileController.trackEnd();
         updateTranscriptStatus();
+        if (pendingReadingRestore) {
+            restorePersistedReadingPosition(pendingReadingRestore.position, pendingReadingRestore.message, pendingReadingRestore.useViewport);
+        }
+        saveCurrentReadingPosition();
         // Acknowledge before the deferred decoration pass: the Host paces
         // the next slice on this receipt, and the decoration is idempotent.
         post({
@@ -5099,6 +5206,23 @@
     }
 
     reconcileController.attach();
+    scroll.addEventListener('scroll', function () {
+        if (readingPositionSaveScheduled) return;
+        readingPositionSaveScheduled = true;
+        window.requestAnimationFrame(function () {
+            readingPositionSaveScheduled = false;
+            saveCurrentReadingPosition();
+        });
+    }, { passive: true });
+    function abandonPendingReadingRestore(event) {
+        if (event.type === 'keydown'
+            && !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return;
+        pendingReadingRestore = undefined;
+    }
+    ['wheel', 'touchmove', 'pointerdown', 'keydown'].forEach(function (type) {
+        scroll.addEventListener(type, abandonPendingReadingRestore, { passive: true });
+    });
+    window.addEventListener('pagehide', saveCurrentReadingPosition);
 
     // The Host rejects actions during a target handoff, but several controls
     // enter local pending state before they post their intent. Intercept
@@ -5803,6 +5927,8 @@
         var publicationKey = `${generation}\u0001${page.requestId}\u0001${page.htmlSignature}`;
         if (resyncRequestedPublicationKey === publicationKey) return;
         resyncRequestedPublicationKey = publicationKey;
+        // Persist before the Host replaces this entire document.
+        saveCurrentReadingPosition();
         // Dropped deltas must not suppress the rebuilt full publication.
         state.appliedHtmlSignature = undefined;
         var message = {

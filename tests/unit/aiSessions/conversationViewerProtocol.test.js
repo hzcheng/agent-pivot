@@ -1045,3 +1045,16 @@ test('WORKTREE-CHANGES-COMMITS-001 parses commits requests with binding and requ
             { ...list, requestId: 'a'.repeat(64) }),
         { ...list, requestId: 'a'.repeat(64) });
 });
+
+test('CONVERSATION-PROTOCOL-VALIDATOR-001 validates bounded reading-position diagnostics', () => {
+    const message = { type: 'conversation-viewer-reading-position', version: 1,
+        subscriptionGeneration: 1, requestId: 2, documentId: '3',
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+        outcome: 'restored', scrollTop: 640, distanceToEnd: 1800, followingEnd: false };
+    assert.deepEqual(parseConversationViewerMessage(message), message);
+    for (const patch of [{ scrollTop: -1 }, { scrollTop: Infinity }, { distanceToEnd: NaN },
+        { documentId: 'x'.repeat(65) }, { outcome: 'arbitrary' }, { body: 'private content' },
+        { followingEnd: 1 }, { requestId: 0 }]) {
+        assert.equal(parseConversationViewerMessage({ ...message, ...patch }), undefined);
+    }
+});

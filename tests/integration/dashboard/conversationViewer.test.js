@@ -10190,3 +10190,23 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 negotiates compressed full page
         assert.equal(recovered.html, decoded);
     } finally { viewer.dispose(); }
 });
+
+test('CONVERSATION-READING-FOCUS-001 logs recovery positions only for the current document and publication', async () => {
+    const diagnostics = [];
+    const { viewer, panel } = createViewer({ onDiagnostic: event => diagnostics.push(event) });
+    await viewer.open(target('session-a'));
+    const initial = decodeInitialPublication(panel.webview.html);
+    const documentId = panel.webview.html.match(/data-document-id="([^"]+)"/)[1];
+    const message = { type: 'conversation-viewer-reading-position', version: 1,
+        subscriptionGeneration: initial.subscriptionGeneration, requestId: initial.requestId, documentId,
+        projectId: 'project-a', provider: 'codex', sessionId: 'session-a',
+        outcome: 'restored', scrollTop: 640, distanceToEnd: 1800, followingEnd: false };
+    for (const patch of [{ documentId: 'old' }, { sessionId: 'other' }, { subscriptionGeneration: 999 }, { requestId: initial.requestId + 1 }]) {
+        await panel.receive({ ...message, ...patch });
+    }
+    assert.equal(diagnostics.filter(event => event.reason === 'reading-position').length, 0);
+    await panel.receive(message);
+    assert.ok(diagnostics.some(event => event.reason === 'reading-position'
+        && event.scrollTop === 640 && event.distanceToEnd === 1800 && event.outcome === 'restored'));
+    viewer.dispose();
+});

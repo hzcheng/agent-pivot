@@ -311,14 +311,17 @@ async function openViewerPage(t, options = {}) {
                 </div>
             </body>
         </html>`);
-    await page.evaluate(() => {
+    await page.evaluate(initialState => {
         window.__postedMessages = [];
+        window.__webviewState = initialState || {};
         window.vscode = {
             postMessage(message) {
                 window.__postedMessages.push(message);
             },
+            getState() { return window.__webviewState; },
+            setState(next) { window.__webviewState = JSON.parse(JSON.stringify(next)); },
         };
-    });
+    }, options.initialWebviewState);
     if (options.trackResources) {
         await page.evaluate(() => {
             const metrics = {
@@ -692,6 +695,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 applies delta publications with
     );
     assert.deepEqual(syncs, [{
         type: 'conversation-viewer-request-sync',
+        applyError: 'delta-signature-mismatch',
         version: 1,
         subscriptionGeneration: 1,
         requestId: 3,
@@ -883,6 +887,84 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 restores a stashed frame with s
     assert.ok(Math.abs(outcome.scrollTop - 240) <= 2,
         `scroll position should return to 240, got ${outcome.scrollTop}`);
 });
+
+// Recovery assigns webview.html again: only VS Code state survives, not DOM
+// nodes, event listeners, or the script's per-session maps.
+for (const position of ['middle', 'end']) {
+    for (const delivery of ['full', 'progressive', 'progressive-switch', 'progressive-initial', 'progressive-user']) {
+        test(`CONVERSATION-READING-FOCUS-001 restores ${position} across document recovery with ${delivery} content`, async t => {
+            const article = index => `<article data-message-id="recovery-${index}" data-interaction-id="recovery-input"><section class="conversation-markdown"><p class="recovery-block">Block ${index}</p></section></article>`;
+            const articles = Array.from({ length: 16 }, (_, index) => article(index));
+            const publication = {
+                ...hostileConversationPage, requestId: 100, subscriptionGeneration: 2, updateKind: 'initial',
+                html: articles.join(''), htmlSignature: 'recovery-original', atLatest: true,
+                outline: [{ interactionId: 'recovery-input', userPreview: 'Recover', responseState: 'complete' }],
+                selectedInteractionId: 'recovery-input', selectedInput: 1, totalInputs: 1,
+                target: { projectId: 'project-1', provider: 'codex', sessionId: 'session-telemetry', interactionId: 'recovery-input', displayName: 'Recover' },
+                previousCursor: undefined, nextCursor: undefined,
+                comments: { revision: 0, comments: [] },
+                projectComments: { revision: 0, comments: [] },
+                bookmarks: { revision: 0, interactionIds: [] },
+            };
+            const original = await openViewerPage(t, { initialWebviewState: { unrelated: 'preserve' } });
+            await original.addStyleTag({ content: '.recovery-block { height: 160px; margin: 0; }' });
+            await sendPage(original, publication);
+            const before = await original.evaluate(position => {
+                const scroll = document.querySelector('[data-conversation-scroll]');
+                scroll.scrollTop = position === 'end' ? scroll.scrollHeight : 640;
+                scroll.dispatchEvent(new Event('scroll'));
+                return scroll.scrollTop;
+            }, position);
+            // A bad delta triggers exactly the Host's recorded resync path.
+            await sendPage(original, { ...publication, requestId: 101, updateKind: 'refresh', html: undefined, htmlSignature: 'recovery-new' });
+            const sync = (await postedMessages(original)).find(message => message.type === 'conversation-viewer-request-sync');
+            assert.ok(sync, 'the fixture must trigger a document recovery');
+            const saved = await original.evaluate(() => window.__webviewState);
+            assert.equal(saved.unrelated, 'preserve');
+            const recovered = await openViewerPage(t, { initialWebviewState: saved });
+            await recovered.addStyleTag({ content: '.recovery-block { height: 160px; margin: 0; }' });
+            await sendPage(recovered, { ...publication, requestId: 102, updateKind: delivery === 'progressive-initial' ? 'initial' : 'refresh', htmlSignature: 'recovery-new',
+                html: delivery !== 'full'
+                    ? '<section class="conversation-deferred-messages">Loading earlier messages…</section>' + articles.slice(12).join('')
+                    : articles.join('') });
+            let recoveryGeneration = 2;
+            if (delivery === 'progressive-switch') {
+                await recovered.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+                await sendPage(recovered, { ...publication, requestId: 200, subscriptionGeneration: 3,
+                    target: { ...publication.target, sessionId: 'other-session' }, htmlSignature: 'other-session' });
+                await sendPage(recovered, { ...publication, requestId: 201, subscriptionGeneration: 4,
+                    htmlSignature: 'recovery-return', html: '<section class="conversation-deferred-messages">Loading earlier messages…</section>' + articles.slice(12).join('') });
+                recoveryGeneration = 4;
+            }
+            if (delivery === 'progressive-user') {
+                await recovered.evaluate(() => {
+                    const scroll = document.querySelector('[data-conversation-scroll]');
+                    scroll.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }));
+                    scroll.scrollTop = 0;
+                    scroll.dispatchEvent(new Event('scroll'));
+                });
+            }
+            if (delivery !== 'full') {
+                await recovered.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+                await sendPage(recovered, { type: 'conversation-viewer-history-chunk', version: 1, subscriptionGeneration: recoveryGeneration,
+                    requestId: 203, html: articles.slice(0, 12).join(''), htmlSignature: 'recovery-complete', complete: true });
+            }
+            await recovered.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            const after = await recovered.locator('[data-conversation-scroll]').evaluate(element => element.scrollTop);
+            assert.ok(Math.abs((delivery === 'progressive-user' ? 0 : before) - after) <= 2, `recovery must preserve ${position}: ${before} -> ${after}`);
+            assert.match(sync.applyError || '', /delta-signature-mismatch/);
+            const restored = (await postedMessages(recovered)).find(message => message.type === 'conversation-viewer-reading-position' && message.outcome === 'restored');
+            if (delivery === 'progressive-user' && position === 'middle') {
+                assert.equal(restored, undefined, 'user scrolling cancels the deferred restore');
+            } else {
+                assert.ok(restored, 'recovery emits a bounded, correlated result diagnostic');
+            }
+            // Explicit navigation to the same selected interaction must still win.
+            await sendPage(recovered, { ...publication, requestId: 204, subscriptionGeneration: recoveryGeneration, updateKind: 'navigation' });
+            assert.equal(await recovered.locator('[data-conversation-scroll]').evaluate(element => element.scrollTop), 0);
+        });
+    }
+}
 
 // Exercise the real loading protocol with differently sized transcripts.
 for (const scenario of ['preflight', 'cancel', 'cancel-miss', 'changed', 'evicted']) {
@@ -1274,6 +1356,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 requests a resync when a restor
     );
     assert.deepEqual(syncs, [{
         type: 'conversation-viewer-request-sync',
+        applyError: 'frame-cache-miss',
         version: 1,
         subscriptionGeneration: 3,
         requestId: 30,
@@ -1342,6 +1425,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resynchronizes every generation
     );
     assert.deepEqual(syncs, [{
         type: 'conversation-viewer-request-sync',
+        applyError: 'frame-cache-miss',
         version: 1,
         subscriptionGeneration: 3,
         requestId: 30,
@@ -1351,6 +1435,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 resynchronizes every generation
         sessionId: 'session-beta',
     }, {
         type: 'conversation-viewer-request-sync',
+        applyError: 'frame-cache-miss',
         version: 1,
         subscriptionGeneration: 4,
         requestId: 40,
@@ -2309,6 +2394,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 evicts the oldest frame beyond 
     );
     assert.deepEqual(syncs, [{
         type: 'conversation-viewer-request-sync',
+        applyError: 'frame-cache-miss',
         version: 1,
         subscriptionGeneration: 20,
         requestId: 200,
@@ -5453,6 +5539,23 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // BEGIN strip document-recovery persistence
+        .replace("    var READING_POSITION_LIMIT = 100;\n    var pendingReadingRestore;\n    var readingPositionSaveScheduled = false;\n    loadReadingPositions();\n    var frameCacheNodes = 0;\n", "    var READING_POSITION_LIMIT = 100;\n    var frameCacheNodes = 0;\n")
+        .replace("        }\n        pendingReadingRestore = undefined;\n        telemetryController.resetSession(\n", "        }\n        telemetryController.resetSession(\n")
+        .replace("\n    function validReadingPosition(value) {\n        if (!value || typeof value !== 'object'\n            || !Number.isFinite(value.scrollTop) || value.scrollTop < 0\n            || typeof value.followingEnd !== 'boolean'\n            || typeof value.selectedInteractionId !== 'string'\n            || value.selectedInteractionId.length > 1024) return false;\n        var anchor = value.anchor;\n        return anchor === null || (anchor && typeof anchor.messageId === 'string'\n            && anchor.messageId.length <= 1024\n            && Number.isFinite(anchor.top) && Number.isFinite(anchor.viewportTop)\n            && (anchor.blockIndex === undefined\n                || (Number.isSafeInteger(anchor.blockIndex) && anchor.blockIndex >= -1)));\n    }\n\n    function loadReadingPositions() {\n        if (!vscodeApi || typeof vscodeApi.getState !== 'function') return;\n        try {\n            var saved = vscodeApi.getState();\n            var entries = saved && saved.conversationReadingPositions;\n            if (!Array.isArray(entries)) return;\n            entries.slice(-READING_POSITION_LIMIT).forEach(function (entry) {\n                if (Array.isArray(entry) && entry.length === 2\n                    && typeof entry[0] === 'string' && entry[0].length <= 4096\n                    && validReadingPosition(entry[1])) {\n                    sessionReadingPositions.set(entry[0], entry[1]);\n                }\n            });\n        } catch (_error) { /* Local state is best-effort, like the restore target. */ }\n    }\n\n    function rememberReadingPosition(key, anchor, scrollTop, followingEnd) {\n        var savedPosition = {\n            scrollTop: Math.max(0, scrollTop),\n            anchor: anchor ? {\n                messageId: anchor.messageId,\n                blockIndex: anchor.blockIndex,\n                top: anchor.top,\n                viewportTop: anchor.viewportTop,\n            } : null,\n            followingEnd: followingEnd,\n            selectedInteractionId: restoreTarget ? restoreTarget.interactionId : undefined,\n        };\n        sessionReadingPositions.delete(key);\n        sessionReadingPositions.set(key, savedPosition);\n        if (sessionReadingPositions.size > READING_POSITION_LIMIT) {\n            sessionReadingPositions.delete(sessionReadingPositions.keys().next().value);\n        }\n        if (!vscodeApi || typeof vscodeApi.setState !== 'function') return;\n        try {\n            var saved = typeof vscodeApi.getState === 'function' ? vscodeApi.getState() : null;\n            var next = saved && typeof saved === 'object' && !Array.isArray(saved)\n                ? Object.assign({}, saved) : {};\n            next.conversationReadingPositions = Array.from(sessionReadingPositions.entries());\n            vscodeApi.setState(next);\n        } catch (_error) { /* Keep the in-memory return path if storage fails. */ }\n    }\n\n    function saveCurrentReadingPosition() {\n        // A preview, a partial recovery, or a hidden document has temporary\n        // geometry. Never overwrite the last interactive anchor with it.\n        if (!state.initialized || conversationLoading || previewFrame || pendingReadingRestore\n            || document.visibilityState === 'hidden'\n            || (markdownWorkspaceAvailable && !markdownWorkspace.hidden)) return;\n        var key = frameSessionKey(commentTarget);\n        if (key) rememberReadingPosition(key, captureReadingAnchor(), scroll.scrollTop,\n            reconcileController.atEnd());\n    }\n\n    function reportReadingPosition(message, outcome) {\n        if (!validPageTarget(message.target)) return;\n        post({\n            type: 'conversation-viewer-reading-position', version: 1,\n            subscriptionGeneration: message.subscriptionGeneration,\n            requestId: message.requestId,\n            documentId: document.body.getAttribute('data-document-id') || '',\n            projectId: message.target.projectId, provider: message.target.provider,\n            sessionId: message.target.sessionId, outcome: outcome,\n            scrollTop: Math.max(0, scroll.scrollTop),\n            distanceToEnd: Math.max(0, scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop),\n            followingEnd: reconcileController.followingEnd(),\n        });\n    }\n\n    function restorePersistedReadingPosition(savedPosition, message, useViewport) {\n        if (!savedPosition.followingEnd && savedPosition.anchor\n            && !readingAnchorController.findElement(savedPosition.anchor)\n            && messages.querySelector('.conversation-deferred-messages')) {\n            pendingReadingRestore = { position: savedPosition, message: message, useViewport: useViewport };\n            reportReadingPosition(message, 'pending');\n            return;\n        }\n        pendingReadingRestore = undefined;\n        if (savedPosition.followingEnd && message.atLatest) {\n            reconcileController.scrollToEnd();\n        } else {\n            if (useViewport) {\n                restoreViewportReadingPosition(savedPosition.anchor, savedPosition.scrollTop);\n            } else {\n                restoreReadingPosition(savedPosition.anchor, savedPosition.scrollTop);\n            }\n            reconcileController.trackEnd();\n        }\n        reportReadingPosition(message, !savedPosition.followingEnd && savedPosition.anchor\n            && !readingAnchorController.findElement(savedPosition.anchor) ? 'fallback' : 'restored');\n    }\n\n    // Stash the live conversation as a detached frame before a session\n", "\n    // Stash the live conversation as a detached frame before a session\n")
+        .replace("        // loading header. Its last interactive position remains authoritative.\n        var retainedPosition = pendingReadingRestore ? pendingReadingRestore.position\n            : conversationLoading && frameCache.get(key);\n        var anchor = retainedPosition ? retainedPosition.anchor : captureReadingAnchor();\n", "        // loading header. Its last interactive position remains authoritative.\n        var retainedPosition = conversationLoading && frameCache.get(key);\n        var anchor = retainedPosition ? retainedPosition.anchor : captureReadingAnchor();\n")
+        .replace("            ? retainedPosition.followingEnd : reconcileController.atEnd();\n        rememberReadingPosition(key, anchor, scrollTop, followingEnd);\n        var nodes = Array.prototype.slice.call(messages.childNodes);\n", "            ? retainedPosition.followingEnd : reconcileController.atEnd();\n        var savedPosition = {\n            scrollTop: scrollTop,\n            anchor: anchor ? {\n                messageId: anchor.messageId,\n                blockIndex: anchor.blockIndex,\n                top: anchor.top,\n                viewportTop: anchor.viewportTop,\n            } : null,\n            followingEnd: followingEnd,\n            selectedInteractionId: restoreTarget\n                ? restoreTarget.interactionId : undefined,\n        };\n        sessionReadingPositions.delete(key);\n        sessionReadingPositions.set(key, savedPosition);\n        if (sessionReadingPositions.size > READING_POSITION_LIMIT) {\n            sessionReadingPositions.delete(sessionReadingPositions.keys().next().value);\n        }\n        var nodes = Array.prototype.slice.call(messages.childNodes);\n")
+        .replace("                }\n                saveCurrentReadingPosition();\n                acknowledgePage(message);\n", "                }\n                acknowledgePage(message);\n")
+        .replace("                // its token moved on): request a full resync.\n                requestConversationResync(message, 'frame-cache-miss');\n                return;\n", "                // its token moved on): request a full resync.\n                requestConversationResync(message);\n                return;\n")
+        .replace("                // patched group): resync instead of stranding the stream.\n                requestConversationResync(message, 'tail-patch-base-mismatch');\n                return;\n", "                // patched group): resync instead of stranding the stream.\n                requestConversationResync(message);\n                return;\n")
+        .replace("                // applied; request a full resync instead of staying stale.\n                requestConversationResync(message, 'delta-signature-mismatch');\n                return;\n", "                // applied; request a full resync instead of staying stale.\n                requestConversationResync(message);\n                return;\n")
+        .replace("        }\n        var recoveringDocument = !state.initialized && message.updateKind === 'refresh';\n        if (message.updateKind === 'navigation') pendingReadingRestore = undefined;\n        var previousScrollTop = scroll.scrollTop;\n", "        }\n        var previousScrollTop = scroll.scrollTop;\n")
+        .replace("                && message.updateKind !== 'navigation'\n                && (recoveringDocument || message.selectedInteractionId\n                    === savedPosition.selectedInteractionId);\n            if (resumeFramePosition && (recoveringDocument\n                || messages.querySelector('.conversation-deferred-messages'))) {\n                restorePersistedReadingPosition(savedPosition, message, !recoveringDocument);\n            } else if (resumeFramePosition && savedPosition.followingEnd\n                && message.atLatest) {\n", "                && message.updateKind !== 'navigation'\n                && message.selectedInteractionId\n                    === savedPosition.selectedInteractionId;\n            if (resumeFramePosition && savedPosition.followingEnd\n                && message.atLatest) {\n")
+        .replace("\n        if (pendingReadingRestore) {\n            restorePersistedReadingPosition(pendingReadingRestore.position, message, pendingReadingRestore.useViewport);\n        } else if (wasFollowingEnd) {\n            reconcileController.scrollToEnd();\n", "\n        if (wasFollowingEnd) {\n            reconcileController.scrollToEnd();\n")
+        .replace("        updateTranscriptStatus();\n        if (pendingReadingRestore) {\n            restorePersistedReadingPosition(pendingReadingRestore.position, pendingReadingRestore.message, pendingReadingRestore.useViewport);\n        }\n        saveCurrentReadingPosition();\n        // Acknowledge before the deferred decoration pass: the Host paces\n", "        updateTranscriptStatus();\n        // Acknowledge before the deferred decoration pass: the Host paces\n")
+        .replace("    reconcileController.attach();\n    scroll.addEventListener('scroll', function () {\n        if (readingPositionSaveScheduled) return;\n        readingPositionSaveScheduled = true;\n        window.requestAnimationFrame(function () {\n            readingPositionSaveScheduled = false;\n            saveCurrentReadingPosition();\n        });\n    }, { passive: true });\n    function abandonPendingReadingRestore(event) {\n        if (event.type === 'keydown'\n            && !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return;\n        pendingReadingRestore = undefined;\n    }\n    ['wheel', 'touchmove', 'pointerdown', 'keydown'].forEach(function (type) {\n        scroll.addEventListener(type, abandonPendingReadingRestore, { passive: true });\n    });\n    window.addEventListener('pagehide', saveCurrentReadingPosition);\n\n", "    reconcileController.attach();\n\n")
+        .replace("        resyncRequestedPublicationKey = publicationKey;\n        // Persist before the Host replaces this entire document.\n        saveCurrentReadingPosition();\n        // Dropped deltas must not suppress the rebuilt full publication.\n", "        resyncRequestedPublicationKey = publicationKey;\n        // Dropped deltas must not suppress the rebuilt full publication.\n")
+        // END strip document-recovery persistence
         // Strip the reading-position fix to preserve the frozen prior generation.
         .replace(
             "    var frameCache = new Map();\n"

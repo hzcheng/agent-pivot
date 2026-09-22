@@ -390,6 +390,22 @@ export interface ConversationViewerCycleStatusSessionMessage {
     kind: ConversationSessionStatusKind;
 }
 
+/** Best-effort recovery diagnostics; never a navigation or mutation intent. */
+export interface ConversationViewerReadingPositionMessage {
+    type: 'conversation-viewer-reading-position';
+    version: 1;
+    subscriptionGeneration: number;
+    requestId: number;
+    documentId: string;
+    projectId: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+    outcome: 'pending' | 'restored' | 'fallback';
+    scrollTop: number;
+    distanceToEnd: number;
+    followingEnd: boolean;
+}
+
 export interface ConversationViewerRequestSyncMessage {
     type: 'conversation-viewer-request-sync';
     version: 1;
@@ -527,6 +543,7 @@ export type ConversationViewerMessage =
     | ConversationViewerSwitchWindowMessage
     | ConversationViewerCycleStatusSessionMessage
     | ConversationViewerRequestSyncMessage
+    | ConversationViewerReadingPositionMessage
     | ConversationViewerAppliedMessage
     | ConversationViewerFrameCachePreviewMessage
     | ConversationViewerCapabilitiesMessage
@@ -796,6 +813,26 @@ export function parseConversationViewerMessage(
             return undefined;
         }
         return value as unknown as ConversationViewerCycleStatusSessionMessage;
+    }
+    if (value.type === 'conversation-viewer-reading-position') {
+        if (!hasExactKeys(value, [
+            'type', 'version', 'subscriptionGeneration', 'requestId', 'documentId',
+            'projectId', 'provider', 'sessionId', 'outcome', 'scrollTop',
+            'distanceToEnd', 'followingEnd',
+        ]) || !isPositiveSafeInteger(value.subscriptionGeneration)
+            || !isPositiveSafeInteger(value.requestId)
+            || typeof value.documentId !== 'string' || value.documentId.length > 64
+            || !isConversationViewerTargetId(value.projectId)
+            || !isAiSessionProvider(value.provider)
+            || !isConversationViewerTargetId(value.sessionId)
+            || !['pending', 'restored', 'fallback'].includes(value.outcome as string)
+            || typeof value.scrollTop !== 'number' || !Number.isFinite(value.scrollTop)
+            || value.scrollTop < 0
+            || typeof value.distanceToEnd !== 'number' || !Number.isFinite(value.distanceToEnd)
+            || value.distanceToEnd < 0 || typeof value.followingEnd !== 'boolean') {
+            return undefined;
+        }
+        return value as unknown as ConversationViewerReadingPositionMessage;
     }
     if (value.type === 'conversation-viewer-request-sync') {
         const legacySyncKeys = [

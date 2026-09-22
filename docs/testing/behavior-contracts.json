@@ -4213,7 +4213,7 @@
   {
     "id": "RUNTIME-FILESYSTEM-MUTATION-LOCK-001",
     "domain": "runtime",
-    "title": "Filesystem mutation locks recover stale unpublished claims without admitting concurrent owners",
+    "title": "Filesystem mutation locks recover stale unpublished and pre-reboot device claims without admitting concurrent owners",
     "priority": "P0",
     "status": "automated",
     "owners": [

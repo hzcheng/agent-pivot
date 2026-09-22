@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from 'crypto';
 import { constants as fsConstants, promises as fs } from 'fs';
 import type { Stats } from 'fs';
+import { uptime } from 'os';
 import * as path from 'path';
 
 const LOCK_DIRECTORY = 'ai-session-tmux-locks';
@@ -297,7 +298,8 @@ async function recoverStaleHeld(
             staleClaims.push(claimPath);
             continue;
         }
-        if (!claimMatchesIdentity(claim.record, identity)
+        if ((!claimMatchesIdentity(claim.record, identity)
+            && !isPreviousBootDeviceClaim(claim.record, claim.stat, identity))
             || Date.now() - claim.stat.mtimeMs <= STALE_AFTER_MS) {
             return;
         }
@@ -450,6 +452,21 @@ function claimMatchesIdentity(record: LockClaimRecord, identity: LockIdentity): 
         && record.containerIno === identity.container.ino
         && record.containerBirthtimeMs === identity.container.birthtimeMs
         && record.heldDev === identity.held.dev
+        && record.heldIno === identity.held.ino
+        && record.heldBirthtimeMs === identity.held.birthtimeMs;
+}
+
+function isPreviousBootDeviceClaim(record: LockClaimRecord, stat: Stats, identity: LockIdentity): boolean {
+    // macOS can renumber st_dev on reboot while retaining inode/birthtime.
+    // Only stale recovery may relax device equality; live ownership checks
+    // and the identity checks immediately before unlink remain exact.
+    const bootTimeMs = Date.now() - uptime() * 1000;
+    return stat.mtimeMs < bootTimeMs - STALE_AFTER_MS
+        && record.containerDev === record.heldDev
+        && identity.container.dev === identity.held.dev
+        && record.containerDev !== identity.container.dev
+        && record.containerIno === identity.container.ino
+        && record.containerBirthtimeMs === identity.container.birthtimeMs
         && record.heldIno === identity.held.ino
         && record.heldBirthtimeMs === identity.held.birthtimeMs;
 }

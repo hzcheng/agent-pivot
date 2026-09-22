@@ -639,11 +639,14 @@ export class AiSessionCreationController {
                 }).catch(() => undefined);
             }
             options.logRuntimeFailure?.('create-runtime', error, 'tmux');
-            if (options.showErrorMessage) {
-                await options.showErrorMessage('Could not start the AI session runtime.');
-            } else {
-                await options.showWarningMessage('Could not start the AI session runtime.');
-            }
+            // VS Code resolves notification promises only after dismissal.
+            // A failed launch must release the creation guard immediately.
+            const notification = options.showErrorMessage
+                ? options.showErrorMessage('Could not start the AI session runtime.')
+                : options.showWarningMessage('Could not start the AI session runtime.');
+            void Promise.resolve(notification).catch(notificationError => {
+                options.logRuntimeFailure?.('create-runtime-notification', notificationError, 'tmux');
+            });
             options.refresh();
             return false;
         }

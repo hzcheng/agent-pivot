@@ -2038,3 +2038,41 @@ test('WORKTREE-GROUPS-DELETE-JOURNAL-001 a leased group refuses the session befo
     assert.ok(fixture.effects.some(effect =>
         effect[0] === 'warning' && /being deleted/.test(effect[1])));
 });
+
+for (const notification of ['error', 'warning']) {
+    test(`SESSION-AI-SESSION-CREATION-CONTROLLER-001 releases creation while the runtime ${notification} notification remains open`, async () => {
+        let dismiss;
+        let notified;
+        const notificationShown = new Promise(resolve => { notified = resolve; });
+        const notificationClosed = new Promise(resolve => { dismiss = resolve; });
+        let attempts = 0;
+        const showMessage = message => {
+            assert.equal(message, 'Could not start the AI session runtime.');
+            notified();
+            return notificationClosed;
+        };
+        const fixture = makeQuickCreateController({
+            showErrorMessage: notification === 'error' ? showMessage : undefined,
+            showWarningMessage: showMessage,
+            runtimeCoordinator: {
+                create: async () => {
+                    if (++attempts === 1) throw new Error('Timed out waiting for filesystem mutation lock');
+                    return { status: 'started', backend: 'vscode' };
+                },
+                getActive: () => [], getPending: () => [],
+            },
+        });
+        const creation = fixture.controller.createSessionQuick('p', 'codex');
+        try {
+            await notificationShown;
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(fixture.controller.isCreatingSession(), false,
+                'a dismissed error toast must not be required to retry a failed runtime');
+            assert.equal(await fixture.controller.createSessionQuick('p', 'codex'), true);
+            assert.equal(attempts, 2);
+        } finally {
+            dismiss();
+            await creation;
+        }
+    });
+}

@@ -2353,3 +2353,67 @@ test('WORKTREE-GROUPS-UI-001 a single-root anchor menu offers branch-seeded work
     assert.equal(created[0].currentWorktreeAnchor, true,
         'anchor sessions are restricted to main checkout worktrees');
 });
+
+
+test('WORKTREE-GROUPS-UI-001 toolbar removal preserves header toggling and targets the primary worktree', async t => {
+    const { page } = await openGroupActionsPage(t, () => surface({
+        worktreeGroups: [groupRow(), groupRow({
+            groupId: 'unavailable', displayName: 'Unavailable',
+            canCreateSession: false, members: [],
+        })],
+    }));
+    const group = page.locator('[data-group-id="g-1"].ai-session-worktree-group');
+    const header = group.locator('.ai-session-worktree-header');
+    const remove = group.locator('.ai-session-worktree-remove');
+    assert.equal(await page.locator('.ai-session-worktree-chevron').count(), 0);
+    assert.equal(await page.locator('[data-group-id="unavailable"] .ai-session-worktree-remove').count(), 0);
+    await header.click();
+    assert.equal(await header.getAttribute('aria-expanded'), 'false');
+    await header.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await header.getAttribute('aria-expanded'), 'true');
+    for (const width of [350, 220, 170]) {
+        await page.setViewportSize({ width, height: 900 });
+        const bounds = await remove.boundingBox();
+        assert.ok(bounds && bounds.x >= 0 && bounds.x + bounds.width <= width);
+        const actionSelector = '[data-group-id="g-1"].ai-session-worktree-group :is(.ai-session-worktree-remove, .ai-session-worktree-more, .ai-session-worktree-launch-actions)';
+        const expectActionsOpacity = opacity => page.waitForFunction(({ selector, opacity }) =>
+            Array.from(document.querySelectorAll(selector)).every(element =>
+                getComputedStyle(element).opacity === opacity), { selector: actionSelector, opacity }, { timeout: 5000 });
+        await page.evaluate(() => document.activeElement.blur());
+        await page.mouse.move(width - 1, 899);
+        await expectActionsOpacity('0');
+        if (process.env.WORKTREE_TOOLBAR_SCREENSHOTS) {
+            await page.screenshot({ path: `/tmp/worktree-toolbar-hidden-${width}.png` });
+        }
+        await header.hover();
+        await expectActionsOpacity('1');
+        await page.mouse.move(width - 1, 899);
+        await expectActionsOpacity('0');
+        await remove.focus();
+        await expectActionsOpacity('1');
+        const iconWidths = await group.locator('.ai-session-worktree-toolbar svg').evaluateAll(icons =>
+            icons.map(icon => icon.getBoundingClientRect().width));
+        assert.ok(iconWidths.every(width => Math.abs(width - 13) < 0.1),
+            `toolbar icons must retain their 13px width, got ${iconWidths.join(', ')}`);
+        const more = group.locator('.ai-session-worktree-more');
+        const buttonStyles = element => {
+            const style = getComputedStyle(element);
+            return ['width', 'height', 'margin', 'padding', 'borderRadius', 'transition', 'color', 'backgroundColor']
+                .map(property => style[property]);
+        };
+        assert.deepEqual(await remove.evaluate(buttonStyles), await more.evaluate(buttonStyles));
+        if (process.env.WORKTREE_TOOLBAR_SCREENSHOTS) {
+            await page.screenshot({ path: `/tmp/worktree-toolbar-${width}.png` });
+        }
+    }
+    await remove.click();
+    assert.equal(await header.getAttribute('aria-expanded'), 'true', 'removal does not collapse the group');
+    const request = await page.evaluate(() => window.__postedMessages.find(message => message.type === 'remove-managed-worktree'));
+    assert.equal(request.repositoryKey, alphaLoginKey.repositoryKey);
+    assert.equal(request.worktreePath, alphaLoginKey.canonicalWorktreePath);
+    await group.locator('.ai-session-worktree-more').click();
+    await page.locator('#aiSessionWorktreeMenu [data-action="worktree-remove"]').click();
+    assert.equal(await page.evaluate(() => window.__postedMessages.filter(message => message.type === 'remove-managed-worktree').length), 1,
+        'the menu cannot duplicate an in-flight toolbar removal');
+});

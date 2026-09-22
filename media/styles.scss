@@ -3438,6 +3438,7 @@ body .project {
     }
 
     .ai-session-worktree-launch-actions button,
+    .ai-session-worktree-remove,
     .ai-session-worktree-more {
         width: 22px;
         min-width: 22px;
@@ -4868,6 +4869,7 @@ body.steward-sidebar {
             }
         }
 
+        .ai-session-worktree-remove,
         .ai-session-worktree-more {
             display: inline-flex;
             flex: 0 0 22px;
@@ -4877,6 +4879,7 @@ body.steward-sidebar {
             box-sizing: border-box;
             min-width: 22px;
             margin: 2px 3px 2px 2px;
+            padding: 0;
             border: 0;
             border-radius: 4px;
             color: var(--vscode-descriptionForeground);
@@ -4905,8 +4908,10 @@ body.steward-sidebar {
 
         // Row actions stay out of the way until the row is hovered or used.
         .ai-session-worktree-toolbar:hover .ai-session-worktree-launch-actions,
+        .ai-session-worktree-toolbar:hover .ai-session-worktree-remove,
         .ai-session-worktree-toolbar:hover .ai-session-worktree-more,
         .ai-session-worktree-toolbar:focus-within .ai-session-worktree-launch-actions,
+        .ai-session-worktree-toolbar:focus-within .ai-session-worktree-remove,
         .ai-session-worktree-toolbar:focus-within .ai-session-worktree-more,
         .ai-session-worktree-launch-actions:has([aria-expanded="true"]),
         .ai-session-worktree-more[aria-expanded="true"] {
@@ -5003,24 +5008,6 @@ body.steward-sidebar {
             padding: 1px 3px;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 999px;
-        }
-
-        .ai-session-worktree-chevron {
-            flex: 0 0 auto;
-            display: inline-flex;
-            align-items: center;
-            color: var(--vscode-descriptionForeground);
-            transform: rotate(0deg);
-            transition: transform $defaultTransition;
-
-            svg {
-                width: 12px;
-                height: 12px;
-            }
-        }
-
-        .ai-session-worktree-group[data-worktree-collapsed] .ai-session-worktree-chevron {
-            transform: rotate(-90deg);
         }
 
         .ai-session-worktree-session-list {

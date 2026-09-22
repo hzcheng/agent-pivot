@@ -146,6 +146,7 @@
             var visibleSubagents = runningCount + '/' + lastSubagents.length;
             if (telemetrySubagentsValue) {
                 telemetrySubagentsValue.textContent = visibleSubagents;
+                telemetrySubagentsValue.hidden = true;
             } else {
                 telemetrySubagents.textContent = visibleSubagents;
             }
@@ -158,7 +159,7 @@
                 'aria-label', telemetrySubagentsLabel
             );
             telemetrySubagents.setAttribute(
-                'data-tooltip', telemetrySubagentsLabel
+                'data-tooltip', 'Subagents · ' + visibleSubagents + ' running'
             );
         }
 

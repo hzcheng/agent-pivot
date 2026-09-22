@@ -564,6 +564,7 @@
                     + ' · ' + workspaceOpenCount;
                 if (telemetryCommentValue) {
                     telemetryCommentValue.textContent = visibleCommentCount;
+                    telemetryCommentValue.hidden = true;
                 } else {
                     telemetryComments.textContent = visibleCommentCount;
                 }
@@ -580,7 +581,8 @@
                     'aria-label', telemetryCommentLabel
                 );
                 telemetryComments.setAttribute(
-                    'data-tooltip', telemetryCommentLabel
+                    'data-tooltip', 'Comments · ' + sessionOpenCount
+                        + ' session · ' + workspaceOpenCount + ' workspace'
                 );
                 if (telemetrySection) {
                     telemetrySection.hidden = false;

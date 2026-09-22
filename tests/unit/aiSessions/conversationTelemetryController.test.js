@@ -215,7 +215,7 @@ test('CONVERSATION-TELEMETRY-CONTROLLER-001 leads the telemetry bar with a provi
 
 test('CONVERSATION-TELEMETRY-CONTROLLER-001 renders the comments pill with dual session · workspace open counts', () => {
     const html = renderConversationTelemetry(undefined, 'kimi');
-    assert.match(html, /data-telemetry-comments-value>0 · 0</);
+    assert.match(html, /data-telemetry-comments-value hidden>0 · 0</);
     assert.match(
         html,
         /0 open session comments · 0 open workspace notes — click to review/
@@ -246,4 +246,31 @@ test('CONVERSATION-SESSION-STATUS-002 renders the viewed session state on the pr
     const plain = renderConversationTelemetry(undefined, 'kimi');
     assert.doesNotMatch(plain, /data-session-state/);
     assert.match(plain, /Provider · Kimi/);
+});
+
+test('CONVERSATION-TELEMETRY-CONTROLLER-001 preserves a successful sample through transient failures but never across reset', async () => {
+    const current = target();
+    const posted = [];
+    let mode = 'success';
+    const telemetry = { provider: 'codex', sessionId: current.sessionId,
+        model: 'test-model', context: { usedTokens: 1234, maxTokens: 8000 }, rateLimits: [] };
+    const controller = new ConversationTelemetryController({
+        readTelemetry: async () => {
+            if (mode === 'error') throw new Error('temporary failure');
+            return mode === 'empty' ? undefined : telemetry;
+        },
+        getPanel: () => ({ webview: { postMessage: async message => { posted.push(message); return true; } } }),
+        getTarget: () => current, getSubscriptionGeneration: () => 1,
+        getCurrentRequestId: () => 1, isSuspended: () => false, rebuildLatestDocument() {},
+    });
+    await controller.refresh(current, 1);
+    for (mode of ['error', 'empty']) {
+        await controller.refresh(current, 1);
+        assert.deepEqual(controller.snapshot, telemetry);
+        assert.deepEqual(posted.at(-1).telemetry, telemetry);
+    }
+    controller.reset();
+    await controller.refresh(current, 1);
+    assert.equal(controller.snapshot, undefined);
+    assert.equal(posted.at(-1).telemetry, null);
 });

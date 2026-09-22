@@ -518,6 +518,7 @@
                     : workingText(aggregate) + ' · ' + ahead;
             if (buttonValue) {
                 buttonValue.textContent = text;
+                buttonValue.hidden = true;
             } else {
                 button.textContent = text;
             }
@@ -547,7 +548,10 @@
             // popup — a native title would stack a second one on top.
             button.removeAttribute('title');
             button.setAttribute('aria-label', retired ? tooltip : aria);
-            button.setAttribute('data-tooltip', tooltip);
+            button.setAttribute('data-tooltip', retired ? tooltip
+                : 'Changes · ' + workingText(aggregate) + ' uncommitted · '
+                    + (ahead === null ? '? commits' : ahead + ' commits')
+                    + (aggregate.workingPartial || aggregate.aheadPartial ? ' · partial' : ''));
             updateToggle();
         }
 

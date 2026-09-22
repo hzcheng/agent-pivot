@@ -213,6 +213,7 @@
             );
             var value = document.createElement('strong');
             value.setAttribute('data-telemetry-limit-value', '');
+            value.hidden = false;
             value.textContent = visibleValue;
             meter.append(ring, value);
             return meter;
@@ -266,6 +267,7 @@
                 telemetry.model ? 'Model · ' + telemetry.model : 'Model'
             );
             telemetryContext.hidden = !telemetry.context;
+            telemetryContextValue.hidden = false;
             if (telemetry.context) {
                 var percent = Math.max(0, Math.min(
                     100,

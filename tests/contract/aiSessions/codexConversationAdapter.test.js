@@ -3945,3 +3945,53 @@ test('CONVERSATION-LIVE-001 live overlay pins interaction ids across durable and
         'a turn leaving the live window must not flip its id back'
     );
 });
+
+test('CONVERSATION-TELEMETRY-001 retains model, context and quota on transient source failures after cache expiry', async t => {
+    let fail = false;
+    let empty = false;
+    const harness = createAdapter(fixture, {
+        client: {
+            async request(method) {
+                if (method === 'thread/read') return { thread: {} };
+                if (fail) throw new Error('temporary quota failure');
+                return { rateLimits: empty ? null : { limitId: 'codex',
+                    primary: { usedPercent: 42, windowDurationMins: 10080 }, secondary: null } };
+            },
+            dispose() {},
+        },
+        readRolloutTelemetry: async () => {
+            if (fail) throw new Error('temporary file error');
+            return { model: 'real-model', context: { usedTokens: 1234, maxTokens: 8000 } };
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+    const original = await harness.adapter.readTelemetry(sessionId);
+    assert.equal(original.rateLimits[0].usedPercent, 42);
+    fail = true;
+    harness.adapter.telemetryCache.get(sessionId).readAt = 0;
+    assert.deepEqual(await harness.adapter.readTelemetry(sessionId), original);
+    fail = false;
+    empty = true;
+    harness.adapter.telemetryCache.get(sessionId).readAt = 0;
+    assert.deepEqual((await harness.adapter.readTelemetry(sessionId)).rateLimits, [],
+        'a successful empty quota response remains authoritative');
+});
+
+test('CONVERSATION-TELEMETRY-001 quota-only sessions clear a successful empty quota response', async t => {
+    let empty = false;
+    const harness = createAdapter(fixture, {
+        client: {
+            async request(method) {
+                if (method === 'thread/read') return { thread: {} };
+                return { rateLimits: empty ? null : { limitId: 'codex',
+                    primary: { usedPercent: 42, windowDurationMins: 10080 }, secondary: null } };
+            },
+            dispose() {},
+        },
+    });
+    t.after(() => harness.adapter.dispose());
+    assert.equal((await harness.adapter.readTelemetry(sessionId)).rateLimits.length, 1);
+    empty = true;
+    harness.adapter.telemetryCache.get(sessionId).readAt = 0;
+    assert.deepEqual((await harness.adapter.readTelemetry(sessionId)).rateLimits, []);
+});

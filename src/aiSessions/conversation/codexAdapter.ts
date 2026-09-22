@@ -99,7 +99,8 @@ export interface CodexConversationAdapterOptions {
     resolveWorktree?: ResolveWorktree;
     readRolloutTelemetry?(
         sessionId: string
-    ): CodexRolloutTelemetrySnapshot | undefined;
+    ): CodexRolloutTelemetrySnapshot | undefined
+        | Promise<CodexRolloutTelemetrySnapshot | undefined>;
     // Goal-continuation turn ids mapped to their `/goal` objective, read
     // from the rollout transcript. The app-server strips the internal
     // goal user message from turn items, leaving goal turns with no
@@ -1579,7 +1580,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         const read = this.loadTelemetry(sessionId, signal);
         this.telemetryReads.set(sessionId, read);
         try {
-            const value = await read;
+            const value = await read || cached?.value;
+            if (cached?.value && value) {
+                value.model ||= cached.value.model;
+                value.context ||= cached.value.context;
+            }
             if (!this.disposed) {
                 this.makeRoomForTelemetrySession(sessionId);
                 this.telemetryCache.set(sessionId, {
@@ -1599,7 +1604,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         sessionId: string,
         signal?: ConversationAbortSignal
     ): Promise<ConversationTelemetry | undefined> {
-        const rollout = this.readRolloutTelemetrySnapshot(sessionId);
+        const rollout = await this.readRolloutTelemetrySnapshot(sessionId);
         const [threadReadResult, limitsResult] = await Promise.all([
             this.options.client.request(
                 'thread/read',
@@ -1623,7 +1628,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
             sessionId,
             rateLimits: limitsResult.fulfilled
                 ? normalizeRateLimits(limitsResult.value)
-                : [],
+                : this.telemetryCache.get(sessionId)?.value?.rateLimits.map(limit => ({ ...limit })) || [],
         };
         if (rollout?.model) {
             telemetry.model = rollout.model;
@@ -1646,6 +1651,8 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         }
         return telemetry.model || telemetry.context || telemetry.worktree
             || telemetry.rateLimits.length
+            || (limitsResult.fulfilled
+                && this.telemetryCache.get(sessionId)?.value?.rateLimits.length)
             ? telemetry
             : undefined;
     }
@@ -1677,11 +1684,11 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         return cwd ? this.options.resolveWorktree(cwd) : undefined;
     }
 
-    private readRolloutTelemetrySnapshot(
+    private async readRolloutTelemetrySnapshot(
         sessionId: string
-    ): CodexRolloutTelemetrySnapshot | undefined {
+    ): Promise<CodexRolloutTelemetrySnapshot | undefined> {
         try {
-            return this.options.readRolloutTelemetry?.(sessionId);
+            return await this.options.readRolloutTelemetry?.(sessionId);
         } catch (_error) {
             return undefined;
         }
@@ -1691,7 +1698,7 @@ export class CodexConversationAdapter implements ConversationProviderAdapter {
         sessionId: string,
         telemetry: ConversationTelemetry | undefined
     ): Promise<ConversationTelemetry | undefined> {
-        const rollout = this.readRolloutTelemetrySnapshot(sessionId);
+        const rollout = await this.readRolloutTelemetrySnapshot(sessionId);
         if (rollout?.model || rollout?.context) {
             telemetry = telemetry || {
                 provider: 'codex',

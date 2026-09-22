@@ -502,7 +502,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-001 adds late subagents without rep
         1
     );
     assert.equal(
-        await page.locator('[data-telemetry-subagents]').innerText(),
+        await page.locator('[data-telemetry-subagents]').textContent().then(value => value.trim()),
         '1/1'
     );
 });
@@ -552,7 +552,7 @@ test('CONVERSATION-LARGE-SESSION-PERFORMANCE-003 fills the subagents panel from 
         'the panel must list the discovered subagent'
     );
     assert.equal(
-        await page.locator('[data-telemetry-subagents]').innerText(), '1/1',
+        await page.locator('[data-telemetry-subagents]').textContent().then(value => value.trim()), '1/1',
         'the telemetry pill must count it'
     );
     assert.deepEqual(await page.evaluate(() => ({
@@ -3511,8 +3511,8 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     // The telemetry counter shows running/total and opens the Subagents tab.
     const counter = rebuilt.page.locator('[data-telemetry-subagents]');
     assert.equal(await counter.isVisible(), true);
-    assert.equal(await counter.innerText(), '1/2');
-    assert.match(await counter.getAttribute('data-tooltip'), /1 running of 2/);
+    assert.equal(await counter.innerText(), '');
+    assert.match(await counter.getAttribute('data-tooltip'), /1\/2 running/);
     assert.equal(
         await rebuilt.page.locator('[data-conversation-telemetry]').isVisible(),
         true,
@@ -3601,7 +3601,7 @@ test('WEBVIEW-AI-SESSION-SUBAGENT-VIEWER-001 lists subagents, opens a transcript
     // The pill doubles as the Subagents quick entry and stays visible at
     // zero instead of disappearing.
     assert.equal(await counter.isVisible(), true);
-    assert.equal(await counter.innerText(), '0/0');
+    assert.equal(await counter.innerText(), '');
 });
 test('CONVERSATION-TELEMETRY-TOGGLE-001 telemetry subagents pill toggles the sidebar panel open and closed', async t => {
     const { page } = await openHostViewerDocument(t, {
@@ -5539,6 +5539,10 @@ test('CONVERSATION-OUTLINE-NAVIGATION-001 keeps every side-panel view usable acr
     }
 
     const previousViewerScript = viewerScript
+        // Restore the previous generation's inline position counter and hint.
+        .replace('            value.hidden = true;\n', '')
+        .replace("position.setAttribute('data-tooltip', 'Outline · ' + value.textContent);",
+            "position.setAttribute('data-tooltip', tooltip);")
         // BEGIN strip document-recovery persistence
         .replace("    var READING_POSITION_LIMIT = 100;\n    var pendingReadingRestore;\n    var readingPositionSaveScheduled = false;\n    loadReadingPositions();\n    var frameCacheNodes = 0;\n", "    var READING_POSITION_LIMIT = 100;\n    var frameCacheNodes = 0;\n")
         .replace("        }\n        pendingReadingRestore = undefined;\n        telemetryController.resetSession(\n", "        }\n        telemetryController.resetSession(\n")
@@ -9498,7 +9502,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
     const pill = page.locator('[data-telemetry-comments]');
     assert.equal(await toolbarSend.isDisabled(), true);
     assert.equal(await pill.isVisible(), true);
-    assert.equal(await pill.innerText(), '0 · 0');
+    assert.equal(await pill.innerText(), '');
 
     await page.locator('[data-telemetry-comments]').click();
     await page.locator('[data-comment-action="new"]').click();
@@ -9527,7 +9531,7 @@ test('CONVERSATION-COMMENTS-UI-001 send action and telemetry comments pill drive
         'Send 1 open comment to the session input'
     );
     assert.equal(await pill.isVisible(), true);
-    assert.equal(await pill.innerText(), '1 · 0');
+    assert.equal(await pill.innerText(), '');
 
     await page.locator('[data-conversation-position]').click();
     await pill.click();
@@ -11492,7 +11496,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
 
     // Telemetry pill reports session · workspace open counts.
     assert.equal(
-        await page.locator('[data-telemetry-comments]').innerText(),
+        await page.locator('[data-telemetry-comments]').textContent().then(value => value.trim()),
         '2 · 0'
     );
 
@@ -11563,7 +11567,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     }));
     await settle(sendAll, 2, allDone);
     assert.equal(
-        await page.locator('[data-telemetry-comments]').innerText(),
+        await page.locator('[data-telemetry-comments]').textContent().then(value => value.trim()),
         '0 · 0'
     );
     await page.locator('[data-comment-filter="open"]').click();
@@ -11636,7 +11640,7 @@ test('CONVERSATION-COMMENTS-UI-001 filters cards, jumps from message markers, an
     assert.equal(await page.locator('[data-comment-id]').count(), 0);
     assert.equal(await page.locator('[data-comment-marker]').count(), 0);
     assert.equal(
-        await page.locator('[data-telemetry-comments]').innerText(),
+        await page.locator('[data-telemetry-comments]').textContent().then(value => value.trim()),
         '0 · 0'
     );
 });
@@ -11820,7 +11824,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
         'the redundant count badge stays removed'
     );
     assert.equal(
-        await page.locator('[data-telemetry-comments]').innerText(),
+        await page.locator('[data-telemetry-comments]').textContent().then(value => value.trim()),
         '2 · 0',
         'the telemetry pill carries the session · workspace open counts'
     );
@@ -12087,7 +12091,7 @@ test('CONVERSATION-COMMENTS-UI-001 CONVERSATION-COMMENTS-BULK-001 CONVERSATION-C
         'open'
     );
     assert.equal(
-        await page.locator('[data-telemetry-comments]').innerText(),
+        await page.locator('[data-telemetry-comments]').textContent().then(value => value.trim()),
         '1 · 0',
         'the telemetry pill reflects the reopened comment'
     );
@@ -17865,6 +17869,23 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
     assert.equal(tooltipState.visibility, 'visible');
     assert.equal(tooltipState.opacity, '1');
     assert.match(tooltipState.content, /Context window/);
+    assert.match(tooltipState.content, /% used/);
+    for (const selector of ['[data-telemetry-context-value]', '[data-telemetry-limit-value]']) {
+        assert.equal(await page.locator(selector).isVisible(), true,
+            'usage percentages remain visible beside progress rings');
+    }
+    assert.match(await page.locator('[data-telemetry-limit]').getAttribute('data-tooltip'), /% used/);
+    if (process.env.TELEMETRY_SCREENSHOTS) {
+        for (const width of [700, 350]) {
+            await page.setViewportSize({ width, height: 500 });
+            await page.mouse.move(0, 490);
+            await page.screenshot({ path: `/tmp/telemetry-icons-${width}.png` });
+        }
+        await page.locator('[data-telemetry-context]').hover();
+        await page.waitForTimeout(600);
+        await page.screenshot({ path: '/tmp/telemetry-icons-hover.png' });
+    }
+
     assert.deepEqual(
         await page.locator(
             '[data-telemetry-context], [data-telemetry-limit]'
@@ -18054,7 +18075,7 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
     const previous = page.locator('[data-action="previous"]');
     const next = page.locator('[data-action="next"]');
     const latest = page.locator('[data-action="latest"]');
-    assert.equal(await page.locator('[data-conversation-position]').innerText(), '2/3');
+    assert.equal(await page.locator('[data-conversation-position]').getAttribute('data-tooltip'), 'Outline · 2/3');
     assert.equal(await previous.isEnabled(), true);
     assert.equal(await next.isEnabled(), true);
     assert.equal(await latest.isEnabled(), true);
@@ -18078,7 +18099,7 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         nextCursor: 'next-page',
         stale: true,
     });
-    assert.equal(await page.locator('[data-conversation-position]').innerText(), '1/3+');
+    assert.equal(await page.locator('[data-conversation-position]').getAttribute('data-tooltip'), 'Outline · 1/3+');
     assert.equal(await previous.isDisabled(), true);
     assert.equal(await next.isEnabled(), true);
     assert.match(
@@ -18110,7 +18131,7 @@ test('CONVERSATION-NAVIGATION-STATE-001 keeps controls, status, focus, and scrol
         nextCursor: undefined,
         stale: false,
     });
-    assert.equal(await page.locator('[data-conversation-position]').innerText(), '3/3');
+    assert.equal(await page.locator('[data-conversation-position]').getAttribute('data-tooltip'), 'Outline · 3/3');
     assert.equal(await previous.isEnabled(), true);
     assert.equal(await next.isDisabled(), true);
     assert.equal(await page.locator('[data-conversation-status]').innerText(), '');
@@ -18652,19 +18673,14 @@ test('WORKTREE-CHANGES-PANEL-001 renders the telemetry button, sidebar tab, grou
 
     assert.equal(await changesButton.isVisible(), true);
     assert.equal(
-        await page.locator('[data-telemetry-changes-value]').innerText(),
+        await page.locator('[data-telemetry-changes-value]').textContent(),
         '4 · 2',
         'the button carries bare numbers — no arrows or dashes'
     );
     const tooltip = await changesButton.getAttribute('data-tooltip');
     assert.equal(await changesButton.getAttribute('title'), null,
         'no native title — the custom tooltip is the single popup');
-    assert.ok(tooltip.includes('api (agent-pivot/fix-login)'));
-    assert.ok(tooltip.includes('Task result: 5 files · 2 commits since start'));
-    assert.ok(tooltip.includes('Uncommitted: 3'));
-    assert.ok(tooltip.includes('/wt/api'),
-        'hover reveals the worktree path');
-    assert.ok(tooltip.includes('web (agent-pivot/fix-login-ui)'));
+    assert.equal(tooltip, 'Changes · 4 uncommitted · 2 commits');
 
     // The button opens the sidebar on the Changes tab, like its siblings.
     await changesButton.click();
@@ -18799,7 +18815,7 @@ test('WORKTREE-CHANGES-PANEL-001 accepts member headSha and the upstream three-s
     // The state passes validMember's whitelist and renders normally.
     assert.equal(await changesButton.isVisible(), true);
     assert.equal(
-        await page.locator('[data-telemetry-changes-value]').innerText(),
+        await page.locator('[data-telemetry-changes-value]').textContent(),
         '4 · 2');
     await changesButton.click();
     assert.deepEqual(
@@ -20186,7 +20202,7 @@ test('WORKTREE-CHANGES-PANEL-001 clears remembered fold state on session reset',
         window.__changesButtonBeforeSessionReset
             === document.querySelector('[data-telemetry-changes]')), true,
     'the handoff keeps the same button node rather than flashing a replacement');
-    assert.equal(await page.locator('[data-telemetry-changes-value]').innerText(),
+    assert.equal(await page.locator('[data-telemetry-changes-value]').textContent(),
         '', 'the old session\'s counts disappear before the new state arrives');
     assert.equal(await changesButton.getAttribute('aria-label'),
         'Loading changes');
@@ -20272,12 +20288,12 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
         },
     }));
     assert.equal(
-        await page.locator('[data-telemetry-changes-value]').innerText(),
+        await page.locator('[data-telemetry-changes-value]').textContent(),
         '3+',
         'partial working state keeps its + marker; unknown ahead is omitted');
     const tooltip = await page.locator('[data-telemetry-changes]')
         .getAttribute('data-tooltip');
-    assert.ok(tooltip.includes('Partial'));
+    assert.ok(tooltip.includes('partial'));
 
     // Retired: disabled button, no zero, explanatory panel.
     await sendChanges(page, changesFixture({
@@ -20322,7 +20338,7 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
         },
     }));
     assert.equal(
-        await page.locator('[data-telemetry-changes-value]').innerText(),
+        await page.locator('[data-telemetry-changes-value]').textContent(),
         '1',
         'unknown ahead is omitted from the button entirely');
     assert.equal(
@@ -20345,7 +20361,7 @@ test('WORKTREE-CHANGES-PANEL-001 degrades partial and retired states without zer
         detail: undefined,
     }), 999);
     assert.equal(
-        await page.locator('[data-telemetry-changes-value]').innerText(), '1',
+        await page.locator('[data-telemetry-changes-value]').textContent(), '1',
         'a stale generation never overwrites the current state');
 });
 
@@ -20376,7 +20392,7 @@ test('CONVERSATION-COMMENTS-PILL-001 shows session · workspace open counts refr
     const pill = page.locator('[data-telemetry-comments]');
     const pillText = () => page
         .locator('[data-telemetry-comments-value]')
-        .innerText();
+        .textContent();
     assert.equal(await pill.isVisible(), true);
     assert.equal(await pillText(), '0 · 0');
 
@@ -20441,7 +20457,7 @@ test('CONVERSATION-COMMENTS-PILL-001 shows session · workspace open counts refr
     // The tooltip spells out both counts.
     assert.equal(
         await pill.getAttribute('data-tooltip'),
-        '1 open session comment · 0 open workspace notes — click to review'
+        'Comments · 1 session · 0 workspace'
     );
 });
 
@@ -22924,5 +22940,43 @@ test('SESSION-AI-SESSION-CONVERSATION-ADAPTER-001 renders successive assistant c
         const message = page.locator('[data-message-id="live-assistant"]');
         assert.equal(await message.count(), 1);
         assert.equal((await message.textContent()).trim(), text);
+    }
+});
+
+test('CONVERSATION-CHROME-LAYOUT-001 right-side telemetry actions show only aligned icons and concise count hints', async t => {
+    const { page } = await openHostViewerDocument(t, {
+        includeStyles: true, themeFixture: viewerThemeFixtures[0],
+        viewport: { width: 700, height: 500 },
+    });
+    await sendChanges(page, changesFixture());
+    const selectors = ['[data-conversation-position]', '[data-telemetry-comments]',
+        '[data-telemetry-subagents]', '[data-telemetry-changes]'];
+    for (const width of [700, 350, 240]) {
+        await page.setViewportSize({ width, height: 500 });
+        const bounds = [];
+        for (const selector of selectors) {
+            const button = page.locator(selector);
+            assert.equal(await button.innerText(), '', selector + ' must only show its icon');
+            assert.equal(await button.locator('svg').count(), 1);
+            const tooltip = await button.getAttribute('data-tooltip');
+            assert.ok(tooltip.length < 85 && !tooltip.includes('\n'), tooltip);
+            assert.doesNotMatch(tooltip, /click to|\/wt\//);
+            bounds.push(await button.boundingBox());
+        }
+        assert.ok(bounds.every(box => Math.abs(box.width - bounds[0].width) <= 1));
+        assert.ok(bounds.every(box => Math.abs(box.height - bounds[0].height) <= 1));
+        if (process.env.TELEMETRY_SCREENSHOTS) {
+            await page.screenshot({ path: `/tmp/telemetry-actions-${width}.png` });
+        }
+    }
+    assert.equal(await page.locator('[data-telemetry-comments]').getAttribute('data-tooltip'),
+        'Comments · 0 session · 0 workspace');
+    assert.equal(await page.locator('[data-telemetry-subagents]').getAttribute('data-tooltip'),
+        'Subagents · 0/0 running');
+    assert.equal(await page.locator('[data-telemetry-changes]').getAttribute('data-tooltip'),
+        'Changes · 4 uncommitted · 2 commits');
+    for (const selector of selectors) {
+        await page.locator(selector).click();
+        assert.equal(await page.locator(selector).getAttribute('aria-pressed'), 'true');
     }
 });

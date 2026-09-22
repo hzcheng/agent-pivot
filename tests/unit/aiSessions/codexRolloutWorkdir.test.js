@@ -32,7 +32,7 @@ test('CONVERSATION-TELEMETRY-001 rollout probe reads the newest exec workdir fro
     t.after(() => fs.promises.rm(dir, { recursive: true, force: true }));
     const rolloutPath = path.join(dir, 'rollout.jsonl');
 
-    assert.equal(readCodexRolloutWorkdir(rolloutPath), undefined);
+    await assert.rejects(readCodexRolloutWorkdir(rolloutPath), { code: 'ENOENT' });
 
     await fs.promises.writeFile(rolloutPath, [
         execLine('/launch/repo'),
@@ -42,18 +42,18 @@ test('CONVERSATION-TELEMETRY-001 rollout probe reads the newest exec workdir fro
         '',
     ].join('\n'));
     assert.equal(
-        readCodexRolloutWorkdir(rolloutPath),
+        await readCodexRolloutWorkdir(rolloutPath),
         '/launch/repo/.worktree/feature-x'
     );
 
     await fs.promises.writeFile(rolloutPath, `${execLine('/launch/repo')}\n`);
-    assert.equal(readCodexRolloutWorkdir(rolloutPath), '/launch/repo');
+    assert.equal(await readCodexRolloutWorkdir(rolloutPath), '/launch/repo');
 
     await fs.promises.writeFile(
         rolloutPath,
         `${JSON.stringify({ type: 'response_item', payload: { type: 'message' } })}\n`
     );
-    assert.equal(readCodexRolloutWorkdir(rolloutPath), undefined);
+    assert.equal(await readCodexRolloutWorkdir(rolloutPath), undefined);
 });
 
 test('CONVERSATION-TELEMETRY-001 rollout probe keeps the latest workdir across a large trailing record', async t => {
@@ -77,7 +77,7 @@ test('CONVERSATION-TELEMETRY-001 rollout probe keeps the latest workdir across a
     ].join('\n'));
 
     assert.equal(
-        readCodexRolloutWorkdir(rolloutPath),
+        await readCodexRolloutWorkdir(rolloutPath),
         '/repo/.worktree/telemetry-fix'
     );
 });
@@ -123,11 +123,43 @@ test('CONVERSATION-TELEMETRY-001 rollout probe reads current model and context u
         '',
     ].join('\n'));
 
-    assert.deepEqual(readCodexRolloutTelemetry(rolloutPath), {
+    assert.deepEqual(await readCodexRolloutTelemetry(rolloutPath), {
         model: 'gpt-5.6-sol',
         context: {
             usedTokens: 54_297,
             maxTokens: 258_400,
         },
     });
+});
+
+test('CONVERSATION-TELEMETRY-001 cold and incremental reads retain telemetry beyond the former tail window', async t => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'telemetry-large-'));
+    t.after(() => fs.promises.rm(dir, { recursive: true, force: true }));
+    const file = path.join(dir, 'rollout.jsonl');
+    const record = value => JSON.stringify(value) + '\n';
+    const model = name => record({ type: 'turn_context', payload: { model: name } });
+    const context = record({ type: 'event_msg', payload: {
+        type: 'token_count', info: {
+            last_token_usage: { total_tokens: 1234 }, model_context_window: 8000,
+        },
+    } });
+    const large = record({ type: 'response_item', payload: { text: 'x'.repeat(3 * 1024 * 1024) } });
+    await fs.promises.writeFile(file, model('old-model') + context + large);
+    const expected = { model: 'old-model', context: { usedTokens: 1234, maxTokens: 8000 } };
+    assert.deepEqual(await readCodexRolloutTelemetry(file), expected);
+    await fs.promises.appendFile(file, large);
+    assert.deepEqual(await readCodexRolloutTelemetry(file), expected);
+    const next = model('new-model');
+    await fs.promises.appendFile(file, next.slice(0, -3));
+    assert.deepEqual(await readCodexRolloutTelemetry(file), expected, 'partial records are retried');
+    await fs.promises.appendFile(file, next.slice(-3));
+    const results = await Promise.all(Array.from({ length: 4 }, () => readCodexRolloutTelemetry(file)));
+    for (const result of results) assert.equal(result.model, 'new-model');
+    results[0].context.usedTokens = 999;
+    assert.equal((await readCodexRolloutTelemetry(file)).context.usedTokens, 1234);
+    await fs.promises.writeFile(file, model('replaced'));
+    assert.deepEqual(await readCodexRolloutTelemetry(file), { model: 'replaced' }, 'truncation resets context');
+    await fs.promises.rename(file, file + '.old');
+    await fs.promises.writeFile(file, model('replacement-inode') + large);
+    assert.deepEqual(await readCodexRolloutTelemetry(file), { model: 'replacement-inode' });
 });

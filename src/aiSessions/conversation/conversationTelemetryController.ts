@@ -170,6 +170,9 @@ export class ConversationTelemetryController {
             || this.options.isSuspended()) {
             return;
         }
+        // A transient read failure must not erase the last snapshot for this target.
+        // reset() clears it when the viewer switches sessions.
+        telemetry ||= this.telemetry;
         this.telemetry = telemetry;
         const message: ConversationViewerTelemetryMessage = {
             type: 'conversation-viewer-telemetry',
@@ -445,33 +448,33 @@ export function renderConversationTelemetry(
             data-conversation-position
             aria-pressed="false"
             aria-label="Input 0 of 0 — click to open the outline"
-            data-tooltip="Input 0 of 0 — click to open the outline">
-            ${POSITION_ICON_SVG}<span data-conversation-position-value>0/0</span>
+            data-tooltip="Outline · 0/0">
+            ${POSITION_ICON_SVG}<span data-conversation-position-value hidden>0/0</span>
         </button>
         <button type="button"
             class="conversation-telemetry-comments conversation-telemetry-tooltip"
             data-telemetry-comments
             aria-pressed="false"
             aria-label="0 open session comments · 0 open workspace notes — click to review"
-            data-tooltip="0 open session comments · 0 open workspace notes — click to review">
-            ${COMMENTS_ICON_SVG}<span data-telemetry-comments-value>0 · 0</span>
+            data-tooltip="Comments · 0 session · 0 workspace">
+            ${COMMENTS_ICON_SVG}<span data-telemetry-comments-value hidden>0 · 0</span>
         </button>
         <button type="button"
             class="conversation-telemetry-subagents conversation-telemetry-tooltip"
             data-telemetry-subagents
             aria-pressed="false"
             aria-label="0 running of 0 subagents — click to view"
-            data-tooltip="0 running of 0 subagents — click to view">
-            ${SUBAGENTS_ICON_SVG}<span data-telemetry-subagents-value>0/0</span>
+            data-tooltip="Subagents · 0/0 running">
+            ${SUBAGENTS_ICON_SVG}<span data-telemetry-subagents-value hidden>0/0</span>
         </button>
         <button type="button"
             class="conversation-telemetry-changes conversation-telemetry-tooltip"
             data-telemetry-changes
             aria-pressed="false"
             aria-label="No changes — click to view"
-            data-tooltip="No changes — click to view"
+            data-tooltip="No changes"
             hidden>
-            ${CHANGES_ICON_SVG}<span data-telemetry-changes-value>0 · ↑0</span>
+            ${CHANGES_ICON_SVG}<span data-telemetry-changes-value hidden>0 · ↑0</span>
         </button>
     </section>`;
 }

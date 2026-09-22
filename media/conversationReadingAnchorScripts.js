@@ -125,6 +125,7 @@
 
         return Object.freeze({
             capture: capture,
+            findElement: findElement,
             restore: restore,
             restoreViewport: restoreViewport,
         });

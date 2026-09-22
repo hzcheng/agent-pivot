@@ -1751,6 +1751,21 @@ export class ConversationViewer implements ConversationViewerApi {
             }
             return;
         }
+        if (parsed.type === 'conversation-viewer-reading-position') {
+            if (parsed.documentId === this.currentDocumentId
+                && parsed.subscriptionGeneration === this.subscriptionGeneration
+                && parsed.requestId === this.latestPublication?.requestId
+                && parsed.projectId === this.target?.projectId
+                && parsed.provider === this.target?.provider
+                && parsed.sessionId === this.target?.sessionId) {
+                this.emitDiagnostic('reading-position', {
+                    documentId: parsed.documentId, requestId: parsed.requestId,
+                    outcome: parsed.outcome, scrollTop: parsed.scrollTop,
+                    distanceToEnd: parsed.distanceToEnd, followingEnd: parsed.followingEnd,
+                });
+            }
+            return;
+        }
         if (parsed.type === 'conversation-viewer-frame-cache-preview') {
             const target = this.target;
             const authoritativeMatch = target
@@ -2056,6 +2071,10 @@ export class ConversationViewer implements ConversationViewerApi {
                 return;
             }
             this.recoverPublication(publication, 'resync-rebuild', {
+                documentId: this.currentDocumentId,
+                requestId: publication.requestId,
+                updateKind: publication.updateKind,
+                htmlSignature: publication.htmlSignature,
                 ...(parsed.applyError
                     ? { applyError: parsed.applyError }
                     : {}),

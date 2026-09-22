@@ -86,6 +86,20 @@
     ]
   },
   {
+    "id": "OPEN-SESSION-SURFACE-NO-ANIMATION-001",
+    "domain": "webview",
+    "title": "The OPEN session surface has no card animation while running session icons remain animated",
+    "priority": "P1",
+    "status": "automated",
+    "owners": [
+      "tests/browser/activeSessionCardInteraction.test.js"
+    ],
+    "evidence": [
+      "src/webview/webviewContent.ts",
+      "src/webview/webviewProjectAiUpdateScripts.js"
+    ]
+  },
+  {
     "id": "ACTIVE-SESSION-ICON-ANIMATION-001",
     "domain": "webview",
     "title": "Running Active Session rows render the selected circular icon animation",

@@ -17871,8 +17871,8 @@ test('CONVERSATION-CHROME-LAYOUT-001 keeps header, telemetry, and the message vi
     assert.match(tooltipState.content, /Context window/);
     assert.match(tooltipState.content, /% used/);
     for (const selector of ['[data-telemetry-context-value]', '[data-telemetry-limit-value]']) {
-        assert.equal(await page.locator(selector).isVisible(), false,
-            'usage percentages are only shown in the tooltip');
+        assert.equal(await page.locator(selector).isVisible(), true,
+            'usage percentages remain visible beside progress rings');
     }
     assert.match(await page.locator('[data-telemetry-limit]').getAttribute('data-tooltip'), /% used/);
     if (process.env.TELEMETRY_SCREENSHOTS) {

@@ -397,7 +397,7 @@ export function renderConversationTelemetry(
                 usedPercent,
                 LIMIT_ICON_SVG
             )}
-            <strong data-telemetry-limit-value hidden>${escapeHtml(visibleValue)}</strong>
+            <strong data-telemetry-limit-value>${escapeHtml(visibleValue)}</strong>
         </div>`;
     }).join('');
     const modelTitle = telemetry?.model
@@ -436,7 +436,7 @@ export function renderConversationTelemetry(
                 contextPercent,
                 CONTEXT_ICON_SVG
             )}
-            <strong data-telemetry-context-value hidden>${hasContext
+            <strong data-telemetry-context-value>${hasContext
                 ? escapeHtml(contextValue)
                 : ''}</strong>
         </div>

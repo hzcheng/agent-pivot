@@ -4,6 +4,30 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-22
+
+### Added
+
+- Stream live Codex terminal output directly in AI Conversation.
+
+### Changed
+
+- Refresh AI Conversation with a quieter reading layout, clearer tool-call
+  activity rows, and a rounded terminal icon.
+- Simplify the sidebar OPEN tab and reduce remote conversation switching and
+  session focus latency.
+- Close tmux chats without waiting for terminal restoration.
+- Align Agent Pivot and Attention UI Bridge at version 1.6.0 for the
+  VS Code Marketplace release, preserving the existing Workspace Trust
+  declaration and progressively rendered AI Conversation.
+
+### Fixed
+
+- Recover runtime locks after a reboot and release locks when chat startup fails.
+- Preserve quoted Codex profile keys when launching streaming conversations.
+- Resolve document-relative links and images in Markdown review.
+- Recognize saved SSH projects correctly in current-window rows.
+
 ## [1.5.0] - 2026-09-11
 
 ### Added

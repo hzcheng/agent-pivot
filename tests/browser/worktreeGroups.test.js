@@ -2392,6 +2392,10 @@ test('WORKTREE-GROUPS-UI-001 toolbar removal preserves header toggling and targe
         await expectActionsOpacity('0');
         await remove.focus();
         await expectActionsOpacity('1');
+        const iconWidths = await group.locator('.ai-session-worktree-toolbar svg').evaluateAll(icons =>
+            icons.map(icon => icon.getBoundingClientRect().width));
+        assert.ok(iconWidths.every(width => Math.abs(width - 13) < 0.1),
+            `toolbar icons must retain their 13px width, got ${iconWidths.join(', ')}`);
         const more = group.locator('.ai-session-worktree-more');
         const buttonStyles = element => {
             const style = getComputedStyle(element);

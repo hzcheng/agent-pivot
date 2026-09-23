@@ -163,3 +163,41 @@ test('CONVERSATION-TELEMETRY-001 cold and incremental reads retain telemetry bey
     await fs.promises.writeFile(file, model('replacement-inode') + large);
     assert.deepEqual(await readCodexRolloutTelemetry(file), { model: 'replacement-inode' });
 });
+
+function directExec(args, name = 'exec_command') {
+    return JSON.stringify({ type: 'response_item', payload: {
+        type: 'function_call', name, arguments: JSON.stringify(args),
+    } }) + '\n';
+}
+
+test('CONVERSATION-TELEMETRY-001 direct exec follows workdir and leading cd without carrying cwd between commands', async t => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'codex-direct-cwd-'));
+    t.after(() => fs.promises.rm(dir, { recursive: true, force: true }));
+    const file = path.join(dir, 'rollout.jsonl');
+    await fs.promises.writeFile(file, JSON.stringify({ type: 'session_meta', payload: {
+        cwd: '/repo/.worktrees/A',
+    } }) + '\n' + directExec({ cmd: 'cd /repo/.worktrees/B/core && git status' }));
+    assert.equal(await readCodexRolloutWorkdir(file), '/repo/.worktrees/B/core');
+    for (const [args, expected] of [
+        [{ cmd: 'git status', workdir: '/repo/.worktrees/C' }, '/repo/.worktrees/C'],
+        [{ cmd: 'cd "../B with spaces" && cd core && git status' }, '/repo/.worktrees/B with spaces/core'],
+        [{ cmd: 'cd -- ../D && git status', workdir: '/repo/.worktrees/C' }, '/repo/.worktrees/D'],
+        [{ cmd: 'git status' }, '/repo/.worktrees/A'],
+        [{ cmd: "printf 'cd /wrong'" }, '/repo/.worktrees/A'],
+    ]) {
+        await fs.promises.appendFile(file, directExec(args));
+        assert.equal(await readCodexRolloutWorkdir(file), expected);
+    }
+    for (const cmd of ['cd "$TARGET" && git status', 'cd $(pwd) && git status', 'cd /wrong || pwd', "cd '/repo'/child && pwd"]) {
+        await fs.promises.appendFile(file, directExec({ cmd }));
+        assert.equal(await readCodexRolloutWorkdir(file), '/repo/.worktrees/A');
+    }
+    await fs.promises.appendFile(file, directExec({ cmd: 'cd /wrong && pwd' }, 'spawn_agent'));
+    assert.equal(await readCodexRolloutWorkdir(file), '/repo/.worktrees/A');
+    await fs.promises.appendFile(file, JSON.stringify({ type: 'turn_context', payload: {
+        cwd: '/repo/.worktrees/resumed',
+    } }) + '\n' + directExec({ cmd: 'cd subdir && pwd' }, 'functions.exec_command'));
+    assert.equal(await readCodexRolloutWorkdir(file), '/repo/.worktrees/resumed/subdir');
+    await fs.promises.writeFile(file, directExec({ cmd: 'cd ../relative && pwd' }));
+    assert.equal(await readCodexRolloutWorkdir(file), undefined, 'truncation clears the launch cwd');
+});

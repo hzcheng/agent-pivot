@@ -1,6 +1,7 @@
 'use strict';
 
 import * as fs from 'fs';
+import * as path from 'path';
 
 // Stream cold reads and cache completed records; never retain transcript text.
 const READ_CHUNK_BYTES = 256 * 1024;
@@ -14,6 +15,7 @@ interface RolloutCacheEntry {
     offset: number;
     fingerprint: Buffer;
     value: CodexRolloutTelemetry;
+    commandCwd?: string;
 }
 const cache = new Map<string, RolloutCacheEntry>();
 const reads = new Map<string, Promise<CodexRolloutTelemetry | undefined>>();
@@ -35,10 +37,44 @@ function asRecord(value: unknown): Record<string, any> | undefined {
         : undefined;
 }
 
-function acceptRecord(line: string, value: CodexRolloutTelemetry): void {
+// Only resolve literal leading cd chains. Never execute shell text or infer
+// directories from quoted script bodies, output, or arbitrary transcript text.
+function execDirectory(args: Record<string, any>, commandCwd?: string): string | undefined {
+    let cwd = typeof args.workdir === 'string' && path.isAbsolute(args.workdir)
+        ? args.workdir : commandCwd;
+    if (typeof args.cmd !== 'string') {
+        return undefined;
+    }
+    let command = args.cmd.trimStart();
+    while (/^cd(?:\s|$)/.test(command)) {
+        const match = /^cd[ \t]+(?:--[ \t]+)?(?:'([^'\n]+)'|"([^"\n]+)"|([^\s;&|\'"]+))[ \t]*(?:&&[ \t]*|$)/.exec(command);
+        if (!match) {
+            return undefined;
+        }
+        const directory = match[1] || match[2] || match[3];
+        if (directory === '-' || directory.startsWith('~')
+            || /[\\\x00]/.test(directory)
+            || (!match[1] && /[$`*?\[\]{}()<>]/.test(directory))) {
+            return undefined;
+        }
+        if (!path.isAbsolute(directory) && !cwd) {
+            return undefined;
+        }
+        cwd = path.resolve(cwd || '/', directory);
+        command = command.slice(match[0].length).trimStart();
+    }
+    return cwd;
+}
+
+function acceptRecord(line: string, value: CodexRolloutTelemetry,
+    scope: { commandCwd?: string }): void {
     let record: Record<string, any> | undefined;
     try { record = asRecord(JSON.parse(line)); } catch { return; }
     const payload = asRecord(record?.payload);
+    if ((record?.type === 'session_meta' || record?.type === 'turn_context')
+        && typeof payload?.cwd === 'string' && path.isAbsolute(payload.cwd)) {
+        scope.commandCwd = payload.cwd;
+    }
     if (record?.type === 'turn_context' && typeof payload?.model === 'string'
         && payload.model.trim()) {
         value.model = payload.model.trim().slice(0, 128);
@@ -55,7 +91,18 @@ function acceptRecord(line: string, value: CodexRolloutTelemetry): void {
             };
         }
     }
-    if (typeof payload?.input === 'string') {
+    if (record?.type === 'response_item' && payload?.type === 'function_call'
+        && (payload.name === 'exec_command' || payload.name === 'functions.exec_command')
+        && typeof payload.arguments === 'string') {
+        let args: Record<string, any> | undefined;
+        try { args = asRecord(JSON.parse(payload.arguments)); } catch { return; }
+        const cwd = args && execDirectory(args, scope.commandCwd);
+        if (cwd) {
+            value.currentWorkdir = cwd;
+        }
+    }
+    if (record?.type === 'response_item' && payload?.type === 'custom_tool_call'
+        && payload.name === 'exec' && typeof payload.input === 'string') {
         const match = WORKDIR_PATTERN.exec(payload.input);
         if (match?.[1]) {
             value.currentWorkdir = match[1];
@@ -90,6 +137,7 @@ async function scanRollout(rolloutPath: string): Promise<CodexRolloutTelemetry |
             return copy(previous.value);
         }
         const value = continuing ? copy(previous.value) || {} : {};
+        const scope = { commandCwd: continuing ? previous.commandCwd : undefined };
         let offset = continuing ? previous.offset : 0;
         let committedOffset = offset;
         let pending = Buffer.alloc(0);
@@ -108,7 +156,7 @@ async function scanRollout(rolloutPath: string): Promise<CodexRolloutTelemetry |
                 }
                 const part = buffer.subarray(start, end);
                 if (!oversized && pending.length + part.length <= MAX_RECORD_BYTES) {
-                    acceptRecord(Buffer.concat([pending, part]).toString('utf8'), value);
+                    acceptRecord(Buffer.concat([pending, part]).toString('utf8'), value, scope);
                 }
                 pending = Buffer.alloc(0);
                 oversized = false;
@@ -129,7 +177,7 @@ async function scanRollout(rolloutPath: string): Promise<CodexRolloutTelemetry |
         cache.delete(rolloutPath);
         cache.set(rolloutPath, {
             dev: stat.dev, ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs,
-            offset: committedOffset, fingerprint, value,
+            offset: committedOffset, fingerprint, value, commandCwd: scope.commandCwd,
         });
         while (cache.size > MAX_CACHED_ROLLOUTS) {
             cache.delete(cache.keys().next().value);

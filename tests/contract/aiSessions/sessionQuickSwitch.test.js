@@ -19,6 +19,7 @@ const {
     createAttentionQueueJumpHandler,
 } = require('../../../out/dashboard/attentionQueueJump');
 const {
+    createPendingSessionAutoFollowCoordinator,
     createSessionNavigationCoordinator,
 } = require('../../../out/dashboard/sessionNavigationCoordinator');
 const {
@@ -157,6 +158,29 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 wires the MRU to a completion-indepen
     );
 });
 
+test('AI-SESSION-QUICK-CREATE-001 wires started and promoted identities into conversation navigation', () => {
+    const source = fs.readFileSync(
+        path.resolve(__dirname, '../../../src/dashboard.ts'),
+        'utf8'
+    );
+    assert.match(
+        source,
+        /onSessionStarted: input => trackStartedSessionForAutoFollow\(input\)/
+    );
+    assert.match(
+        source,
+        /trackPromotedCreatedSession\(\{\s*navigationIdentity,\s*pendingId,\s*provider,\s*sessionId,/
+    );
+    assert.match(
+        source,
+        /\.then\(\(\) =>\s*followReadyCreatedSession\(workspace\.navigationIdentity\)\s*\)/
+    );
+    assert.match(
+        source,
+        /openConversation: async target => \{\s*const result = await conversationCapability\.openLatestActiveConversation\(target\);[\s\S]*?revealAiSessionInDashboard\(target\.provider, target\.sessionId\);/
+    );
+});
+
 test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 tracker keeps a bounded deduplicated newest-first order', () => {
     const tracker = createAiSessionMruTracker({ now: () => 1000, maxEntries: 3 });
 
@@ -180,6 +204,179 @@ test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 tracker keeps a bounded deduplicated 
 
     tracker.prune(new Set(['codex:c1']));
     assert.deepEqual(tracker.entries().map(entry => entry.key), ['codex:c1']);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 follows a newly created chat after pending promotion', async () => {
+    let navigationIntent = 0;
+    const opened = [];
+    const coordinator = createPendingSessionAutoFollowCoordinator({
+        beginNavigationIntent: () => ++navigationIntent,
+        getNavigationIntent: () => navigationIntent,
+        openConversation: async target => {
+            opened.push(target);
+            return true;
+        },
+    });
+
+    coordinator.trackStarted({
+        projectId: 'project-a',
+        navigationIdentity: 'window-a',
+        provider: 'codex',
+        pendingId: 'pending-a',
+    });
+    assert.equal(coordinator.trackPromoted({
+        navigationIdentity: 'window-a',
+        provider: 'codex',
+        pendingId: 'pending-a',
+        sessionId: 'session-a',
+    }), true);
+    assert.equal(await coordinator.followReady('window-a'), true);
+    assert.deepEqual(opened, [{
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    }]);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 does not steal the view after a newer navigation intent', async () => {
+    let navigationIntent = 0;
+    const opened = [];
+    const coordinator = createPendingSessionAutoFollowCoordinator({
+        beginNavigationIntent: () => ++navigationIntent,
+        getNavigationIntent: () => navigationIntent,
+        openConversation: async target => {
+            opened.push(target);
+            return true;
+        },
+    });
+
+    coordinator.trackStarted({
+        projectId: 'project-a',
+        navigationIdentity: 'window-a',
+        provider: 'kimi',
+        pendingId: 'pending-a',
+    });
+    navigationIntent += 1;
+
+    assert.equal(coordinator.trackPromoted({
+        navigationIdentity: 'window-a',
+        provider: 'kimi',
+        pendingId: 'pending-a',
+        sessionId: 'session-a',
+    }), false);
+    assert.deepEqual(opened, []);
+    assert.equal(coordinator.trackPromoted({
+        navigationIdentity: 'window-a',
+        provider: 'kimi',
+        pendingId: 'pending-a',
+        sessionId: 'session-a',
+    }), false, 'a stale promotion is consumed exactly once');
+});
+
+test('AI-SESSION-QUICK-CREATE-001 correlates promotion by workspace, provider, and pending id', async () => {
+    let navigationIntent = 0;
+    const opened = [];
+    const coordinator = createPendingSessionAutoFollowCoordinator({
+        beginNavigationIntent: () => ++navigationIntent,
+        getNavigationIntent: () => navigationIntent,
+        openConversation: async target => {
+            opened.push(target);
+            return true;
+        },
+    });
+
+    coordinator.trackStarted({
+        projectId: 'project-a',
+        navigationIdentity: 'window-a',
+        provider: 'claude',
+        pendingId: 'pending-a',
+    });
+    assert.equal(coordinator.trackPromoted({
+        navigationIdentity: 'window-b',
+        provider: 'claude',
+        pendingId: 'pending-a',
+        sessionId: 'wrong-workspace',
+    }), false);
+    assert.equal(coordinator.trackPromoted({
+        navigationIdentity: 'window-a',
+        provider: 'codex',
+        pendingId: 'pending-a',
+        sessionId: 'wrong-provider',
+    }), false);
+    assert.equal(coordinator.trackPromoted({
+        navigationIdentity: 'window-a',
+        provider: 'claude',
+        pendingId: 'pending-a',
+        sessionId: 'session-a',
+    }), true);
+    assert.equal(await coordinator.followReady('window-a'), true);
+    assert.deepEqual(opened.map(target => target.sessionId), ['session-a']);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 retries an empty promoted chat on later hydration', async () => {
+    let navigationIntent = 0;
+    let attempts = 0;
+    const coordinator = createPendingSessionAutoFollowCoordinator({
+        beginNavigationIntent: () => ++navigationIntent,
+        getNavigationIntent: () => navigationIntent,
+        openConversation: async () => {
+            attempts += 1;
+            return attempts > 1;
+        },
+    });
+    coordinator.trackStarted({
+        projectId: 'project-a',
+        navigationIdentity: 'window-a',
+        provider: 'codex',
+        pendingId: 'pending-a',
+    });
+    assert.equal(coordinator.trackPromoted({
+        navigationIdentity: 'window-a',
+        provider: 'codex',
+        pendingId: 'pending-a',
+        sessionId: 'session-a',
+    }), true);
+
+    assert.equal(await coordinator.followReady('window-a'), false);
+    assert.equal(await coordinator.followReady('window-a'), true);
+    assert.equal(await coordinator.followReady('window-a'), false,
+        'a successfully opened conversation is not followed twice');
+    assert.equal(attempts, 2);
+});
+
+test('AI-SESSION-QUICK-CREATE-001 coalesces concurrent hydration retries', async () => {
+    let navigationIntent = 0;
+    let releaseOpen;
+    const openGate = new Promise(resolve => { releaseOpen = resolve; });
+    let attempts = 0;
+    const coordinator = createPendingSessionAutoFollowCoordinator({
+        beginNavigationIntent: () => ++navigationIntent,
+        getNavigationIntent: () => navigationIntent,
+        openConversation: async () => {
+            attempts += 1;
+            await openGate;
+            return true;
+        },
+    });
+    coordinator.trackStarted({
+        projectId: 'project-a',
+        navigationIdentity: 'window-a',
+        provider: 'codex',
+        pendingId: 'pending-a',
+    });
+    coordinator.trackPromoted({
+        navigationIdentity: 'window-a',
+        provider: 'codex',
+        pendingId: 'pending-a',
+        sessionId: 'session-a',
+    });
+
+    const first = coordinator.followReady('window-a');
+    const second = coordinator.followReady('window-a');
+    assert.equal(attempts, 1);
+    assert.equal(await second, false);
+    releaseOpen();
+    assert.equal(await first, true);
 });
 
 test('AI-SESSION-QUICK-SWITCH-COMMANDS-001 switch items are MRU-first locals then window-granular remotes', () => {

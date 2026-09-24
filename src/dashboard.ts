@@ -137,7 +137,10 @@ import {
 import {
     createRunningSessionJumpHandler,
 } from './dashboard/runningSessionJump';
-import { createSessionNavigationCoordinator } from './dashboard/sessionNavigationCoordinator';
+import {
+    createPendingSessionAutoFollowCoordinator,
+    createSessionNavigationCoordinator,
+} from './dashboard/sessionNavigationCoordinator';
 import { buildAiSessionsUpdatedMessage, buildOpenWorkspacesUpdatedMessage } from './dashboard/webviewUpdateMessages';
 import { getVsCodeGitApiForWorktreeMonitoring } from './dashboard/gitApiAcquisition';
 import { createSessionNavigationFocusExecutor } from './dashboard/sessionNavigationFocusExecutor';
@@ -1243,6 +1246,21 @@ async function initializeDashboard(
         listTerminalBindings: () => aiSessionTerminalBindingStore.listAll(),
         logError,
     });
+    let trackStartedSessionForAutoFollow = (_input: {
+        projectId: string;
+        navigationIdentity: string;
+        provider: AiSessionProviderId;
+        pendingId: string;
+    }): void => undefined;
+    let trackPromotedCreatedSession = (_input: {
+        navigationIdentity: string;
+        pendingId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): boolean => false;
+    let followReadyCreatedSession = async (
+        _navigationIdentity: string
+    ): Promise<boolean> => false;
     const workspacePendingSessionPromotionController =
         new WorkspacePendingSessionPromotionController<vscode.Terminal>({
             providers: aiSessionProviders,
@@ -1256,6 +1274,12 @@ async function initializeDashboard(
             evaluateExecution: () => evaluateAiSessionLifecycleTick(),
             scheduleRefresh: () => refreshAiSessionViewsIncrementally(),
             onSessionPromoted: async ({ navigationIdentity, pendingId, provider, sessionId }) => {
+                trackPromotedCreatedSession({
+                    navigationIdentity,
+                    pendingId,
+                    provider,
+                    sessionId,
+                });
                 // PRD §6.4: promote the pending generation claim recorded at
                 // creation time; sessions without a retired path have no
                 // claim and the missing-claim rejection is expected.
@@ -1327,6 +1351,8 @@ async function initializeDashboard(
                 workspace,
                 sessionResults,
                 reason
+            ).then(() =>
+                followReadyCreatedSession(workspace.navigationIdentity)
             );
         },
         logDiagnostic: logAiSessionDiagnostic,
@@ -1414,6 +1440,7 @@ async function initializeDashboard(
         openSettings: query => vscode.commands.executeCommand('workbench.action.openSettings', query),
         refreshAiSessionViewsIncrementally,
         scheduleNewAiSessionRefresh,
+        onSessionStarted: input => trackStartedSessionForAutoFollow(input),
         logAiSessionRuntimeFailure,
         logError,
         getAiSessionPinKey,
@@ -2708,6 +2735,24 @@ async function initializeDashboard(
         provider: AiSessionProviderId;
         sessionId: string;
     }): Promise<void> => focusAiSessionAndNavigateConversation(target, true);
+    const pendingSessionAutoFollow = createPendingSessionAutoFollowCoordinator({
+        beginNavigationIntent: () => beginConversationNavigationIntent(),
+        getNavigationIntent: () => conversationNavigationIntent,
+        openConversation: async target => {
+            const result = await conversationCapability.openLatestActiveConversation(target);
+            if (result !== 'opened') {
+                return false;
+            }
+            revealAiSessionInDashboard(target.provider, target.sessionId);
+            return true;
+        },
+    });
+    trackStartedSessionForAutoFollow = input =>
+        pendingSessionAutoFollow.trackStarted(input);
+    trackPromotedCreatedSession = input =>
+        pendingSessionAutoFollow.trackPromoted(input);
+    followReadyCreatedSession = navigationIdentity =>
+        pendingSessionAutoFollow.followReady(navigationIdentity);
     const conversationHandlers = {
         'open-active-ai-session-conversation': async (e: Record<string, unknown>) => {
             const focusTerminal = e.version === 2 && e.focusTerminal === true;

@@ -183,7 +183,7 @@
   {
     "id": "AI-SESSION-QUICK-CREATE-001",
     "domain": "session",
-    "title": "Quick AI session creation from the split button skips every picker, remembers the started provider per workspace, and applies the default Codex profile without prompting",
+    "title": "Quick AI session creation from the split button skips every picker, remembers the started provider per workspace, applies the default Codex profile without prompting, and follows the new conversation after pending promotion unless a newer navigation intent wins",
     "priority": "P1",
     "status": "automated",
     "owners": [
@@ -198,6 +198,8 @@
     "evidence": [
       "src/aiSessions/creationController.ts",
       "src/aiSessions/sessionControllerComposition.ts",
+      "src/dashboard.ts",
+      "src/dashboard/sessionNavigationCoordinator.ts",
       "src/aiSessions/workspaceStateStore.ts",
       "src/workspaces/sessionHydrationController.ts",
       "src/workspaces/viewModels.ts",

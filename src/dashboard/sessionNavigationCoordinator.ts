@@ -1,5 +1,7 @@
 'use strict';
 
+import type { AiSessionProviderId } from '../models';
+
 export type SessionNavigationTask = () => Promise<void>;
 
 export interface SessionNavigationQueueTiming {
@@ -25,6 +27,150 @@ export interface SessionNavigationCoordinatorOptions {
     now?(): number;
     /** Receives aggregate timings only; no navigation target identity. */
     onTiming?(timing: SessionNavigationQueueTiming): void;
+}
+
+export interface StartedSessionNavigation {
+    projectId: string;
+    navigationIdentity: string;
+    provider: AiSessionProviderId;
+    pendingId: string;
+}
+
+export interface PromotedSessionNavigation {
+    navigationIdentity: string;
+    provider: AiSessionProviderId;
+    pendingId: string;
+    sessionId: string;
+}
+
+export interface PendingSessionAutoFollowCoordinator {
+    trackStarted(input: StartedSessionNavigation): void;
+    trackPromoted(input: PromotedSessionNavigation): boolean;
+    followReady(navigationIdentity: string): Promise<boolean>;
+}
+
+export interface PendingSessionAutoFollowCoordinatorOptions {
+    beginNavigationIntent(): number;
+    getNavigationIntent(): number;
+    openConversation(target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): Promise<boolean>;
+    maxPending?: number;
+    now?(): number;
+    ttlMs?: number;
+}
+
+/**
+ * Bridges the creation-time pending id to the provider session id discovered
+ * later. Only the latest still-current creation intent may move the UI: any
+ * intervening explicit conversation navigation advances the shared intent and
+ * makes the delayed promotion a quiet no-op.
+ */
+export function createPendingSessionAutoFollowCoordinator(
+    options: PendingSessionAutoFollowCoordinatorOptions
+): PendingSessionAutoFollowCoordinator {
+    const maxPending = Math.max(1, options.maxPending ?? 64);
+    const now = options.now || (() => Date.now());
+    const ttlMs = Math.max(1, options.ttlMs ?? 5 * 60 * 1000);
+    const pending = new Map<string, {
+        projectId: string;
+        intent: number;
+        expiresAt: number;
+    }>();
+    const promoted = new Map<string, {
+        projectId: string;
+        navigationIdentity: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+        intent: number;
+        expiresAt: number;
+    }>();
+    const keyOf = (input: {
+        navigationIdentity: string;
+        provider: AiSessionProviderId;
+        pendingId: string;
+    }): string => JSON.stringify([
+        input.navigationIdentity,
+        input.provider,
+        input.pendingId,
+    ]);
+
+    return {
+        trackStarted(input): void {
+            pending.set(keyOf(input), {
+                projectId: input.projectId,
+                intent: options.beginNavigationIntent(),
+                expiresAt: now() + ttlMs,
+            });
+            while (pending.size > maxPending) {
+                const oldest = pending.keys().next().value;
+                if (typeof oldest !== 'string') {
+                    break;
+                }
+                pending.delete(oldest);
+            }
+        },
+        trackPromoted(input): boolean {
+            const key = keyOf(input);
+            const tracked = pending.get(key);
+            pending.delete(key);
+            if (!tracked || tracked.expiresAt <= now()
+                || tracked.intent !== options.getNavigationIntent()) {
+                return false;
+            }
+            promoted.set(key, {
+                projectId: tracked.projectId,
+                navigationIdentity: input.navigationIdentity,
+                provider: input.provider,
+                sessionId: input.sessionId,
+                intent: tracked.intent,
+                expiresAt: tracked.expiresAt,
+            });
+            return true;
+        },
+        async followReady(navigationIdentity): Promise<boolean> {
+            const currentIntent = options.getNavigationIntent();
+            const currentTime = now();
+            const candidates = Array.from(promoted.entries())
+                .filter(([, tracked]) =>
+                    tracked.navigationIdentity === navigationIdentity);
+            for (const [key, tracked] of candidates) {
+                if (tracked.expiresAt <= currentTime
+                    || tracked.intent !== currentIntent) {
+                    promoted.delete(key);
+                    continue;
+                }
+                // Claim the retry before awaiting the provider read. Several
+                // hydration callers can share one promotion drain and settle
+                // together; none of them may open the same chat twice.
+                promoted.delete(key);
+                let opened = false;
+                try {
+                    opened = await options.openConversation({
+                        projectId: tracked.projectId,
+                        provider: tracked.provider,
+                        sessionId: tracked.sessionId,
+                    });
+                } catch (_error) {
+                    if (tracked.expiresAt > now()
+                        && tracked.intent === options.getNavigationIntent()) {
+                        promoted.set(key, tracked);
+                    }
+                    return false;
+                }
+                if (opened) {
+                    return true;
+                }
+                if (tracked.expiresAt > now()
+                    && tracked.intent === options.getNavigationIntent()) {
+                    promoted.set(key, tracked);
+                }
+            }
+            return false;
+        },
+    };
 }
 
 /**

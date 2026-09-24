@@ -100,6 +100,17 @@ export interface AiSessionCreationControllerCommonOptions extends InteractiveCli
         providerId: AiSessionProviderId
     ) => void | Thenable<void> | Promise<void>;
     /**
+     * Announces the pending identity of a runtime that successfully started.
+     * The dashboard uses this to follow the same chat after provider discovery
+     * promotes it to a durable session id.
+     */
+    onSessionStarted?: (input: {
+        projectId: string;
+        navigationIdentity: string;
+        provider: AiSessionProviderId;
+        pendingId: string;
+    }) => void;
+    /**
      * Returns the default Codex profile decision for quick-create when no
      * explicit profile is provided. Returns undefined when there is no
      * remembered profile or the provider is not Codex.
@@ -685,6 +696,12 @@ export class AiSessionCreationController {
             if (providerId === 'codex' && fields.codexProfileDecision) {
                 options.rememberSessionProfile?.(pendingId, fields.codexProfileDecision);
             }
+            options.onSessionStarted?.({
+                projectId: target.id,
+                navigationIdentity: directoryScope.workspaceNavigationIdentity,
+                provider: providerId,
+                pendingId,
+            });
         }
         await options.showActiveTab(target.id);
         options.refresh();

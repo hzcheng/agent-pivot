@@ -77,12 +77,16 @@ export function resolveCodexManagedSocket(sessionId: string): string | undefined
     }
     try {
         const parent = fs.lstatSync(path.dirname(run.socketPath));
-        const socket = fs.lstatSync(run.socketPath);
+        const socketPath = fs.realpathSync(run.socketPath);
+        const targetParent = fs.lstatSync(path.dirname(socketPath));
+        const socket = fs.lstatSync(socketPath);
         if (!parent.isDirectory() || (parent.mode & 0o077) || !socket.isSocket()
-            || (process.getuid && (parent.uid !== process.getuid() || socket.uid !== process.getuid()))) {
+            || !targetParent.isDirectory() || (targetParent.mode & 0o077)
+            || (process.getuid && (parent.uid !== process.getuid()
+                || targetParent.uid !== process.getuid() || socket.uid !== process.getuid()))) {
             return undefined;
         }
-        return run.socketPath;
+        return socketPath;
     } catch (_error) { return undefined; }
 }
 

@@ -4,7 +4,55 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const net = require('node:net');
 const { findPendingAiSessionTerminalMatch } = require('../../../out/aiSessions/pendingTerminals');
+
+test('SESSION-COMMAND-BUILDER-001 resolves daemon socket links only inside private owned directories',
+    { skip: process.platform === 'win32' }, async t => {
+        const { processStartIdentity, writePrivateJson, resolveCodexManagedSocket } = require('../../../out/aiSessions/codexManagedRun');
+        const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'ap-sock-'));
+        const previousHome = process.env.CODEX_HOME;
+        process.env.CODEX_HOME = dir;
+        t.after(() => {
+            if (previousHome === undefined) { delete process.env.CODEX_HOME; }
+            else { process.env.CODEX_HOME = previousHome; }
+            fs.rmSync(dir, { recursive: true, force: true });
+        });
+        const registry = path.join(dir, 'agent-pivot-streaming');
+        const launchDir = path.join(dir, 'launch');
+        const daemonDir = path.join(dir, 'daemon');
+        for (const directory of [registry, launchDir, daemonDir]) {
+            fs.mkdirSync(directory, { mode: 0o700 });
+        }
+        const target = path.join(daemonDir, 'daemon.sock');
+        const socketPath = path.join(launchDir, 'b.sock');
+        const server = net.createServer();
+        await new Promise((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(target, resolve);
+        });
+        t.after(() => new Promise(resolve => server.close(resolve)));
+        const run = { version: 1, runId: 'a'.repeat(32), state: 'running', pid: process.pid,
+            processStart: processStartIdentity(process.pid), cwd: dir, startedAt: Date.now(),
+            sessionId: 'root-a', socketPath: target };
+        const file = path.join(registry, 'root-a.json');
+        writePrivateJson(file, run);
+        assert.equal(resolveCodexManagedSocket('root-a'), target, 'direct sockets remain supported');
+        fs.symlinkSync(target, socketPath);
+        writePrivateJson(file, { ...run, socketPath });
+        assert.equal(resolveCodexManagedSocket('root-a'), target, 'daemon aliases resolve to the real socket');
+        fs.chmodSync(daemonDir, 0o755);
+        assert.equal(resolveCodexManagedSocket('root-a'), undefined, 'public target directories are rejected');
+        fs.chmodSync(daemonDir, 0o700);
+        fs.chmodSync(launchDir, 0o755);
+        assert.equal(resolveCodexManagedSocket('root-a'), undefined, 'public alias directories are rejected');
+        fs.chmodSync(launchDir, 0o700);
+        fs.unlinkSync(socketPath);
+        fs.symlinkSync(path.join(daemonDir, 'missing.sock'), socketPath);
+        assert.equal(resolveCodexManagedSocket('root-a'), undefined, 'broken aliases are rejected');
+        fs.writeFileSync(path.join(daemonDir, 'missing.sock'), 'not a socket');
+        assert.equal(resolveCodexManagedSocket('root-a'), undefined, 'regular file targets are rejected');
+    });
 
 test('SESSION-COMMAND-BUILDER-001 pending managed terminal never guesses another chat in the same directory', t => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ap-pending-'));

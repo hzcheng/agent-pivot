@@ -1980,6 +1980,44 @@ test('CONVERSATION-OPEN-LATEST-001 reports empty when the conversation has no in
     capability.dispose();
 });
 
+test('AI-SESSION-QUICK-CREATE-001 CONVERSATION-OPEN-LATEST-001 can reuse a retained pending-session preview while an empty session hydrates', async () => {
+    const harness = createHarness({
+        viewerOpen: true,
+        initialViewerTarget: {
+            projectId: 'project-a',
+            provider: 'codex',
+            workspaceName: '',
+            sessionId: 'session-before',
+            interactionId: 'input-before',
+            expectedRevision: 'r1',
+            displayName: 'Previous chat',
+            duplicateDisplayName: false,
+        },
+        interactionIds: [],
+        previewSession: () => ({ dispose() {} }),
+    });
+    const target = {
+        projectId: 'project-a',
+        provider: 'codex',
+        sessionId: 'session-a',
+    };
+    const retainedPreview = harness.capability.viewer.previewSession(target);
+    assert.ok(retainedPreview);
+
+    assert.equal(await harness.capability.openLatestActiveConversation(
+        target,
+        { preview: false }
+    ), 'empty');
+    assert.deepEqual(harness.previewedViewerTargets, [target],
+        'the retry must not replace the retained preview with a transient one');
+    assert.deepEqual(harness.cancelledViewerPreviews, [],
+        'an empty retry must leave the new-session frame visible');
+
+    retainedPreview.dispose();
+    assert.deepEqual(harness.cancelledViewerPreviews, [target]);
+    harness.capability.dispose();
+});
+
 test('CONVERSATION-OPEN-LATEST-001 reports unavailable when the outline cannot be read', async () => {
     const { capability, viewerTargets } = createHarness({
         readOutlineError: new Error('boom'),

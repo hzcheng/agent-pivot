@@ -1987,10 +1987,12 @@ async function initializeDashboard(
         }),
     });
     let conversationNavigationIntent = 0;
+    let cancelPendingSessionAutoFollow = (): void => undefined;
     const beginConversationNavigationIntent = (options?: {
         preservePreparedPreview?: boolean;
     }): number => {
         conversationNavigationIntent += 1;
+        cancelPendingSessionAutoFollow();
         // The coordinator can discard queued target switches, but a slow
         // foreground provider read has already left that queue. Cancel it at
         // the moment the newer user intent arrives so it cannot hold the
@@ -2739,14 +2741,20 @@ async function initializeDashboard(
         beginNavigationIntent: () => beginConversationNavigationIntent(),
         getNavigationIntent: () => conversationNavigationIntent,
         openConversation: async target => {
-            const result = await conversationCapability.openLatestActiveConversation(target);
+            const result = await conversationCapability.openLatestActiveConversation(
+                target,
+                { preview: false }
+            );
             if (result !== 'opened') {
-                return false;
+                return result === 'empty' ? 'empty' : 'retry';
             }
             revealAiSessionInDashboard(target.provider, target.sessionId);
-            return true;
+            return 'opened';
         },
+        previewConversation: target =>
+            conversationCapability.viewer.previewSession?.(target),
     });
+    cancelPendingSessionAutoFollow = () => pendingSessionAutoFollow.cancel();
     trackStartedSessionForAutoFollow = input =>
         pendingSessionAutoFollow.trackStarted(input);
     trackPromotedCreatedSession = input =>

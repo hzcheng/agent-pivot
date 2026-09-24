@@ -668,7 +668,10 @@ const guards = {
         if ((dashboardSource.match(/new CurrentWorkspaceSessionAuthority\s*\(/g) || []).length !== 1
             || (dashboardSource.match(
                 /currentWorkspaceSessionAuthority\.getProjectId\s*\(/g
-            ) || []).length !== 5
+            // Card ids, Conversation rebinds, runtime/conversation stacks,
+            // and the scan-discovered session auto-follow all resolve their
+            // project id through this one authority.
+            ) || []).length !== 6
             || !dashboardSource.includes(
                 'getCurrentWorkspaceSessionProjectId: identity =>'
             )

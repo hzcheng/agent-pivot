@@ -183,7 +183,7 @@
   {
     "id": "AI-SESSION-QUICK-CREATE-001",
     "domain": "session",
-    "title": "Quick AI session creation from the split button skips every picker, remembers the started provider per workspace, applies the default Codex profile without prompting, immediately previews the promoted session while its first interaction hydrates, and follows that conversation unless a newer navigation intent wins",
+    "title": "Quick AI session creation from the split button skips every picker, remembers the started provider per workspace, applies the default Codex profile without prompting, immediately previews the promoted session while its first interaction hydrates, and follows that conversation unless a newer navigation intent wins; sessions started outside the extension surface through the provider scan and follow the same auto-navigation once discovered fresh",
     "priority": "P1",
     "status": "automated",
     "owners": [

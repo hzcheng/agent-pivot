@@ -44,9 +44,17 @@ export interface PromotedSessionNavigation {
     sessionId: string;
 }
 
+export interface DiscoveredSessionNavigation {
+    projectId: string;
+    navigationIdentity: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+}
+
 export interface PendingSessionAutoFollowCoordinator {
     trackStarted(input: StartedSessionNavigation): void;
     trackPromoted(input: PromotedSessionNavigation): boolean;
+    trackDiscovered(input: DiscoveredSessionNavigation): boolean;
     followReady(navigationIdentity: string): Promise<boolean>;
     cancel(): void;
 }
@@ -111,6 +119,20 @@ export function createPendingSessionAutoFollowCoordinator(
         input.provider,
         input.pendingId,
     ]);
+    const hasPromotedTarget = (input: {
+        navigationIdentity: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): boolean => {
+        for (const existing of promoted.values()) {
+            if (existing.navigationIdentity === input.navigationIdentity
+                && existing.provider === input.provider
+                && existing.sessionId === input.sessionId) {
+                return true;
+            }
+        }
+        return false;
+    };
     const disposePreview = (
         tracked: { preview?: AiSessionDisposable }
     ): void => {
@@ -168,6 +190,12 @@ export function createPendingSessionAutoFollowCoordinator(
             expiresAt: number;
         }
     ): void => {
+        // A scan-discovered session and a creation-flow promotion can name
+        // the same durable session. Keep the first registration so the
+        // follow cannot open the same target twice.
+        if (hasPromotedTarget(input)) {
+            return;
+        }
         const target = {
             projectId: tracked.projectId,
             provider: input.provider,
@@ -240,6 +268,31 @@ export function createPendingSessionAutoFollowCoordinator(
             promote(key, input, tracked);
             return true;
         },
+        trackDiscovered(input): boolean {
+            cleanupExpired();
+            if (hasPromotedTarget(input)) {
+                return false;
+            }
+            // Discovery observes the durable session directly, so the session
+            // id itself is the correlation identity. The prefixed key cannot
+            // collide with creation-flow pending ids.
+            const key = keyOf({
+                navigationIdentity: input.navigationIdentity,
+                provider: input.provider,
+                pendingId: `session:${input.sessionId}`,
+            });
+            promote(key, {
+                navigationIdentity: input.navigationIdentity,
+                provider: input.provider,
+                pendingId: `session:${input.sessionId}`,
+                sessionId: input.sessionId,
+            }, {
+                projectId: input.projectId,
+                intent: options.beginNavigationIntent(),
+                expiresAt: now() + ttlMs,
+            });
+            return true;
+        },
         async followReady(navigationIdentity): Promise<boolean> {
             cleanupExpired();
             const currentIntent = options.getNavigationIntent();
@@ -289,6 +342,124 @@ export function createPendingSessionAutoFollowCoordinator(
             return false;
         },
         cancel,
+    };
+}
+
+export interface DiscoveredAiSessionCandidate {
+    provider: AiSessionProviderId;
+    sessionId: string;
+    createdAtMs: number;
+}
+
+export interface DiscoveredAiSessionTrackerOptions {
+    /**
+     * Only sessions whose provider-side creation time is within this window
+     * of the observation may auto-follow. Older appearances (index rebuilds,
+     * scan-budget catch-up, resumes of ancient sessions) never move the UI.
+     */
+    freshnessMs?: number;
+    /**
+     * How long an observed id stays known. Safe to shorten because any id
+     * forgotten and re-observed later still has to pass the freshness check.
+     */
+    retainMs?: number;
+    maxEntries?: number;
+}
+
+export interface DiscoveredAiSessionTracker {
+    /**
+     * Records a session id the extension already handles through another
+     * channel (creation-flow promotion) so the scan never follows it twice.
+     */
+    markKnown(provider: AiSessionProviderId, sessionId: string, nowMs?: number): void;
+    /**
+     * Diffs one provider read against the ids observed so far. The first read
+     * per provider only establishes the baseline, so extension startup never
+     * jumps into a session that already existed. Later reads return the newly
+     * appeared sessions fresh enough to follow, oldest first.
+     */
+    observe(
+        provider: AiSessionProviderId,
+        sessions: readonly { id: string; createdAt?: string }[],
+        nowMs?: number
+    ): DiscoveredAiSessionCandidate[];
+    clear(): void;
+}
+
+export function createDiscoveredAiSessionTracker(
+    options: DiscoveredAiSessionTrackerOptions = {}
+): DiscoveredAiSessionTracker {
+    const freshnessMs = Math.max(1, options.freshnessMs ?? 2 * 60 * 1000);
+    const retainMs = Math.max(freshnessMs, options.retainMs ?? 10 * 60 * 1000);
+    const maxEntries = Math.max(1, options.maxEntries ?? 4096);
+    // key → the timestamp after which the id may be forgotten.
+    const seen = new Map<string, number>();
+    const baselinedProviders = new Set<AiSessionProviderId>();
+    const keyOf = (provider: AiSessionProviderId, sessionId: string): string =>
+        `${provider}${sessionId}`;
+
+    const prune = (nowMs: number): void => {
+        for (const [key, expiresAt] of seen) {
+            if (expiresAt <= nowMs) {
+                seen.delete(key);
+            }
+        }
+        while (seen.size > maxEntries) {
+            const oldest = seen.keys().next().value;
+            if (typeof oldest !== 'string') {
+                break;
+            }
+            seen.delete(oldest);
+        }
+    };
+
+    return {
+        markKnown(provider, sessionId, nowMs = Date.now()): void {
+            if (!sessionId) {
+                return;
+            }
+            prune(nowMs);
+            seen.set(keyOf(provider, sessionId), nowMs + retainMs);
+        },
+        observe(provider, sessions, nowMs = Date.now()): DiscoveredAiSessionCandidate[] {
+            prune(nowMs);
+            const firstObservation = !baselinedProviders.has(provider);
+            const discovered: DiscoveredAiSessionCandidate[] = [];
+            for (const session of sessions) {
+                if (!session || typeof session.id !== 'string' || !session.id) {
+                    continue;
+                }
+                const key = keyOf(provider, session.id);
+                if (seen.has(key)) {
+                    continue;
+                }
+                seen.set(key, nowMs + retainMs);
+                if (firstObservation) {
+                    continue;
+                }
+                const createdAtMs = Date.parse(session.createdAt || '');
+                if (Number.isNaN(createdAtMs)) {
+                    continue;
+                }
+                // Future timestamps come from clock skew on the provider
+                // side; they are by definition fresh enough to follow.
+                if (createdAtMs <= nowMs && nowMs - createdAtMs > freshnessMs) {
+                    continue;
+                }
+                discovered.push({
+                    provider,
+                    sessionId: session.id,
+                    createdAtMs,
+                });
+            }
+            baselinedProviders.add(provider);
+            discovered.sort((left, right) => left.createdAtMs - right.createdAtMs);
+            return discovered;
+        },
+        clear(): void {
+            seen.clear();
+            baselinedProviders.clear();
+        },
     };
 }
 

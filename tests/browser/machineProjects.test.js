@@ -908,16 +908,31 @@ test('MANAGED-REMOTE-MANAGEMENT-003 import and folder actions use the existing c
     assert.equal(request.targetId, 'machine:managed');
 });
 
-test('MANAGED-REMOTE-MANAGEMENT-003 keeps Connect and Folders labels separate at minimum width', async t => {
+test('MANAGED-REMOTE-MANAGEMENT-003 keeps icon actions aligned with the machine at minimum width', async t => {
     const page = await openPage(t, 260, managedMarkup('ready'));
-    const overlap = await page.locator('[data-managed-machine-row] > .machine-row-line .machine-text-action').evaluateAll(buttons => {
-        const rectangles = buttons.map(button => button.getBoundingClientRect());
-        return buttons.some((button, index) => {
-            const label = button.querySelector('span').getBoundingClientRect();
-            return label.right > rectangles[index].right + 1 || label.left < rectangles[index].left
-                || (index > 0 && rectangles[index].left < rectangles[index - 1].right);
+    const layout = await page.locator('[data-managed-machine-row] > .machine-row-line').evaluate(row => {
+        const primary = row.querySelector('.machine-row-primary').getBoundingClientRect();
+        const buttons = [...row.querySelectorAll('.machine-pointer-action')];
+        return buttons.map(button => {
+            const rect = button.getBoundingClientRect();
+            return {
+                text: button.textContent.trim(),
+                named: Boolean(button.getAttribute('aria-label') && button.title),
+                aligned: Math.abs(rect.y + rect.height / 2 - primary.y - primary.height / 2) < 1,
+                contained: rect.right <= row.getBoundingClientRect().right,
+                width: rect.width,
+            };
         });
     });
-    assert.equal(overlap, false);
+    assert.equal(layout.length, 3);
+    for (const button of layout) {
+        assert.equal(button.text, '');
+        assert.equal(button.named, true);
+        assert.equal(button.aligned, true);
+        assert.equal(button.contained, true);
+        assert.equal(button.width, layout[0].width);
+    }
+    const toolbar = page.locator('.machine-projects-toolbar-actions > button');
+    assert.equal(await toolbar.evaluateAll(buttons => buttons.every(button => !button.textContent.trim() && button.title && button.getAttribute('aria-label'))), true);
     assert.equal(await page.locator('.machine-favorite-row .machine-project-context').isVisible(), true);
 });

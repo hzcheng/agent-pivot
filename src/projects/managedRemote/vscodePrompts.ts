@@ -144,7 +144,7 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         }
         const alias = await this.ui.input({
             title: 'Import SSH connection', step: 1, totalSteps: 2,
-            prompt: 'SSH alias you already use, for example infra-home-inux',
+            prompt: 'SSH alias you already use, for example infra-home-linux',
             validate: value => /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u.test(value.trim())
                 ? undefined : 'Enter an SSH host alias, not a command.',
         });
@@ -156,22 +156,26 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         project?: Omit<AddManagedProjectInput, 'environmentId'>,
     ): Promise<AddManagedMachineInput | undefined> {
         const inspected = await this.connections?.inspect(alias) as {
-            status?: string; reason?: string;
+            status?: string; reason?: string; configurationMatched?: boolean;
+            route?: { kind: string; jumpHosts?: string };
             endpoint?: { host: string; user: string; port: number };
         } | undefined;
         const endpoint = inspected?.endpoint;
-        if (inspected?.status === 'unsupported' || !endpoint || !isManagedMachine({
+        if (inspected?.status === 'unsupported' || (!project && inspected?.configurationMatched === false) || !endpoint || !isManagedMachine({
             id: 'import', name: alias, connection: { kind: 'ssh', ...endpoint, sshConfigAlias: alias },
         })) {
             throw new Error(inspected?.reason || 'Could not read this SSH alias. Check the SSH configuration on this computer.');
         }
+        const route = inspected?.route?.kind === 'jump' ? `Via ${inspected.route.jumpHosts}`
+            : inspected?.route?.kind === 'command' ? 'Via your local ProxyCommand'
+                : inspected?.route?.kind === 'direct' ? 'Direct connection' : 'Uses local SSH routing';
         const review = await this.ui.pick({
             title: project ? 'Save current Machine and Project' : 'Save SSH connection',
             step: 2, totalSteps: 2, canGoBack: false,
             items: [{
-                label: project ? 'Save Machine and Project' : 'Save Machine',
+                label: project ? 'Save Machine and Project' : `Save ${alias}`,
                 description: `${alias} · ${endpoint.user}@${endpoint.host}:${endpoint.port}`,
-                detail: `${project ? project.remotePath + ' · ' : ''}Keeps your existing jump hosts and authentication. Other computers need the same SSH alias. Keys and commands are not synced.`,
+                detail: `${project ? project.remotePath + ' · ' : ''}${route}. Machine name: ${alias}. References this computer’s SSH config; connection not tested. Other computers need the same alias. Keys and commands are not synced.`,
                 value: 'save',
             }],
         });

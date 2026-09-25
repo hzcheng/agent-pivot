@@ -12,6 +12,8 @@ export interface ManagedLegacySshInspection {
     endpoint?: { host: string; user: string; port: number };
     /** Reference local configuration; never export its commands or credentials. */
     sshConfigAlias?: string;
+    configurationMatched?: boolean;
+    route?: { kind: 'direct' | 'jump' | 'command'; jumpHosts?: string };
 }
 
 export interface ManagedLegacySshInspectorOptions {
@@ -59,7 +61,7 @@ export class ManagedLegacySshInspector {
         try {
             result = await this.runner.run(
                 executable,
-                ['-F', activeConfigPath, '-G', target],
+                ['-F', activeConfigPath, '-vv', '-G', target],
                 this.timeoutMs,
             );
         } catch (_error) {
@@ -73,6 +75,31 @@ export class ManagedLegacySshInspector {
                 status: 'needsInput',
                 reason: 'OpenSSH could not resolve this alias; enter plain connection details.',
             };
+        }
+        // -G also succeeds for unknown aliases using defaults. Require evidence
+        // that OpenSSH actually applied a non-global Host rule, including rules
+        // from active Includes. Merely finding a Host line in a file is not enough.
+        let checkingSpecificMatch = false;
+        let configurationMatched = false;
+        for (const line of result.stderr.split(/\r?\n/u)) {
+            const host = /^debug1: .* line \d+: Applying options for (.+)$/u.exec(line);
+            if (host?.[1].trim().split(/\s+/u).some(pattern => pattern !== '*' && !pattern.startsWith('!'))) {
+                configurationMatched = true;
+            }
+            const match = /^debug2: checking match for '(.*)' host /u.exec(line);
+            if (match) {
+                const targetRules = /(?:^|\s)(?:host|originalhost)\s+(\S+)/giu;
+                checkingSpecificMatch = false;
+                let targetRule: RegExpExecArray | null;
+                while ((targetRule = targetRules.exec(match[1])) !== null) {
+                    if (targetRule[1].split(',').some(pattern => pattern !== '*' && !pattern.startsWith('!'))) {
+                        checkingSpecificMatch = true;
+                    }
+                }
+            } else if (/^debug2: match (?:found|not found)$/u.test(line)) {
+                if (checkingSpecificMatch && line === 'debug2: match found') { configurationMatched = true; }
+                checkingSpecificMatch = false;
+            }
         }
         const config = effectiveConfig(result.stdout);
         const host = config.get('hostname') || '';
@@ -96,8 +123,14 @@ export class ManagedLegacySshInspector {
         }
         return {
             status: 'needsInput',
-            reason: 'Uses this computer’s SSH configuration, including jump hosts and authentication. Configure the same alias on other computers.',
+            reason: configurationMatched
+                ? 'Uses this computer’s SSH configuration, including jump hosts and authentication. Configure the same alias on other computers.'
+                : `SSH alias "${target}" has no active Host or target-specific Match configuration. Check the scope of Include directives in ${activeConfigPath}; use Add Machine for a direct hostname.`,
+            configurationMatched,
             sshConfigAlias: target,
+            route: !disabled(config.get('proxyjump'))
+                ? { kind: 'jump', jumpHosts: config.get('proxyjump') }
+                : !disabled(config.get('proxycommand')) ? { kind: 'command' } : { kind: 'direct' },
             endpoint: { host, user, port },
         };
     }

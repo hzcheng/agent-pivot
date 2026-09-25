@@ -232,3 +232,40 @@ test('MANAGED-REMOTE-MANAGEMENT-004 orphan cleanup is an explicit removal intent
     assert.match(ui.picks[0].items[0].label, /Remove orphan Project record/);
     assert.deepEqual(candidates, [project], 'raw causal candidates remain unchanged');
 });
+
+test('SSH import preserves the selected prefixed alias and shows its name and route', async () => {
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: 'infra-home-linux' }, { action: 'accept', value: 'save' }]);
+    const controller = new ManagedRemotePromptController(ui, {
+        async listAliases() { return ['home-linux', 'infra-home-linux']; },
+        async inspect(alias) {
+            assert.equal(alias, 'infra-home-linux');
+            return { endpoint: { host: '192.0.2.10', user: 'dev', port: 22 }, route: { kind: 'jump', jumpHosts: 'gateway' } };
+        },
+    });
+    const machine = await controller.importMachine();
+    assert.equal(machine.name, 'infra-home-linux');
+    assert.equal(machine.sshConfigAlias, 'infra-home-linux');
+    assert.deepEqual(machine.sourceSshAliases, ['infra-home-linux']);
+    const review = ui.picks[1].items[0];
+    assert.equal(review.label, 'Save infra-home-linux');
+    assert.match(review.detail, /Via gateway.*Machine name: infra-home-linux.*connection not tested/);
+});
+
+test('SSH import blocks inactive configuration before offering Save', async () => {
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: 'infra-home-linux' }]);
+    const controller = new ManagedRemotePromptController(ui, {
+        async listAliases() { return ['infra-home-linux']; },
+        async inspect() { return { status: 'needsInput', configurationMatched: false, endpoint: { host: 'infra-home-linux', user: 'default-user', port: 22 }, reason: 'No active Host configuration; check Include scope.' }; },
+    });
+    await assert.rejects(controller.importMachine(), /Include scope/);
+    assert.equal(ui.picks.length, 1);
+});
+
+test('Saving an already connected DNS target still works with global SSH defaults', async () => {
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: 'save' }]);
+    const controller = new ManagedRemotePromptController(ui, {
+        async inspect() { return { configurationMatched: false, endpoint: { host: 'build.example.com', user: 'dev', port: 22 } }; },
+    });
+    const machine = await controller.adoptCurrentSshProject({ name: 'API', remotePath: '/work/api', sshAlias: 'build.example.com' });
+    assert.equal(machine.sshConfigAlias, 'build.example.com');
+});

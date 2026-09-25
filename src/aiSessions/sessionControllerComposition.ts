@@ -151,6 +151,7 @@ export interface SessionControllerCompositionOptions {
     logAiSessionRuntimeFailure: (operation: string, error: unknown, backend?: 'vscode' | 'tmux') => void;
     refreshAiSessionViewsIncrementally: () => void;
     scheduleNewAiSessionRefresh: (providerId: AiSessionProviderId) => void;
+    onSessionStarted?: AiSessionCreationControllerOptions['onSessionStarted'];
     nowMs: () => number;
     showInputBox: (options: vscode.InputBoxOptions) => Thenable<string | undefined>;
     showQuickPick: <T extends vscode.QuickPickItem>(
@@ -526,6 +527,7 @@ export function createSessionControllerComposition(
         }), cwd, aiSessionProviders),
         getPendingMarkerPath: providerId => aiSessionTerminalService.getPendingMarkerPath(providerId),
         scheduleNewSessionRefresh: scheduleNewAiSessionRefresh,
+        onSessionStarted: options.onSessionStarted,
         announceStatus: (projectId, message) => postMessage({
             type: 'ai-session-status-announcement',
             projectId,

@@ -328,7 +328,10 @@ function makeQuickCreateController(overrides = {}) {
 }
 
 test('AI-SESSION-QUICK-CREATE-001 quick-create skips every picker, starts the given provider, and persists the choice', async () => {
-    const fixture = makeQuickCreateController();
+    const started = [];
+    const fixture = makeQuickCreateController({
+        onSessionStarted: input => started.push(input),
+    });
 
     const created = await fixture.controller.createSessionQuick('p', 'kimi');
 
@@ -343,6 +346,12 @@ test('AI-SESSION-QUICK-CREATE-001 quick-create skips every picker, starts the gi
         'the started provider becomes the next quick-create default');
     assert.deepEqual(fixture.rememberedScopes, [directoryScope]);
     assert.deepEqual(fixture.rememberedProfiles, []);
+    assert.deepEqual(started, [{
+        projectId: 'p',
+        navigationIdentity: 'navigation:fixture',
+        provider: 'kimi',
+        pendingId: 'pending-quick',
+    }], 'the pending identity is exposed for post-promotion navigation');
     assert.deepEqual(fixture.effects, [['refresh']]);
 });
 
@@ -726,6 +735,7 @@ test('AI-SESSION-QUICK-CREATE-001 awaits the provider memory write before reveal
             order.push(['remember:start', scope, providerId]);
             return writeGate.then(() => { order.push(['remember:write']); });
         },
+        onSessionStarted: input => { order.push(['started', input.pendingId]); },
         showActiveTab: async id => { order.push(['showActiveTab', id]); },
         refresh: () => { order.push(['refresh']); },
     });
@@ -742,14 +752,17 @@ test('AI-SESSION-QUICK-CREATE-001 awaits the provider memory write before reveal
     assert.deepEqual(order, [
         ['remember:start', 'scope:fixture', 'kimi'],
         ['remember:write'],
+        ['started', 'pending-quick'],
         ['showActiveTab', 'p'],
         ['refresh'],
-    ], 'the refresh after a started quick-create reads the settled provider memory');
+    ], 'auto-follow is armed only after provider memory settles and before the refresh');
 });
 
 test('AI-SESSION-QUICK-CREATE-001 remembers the provider only after the runtime started', async () => {
     for (const status of ['blocked', 'conflict', 'cancelled', 'settings']) {
+        const started = [];
         const fixture = makeQuickCreateController({
+            onSessionStarted: input => started.push(input),
             runtimeCoordinator: {
                 create: async () => ({ status }),
                 getActive: () => [],
@@ -761,6 +774,8 @@ test('AI-SESSION-QUICK-CREATE-001 remembers the provider only after the runtime 
         assert.deepEqual(fixture.rememberedProviders, [],
             `${status} must not persist the provider choice`);
         assert.deepEqual(fixture.rememberedScopes, []);
+        assert.deepEqual(started, [],
+            `${status} must not arm automatic conversation navigation`);
     }
 
     const refused = makeQuickCreateController({ resolveWorkspaceDirectoryScope: () => null });

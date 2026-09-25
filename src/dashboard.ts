@@ -137,7 +137,11 @@ import {
 import {
     createRunningSessionJumpHandler,
 } from './dashboard/runningSessionJump';
-import { createSessionNavigationCoordinator } from './dashboard/sessionNavigationCoordinator';
+import {
+    createPendingSessionAutoFollowCoordinator,
+    createDiscoveredAiSessionTracker,
+    createSessionNavigationCoordinator,
+} from './dashboard/sessionNavigationCoordinator';
 import { buildAiSessionsUpdatedMessage, buildOpenWorkspacesUpdatedMessage } from './dashboard/webviewUpdateMessages';
 import { getVsCodeGitApiForWorktreeMonitoring } from './dashboard/gitApiAcquisition';
 import { createSessionNavigationFocusExecutor } from './dashboard/sessionNavigationFocusExecutor';
@@ -194,7 +198,7 @@ import {
 import { TmuxRuntimeBackend } from './aiSessions/tmuxRuntimeBackend';
 import { TmuxFocusedRuntimeMonitor } from './aiSessions/tmuxFocusedRuntimeMonitor';
 import { withTmuxCreationLock } from './aiSessions/tmuxCreationLock';
-import type { AiSessionBatchArchiveCompletedMessage, AiSessionProvider, AiSessionService, AiSessionTerminalEntry, AiSessionsUpdatedMessage, WorkspaceAiSessionActionTarget } from './aiSessions/types';
+import type { AiSessionBatchArchiveCompletedMessage, AiSessionProvider, AiSessionReadResult, AiSessionService, AiSessionTerminalEntry, AiSessionsUpdatedMessage, WorkspaceAiSessionActionTarget } from './aiSessions/types';
 import {
     buildAiSessionPresentationState,
     getRenderedCurrentWorkspaceNavigationIdentity,
@@ -1243,6 +1247,31 @@ async function initializeDashboard(
         listTerminalBindings: () => aiSessionTerminalBindingStore.listAll(),
         logError,
     });
+    let trackStartedSessionForAutoFollow = (_input: {
+        projectId: string;
+        navigationIdentity: string;
+        provider: AiSessionProviderId;
+        pendingId: string;
+    }): void => undefined;
+    // Sessions started outside the extension (Codex CLI, Codex app, a plain
+    // terminal) never fire the creation callback above. They surface through
+    // the provider scan instead, so this tracker diffs every hydration read
+    // and the freshest newly appeared session joins the same auto-follow
+    // coordinator. The first read per provider is only a baseline.
+    const discoveredAiSessionTracker = createDiscoveredAiSessionTracker();
+    let trackDiscoveredSessionsForAutoFollow = (
+        _workspace: OpenWorkspace,
+        _sessionResults: Record<AiSessionProviderId, AiSessionReadResult>
+    ): void => undefined;
+    let trackPromotedCreatedSession = (_input: {
+        navigationIdentity: string;
+        pendingId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): boolean => false;
+    let followReadyCreatedSession = async (
+        _navigationIdentity: string
+    ): Promise<boolean> => false;
     const workspacePendingSessionPromotionController =
         new WorkspacePendingSessionPromotionController<vscode.Terminal>({
             providers: aiSessionProviders,
@@ -1256,6 +1285,15 @@ async function initializeDashboard(
             evaluateExecution: () => evaluateAiSessionLifecycleTick(),
             scheduleRefresh: () => refreshAiSessionViewsIncrementally(),
             onSessionPromoted: async ({ navigationIdentity, pendingId, provider, sessionId }) => {
+                // The creation flow already follows this session; the scan
+                // diff must never follow it a second time.
+                discoveredAiSessionTracker.markKnown(provider, sessionId);
+                trackPromotedCreatedSession({
+                    navigationIdentity,
+                    pendingId,
+                    provider,
+                    sessionId,
+                });
                 // PRD §6.4: promote the pending generation claim recorded at
                 // creation time; sessions without a retired path have no
                 // claim and the missing-claim rejection is expected.
@@ -1322,13 +1360,19 @@ async function initializeDashboard(
             worktreeGroupManifestReader.listGenerationClaims(navigationIdentity),
         isRetiredStoreCorrupt: navigationIdentity =>
             worktreeGroupManifestReader.isRetiredStoreCorrupt(navigationIdentity),
-        onDidReadSessions: (workspace, sessionResults, reason) => {
-            void workspacePendingSessionPromotionController.promote(
-                workspace,
-                sessionResults,
-                reason
-            );
-        },
+            onDidReadSessions: (workspace, sessionResults, reason) => {
+                void workspacePendingSessionPromotionController.promote(
+                    workspace,
+                    sessionResults,
+                    reason
+                ).then(async () => {
+                    // Promotion ran first, so sessions created through the
+                    // extension are already marked known here; whatever the
+                    // diff still reports was started outside the extension.
+                    trackDiscoveredSessionsForAutoFollow(workspace, sessionResults);
+                    await followReadyCreatedSession(workspace.navigationIdentity);
+                });
+            },
         logDiagnostic: logAiSessionDiagnostic,
     });
     const providerDirectoryCapability = new ProviderDirectoryCapabilityProbe({
@@ -1414,6 +1458,7 @@ async function initializeDashboard(
         openSettings: query => vscode.commands.executeCommand('workbench.action.openSettings', query),
         refreshAiSessionViewsIncrementally,
         scheduleNewAiSessionRefresh,
+        onSessionStarted: input => trackStartedSessionForAutoFollow(input),
         logAiSessionRuntimeFailure,
         logError,
         getAiSessionPinKey,
@@ -1960,10 +2005,12 @@ async function initializeDashboard(
         }),
     });
     let conversationNavigationIntent = 0;
+    let cancelPendingSessionAutoFollow = (): void => undefined;
     const beginConversationNavigationIntent = (options?: {
         preservePreparedPreview?: boolean;
     }): number => {
         conversationNavigationIntent += 1;
+        cancelPendingSessionAutoFollow();
         // The coordinator can discard queued target switches, but a slow
         // foreground provider read has already left that queue. Cancel it at
         // the moment the newer user intent arrives so it cannot hold the
@@ -2708,6 +2755,68 @@ async function initializeDashboard(
         provider: AiSessionProviderId;
         sessionId: string;
     }): Promise<void> => focusAiSessionAndNavigateConversation(target, true);
+    const pendingSessionAutoFollow = createPendingSessionAutoFollowCoordinator({
+        beginNavigationIntent: () => beginConversationNavigationIntent(),
+        getNavigationIntent: () => conversationNavigationIntent,
+        openConversation: async target => {
+            const result = await conversationCapability.openLatestActiveConversation(
+                target,
+                { preview: false }
+            );
+            if (result !== 'opened') {
+                return result === 'empty' ? 'empty' : 'retry';
+            }
+            revealAiSessionInDashboard(target.provider, target.sessionId);
+            return 'opened';
+        },
+        previewConversation: target =>
+            conversationCapability.viewer.previewSession?.(target),
+    });
+    cancelPendingSessionAutoFollow = () => pendingSessionAutoFollow.cancel();
+    trackStartedSessionForAutoFollow = input =>
+        pendingSessionAutoFollow.trackStarted(input);
+    trackPromotedCreatedSession = input =>
+        pendingSessionAutoFollow.trackPromoted(input);
+    followReadyCreatedSession = navigationIdentity =>
+        pendingSessionAutoFollow.followReady(navigationIdentity);
+    trackDiscoveredSessionsForAutoFollow = (workspace, sessionResults) => {
+        const nowMs = Date.now();
+        // One scan can surface several new sessions (for example after a
+        // period with the dashboard closed). Only the freshest one may take
+        // over the UI; the rest stay reachable from the session list.
+        let newest: {
+            provider: AiSessionProviderId;
+            sessionId: string;
+            createdAtMs: number;
+        } | undefined;
+        for (const providerDefinition of aiSessionProviders) {
+            const result = sessionResults[providerDefinition.id];
+            if (!result?.available) {
+                continue;
+            }
+            for (const candidate of discoveredAiSessionTracker.observe(
+                providerDefinition.id,
+                result.sessions,
+                nowMs
+            )) {
+                if (!newest || candidate.createdAtMs > newest.createdAtMs) {
+                    newest = candidate;
+                }
+            }
+        }
+        if (!newest) {
+            return;
+        }
+        pendingSessionAutoFollow.trackDiscovered({
+            projectId: currentWorkspaceSessionAuthority.getProjectId({
+                workspaceNavigationIdentity: workspace.navigationIdentity,
+                workspaceScopeIdentity: workspace.scopeIdentity,
+            }),
+            navigationIdentity: workspace.navigationIdentity,
+            provider: newest.provider,
+            sessionId: newest.sessionId,
+        });
+    };
     const conversationHandlers = {
         'open-active-ai-session-conversation': async (e: Record<string, unknown>) => {
             const focusTerminal = e.version === 2 && e.focusTerminal === true;

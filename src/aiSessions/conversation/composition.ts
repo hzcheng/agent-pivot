@@ -127,7 +127,14 @@ export interface ConversationCapability {
         target: ConversationSessionOpenTarget
     ): Promise<OpenLatestConversationResult>;
     openLatestActiveConversation(
-        target: ConversationSessionOpenTarget
+        target: ConversationSessionOpenTarget,
+        options?: {
+            /**
+             * Disable the ordinary short-lived preflight when the caller
+             * already owns a retained preview for this target.
+             */
+            preview?: boolean;
+        }
     ): Promise<OpenLatestConversationResult>;
     followActiveConversation(
         target: ConversationSessionOpenTarget
@@ -604,7 +611,8 @@ function createAvailableConversationCapability(
         target: ConversationSessionOpenTarget,
         reveal: boolean,
         showFollowFailure: boolean,
-        preparedIntent?: PreparedViewerIntent
+        preparedIntent?: PreparedViewerIntent,
+        previewTarget = true
     ): Promise<FollowActiveConversationResult> => {
         if (!viewer.isOpen()) {
             preparedIntent?.preview?.dispose();
@@ -627,7 +635,8 @@ function createAvailableConversationCapability(
             }
             return 'opened';
         }
-        const preview = preparedIntent?.preview || viewer.previewSession?.(target);
+        const preview = preparedIntent?.preview
+            || (previewTarget ? viewer.previewSession?.(target) : undefined);
         let followedSuccessfully = false;
         try {
             const resolution = await (intent.resolution
@@ -738,10 +747,17 @@ function createAvailableConversationCapability(
         }
     };
     const openConversation = async (
-        target: ConversationSessionOpenTarget
+        target: ConversationSessionOpenTarget,
+        previewTarget = true
     ): Promise<OpenLatestConversationResult> => {
         if (viewer.isOpen() && viewer.getCurrentTarget()) {
-            const result = await followOpenConversation(target, true, false);
+            const result = await followOpenConversation(
+                target,
+                true,
+                false,
+                undefined,
+                previewTarget
+            );
             return result === 'closed' ? 'superseded' : result;
         }
         const intent = beginViewerIntent();
@@ -752,7 +768,11 @@ function createAvailableConversationCapability(
             target,
             intent.isCurrent,
             snapshotWarmup,
-            intent.signal
+            intent.signal,
+            undefined,
+            false,
+            false,
+            previewTarget
         );
     };
     const prepareActiveConversation = (
@@ -949,9 +969,15 @@ function createAvailableConversationCapability(
         prepareActiveConversation,
         openLatestConversation: target => openConversation(target),
         async openLatestActiveConversation(
-            target: ConversationSessionOpenTarget
+            target: ConversationSessionOpenTarget,
+            navigationOptions?: {
+                preview?: boolean;
+            }
         ): Promise<OpenLatestConversationResult> {
-            const result = await openConversation(target);
+            const result = await openConversation(
+                target,
+                navigationOptions?.preview !== false
+            );
             if (result === 'opened') {
                 const currentTarget = viewer.getCurrentTarget();
                 if (currentTarget
@@ -1220,9 +1246,12 @@ async function openLatestConversation(
     signal?: ConversationAbortSignal,
     preparedResolution?: Promise<LatestConversationTargetResolution>,
     revalidateAfterLoad = false,
-    skipUnavailableRetry = false
+    skipUnavailableRetry = false,
+    previewTarget = true
 ): Promise<OpenLatestConversationResult> {
-    const preview = viewer.previewSession?.(target);
+    const preview = previewTarget
+        ? viewer.previewSession?.(target)
+        : undefined;
     let opened = false;
     try {
         let resolution = await (preparedResolution

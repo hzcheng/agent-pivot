@@ -1,5 +1,8 @@
 'use strict';
 
+import type { AiSessionProviderId } from '../models';
+import type { AiSessionDisposable } from '../aiSessions/types';
+
 export type SessionNavigationTask = () => Promise<void>;
 
 export interface SessionNavigationQueueTiming {
@@ -25,6 +28,439 @@ export interface SessionNavigationCoordinatorOptions {
     now?(): number;
     /** Receives aggregate timings only; no navigation target identity. */
     onTiming?(timing: SessionNavigationQueueTiming): void;
+}
+
+export interface StartedSessionNavigation {
+    projectId: string;
+    navigationIdentity: string;
+    provider: AiSessionProviderId;
+    pendingId: string;
+}
+
+export interface PromotedSessionNavigation {
+    navigationIdentity: string;
+    provider: AiSessionProviderId;
+    pendingId: string;
+    sessionId: string;
+}
+
+export interface DiscoveredSessionNavigation {
+    projectId: string;
+    navigationIdentity: string;
+    provider: AiSessionProviderId;
+    sessionId: string;
+}
+
+export interface PendingSessionAutoFollowCoordinator {
+    trackStarted(input: StartedSessionNavigation): void;
+    trackPromoted(input: PromotedSessionNavigation): boolean;
+    trackDiscovered(input: DiscoveredSessionNavigation): boolean;
+    followReady(navigationIdentity: string): Promise<boolean>;
+    cancel(): void;
+}
+
+export type PendingSessionAutoFollowOpenResult = 'opened' | 'empty' | 'retry';
+
+export interface PendingSessionAutoFollowCoordinatorOptions {
+    beginNavigationIntent(): number;
+    getNavigationIntent(): number;
+    openConversation(target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): Promise<PendingSessionAutoFollowOpenResult>;
+    previewConversation?(target: {
+        projectId: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): AiSessionDisposable | undefined;
+    maxPending?: number;
+    now?(): number;
+    ttlMs?: number;
+}
+
+/**
+ * Bridges the creation-time pending id to the provider session id discovered
+ * later. Only the latest still-current creation intent may move the UI: any
+ * intervening explicit conversation navigation advances the shared intent and
+ * makes the delayed promotion a quiet no-op.
+ */
+export function createPendingSessionAutoFollowCoordinator(
+    options: PendingSessionAutoFollowCoordinatorOptions
+): PendingSessionAutoFollowCoordinator {
+    const maxPending = Math.max(1, options.maxPending ?? 64);
+    const now = options.now || (() => Date.now());
+    const ttlMs = Math.max(1, options.ttlMs ?? 5 * 60 * 1000);
+    const pending = new Map<string, {
+        projectId: string;
+        intent: number;
+        expiresAt: number;
+    }>();
+    const earlyPromotions = new Map<string, {
+        input: PromotedSessionNavigation;
+        expiresAt: number;
+    }>();
+    const promoted = new Map<string, {
+        projectId: string;
+        navigationIdentity: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+        intent: number;
+        expiresAt: number;
+        inFlight: boolean;
+        preview?: AiSessionDisposable;
+    }>();
+    const keyOf = (input: {
+        navigationIdentity: string;
+        provider: AiSessionProviderId;
+        pendingId: string;
+    }): string => JSON.stringify([
+        input.navigationIdentity,
+        input.provider,
+        input.pendingId,
+    ]);
+    const hasPromotedTarget = (input: {
+        navigationIdentity: string;
+        provider: AiSessionProviderId;
+        sessionId: string;
+    }): boolean => {
+        for (const existing of promoted.values()) {
+            if (existing.navigationIdentity === input.navigationIdentity
+                && existing.provider === input.provider
+                && existing.sessionId === input.sessionId) {
+                return true;
+            }
+        }
+        return false;
+    };
+    const disposePreview = (
+        tracked: { preview?: AiSessionDisposable }
+    ): void => {
+        try {
+            tracked.preview?.dispose();
+        } catch (_error) {
+            // A cosmetic preview must never break navigation cleanup.
+        }
+        tracked.preview = undefined;
+    };
+    const deletePromoted = (key: string): void => {
+        const tracked = promoted.get(key);
+        if (tracked) {
+            promoted.delete(key);
+            disposePreview(tracked);
+        }
+    };
+    const trim = <T>(entries: Map<string, T>, onDelete?: (value: T) => void): void => {
+        while (entries.size > maxPending) {
+            const oldest = entries.keys().next().value;
+            if (typeof oldest !== 'string') {
+                break;
+            }
+            const value = entries.get(oldest);
+            entries.delete(oldest);
+            if (value) {
+                onDelete?.(value);
+            }
+        }
+    };
+    const cleanupExpired = (): void => {
+        const currentTime = now();
+        for (const [key, tracked] of pending) {
+            if (tracked.expiresAt <= currentTime) {
+                pending.delete(key);
+            }
+        }
+        for (const [key, tracked] of earlyPromotions) {
+            if (tracked.expiresAt <= currentTime) {
+                earlyPromotions.delete(key);
+            }
+        }
+        for (const [key, tracked] of promoted) {
+            if (tracked.expiresAt <= currentTime) {
+                deletePromoted(key);
+            }
+        }
+    };
+    const promote = (
+        key: string,
+        input: PromotedSessionNavigation,
+        tracked: {
+            projectId: string;
+            intent: number;
+            expiresAt: number;
+        }
+    ): void => {
+        // A scan-discovered session and a creation-flow promotion can name
+        // the same durable session. Keep the first registration so the
+        // follow cannot open the same target twice.
+        if (hasPromotedTarget(input)) {
+            return;
+        }
+        const target = {
+            projectId: tracked.projectId,
+            provider: input.provider,
+            sessionId: input.sessionId,
+        };
+        const ready = {
+            ...target,
+            navigationIdentity: input.navigationIdentity,
+            intent: tracked.intent,
+            expiresAt: tracked.expiresAt,
+            inFlight: false,
+            preview: undefined as AiSessionDisposable | undefined,
+        };
+        try {
+            ready.preview = options.previewConversation?.(target);
+        } catch (_error) {
+            // Provider discovery must continue even if the cosmetic handoff
+            // cannot be rendered in the currently open Viewer.
+        }
+        promoted.set(key, ready);
+        trim(promoted, disposePreview);
+    };
+    const cancel = (): void => {
+        pending.clear();
+        earlyPromotions.clear();
+        for (const tracked of promoted.values()) {
+            disposePreview(tracked);
+        }
+        promoted.clear();
+    };
+
+    return {
+        trackStarted(input): void {
+            cleanupExpired();
+            const key = keyOf(input);
+            // Provider discovery can beat the post-create callback. Preserve
+            // the exact promotion across the navigation-intent reset below,
+            // then correlate it after the creation owns the new intent.
+            const earlyPromotion = earlyPromotions.get(key);
+            earlyPromotions.delete(key);
+            const tracked = {
+                projectId: input.projectId,
+                intent: options.beginNavigationIntent(),
+                expiresAt: now() + ttlMs,
+            };
+            if (earlyPromotion && earlyPromotion.expiresAt > now()) {
+                promote(key, earlyPromotion.input, tracked);
+                return;
+            }
+            pending.set(key, tracked);
+            trim(pending);
+        },
+        trackPromoted(input): boolean {
+            cleanupExpired();
+            const key = keyOf(input);
+            const tracked = pending.get(key);
+            if (!tracked) {
+                earlyPromotions.set(key, {
+                    input: { ...input },
+                    expiresAt: now() + ttlMs,
+                });
+                trim(earlyPromotions);
+                return false;
+            }
+            pending.delete(key);
+            if (tracked.expiresAt <= now()
+                || tracked.intent !== options.getNavigationIntent()) {
+                return false;
+            }
+            promote(key, input, tracked);
+            return true;
+        },
+        trackDiscovered(input): boolean {
+            cleanupExpired();
+            if (hasPromotedTarget(input)) {
+                return false;
+            }
+            // Discovery observes the durable session directly, so the session
+            // id itself is the correlation identity. The prefixed key cannot
+            // collide with creation-flow pending ids.
+            const key = keyOf({
+                navigationIdentity: input.navigationIdentity,
+                provider: input.provider,
+                pendingId: `session:${input.sessionId}`,
+            });
+            promote(key, {
+                navigationIdentity: input.navigationIdentity,
+                provider: input.provider,
+                pendingId: `session:${input.sessionId}`,
+                sessionId: input.sessionId,
+            }, {
+                projectId: input.projectId,
+                intent: options.beginNavigationIntent(),
+                expiresAt: now() + ttlMs,
+            });
+            return true;
+        },
+        async followReady(navigationIdentity): Promise<boolean> {
+            cleanupExpired();
+            const currentIntent = options.getNavigationIntent();
+            const candidates = Array.from(promoted.entries())
+                .filter(([, tracked]) =>
+                    tracked.navigationIdentity === navigationIdentity);
+            for (const [key, tracked] of candidates) {
+                if (tracked.expiresAt <= now()
+                    || tracked.intent !== currentIntent) {
+                    deletePromoted(key);
+                    continue;
+                }
+                if (tracked.inFlight) {
+                    continue;
+                }
+                // Keep the entry registered while awaiting the provider read
+                // so cancellation can restore the outgoing authoritative
+                // document and concurrent hydration callers can coalesce.
+                tracked.inFlight = true;
+                let result: PendingSessionAutoFollowOpenResult = 'retry';
+                try {
+                    result = await options.openConversation({
+                        projectId: tracked.projectId,
+                        provider: tracked.provider,
+                        sessionId: tracked.sessionId,
+                    });
+                } catch (_error) {
+                    result = 'retry';
+                }
+                if (promoted.get(key) !== tracked) {
+                    return false;
+                }
+                tracked.inFlight = false;
+                if (tracked.expiresAt <= now()
+                    || tracked.intent !== options.getNavigationIntent()) {
+                    deletePromoted(key);
+                    return false;
+                }
+                if (result === 'opened') {
+                    deletePromoted(key);
+                    return true;
+                }
+                // Empty sessions retain their one preflight frame until the
+                // first interaction is readable. Other transient failures
+                // also retry without reverting to the old authoritative chat.
+            }
+            return false;
+        },
+        cancel,
+    };
+}
+
+export interface DiscoveredAiSessionCandidate {
+    provider: AiSessionProviderId;
+    sessionId: string;
+    createdAtMs: number;
+}
+
+export interface DiscoveredAiSessionTrackerOptions {
+    /**
+     * Only sessions whose provider-side creation time is within this window
+     * of the observation may auto-follow. Older appearances (index rebuilds,
+     * scan-budget catch-up, resumes of ancient sessions) never move the UI.
+     */
+    freshnessMs?: number;
+    /**
+     * How long an observed id stays known. Safe to shorten because any id
+     * forgotten and re-observed later still has to pass the freshness check.
+     */
+    retainMs?: number;
+    maxEntries?: number;
+}
+
+export interface DiscoveredAiSessionTracker {
+    /**
+     * Records a session id the extension already handles through another
+     * channel (creation-flow promotion) so the scan never follows it twice.
+     */
+    markKnown(provider: AiSessionProviderId, sessionId: string, nowMs?: number): void;
+    /**
+     * Diffs one provider read against the ids observed so far. The first read
+     * per provider only establishes the baseline, so extension startup never
+     * jumps into a session that already existed. Later reads return the newly
+     * appeared sessions fresh enough to follow, oldest first.
+     */
+    observe(
+        provider: AiSessionProviderId,
+        sessions: readonly { id: string; createdAt?: string }[],
+        nowMs?: number
+    ): DiscoveredAiSessionCandidate[];
+    clear(): void;
+}
+
+export function createDiscoveredAiSessionTracker(
+    options: DiscoveredAiSessionTrackerOptions = {}
+): DiscoveredAiSessionTracker {
+    const freshnessMs = Math.max(1, options.freshnessMs ?? 2 * 60 * 1000);
+    const retainMs = Math.max(freshnessMs, options.retainMs ?? 10 * 60 * 1000);
+    const maxEntries = Math.max(1, options.maxEntries ?? 4096);
+    // key → the timestamp after which the id may be forgotten.
+    const seen = new Map<string, number>();
+    const baselinedProviders = new Set<AiSessionProviderId>();
+    const keyOf = (provider: AiSessionProviderId, sessionId: string): string =>
+        `${provider}${sessionId}`;
+
+    const prune = (nowMs: number): void => {
+        for (const [key, expiresAt] of seen) {
+            if (expiresAt <= nowMs) {
+                seen.delete(key);
+            }
+        }
+        while (seen.size > maxEntries) {
+            const oldest = seen.keys().next().value;
+            if (typeof oldest !== 'string') {
+                break;
+            }
+            seen.delete(oldest);
+        }
+    };
+
+    return {
+        markKnown(provider, sessionId, nowMs = Date.now()): void {
+            if (!sessionId) {
+                return;
+            }
+            prune(nowMs);
+            seen.set(keyOf(provider, sessionId), nowMs + retainMs);
+        },
+        observe(provider, sessions, nowMs = Date.now()): DiscoveredAiSessionCandidate[] {
+            prune(nowMs);
+            const firstObservation = !baselinedProviders.has(provider);
+            const discovered: DiscoveredAiSessionCandidate[] = [];
+            for (const session of sessions) {
+                if (!session || typeof session.id !== 'string' || !session.id) {
+                    continue;
+                }
+                const key = keyOf(provider, session.id);
+                if (seen.has(key)) {
+                    continue;
+                }
+                seen.set(key, nowMs + retainMs);
+                if (firstObservation) {
+                    continue;
+                }
+                const createdAtMs = Date.parse(session.createdAt || '');
+                if (Number.isNaN(createdAtMs)) {
+                    continue;
+                }
+                // Future timestamps come from clock skew on the provider
+                // side; they are by definition fresh enough to follow.
+                if (createdAtMs <= nowMs && nowMs - createdAtMs > freshnessMs) {
+                    continue;
+                }
+                discovered.push({
+                    provider,
+                    sessionId: session.id,
+                    createdAtMs,
+                });
+            }
+            baselinedProviders.add(provider);
+            discovered.sort((left, right) => left.createdAtMs - right.createdAtMs);
+            return discovered;
+        },
+        clear(): void {
+            seen.clear();
+            baselinedProviders.clear();
+        },
+    };
 }
 
 /**

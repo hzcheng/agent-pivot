@@ -45,6 +45,7 @@ export interface ManagedRemoteManagementStore {
 }
 
 export interface ManagedRemoteManagementPrompts {
+    importMachine?(): Promise<AddManagedMachineInput | undefined>;
     addMachine(): Promise<AddManagedMachineInput | undefined>;
     adoptCurrentSshProject(input: AddManagedMachineProjectInput['project'] & { sshAlias: string }): Promise<AddManagedMachineInput | undefined>;
     editMachine(machine: ManagedSshMachine, affectedProjectCount: number): Promise<EditManagedMachineInput | undefined>;
@@ -208,10 +209,29 @@ export class ManagedRemoteManagementController {
         snapshot: ManagedRemoteManagementSnapshot,
         input: ManagedRemoteMachineInput | ManagedRemoteProjectInput | undefined,
     ): Promise<ManagedRemoteManagementSnapshot | null> {
+        if (operation === 'importMachine') {
+            const machine = await this.options.prompts.importMachine?.();
+            if (!machine) { return null; }
+            const alias = machine.sshConfigAlias;
+            const matches = alias ? snapshot.catalog.machines.filter(value =>
+                value.connection.sshConfigAlias === alias || value.sourceSshAliases?.includes(alias)) : [];
+            if (matches.length > 1) { throw new Error('This SSH alias belongs to multiple Machines. Edit their connections first.'); }
+            if (matches.length === 1) {
+                return this.options.store.editMachine(snapshot.revisionId, matches[0].id, {
+                    host: machine.host, user: machine.user, port: machine.port,
+                    proxyJump: null, sshConfigAlias: alias,
+                });
+            }
+            return this.options.store.addMachine(snapshot.revisionId, machine);
+        }
         if (operation === 'addMachine') {
             const machine = input as ManagedRemoteMachineInput | undefined || await this.options.prompts.addMachine();
             return machine
-                ? this.options.store.addMachine(snapshot.revisionId, machine) : null;
+                ? this.options.store.addMachine(snapshot.revisionId, {
+                    ...machine,
+                    ...(machine.proxyJump === null ? { proxyJump: undefined } : {}),
+                    ...(machine.sshConfigAlias === null ? { sshConfigAlias: undefined } : {}),
+                }) : null;
         }
         if (operation === 'addProject') {
             const machine = targetId

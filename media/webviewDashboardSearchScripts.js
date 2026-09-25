@@ -23,6 +23,7 @@ function filterDashboardCatalog(catalog, query) {
         { id: 'worktrees', title: 'WORKTREES', type: 'worktree', items: catalog.worktrees },
         { id: 'open-workspaces', title: 'OPEN WORKSPACES', type: 'open-workspace', items: catalog.openWorkspaces },
         { id: 'saved-projects', title: 'SAVED PROJECTS', type: 'saved-project', items: catalog.savedProjects },
+        { id: 'machines', title: 'MACHINES', type: 'machine', items: catalog.machines || [] },
         { id: 'skills', title: 'SKILLS', type: 'skill', items: catalog.skills || [] },
     ];
     return sections
@@ -106,7 +107,8 @@ function renderDashboardSearchResults(container, sections) {
                 button.dataset.skillDir = String(item.dirPath || '');
                 metadata.textContent = [item.scope === 'project' ? 'Project' : 'Global', item.description].filter(Boolean).join(' · ');
             } else {
-                button.dataset.searchAction = item.action === 'open-managed-project'
+                button.dataset.searchAction = item.action === 'open-managed-machine' ? 'open-managed-machine'
+                    : item.action === 'open-managed-project'
                     ? 'open-managed-project'
                     : 'open-saved-project';
                 if (item.expectedRevisionId) {

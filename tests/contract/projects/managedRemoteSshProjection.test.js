@@ -130,3 +130,49 @@ test('MANAGED-REMOTE-SSH-PROJECTION-001 quotes only representable Include paths'
         /Include "C:\/Users\/Dev\/\.ssh\/agent-pivot\/current\.conf"/,
     );
 });
+
+test('MANAGED-REMOTE-SSH-PROJECTION-001 preserves jump routes across serialization and route edits', () => {
+    const service = catalog();
+    const machine = service.addMachine({ name: 'Home', host: 'home.internal', user: 'dev',
+        proxyJump: 'ops@bastion.example.com:2222,dev@[2001:db8::1]:22' });
+    const project = service.addProject({ environmentId: `host:${machine.id}`, name: 'API', remotePath: '/work/api' });
+    const restored = new ManagedRemoteCatalogService(JSON.parse(JSON.stringify(service.getDocument())), 'other-device');
+    const before = buildManagedSshProjection(createManagedRevisionSlot(restored.getDocument()));
+    assert.match(renderManagedSshConfig(before), /ProxyJump ops@bastion.example.com:2222,dev@\[2001:db8::1\]:22/);
+    restored.editMachine(machine.id, { proxyJump: 'ops@new-bastion:22' });
+    const after = buildManagedSshProjection(createManagedRevisionSlot(restored.getDocument()));
+    assert.notEqual(before.connectionDigest, after.connectionDigest);
+    assert.equal(restored.getCatalog().projects[0].id, project.id);
+    restored.editMachine(machine.id, { proxyJump: null });
+    assert.match(renderManagedSshConfig(buildManagedSshProjection(createManagedRevisionSlot(restored.getDocument()))), /ProxyJump none/);
+});
+
+test('MANAGED-REMOTE-SSH-PROJECTION-001 references native aliases without shadowing user SSH configuration', () => {
+    const service = catalog();
+    const machine = service.addMachine({ name: 'Home', host: 'home.internal', user: 'dev', sshConfigAlias: 'infra-home-inux' });
+    const projection = buildManagedSshProjection(createManagedRevisionSlot(service.getDocument()));
+    assert.equal(projection.entries[0].alias, 'infra-home-inux');
+    assert.doesNotMatch(renderManagedSshConfig(projection), /Host |HostName|ProxyCommand|IdentityFile/);
+    const { resolveManagedMachineTarget, managedSshArguments } = require('../../../out/projects/managedRemote/targetResolver');
+    assert.equal(resolveManagedMachineTarget(service.getCatalog(), machine.id).remoteAuthority, 'ssh-remote+infra-home-inux');
+    assert.deepEqual(managedSshArguments(machine), ['infra-home-inux']);
+});
+
+test('MANAGED-REMOTE-SSH-PROJECTION-001 rejects route injection and ambiguous connection modes', () => {
+    for (const route of ['-F/tmp/evil', 'host\nProxyCommand evil', '$(command)', 'host;evil', 'host:0', 'host:65536', 'none', '[invalid]', 'host,,other']) {
+        assert.throws(() => catalog().addMachine({ name: 'Home', host: 'home.internal', user: 'dev', proxyJump: route }));
+    }
+    assert.throws(() => catalog().addMachine({ name: 'Home', host: 'home.internal', user: 'dev', proxyJump: 'bastion', sshConfigAlias: 'home' }));
+});
+
+test('MANAGED-REMOTE-SSH-PROJECTION-001 validates a real OpenSSH jump configuration without connecting', {
+    skip: !require('node:fs').existsSync('/usr/bin/ssh'),
+}, async () => {
+    const service = catalog();
+    service.addMachine({ name: 'Home', host: 'home.internal', user: 'dev', proxyJump: 'ops@bastion.example.com:2222' });
+    const projection = buildManagedSshProjection(createManagedRevisionSlot(service.getDocument()));
+    const { ManagedSshProjectionValidator } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedSshValidator');
+    await new ManagedSshProjectionValidator().validate({
+        executable: '/usr/bin/ssh', aggregateConfigContent: renderManagedSshConfig(projection), entries: projection.entries,
+    });
+});

@@ -39,6 +39,10 @@ export interface ManagedSshMachine {
         host: string;
         user: string;
         port: number;
+        /** Ordered OpenSSH jump destinations; credentials remain local. */
+        proxyJump?: string;
+        /** Use this computer's existing SSH configuration without copying commands or keys. */
+        sshConfigAlias?: string;
     };
 }
 
@@ -109,6 +113,7 @@ export type ManagedCatalogConflictKind =
     | 'update-update'
     | 'delete-update'
     | 'duplicate-machine-name'
+    | 'duplicate-ssh-alias'
     | 'missing-parent'
     | 'missing-host'
     | 'duplicate-host';

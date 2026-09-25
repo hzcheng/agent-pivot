@@ -1,5 +1,7 @@
 'use strict';
 
+import { machineSshAlias } from './sshAlias';
+
 import {
     candidateKey,
     cloneManagedValue,
@@ -427,6 +429,19 @@ export function materializeManagedRemoteCatalog(
                     entityId: id,
                     relatedEntityIds: ids.filter(candidate => candidate !== id),
                 });
+            }
+        }
+    }
+    const machineIdsByAlias = new Map<string, string[]>();
+    for (const machine of machinesById.values()) {
+        const alias = machineSshAlias(machine).toLowerCase();
+        machineIdsByAlias.set(alias, [...(machineIdsByAlias.get(alias) || []), machine.id]);
+    }
+    for (const ids of machineIdsByAlias.values()) {
+        if (ids.length > 1) {
+            for (const id of ids.sort()) {
+                conflicts.push({ kind: 'duplicate-ssh-alias', entityType: 'machine', entityId: id,
+                    relatedEntityIds: ids.filter(candidate => candidate !== id) });
             }
         }
     }

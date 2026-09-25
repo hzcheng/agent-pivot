@@ -187,7 +187,8 @@ function normalizeDashboardSearchCatalog(value) {
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
         && Array.isArray(value.todos)
-        && (value.skills === undefined || Array.isArray(value.skills))) {
+        && (value.skills === undefined || Array.isArray(value.skills))
+        && (value.machines === undefined || Array.isArray(value.machines))) {
         return value;
     }
     return {

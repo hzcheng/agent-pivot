@@ -967,6 +967,15 @@ async function initializeDashboard(
             catalogActorId: managedRemoteCatalogActorId,
             prompts: new ManagedRemotePromptController(
                 new VscodeManagedRemoteWizardUi(vscode.window),
+                {
+                    inspect: alias => managedRemoteBridgeClient.inspectLegacySshTarget(alias),
+                    browse: (machineId, directoryId, path) => {
+                        if (!managedRemoteSnapshot.revisionId) { throw new Error('Save a Machine before browsing folders.'); }
+                        return managedRemoteBridgeClient.listFileTransferRemoteDirectory(
+                            managedRemoteSnapshot.revisionId, machineId, directoryId, path,
+                        );
+                    },
+                },
             ),
             refreshAuthoritative: async (_requestId, _operation, snapshot) => {
                 managedRemoteSnapshot = snapshot;

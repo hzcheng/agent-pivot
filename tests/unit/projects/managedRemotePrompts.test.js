@@ -125,3 +125,47 @@ test('MANAGED-REMOTE-MANAGEMENT-004 Project wizard keeps placement fixed and rev
     });
     assert.equal(ui.picks.filter(pick => pick.step === 7).length, 2);
 });
+
+test('MANAGED-REMOTE-MANAGEMENT-004 saves an open SSH project with one review and no repeated endpoint fields', async () => {
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: 'save' }]);
+    const inspected = [];
+    const controller = new ManagedRemotePromptController(ui, {
+        async inspect(alias) { inspected.push(alias); return { endpoint: { host: 'home.internal', user: 'dev', port: 22 } }; },
+    });
+    const result = await controller.adoptCurrentSshProject({ name: 'api', remotePath: '/work/api', sshAlias: 'infra-home-inux' });
+    assert.deepEqual(inspected, ['infra-home-inux']);
+    assert.equal(ui.inputs.length, 0);
+    assert.equal(result.sshConfigAlias, 'infra-home-inux');
+    assert.match(ui.picks[0].items[0].detail, /\/work\/api/);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-004 browses remote folders and defaults the saved project name', async () => {
+    const ui = new ScriptedWizardUi([
+        { action: 'accept', value: 'folder-id' },
+        { action: 'accept', value: 'save' },
+        { action: 'accept', value: 'api' },
+    ]);
+    const calls = [];
+    const controller = new ManagedRemotePromptController(ui, {
+        async browse(machineId, directoryId) {
+            calls.push([machineId, directoryId]);
+            return { displayPath: directoryId ? '/work/api' : '/work', entries: directoryId ? [] : [{ id: 'folder-id', name: 'api', kind: 'directory' }] };
+        },
+    });
+    const result = await controller.addProject({ id: 'home', name: 'Home' }, [{ id: 'host:home', kind: 'host' }]);
+    assert.deepEqual(calls, [['home', undefined], ['home', 'folder-id']]);
+    assert.equal(ui.inputs[0].value, 'api');
+    assert.deepEqual(result, { environmentId: 'host:home', name: 'api', remotePath: '/work/api' });
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-004 failed browsing allows a manual path without losing placement', async () => {
+    const ui = new ScriptedWizardUi([
+        { action: 'accept', value: 'manual' },
+        { action: 'accept', value: '/work/api' },
+        { action: 'accept', value: 'api' },
+    ]);
+    const controller = new ManagedRemotePromptController(ui, { async browse() { throw new Error('Authenticate the jump host first.'); } });
+    const result = await controller.addProject({ id: 'home', name: 'Home' }, [{ id: 'host:home', kind: 'host' }]);
+    assert.equal(result.environmentId, 'host:home');
+    assert.match(ui.picks[0].items[0].detail, /Authenticate/);
+});

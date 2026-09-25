@@ -33,12 +33,14 @@ function model() {
     };
 }
 
-test('MANAGED-REMOTE-MANAGEMENT-003 renders Save Current Project and no hand-authored Project creation action', () => {
+test('MANAGED-REMOTE-MANAGEMENT-003 renders Save Current Project and remote folder browsing', () => {
     const html = renderManagedRemoteProjectsPanel(model());
     assert.match(html, /data-managed-operation="addMachine"/);
     assert.doesNotMatch(html, /beginMigration|>Migrate</u);
     assert.match(html, /data-action="save-current-project"/);
-    assert.doesNotMatch(html, /data-managed-operation="addProject"/);
+    assert.match(html, /data-managed-operation="addProject"/);
+    assert.match(html, /data-managed-operation="importMachine"/);
+    assert.doesNotMatch(html, /type="search"/);
     assert.match(html, /data-managed-operation="editMachine"/);
     assert.match(html, /data-action="show-edit-machine-form" data-managed-target-id="machine:build"/u);
     assert.match(html, /Changing this connection affects 1 Project\./u);

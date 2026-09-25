@@ -215,7 +215,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 FILE-TRANSFER-LOCAL-DISPLAY-001 mints opaqu
     assert.equal(selected.status, 'ok');
     assert.equal(coordinatorCreates, 0);
     assert.equal(selected.value.label, path.basename(root));
-    assert.equal(selected.value.displayPath, root);
+    assert.equal(selected.value.displayPath, fs.realpathSync(root));
     assert.deepEqual(selected.value.entries.map(entry => [entry.name, entry.kind]), [
         ['folder', 'directory'], ['notes.txt', 'file'],
     ]);
@@ -229,7 +229,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 FILE-TRANSFER-LOCAL-DISPLAY-001 mints opaqu
         },
     });
     assert.equal(listed.status, 'ok');
-    assert.equal(listed.value.displayPath, root);
+    assert.equal(listed.value.displayPath, fs.realpathSync(root));
     const rejected = await controller.execute({
         ...request('listFileTransferLocalDirectory'),
         fileTransfer: {
@@ -243,7 +243,7 @@ test('FILE-TRANSFER-LOCAL-BROWSE-001 FILE-TRANSFER-LOCAL-DISPLAY-001 mints opaqu
         fileTransfer: { kind: 'localRoot', rootId: selected.value.rootId, path: 'folder' },
     });
     assert.equal(byPath.status, 'ok');
-    assert.equal(byPath.value.displayPath, path.join(root, 'folder'));
+    assert.equal(byPath.value.displayPath, fs.realpathSync(path.join(root, 'folder')));
 });
 
 test('FILE-TRANSFER-LOCAL-BROWSE-001 opens This Computer at the local home directory without invoking a picker', async t => {
@@ -701,4 +701,37 @@ test('FILE-TRANSFER-COPY-004 stops active relay processes when the UI Bridge dis
     controller.dispose();
     assert.equal(active.cancelled, true);
     assert.equal(killed, 1);
+});
+
+test('MANAGED-REMOTE-NAVIGATION-001 validates native SSH references on this computer before opening', async () => {
+    const catalog = ManagedRemoteCatalogService.create('native', prefix => `${prefix}:native`);
+    const machine = catalog.addMachine({ name: 'Home', host: 'home.internal', user: 'dev', sshConfigAlias: 'infra-home-inux' });
+    const slot = createManagedRevisionSlot(catalog.getDocument());
+    const envelope = createEmptyManagedCatalogEnvelope('envelope');
+    const version = createCausalVersion(envelope.causalContext, 'envelope');
+    envelope.authority = createVersionedCandidates({ lifecycle: 'active', active: slot }, version);
+    envelope.causalContext = joinVersionVectors(envelope.causalContext, vectorIncludingVersion(version));
+    const opened = [];
+    let endpoint;
+    const controller = new ManagedRemoteBridgeController({ readManagedCatalogEnvelope: () => envelope }, {
+        async create() { return { getExecutable: () => '/usr/bin/ssh', getActiveConfigPath: () => '/custom/config' }; },
+    }, 'session-12345678', {
+        async inspectLegacySshTarget(executable, config, alias) {
+            assert.equal(config, '/custom/config');
+            assert.equal(alias, 'infra-home-inux');
+            return { status: 'needsInput', endpoint };
+        },
+        openRemoteWindow: authority => opened.push(authority),
+    }, { async ensureReady() { throw new Error('Native aliases must not depend on generated SSH config.'); } });
+    const action = { ...request('openManagedMachine', slot.revisionId), targetId: machine.id };
+    const unavailable = await controller.execute(action);
+    assert.equal(unavailable.status, 'failed');
+    assert.match(unavailable.message, /Configure SSH alias/);
+    assert.equal(opened.length, 0);
+    endpoint = { host: 'home.internal', user: 'dev', port: 22 };
+    assert.equal((await controller.execute(action)).status, 'ok');
+    assert.deepEqual(opened, ['ssh-remote+infra-home-inux']);
+    endpoint.host = 'wrong.internal';
+    assert.equal((await controller.execute(action)).status, 'failed');
+    assert.equal(opened.length, 1);
 });

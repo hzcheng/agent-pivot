@@ -1,6 +1,7 @@
 'use strict';
 
 import { createHash, randomBytes } from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 import { ChildProcess, spawn } from 'child_process';
 import { constants, Stats } from 'fs';
 import { access, FileHandle, lstat, mkdir, open, opendir, realpath, stat } from 'fs/promises';
@@ -24,7 +25,7 @@ import {
     MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
     parseManagedRemoteBridgeRequest,
 } from '../../../src/projects/managedRemote/bridgeProtocol';
-import { ManagedRevisionSlot } from '../../../src/projects/managedRemote/types';
+import { ManagedRevisionSlot, ManagedSshMachine } from '../../../src/projects/managedRemote/types';
 import { materializeManagedRemoteCatalog } from '../../../src/projects/managedRemote/merge';
 import {
     managedSshArguments,
@@ -33,6 +34,14 @@ import {
     resolveManagedProjectTarget,
 } from '../../../src/projects/managedRemote/targetResolver';
 import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
+
+// Each asynchronous operation keeps the UI host's active SSH config, including
+// concurrent transfers. No process-global mutable config or remote-host paths.
+const sshConfigContext = new AsyncLocalStorage<string | undefined>();
+function activeSshConfigArguments(): string[] {
+    const config = sshConfigContext.getStore();
+    return config ? ['-F', config] : [];
+}
 
 export interface ManagedRemoteBridgeCatalogReader {
     readManagedCatalogEnvelope(): unknown;
@@ -811,6 +820,7 @@ function copyFileTransferEntry(
 ): Promise<void> {
     const executable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'scp.exe' : 'scp');
     const args = [
+        ...activeSshConfigArguments(),
         ...(recursive ? ['-r'] : []),
         // OpenSSH's -3 mode relays both remote streams through this UI Bridge
         // process. It neither asks the Managed Machines to reach each other
@@ -879,6 +889,7 @@ function quoteRemoteShellArgument(value: string): string {
 
 function fileTransferSshOptions(): string[] {
     return [
+        ...activeSshConfigArguments(),
         '-o', 'BatchMode=yes',
         '-o', 'ConnectTimeout=20',
         '-o', 'ServerAliveInterval=15',
@@ -1077,6 +1088,23 @@ export class ManagedRemoteBridgeController {
     ) {
     }
 
+    private async validateReferencedConnection(
+        coordinator: ManagedSshConsentCoordinator,
+        machine: ManagedSshMachine,
+    ): Promise<void> {
+        const alias = machine.connection.sshConfigAlias;
+        if (!alias) { return; }
+        const inspection = await this.localActions?.inspectLegacySshTarget(
+            coordinator.getExecutable(), coordinator.getActiveConfigPath(), alias,
+        ) as { status?: string; endpoint?: { host: string; user: string; port: number } } | undefined;
+        const endpoint = inspection?.endpoint;
+        if (inspection?.status === 'unsupported' || !endpoint
+            || endpoint.host.toLowerCase() !== machine.connection.host.toLowerCase()
+            || endpoint.user !== machine.connection.user || endpoint.port !== machine.connection.port) {
+            throw new Error(`Configure SSH alias "${alias}" on this computer to match ${machine.name}, or import its updated connection. No keys or SSH commands are synced.`);
+        }
+    }
+
     dispose(): void {
         for (const active of this.activeFileTransferCopies.values()) {
             active.cancelled = true;
@@ -1087,7 +1115,11 @@ export class ManagedRemoteBridgeController {
         }
     }
 
-    async execute(raw: unknown): Promise<ManagedRemoteBridgeResponse> {
+    execute(raw: unknown): Promise<ManagedRemoteBridgeResponse> {
+        return sshConfigContext.run(undefined, () => this.executeInContext(raw));
+    }
+
+    private async executeInContext(raw: unknown): Promise<ManagedRemoteBridgeResponse> {
         const request = parseManagedRemoteBridgeRequest(raw);
         if (!request) {
             return response('invalid-request', 'failed', 'Invalid Managed Remote bridge request.');
@@ -1123,6 +1155,25 @@ export class ManagedRemoteBridgeController {
                 }
             }
             const coordinator = await this.coordinators.create();
+            sshConfigContext.enterWith(coordinator.getActiveConfigPath?.());
+            if (request.expectedRevisionId && !['reconcile', 'recover'].includes(request.operation)) {
+                const view = materializeManagedRemoteCatalog(this.readExpectedSlot(request).document);
+                const ids = new Set<string>();
+                if (request.targetId) {
+                    const project = view.projects.find(value => value.id === request.targetId);
+                    const environment = view.environments.find(value => value.id === (project?.environmentId || request.targetId));
+                    ids.add(environment?.machineId || request.targetId);
+                }
+                if (request.operation === 'copyFileTransferEntries' || request.operation === 'preflightFileTransfer') {
+                    const plan = request.fileTransfer as FileTransferCopyRequest;
+                    for (const endpoint of [plan.source, plan.destination]) {
+                        if (endpoint.kind === 'managedMachine') { ids.add(endpoint.machineId); }
+                    }
+                }
+                for (const machine of view.machines.filter(value => ids.has(value.id))) {
+                    await this.validateReferencedConnection(coordinator, machine);
+                }
+            }
             if (request.operation === 'listFileTransferRemoteDirectory') {
                 const remoteDirectory = request.fileTransfer as FileTransferRemoteDirectoryRequest;
                 const slot = this.readExpectedSlot(request);
@@ -1191,7 +1242,7 @@ export class ManagedRemoteBridgeController {
                 const view = materializeManagedRemoteCatalog(slot.document);
                 if (request.operation === 'openManagedMachine') {
                     const target = resolveManagedMachineTarget(view, request.targetId);
-                    await this.ensureProjectionReady(slot);
+                    if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
                     await this.localActions.openRemoteWindow(target.remoteAuthority);
                     return response(request.requestId, 'ok', {
                         targetId: request.targetId,
@@ -1200,7 +1251,7 @@ export class ManagedRemoteBridgeController {
                     });
                 } else if (request.operation === 'openManagedEnvironment') {
                     const target = resolveManagedEnvironmentTarget(view, request.targetId);
-                    await this.ensureProjectionReady(slot);
+                    if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
                     await this.localActions.openRemoteWindow(
                         authorityFromRemoteUri(target.remoteUri),
                     );
@@ -1211,7 +1262,7 @@ export class ManagedRemoteBridgeController {
                     });
                 } else {
                     const target = resolveManagedProjectTarget(view, request.targetId);
-                    await this.ensureProjectionReady(slot);
+                    if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
                     await this.localActions.openRemoteFolder(target.remoteUri);
                     return response(request.requestId, 'ok', {
                         targetId: request.targetId,
@@ -1227,7 +1278,10 @@ export class ManagedRemoteBridgeController {
                 }
                 const view = materializeManagedRemoteCatalog(slot.document);
                 const target = resolveManagedMachineTarget(view, request.targetId);
-                const args = managedSshArguments(target.machine);
+                const args = [
+                    ...(target.machine.connection.proxyJump || target.machine.connection.sshConfigAlias ? activeSshConfigArguments() : []),
+                    ...managedSshArguments(target.machine),
+                ];
                 if (request.operation === 'openLocalSshTerminal') {
                     await this.localActions.openTerminal({
                         name: `SSH: ${target.machine.name}`,
@@ -1419,7 +1473,7 @@ export class ManagedRemoteBridgeController {
     ): Promise<FileTransferLocalRootResponse> {
         const view = materializeManagedRemoteCatalog(slot.document);
         const target = resolveManagedMachineTarget(view, machineId);
-        await this.ensureProjectionReady(slot);
+        if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
         let resolvedDirectoryId = directoryId;
         let directory: FileTransferRemoteDirectory | undefined;
         if (navigationPath !== undefined) {
@@ -1896,7 +1950,7 @@ export class ManagedRemoteBridgeController {
         const target = resolveManagedMachineTarget(
             materializeManagedRemoteCatalog(slot.document), endpoint.machineId,
         );
-        await this.ensureProjectionReady(slot);
+        if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
         const entries = entryIds.map(id => ({ id, entry: this.fileTransferRemoteEntries.get(id) }));
         if (entries.some(({ entry }) => !entry || entry.machineId !== endpoint.machineId
             || entry.directoryId !== endpoint.directoryId
@@ -1935,7 +1989,7 @@ export class ManagedRemoteBridgeController {
         const target = resolveManagedMachineTarget(
             materializeManagedRemoteCatalog(slot.document), endpoint.machineId,
         );
-        await this.ensureProjectionReady(slot);
+        if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
         return { kind: 'managedMachine', alias: target.alias, path: directory.path };
     }
 

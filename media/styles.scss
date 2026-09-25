@@ -8775,3 +8775,24 @@ body.steward-sidebar .prompt-tree .prompt-item {
         color: Highlight;
     }
 }
+
+// Remote connection actions remain readable in the narrow Projects panel.
+.machine-text-action { flex: 0 0 auto; width: auto; min-width: 26px; gap: 4px; padding: 4px 6px; font: inherit; }
+.machine-text-action svg { flex: 0 0 14px; width: 14px; height: 14px; }
+.machine-connection-route { margin: 0 8px 5px 28px; color: var(--vscode-descriptionForeground); font-size: 11px; overflow-wrap: anywhere; }
+.managed-connection-options { min-width: 0; }
+.managed-connection-options summary { cursor: pointer; margin-bottom: 7px; }
+.managed-connection-help { font-size: 11px; line-height: 1.5; color: var(--vscode-descriptionForeground); }
+.machine-host-environment > .machine-row-line { display: none; }
+.machine-host-environment > .machine-project-list { margin-left: 0; }
+.machine-projects-toolbar-actions { flex-wrap: wrap; min-width: 0; flex-shrink: 1; justify-content: flex-end; }
+.machine-projects-toolbar { flex-wrap: wrap; }
+@media (max-width: 360px) {
+    .machine-row > .machine-row-line { flex-wrap: wrap; }
+    .machine-row > .machine-row-line > .machine-row-primary { flex-basis: 100%; }
+    .machine-row > .machine-row-line > .machine-row-actions { margin-left: auto; }
+    .machine-favorite-row > .machine-row-line { flex-wrap: wrap; }
+    .machine-favorite-row .machine-project-primary { order: 1; flex-basis: calc(100% - 55px); }
+    .machine-favorite-row .machine-project-actions { order: 2; }
+    .machine-favorite-row .machine-project-context { order: 3; display: block; flex: 1 1 100%; max-width: none; margin: 0 4px 5px 16px; white-space: normal; overflow-wrap: anywhere; }
+}

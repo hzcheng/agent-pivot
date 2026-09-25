@@ -119,7 +119,8 @@ function assertEffectiveTarget(
     const mismatch = !hostEquals(config.get('hostname'), entry.host) ? 'hostname'
         : config.get('user') !== entry.user ? 'user'
             : config.get('port') !== String(entry.port) ? 'port'
-                : !isDisabledRoute(config.get('proxyjump')) ? 'proxyjump'
+                : (entry.proxyJump ? config.get('proxyjump') !== entry.proxyJump
+                    : !isDisabledRoute(config.get('proxyjump'))) ? 'proxyjump'
                     : !isDisabledRoute(config.get('proxycommand')) ? 'proxycommand'
                         : config.get('permitlocalcommand') !== 'no' ? 'permitlocalcommand'
                             : hasUnsafeInheritedBehavior(config) ? 'inherited-behavior'
@@ -153,7 +154,7 @@ export class ManagedSshProjectionValidator implements ManagedSshProjectionValida
         const aggregatePath = path.join(temporaryRoot, 'config');
         try {
             fs.writeFileSync(aggregatePath, input.aggregateConfigContent, { mode: 0o600 });
-            await Promise.all(input.entries.map(async entry => {
+            await Promise.all(input.entries.filter(entry => !entry.sshConfigAlias).map(async entry => {
                 const aggregate = await this.runner.run(
                     input.executable,
                     ['-F', aggregatePath, '-G', entry.alias],

@@ -61,7 +61,7 @@ function environmentMatchesRemoteAuthority(
     if (environment.kind === 'host') {
         const openedAlias = authority.startsWith('ssh-remote+')
             ? authority.slice('ssh-remote+'.length) : '';
-        return aliasMatches(openedAlias, machine)
+        return openedAlias === machine.connection.sshConfigAlias || aliasMatches(openedAlias, machine)
             || machine.sourceSshAliases?.includes(openedAlias) === true;
     }
     const anchor = environment.devContainerAnchor;
@@ -73,7 +73,7 @@ function environmentMatchesRemoteAuthority(
     return Boolean(parsed
         && parsed.anchor.sourceKind === anchor.sourceKind
         && parsed.anchor.sourceLocator === anchor.sourceLocator
-        && aliasMatches(parsed.outerSshAuthority, machine));
+        && (parsed.outerSshAuthority === machine.connection.sshConfigAlias || aliasMatches(parsed.outerSshAuthority, machine)));
 }
 
 /**
@@ -150,7 +150,8 @@ export function findManagedDevContainerSaveTarget(
     const parsed = parseManagedDevContainerProjectUri(uri.toString());
     if (!parsed) { return null; }
     const machines = snapshot.catalog.machines.filter(machine =>
-        isManagedSshAliasForMachine(parsed.outerSshAuthority, machine.id));
+        parsed.outerSshAuthority === machine.connection.sshConfigAlias
+        || isManagedSshAliasForMachine(parsed.outerSshAuthority, machine.id));
     if (machines.length !== 1) { return null; }
     const remotePath = managedRemotePathForWorkspace(uri);
     return remotePath ? {

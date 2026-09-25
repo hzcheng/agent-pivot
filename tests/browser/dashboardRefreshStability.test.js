@@ -523,3 +523,22 @@ test('WEBVIEW-PROJECTS-PANEL-SCROLL-001 clamps the saved raw position when the s
     assert.ok(restored.maxScrollTop > 0);
     assert.equal(restored.scrollTop, restored.maxScrollTop);
 });
+
+test('WEBVIEW-DASHBOARD-SEARCH-001 connects a saved Machine from the existing dashboard search', async t => {
+    const page = await openDashboardPage(t);
+    await page.evaluate(nextCatalog => {
+        window.__dashboard.replaceSearchCatalog(nextCatalog);
+        window.__dashboard.setSearchQuery('infra-home');
+    }, {
+        ...catalog(), machines: [{
+            key: 'machine:home', identity: 'machine:home', searchText: 'infra-home-inux',
+            projectId: 'machine:home', name: 'infra-home-inux', description: 'dev@home.internal',
+            action: 'open-managed-machine', expectedRevisionId: 'revision:managed', groupLabels: [],
+        }],
+    });
+    await page.locator('.dashboard-search-result').click();
+    const message = await page.evaluate(() => window.__messages.at(-1));
+    assert.equal(message.action, 'openMachine');
+    assert.equal(message.targetId, 'machine:home');
+    assert.equal(message.expectedRevisionId, 'revision:managed');
+});

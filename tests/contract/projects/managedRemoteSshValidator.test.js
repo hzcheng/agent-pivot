@@ -147,3 +147,18 @@ test('MANAGED-REMOTE-SSH-VALIDATION-001 names a failing exit with no diagnostic 
         /OpenSSH exited 1 without a diagnostic/u,
     );
 });
+
+test('MANAGED-REMOTE-SSH-VALIDATION-001 permits only the explicitly saved jump route', async () => {
+    const value = input();
+    value.entries[0].proxyJump = 'ops@bastion:2222';
+    const runner = new FakeRunner([
+        { exitCode: 0, stdout: 'OpenSSH_9.6', stderr: '' },
+        { exitCode: 0, stdout: output({ proxyjump: 'ops@bastion:2222' }), stderr: '' },
+    ]);
+    await new ManagedSshProjectionValidator(runner).validate(value);
+    const drift = new FakeRunner([
+        { exitCode: 0, stdout: 'OpenSSH_9.6', stderr: '' },
+        { exitCode: 0, stdout: output({ proxyjump: 'attacker' }), stderr: '' },
+    ]);
+    await assert.rejects(new ManagedSshProjectionValidator(drift).validate(value), /proxyjump/);
+});

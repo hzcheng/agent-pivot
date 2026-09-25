@@ -45,7 +45,7 @@ export interface DashboardSearchProjectItem {
     projectId: string;
     name: string;
     description: string;
-    action: 'open-saved-project' | 'open-managed-project';
+    action: 'open-saved-project' | 'open-managed-project' | 'open-managed-machine';
     expectedRevisionId?: string;
     environmentLabel?: string;
     groupLabels: string[];
@@ -69,6 +69,7 @@ export interface DashboardWorkspaceSearchCatalog {
     worktrees: DashboardWorkspaceSearchWorktreeItem[];
     openWorkspaces: DashboardSearchWorkspaceItem[];
     savedProjects: DashboardSearchProjectItem[];
+    machines?: DashboardSearchProjectItem[];
     /** Kept empty for catalog v3 compatibility; TODO results are no longer rendered. */
     todos: unknown[];
     skills?: DashboardSearchSkillItem[];
@@ -196,6 +197,8 @@ function buildManagedProjectSearchItems(
                 project.remotePath,
                 ...normalizeProjectTags(project.tags),
                 machine.name,
+                machine.connection.sshConfigAlias,
+                machine.connection.proxyJump,
                 endpoint,
                 environment.name,
             ),
@@ -341,6 +344,18 @@ export function buildWorkspaceDashboardSearchCatalog(
         action: 'reveal-skill' as const,
     }));
 
+    const machines: DashboardSearchProjectItem[] = managedRemoteSnapshot?.lifecycle === 'active'
+        && managedRemoteSnapshot.revisionId ? managedRemoteSnapshot.catalog.machines.map(machine => ({
+            key: `machine:${machine.id}`, identity: `machine:${machine.id}`, projectId: machine.id,
+            name: machine.name,
+            description: `${machine.connection.user}@${machine.connection.host}:${machine.connection.port}`,
+            searchText: searchable(machine.name, machine.connection.host, machine.connection.user,
+                machine.connection.sshConfigAlias, machine.connection.proxyJump),
+            action: 'open-managed-machine', expectedRevisionId: managedRemoteSnapshot.revisionId!,
+            environmentLabel: machine.connection.sshConfigAlias ? `SSH config: ${machine.connection.sshConfigAlias}`
+                : machine.connection.proxyJump ? `Via ${machine.connection.proxyJump}` : 'Direct SSH',
+            groupLabels: [],
+        })) : [];
     return {
         version: 3,
         sessions,
@@ -349,6 +364,7 @@ export function buildWorkspaceDashboardSearchCatalog(
         savedProjects,
         todos: [],
         ...(skillItems.length ? { skills: skillItems } : {}),
+        ...(machines.length ? { machines } : {}),
     };
 }
 

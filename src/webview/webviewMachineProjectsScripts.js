@@ -74,7 +74,10 @@ function createMachineProjectsUi() {
             }
         });
         panel.querySelectorAll('[data-machine-row]').forEach(function (machine) {
-            var zeroMatches = filtering
+            var machineName = (machine.getAttribute('data-machine-search') || machine.textContent || '').toLowerCase();
+            var machineMatches = !selectedTags.size && Boolean(textQuery) && machineName.indexOf(textQuery) !== -1;
+            if (machineMatches) matchedMachines.add(machine.getAttribute('data-machine-id'));
+            var zeroMatches = filtering && !machineMatches
                 && !matchedMachines.has(machine.getAttribute('data-machine-id'));
             machine.toggleAttribute('data-zero-matches', zeroMatches);
             applyFilterCollapse(machine, zeroMatches);
@@ -631,7 +634,16 @@ function createMachineProjectsUi() {
             user: String(form.elements.user.value || '').trim(),
             port: Number(form.elements.port.value),
         };
+        var proxyJump = form.elements.proxyJump ? String(form.elements.proxyJump.value || '').trim() : '';
+        var sshConfigAlias = form.elements.sshConfigAlias ? String(form.elements.sshConfigAlias.value || '').trim() : '';
+        if (form.elements.proxyJump) values.proxyJump = proxyJump || null;
+        if (form.elements.sshConfigAlias) values.sshConfigAlias = sshConfigAlias || null;
         var error = form.querySelector('[data-managed-machine-form-error]');
+        if (proxyJump && sshConfigAlias) {
+            if (error) { error.textContent = 'Choose jump hosts or an existing SSH alias, not both.'; error.hidden = false; }
+            form.elements.sshConfigAlias.focus();
+            return;
+        }
         var invalidField = !isValidMachineName(values.name) ? 'name'
             : !isValidHost(values.host) ? 'host'
             : !isValidSshUser(values.user) ? 'user'
@@ -676,6 +688,7 @@ function createMachineProjectsUi() {
             projectFormSource: form.getAttribute('data-managed-project-form-source')
                 || form.getAttribute('data-local-project-form-source') || '',
             values: values,
+            connectionOptionsOpen: Boolean(form.querySelector('.managed-connection-options[open]')),
             focusField: activeElement && form.contains(activeElement)
                 ? activeElement.getAttribute('name') || '' : '',
         };
@@ -695,6 +708,8 @@ function createMachineProjectsUi() {
             if (form.elements[field] && typeof state.values[field] === 'string') form.elements[field].value = state.values[field];
         });
         form.hidden = false;
+        var connectionOptions = form.querySelector('.managed-connection-options');
+        if (connectionOptions) connectionOptions.open = Boolean(state.connectionOptionsOpen);
         if (state.operation === 'editLocalProject') {
             var hasPendingLocalSave = Array.from(pendingLocalProjectEdits.values()).some(function (pending) {
                 return pending.projectId === state.targetId

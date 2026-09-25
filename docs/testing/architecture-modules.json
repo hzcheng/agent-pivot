@@ -745,6 +745,7 @@
                 "src/projects/managedRemote/merge.ts",
                 "src/projects/managedRemote/productionStore.ts",
                 "src/projects/managedRemote/sshConfigProjection.ts",
+                "src/projects/managedRemote/sshAlias.ts",
                 "src/projects/managedRemote/store.ts",
                 "src/projects/managedRemote/targetResolver.ts",
                 "src/projects/managedRemote/types.ts",

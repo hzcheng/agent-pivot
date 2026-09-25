@@ -32,15 +32,28 @@ function renderTagControls(tags: string[]): string {
     </div>`;
 }
 
+function renderConnectionRouteFields(machine?: ManagedRemoteMachineViewModel): string {
+    return `<details class="managed-connection-options"${machine?.connection.proxyJump || machine?.connection.sshConfigAlias ? ' open' : ''}>
+        <summary>Jump host / existing SSH configuration</summary>
+        <div class="managed-machine-form-fields">
+            <label>Jump hosts<input name="proxyJump" autocomplete="off" maxlength="2048" value="${escapeAttribute(machine?.connection.proxyJump || '')}" placeholder="user@bastion.example.com:22"></label>
+            <span class="managed-connection-help">Optional. Separate multiple hops with commas. Use full addresses to share this route across computers.</span>
+            <label>Or use an existing SSH alias<input name="sshConfigAlias" autocomplete="off" maxlength="256" value="${escapeAttribute(machine?.connection.sshConfigAlias || '')}" placeholder="infra-home-inux"></label>
+            <span class="managed-connection-help">Uses this computer’s SSH config, including ProxyCommand and keys. Other computers need the same alias. Leave both fields empty for a direct connection.</span>
+        </div>
+    </details>`;
+}
+
 function renderAddMachineForm(): string {
     return `<form id="managed-machine-form" class="managed-machine-form" data-managed-machine-form data-managed-machine-form-operation="addMachine" hidden>
-        <div class="managed-machine-form-heading"><strong>Add Machine</strong><span>Connection details are saved to your VS Code User settings.</span></div>
+        <div class="managed-machine-form-heading"><strong>Add Machine</strong><span>Connection details are saved to your sync settings. Keys stay on this computer.</span></div>
         <div class="managed-machine-form-fields">
             <label>Machine name<input name="name" autocomplete="off" required maxlength="128" placeholder="Build server"></label>
             <label>Host<input name="host" autocomplete="off" required maxlength="253" placeholder="build.example.com"></label>
             <label>SSH user<input name="user" autocomplete="username" required maxlength="256" placeholder="developer"></label>
             <label>Port<input name="port" type="number" inputmode="numeric" required min="1" max="65535" value="22"></label>
         </div>
+        ${renderConnectionRouteFields()}
         <p id="managed-add-machine-form-error" class="managed-machine-form-error" data-managed-machine-form-error role="alert" hidden></p>
         <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-managed-machine-form">Cancel</button><button type="submit" class="managed-machine-form-submit" data-managed-operation="addMachine">Add Machine</button></div>
     </form>`;
@@ -56,6 +69,7 @@ function renderEditMachineForm(machine: ManagedRemoteMachineViewModel): string {
             <label>SSH user<input name="user" autocomplete="username" required maxlength="256" value="${escapeAttribute(machine.connection.user)}"></label>
             <label>Port<input name="port" type="number" inputmode="numeric" required min="1" max="65535" value="${machine.connection.port}"></label>
         </div>
+        ${renderConnectionRouteFields(machine)}
         <p id="managed-edit-machine-form-error-${escapeAttribute(machine.id)}" class="managed-machine-form-error" data-managed-machine-form-error role="alert" hidden></p>
         <div class="managed-machine-form-actions"><button type="button" class="machine-clear-filters" data-action="cancel-managed-machine-form">Cancel</button><button type="submit" class="managed-machine-form-submit" data-managed-operation="editMachine" data-managed-target-id="${escapeAttribute(machine.id)}">Save changes</button></div>
     </form>`;
@@ -106,8 +120,12 @@ function renderProject(
 
 function renderEnvironment(
     environment: ManagedRemoteEnvironmentViewModel,
+    flatten = false,
 ): string {
     const childrenId = `managed-environment-children-${environment.id}`;
+    if (flatten && environment.kind === 'host') {
+        return `<li class="machine-environment-row machine-host-environment" data-machine-environment-row data-environment-id="${escapeAttribute(environment.id)}" data-environment-kind="host"><ul id="${childrenId}" class="machine-project-list">${environment.projects.map(project => renderProject(project, false)).join('\n')}</ul></li>`;
+    }
     const openName = `Open ${environment.name} on its Machine in a new window`;
     return `<li class="machine-environment-row${environment.conflict ? ' has-conflict' : ''}" data-machine-environment-row data-environment-id="${escapeAttribute(environment.id)}" data-environment-kind="${escapeAttribute(environment.kind)}">
         <div class="machine-row-line">
@@ -128,7 +146,8 @@ function renderMachine(
         <div class="machine-row-line">
             <button type="button" class="machine-row-primary machine-disclosure" data-machine-disclosure="machine" aria-expanded="true" aria-controls="${childrenId}" aria-label="Collapse ${escapeAttribute(`${machine.name}, ${machine.endpoint}`)}" title="${escapeAttribute(machineTitle)}"><span class="machine-chevron" aria-hidden="true">${Icons.collapse}</span><span class="machine-row-icon machine-computer-icon" aria-hidden="true">${Icons.computer}</span><span class="machine-row-name">${escapeAttribute(machine.name)}</span></button>
             <div class="machine-row-actions">
-                <button type="button" class="machine-pointer-action machine-primary-action" data-managed-client-action="openMachine" data-managed-target-id="${escapeAttribute(machine.id)}" aria-label="${escapeAttribute(machine.openable ? openName : `${openName}. Unavailable: ${machine.unavailableReason}`)}" title="${escapeAttribute(openName)}"${machine.openable ? '' : ' disabled'}>${Icons.openNewWindow}</button>
+                <button type="button" class="machine-pointer-action machine-primary-action machine-text-action" data-managed-client-action="openMachine" data-managed-target-id="${escapeAttribute(machine.id)}" aria-label="${escapeAttribute(machine.openable ? openName : `${openName}. Unavailable: ${machine.unavailableReason}`)}" title="${escapeAttribute(openName)}"${machine.openable ? '' : ' disabled'}>${Icons.openNewWindow}<span>Connect</span></button>
+                <button type="button" class="machine-pointer-action machine-text-action" ${operationAttributes('addProject', machine.id)} aria-label="Browse folders on ${escapeAttribute(machine.name)} and save a Project" title="Browse folders and save a Project"${machine.openable ? '' : ' disabled'}>${Icons.folder}<span>Folders</span></button>
                 <div class="machine-project-menu-shell"><button type="button" class="machine-pointer-action machine-more-action" data-action="toggle-machine-menu" aria-label="More actions for ${escapeAttribute(`${machine.name}, ${machine.endpoint}`)}" title="More actions" aria-haspopup="menu" aria-expanded="false">${Icons.moreActions}</button><div class="machine-project-menu" data-machine-project-menu role="menu" hidden>
                     <button type="button" role="menuitem" tabindex="-1" data-action="show-edit-machine-form" data-managed-target-id="${escapeAttribute(machine.id)}">Edit…</button>
                     ${machine.conflict ? `<button type="button" role="menuitem" tabindex="-1" ${operationAttributes('resolveMachineConflict', machine.id)}>Review conflict…</button>` : ''}
@@ -140,9 +159,12 @@ function renderMachine(
                 </div></div>
             </div>
         </div>
+        <p class="machine-connection-route">${escapeAttribute(machine.connection.sshConfigAlias
+            ? `SSH config: ${machine.connection.sshConfigAlias} · set up on each computer`
+            : machine.connection.proxyJump ? `Via ${machine.connection.proxyJump}` : 'Direct SSH')} · ${escapeAttribute(machine.endpoint)}</p>
         ${renderEditMachineForm(machine)}
         ${machine.conflict ? '<div class="managed-remote-row-status">Connection conflict — Review</div>' : ''}
-        <ul id="${childrenId}" class="machine-environment-list">${machine.environments.map(environment => renderEnvironment(environment)).join('\n')}</ul>
+        <ul id="${childrenId}" class="machine-environment-list">${machine.environments.map(environment => renderEnvironment(environment, machine.environments.length === 1 && !environment.conflict)).join('\n')}</ul>
     </li>`;
 }
 
@@ -164,10 +186,10 @@ export function renderManagedRemoteProjectsPanel(
     return `<section class="machine-projects managed-remote-projects" data-machine-projects data-managed-remote-projects data-managed-revision-id="${escapeAttribute(revision)}" data-managed-lifecycle="${escapeAttribute(model.lifecycle)}" data-machine-project-count="${projectCount}">
         <div class="machine-projects-toolbar">
             <div class="machine-projects-summary" data-machine-projects-summary role="status" aria-live="polite">${projectCount} project${projectCount === 1 ? '' : 's'} on ${machineCount} machine${machineCount === 1 ? '' : 's'}</div>
-            <div class="machine-projects-toolbar-actions">${renderTagControls(tags)}${openFileTransfer}<button type="button" class="machine-toolbar-button" data-action="save-current-project" aria-label="Save Current Project" title="${canSaveCurrentProject ? 'Save Current Project' : 'Open a project before saving it'}"${canSaveCurrentProject ? '' : ' disabled'}>${Icons.save}</button><button type="button" class="machine-toolbar-button" data-action="show-add-machine-form" aria-expanded="false" aria-controls="managed-machine-form" aria-label="Add Machine" title="Add Machine">${Icons.add}</button></div>
+            <div class="machine-projects-toolbar-actions">${renderTagControls(tags)}${openFileTransfer}<button type="button" class="machine-toolbar-button machine-text-action" data-action="save-current-project" aria-label="Save Current Project" title="${canSaveCurrentProject ? 'Save Current Project' : 'Open a project before saving it'}"${canSaveCurrentProject ? '' : ' disabled'}>${Icons.save}<span>Save current</span></button><button type="button" class="machine-toolbar-button" data-action="show-add-machine-form" aria-expanded="false" aria-controls="managed-machine-form" aria-label="Add Machine" title="Add Machine">${Icons.add}</button><button type="button" class="machine-toolbar-button machine-text-action" ${operationAttributes('importMachine')} title="Import an existing SSH connection"><span>Import SSH…</span></button></div>
         </div>${renderAddMachineForm()}
         ${favoriteCount ? `<section class="machine-favorites" data-machine-favorites><h2 class="machine-section-heading"><button type="button" class="machine-disclosure" data-machine-disclosure="favorites" aria-expanded="true" aria-controls="managed-machine-favorites-list" aria-label="Collapse Favorites"><span class="machine-chevron" aria-hidden="true">${Icons.collapse}</span><span>FAVORITES</span><span class="machine-count">${favoriteCount}</span></button></h2><ul id="managed-machine-favorites-list" class="machine-favorite-list">${localModel.favorites.map(project => renderMachineProjectsProject(project, true)).join('\n')}${model.favorites.map(project => renderProject(project, true)).join('\n')}</ul></section>` : ''}
-        <section class="machine-projects-directory" aria-labelledby="managed-machine-projects-directory-title"><h2 id="managed-machine-projects-directory-title" class="machine-projects-visually-hidden">Machines</h2>${machineCount ? `<ul class="machine-projects-machines">${localModel.machines.map(renderMachineProjectsMachine).join('\n')}${model.machines.map(machine => renderMachine(machine)).join('\n')}</ul>` : '<p class="managed-remote-empty">No Projects or managed Machines yet.</p>'}</section>
+        <section class="machine-projects-directory" aria-labelledby="managed-machine-projects-directory-title"><h2 id="managed-machine-projects-directory-title" class="machine-projects-visually-hidden">Machines</h2>${machineCount ? `<ul class="machine-projects-machines">${localModel.machines.map(renderMachineProjectsMachine).join('\n')}${model.machines.map(machine => renderMachine(machine)).join('\n')}</ul>` : '<p class="managed-remote-empty">Import an SSH connection or add a Machine. Already working in a remote folder? Save current remembers it.</p>'}</section>
         <div class="machine-projects-announcer machine-projects-visually-hidden" data-machine-projects-announcer aria-live="polite"></div>
     </section>`;
 }

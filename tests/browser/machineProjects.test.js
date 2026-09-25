@@ -477,7 +477,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
     assert.equal(request.expectedRevisionId, `revision:${'a'.repeat(64)}`);
     assert.match(request.requestId, /^managed-/);
     assert.deepEqual(request.input, {
-        name: 'Build', host: 'build.example.com', user: 'dev', port: 22022,
+        name: 'Build', host: 'build.example.com', user: 'dev', port: 22022, proxyJump: null, sshConfigAlias: null,
     });
     assert.equal(await page.locator('[data-managed-operation="addMachine"]').isDisabled(), true);
     await page.keyboard.press('Escape');
@@ -592,7 +592,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus af
     assert.equal(request.operation, 'editMachine');
     assert.equal(request.targetId, 'machine:managed');
     assert.deepEqual(request.input, {
-        name: 'Build 2', host: 'next.example.com', user: 'ops', port: 22023,
+        name: 'Build 2', host: 'next.example.com', user: 'ops', port: 22023, proxyJump: null, sshConfigAlias: null,
     });
     assert.equal(await form.locator('button[type="submit"]').isDisabled(), true);
     await page.keyboard.press('Escape');
@@ -876,4 +876,48 @@ test('DASHBOARD-OVERFLOW-MENUS-001 keeps local and remote menus inside narrow an
             }
         }
     }
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 saves jump fields and retains their disclosure on refresh', async t => {
+    const page = await openPage(t, 320, managedMarkup('ready'));
+    await page.locator('[data-action="show-add-machine-form"]').click();
+    const form = page.locator('[data-managed-machine-form-operation="addMachine"]');
+    await form.locator('input[name="name"]').fill('Home');
+    await form.locator('input[name="host"]').fill('home.internal');
+    await form.locator('input[name="user"]').fill('dev');
+    await form.locator('summary').click();
+    await form.locator('input[name="proxyJump"]').fill('ops@bastion:2222');
+    const saved = await page.evaluate(() => window.machineUi.captureManagedMachineFormState());
+    assert.equal(saved.connectionOptionsOpen, true);
+    await page.evaluate(state => window.machineUi.restoreManagedMachineFormState(state), saved);
+    assert.equal(await form.locator('details').getAttribute('open'), '');
+    await form.evaluate(node => node.requestSubmit());
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.input.proxyJump, 'ops@bastion:2222');
+    assert.equal(request.input.sshConfigAlias, null);
+    assert.equal(await page.locator('input[type="search"]').count(), 0);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 import and folder actions use the existing correlated protocol', async t => {
+    const page = await openPage(t, 320, managedMarkup('ready'));
+    await page.locator('[data-managed-operation="importMachine"]').click();
+    assert.equal(await page.evaluate(() => window.messages.at(-1).operation), 'importMachine');
+    await page.locator('[data-managed-operation="addProject"]').click();
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.operation, 'addProject');
+    assert.equal(request.targetId, 'machine:managed');
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-003 keeps Connect and Folders labels separate at minimum width', async t => {
+    const page = await openPage(t, 260, managedMarkup('ready'));
+    const overlap = await page.locator('[data-managed-machine-row] > .machine-row-line .machine-text-action').evaluateAll(buttons => {
+        const rectangles = buttons.map(button => button.getBoundingClientRect());
+        return buttons.some((button, index) => {
+            const label = button.querySelector('span').getBoundingClientRect();
+            return label.right > rectangles[index].right + 1 || label.left < rectangles[index].left
+                || (index > 0 && rectangles[index].left < rectangles[index - 1].right);
+        });
+    });
+    assert.equal(overlap, false);
+    assert.equal(await page.locator('.machine-favorite-row .machine-project-context').isVisible(), true);
 });

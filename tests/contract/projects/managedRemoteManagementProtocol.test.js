@@ -139,3 +139,13 @@ test('MANAGED-REMOTE-MANAGEMENT-001 creates bounded correlated settlements', () 
         authoritativeRevisionId: `revision:${'b'.repeat(64)}`,
     });
 });
+
+test('MANAGED-REMOTE-MANAGEMENT-001 accepts syncable jump paths and explicit route removal', () => {
+    const base = { type: 'managed-remote-action', version: 1, requestId, operation: 'editMachine', expectedRevisionId: null, targetId: 'home' };
+    const endpoint = { name: 'Home', host: 'home.internal', user: 'dev', port: 22 };
+    assert.equal(parseManagedRemoteManagementRequest({ ...base, input: { ...endpoint, proxyJump: 'ops@bastion:22' } }).input.proxyJump, 'ops@bastion:22');
+    assert.equal(parseManagedRemoteManagementRequest({ ...base, input: { ...endpoint, proxyJump: null, sshConfigAlias: null } }).input.proxyJump, null);
+    assert.equal(parseManagedRemoteManagementRequest({ ...base, input: { ...endpoint, proxyJump: 'bastion', sshConfigAlias: 'home' } }), null);
+    assert.equal(parseManagedRemoteManagementRequest({ ...base, input: { ...endpoint, proxyJump: 123 } }), null);
+    assert.equal(parseManagedRemoteManagementRequest({ ...base, input: { ...endpoint, sshConfigAlias: '-F /tmp/evil' } }), null);
+});

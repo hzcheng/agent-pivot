@@ -9332,7 +9332,10 @@ function createMachineProjectsUi() {
             }
         });
         panel.querySelectorAll('[data-machine-row]').forEach(function (machine) {
-            var zeroMatches = filtering
+            var machineName = (machine.getAttribute('data-machine-search') || machine.textContent || '').toLowerCase();
+            var machineMatches = !selectedTags.size && Boolean(textQuery) && machineName.indexOf(textQuery) !== -1;
+            if (machineMatches) matchedMachines.add(machine.getAttribute('data-machine-id'));
+            var zeroMatches = filtering && !machineMatches
                 && !matchedMachines.has(machine.getAttribute('data-machine-id'));
             machine.toggleAttribute('data-zero-matches', zeroMatches);
             applyFilterCollapse(machine, zeroMatches);
@@ -9889,7 +9892,16 @@ function createMachineProjectsUi() {
             user: String(form.elements.user.value || '').trim(),
             port: Number(form.elements.port.value),
         };
+        var proxyJump = form.elements.proxyJump ? String(form.elements.proxyJump.value || '').trim() : '';
+        var sshConfigAlias = form.elements.sshConfigAlias ? String(form.elements.sshConfigAlias.value || '').trim() : '';
+        if (form.elements.proxyJump) values.proxyJump = proxyJump || null;
+        if (form.elements.sshConfigAlias) values.sshConfigAlias = sshConfigAlias || null;
         var error = form.querySelector('[data-managed-machine-form-error]');
+        if (proxyJump && sshConfigAlias) {
+            if (error) { error.textContent = 'Choose jump hosts or an existing SSH alias, not both.'; error.hidden = false; }
+            form.elements.sshConfigAlias.focus();
+            return;
+        }
         var invalidField = !isValidMachineName(values.name) ? 'name'
             : !isValidHost(values.host) ? 'host'
             : !isValidSshUser(values.user) ? 'user'
@@ -9934,6 +9946,7 @@ function createMachineProjectsUi() {
             projectFormSource: form.getAttribute('data-managed-project-form-source')
                 || form.getAttribute('data-local-project-form-source') || '',
             values: values,
+            connectionOptionsOpen: Boolean(form.querySelector('.managed-connection-options[open]')),
             focusField: activeElement && form.contains(activeElement)
                 ? activeElement.getAttribute('name') || '' : '',
         };
@@ -9953,6 +9966,8 @@ function createMachineProjectsUi() {
             if (form.elements[field] && typeof state.values[field] === 'string') form.elements[field].value = state.values[field];
         });
         form.hidden = false;
+        var connectionOptions = form.querySelector('.managed-connection-options');
+        if (connectionOptions) connectionOptions.open = Boolean(state.connectionOptionsOpen);
         if (state.operation === 'editLocalProject') {
             var hasPendingLocalSave = Array.from(pendingLocalProjectEdits.values()).some(function (pending) {
                 return pending.projectId === state.targetId
@@ -12271,7 +12286,8 @@ function normalizeDashboardSearchCatalog(value) {
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
         && Array.isArray(value.todos)
-        && (value.skills === undefined || Array.isArray(value.skills))) {
+        && (value.skills === undefined || Array.isArray(value.skills))
+        && (value.machines === undefined || Array.isArray(value.machines))) {
         return value;
     }
     return {
@@ -12317,6 +12333,7 @@ function filterDashboardCatalog(catalog, query) {
         { id: 'worktrees', title: 'WORKTREES', type: 'worktree', items: catalog.worktrees },
         { id: 'open-workspaces', title: 'OPEN WORKSPACES', type: 'open-workspace', items: catalog.openWorkspaces },
         { id: 'saved-projects', title: 'SAVED PROJECTS', type: 'saved-project', items: catalog.savedProjects },
+        { id: 'machines', title: 'MACHINES', type: 'machine', items: catalog.machines || [] },
         { id: 'skills', title: 'SKILLS', type: 'skill', items: catalog.skills || [] },
     ];
     return sections
@@ -12400,7 +12417,8 @@ function renderDashboardSearchResults(container, sections) {
                 button.dataset.skillDir = String(item.dirPath || '');
                 metadata.textContent = [item.scope === 'project' ? 'Project' : 'Global', item.description].filter(Boolean).join(' · ');
             } else {
-                button.dataset.searchAction = item.action === 'open-managed-project'
+                button.dataset.searchAction = item.action === 'open-managed-machine' ? 'open-managed-machine'
+                    : item.action === 'open-managed-project'
                     ? 'open-managed-project'
                     : 'open-saved-project';
                 if (item.expectedRevisionId) {
@@ -13628,12 +13646,12 @@ function initDashboard(options) {
             });
             return;
         }
-        if (action === 'open-managed-project') {
+        if (action === 'open-managed-project' || action === 'open-managed-machine') {
             options.postMessage({
                 type: 'managed-remote-client-action',
                 version: 1,
                 requestId: 'managed-search-' + Date.now(),
-                action: 'openProject',
+                action: action === 'open-managed-machine' ? 'openMachine' : 'openProject',
                 expectedRevisionId: button.dataset.expectedRevisionId || null,
                 targetId: button.dataset.projectId,
             });

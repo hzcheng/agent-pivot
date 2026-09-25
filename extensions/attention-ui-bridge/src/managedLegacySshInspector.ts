@@ -10,6 +10,8 @@ export interface ManagedLegacySshInspection {
     status: 'needsInput' | 'unsupported';
     reason: string;
     endpoint?: { host: string; user: string; port: number };
+    /** Reference local configuration; never export its commands or credentials. */
+    sshConfigAlias?: string;
 }
 
 export interface ManagedLegacySshInspectorOptions {
@@ -87,21 +89,15 @@ export class ManagedLegacySshInspector {
                 reason: 'OpenSSH did not produce a valid plain host, user, and port.',
             };
         }
-        if (!disabled(config.get('proxyjump'))
-            || !disabled(config.get('proxycommand'))
-            || !disabled(config.get('remotecommand'))
-            || config.get('permitlocalcommand') === 'yes'
-            || config.has('localforward')
-            || config.has('remoteforward')
-            || config.has('dynamicforward')) {
-            return {
-                status: 'unsupported',
-                reason: 'This alias depends on proxy, command, or forwarding behavior outside Managed Remote.',
-            };
+        // The alias remains local authority for authentication and routing. Export
+        // only its name and endpoint, never ProxyCommand or IdentityFile contents.
+        if (!disabled(config.get('remotecommand'))) {
+            return { status: 'unsupported', reason: 'This alias runs a RemoteCommand. Use a folder-capable SSH alias.' };
         }
         return {
             status: 'needsInput',
-            reason: 'Plain connection details were resolved automatically; authentication settings are not copied.',
+            reason: 'Uses this computer’s SSH configuration, including jump hosts and authentication. Configure the same alias on other computers.',
+            sshConfigAlias: target,
             endpoint: { host, user, port },
         };
     }

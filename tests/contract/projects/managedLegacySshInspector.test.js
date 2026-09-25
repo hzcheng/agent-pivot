@@ -46,13 +46,14 @@ test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 uses OpenSSH argv without a sh
     }]);
     assert.deepEqual(result, {
         status: 'needsInput',
-        reason: 'Plain connection details were resolved automatically; authentication settings are not copied.',
+        reason: 'Uses this computer’s SSH configuration, including jump hosts and authentication. Configure the same alias on other computers.',
+        sshConfigAlias: 'build',
         endpoint: { host: 'build.example.com', user: 'dev', port: 2207 },
     });
     assert.equal(JSON.stringify(result).includes('private diagnostic'), false);
 });
 
-test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 rejects advanced routing and hostile aliases', async () => {
+test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 preserves jump routing by reference and rejects hostile aliases', async () => {
     let runs = 0;
     const inspector = new ManagedLegacySshInspector({
         runner: {
@@ -66,8 +67,9 @@ test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 rejects advanced routing and h
     const advanced = await inspector.inspect('/usr/bin/ssh', '/home/me/.ssh/config', 'build');
     const hostile = await inspector.inspect('/usr/bin/ssh', '/home/me/.ssh/config', '-F');
 
-    assert.equal(advanced.status, 'unsupported');
-    assert.match(advanced.reason, /proxy, command, or forwarding/u);
+    assert.equal(advanced.status, 'needsInput');
+    assert.equal(advanced.sshConfigAlias, 'build');
+    assert.equal(JSON.stringify(advanced).includes('bastion'), false);
     assert.equal(hostile.status, 'unsupported');
     assert.equal(runs, 1);
 });

@@ -7106,7 +7106,7 @@
   {
     "id": "MANAGED-REMOTE-CATALOG-003",
     "domain": "persistence",
-    "title": "Every live relationship and Environment-kind candidate participates in destructive-operation guards",
+    "title": "Machine removal includes every dependent Environment and Project candidate in one catalog transaction and protects cross-machine placement conflicts",
     "priority": "P0",
     "status": "automated",
     "owners": [

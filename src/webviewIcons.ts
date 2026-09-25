@@ -300,3 +300,6 @@ export const importConnection = `
     <path d="M13 4h6a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-6M3 12h12M10 7l5 5-5 5"></path>
 </svg>
 `;
+
+export const connectionReview = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 10 18H2L12 3Z"/><path d="M12 9v5M12 17h.01"/></svg>`;
+export const connectionCheck = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6"/><path d="m14.5 14.5 5 5M7 10l2 2 4-4"/></svg>`;

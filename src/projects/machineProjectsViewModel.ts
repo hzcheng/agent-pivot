@@ -24,6 +24,7 @@ export interface MachineProjectRowViewModel {
     favorite: boolean;
     color: string | null;
     searchText: string;
+    pathHint?: string;
 }
 
 export interface MachineEnvironmentViewModel {
@@ -257,6 +258,8 @@ export function buildMachineProjectsViewModel(groups: readonly Group[]): Machine
             allProjects.push(project);
         }
     }
+
+    annotateProjectPathHints(Array.from(rowByProject.values()), row => row.path);
 
     const machineRows = Array.from(machines.values()).map(machine => ({
         id: machine.id,
@@ -517,4 +520,25 @@ function normalizeViewTags(values: unknown[]): string[] {
 
 function stableViewId(kind: string, value: string): string {
     return `${kind}-${createHash('sha256').update(value).digest('hex').slice(0, 16)}`;
+}
+
+/** Only duplicate names receive the shortest path suffix that identifies them. */
+export function annotateProjectPathHints<T extends { name: string; pathHint?: string }>(
+    projects: T[], getPath: (project: T) => string,
+): void {
+    const groups = new Map<string, T[]>();
+    for (const project of projects) {
+        const key = project.name.toLocaleLowerCase();
+        groups.set(key, [...(groups.get(key) || []), project]);
+    }
+    for (const values of groups.values()) {
+        if (values.length < 2) { continue; }
+        const paths = values.map(value => getPath(value).replace(/\\/g, '/').split('/').filter(Boolean));
+        values.forEach((value, index) => {
+            let depth = 1;
+            while (depth < paths[index].length && paths.some((parts, other) =>
+                other !== index && parts.slice(-depth).join('/') === paths[index].slice(-depth).join('/'))) { depth++; }
+            value.pathHint = paths[index].slice(-depth).join('/');
+        });
+    }
 }

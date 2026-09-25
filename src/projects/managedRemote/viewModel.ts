@@ -1,5 +1,6 @@
 'use strict';
 
+import { annotateProjectPathHints } from '../machineProjectsViewModel';
 import { ManagedRemoteManagementSnapshot } from './managementController';
 import {
     ManagedCatalogConflict,
@@ -9,6 +10,8 @@ import {
 } from './types';
 
 export interface ManagedRemoteProjectRowViewModel extends ManagedRemoteProject {
+    pathHint?: string;
+    conflict?: boolean;
     machineId: string;
     machineName: string;
     machineEndpoint: string;
@@ -35,6 +38,7 @@ export interface ManagedRemoteMachineViewModel extends ManagedSshMachine {
 }
 
 export interface ManagedRemoteProjectsViewModel {
+    orphanConflicts?: Array<{ entityType: 'project' | 'environment'; id: string; name: string }>;
     revisionId: string | null;
     lifecycle: ManagedRemoteManagementSnapshot['lifecycle'];
     projectCount: number;
@@ -66,8 +70,9 @@ function endpoint(machine: ManagedSshMachine): string {
 function unavailableReason(
     active: boolean,
     conflicted: boolean,
+    entity = 'Machine',
 ): string | undefined {
-    if (conflicted) { return 'Connection conflict — Review'; }
+    if (conflicted) { return `${entity} sync conflict — Review`; }
     if (!active) { return 'The Managed Machine catalog is unavailable.'; }
     return undefined;
 }
@@ -113,6 +118,7 @@ export function buildManagedRemoteProjectsViewModel(
                 const reason = unavailableReason(
                     active,
                     machineConflict || environmentConflict || projectConflict,
+                    machineConflict ? 'Machine' : environmentConflict ? 'Environment' : 'Project',
                 );
                 for (const tag of project.tags || []) {
                     const key = tag.toLocaleLowerCase();
@@ -120,6 +126,7 @@ export function buildManagedRemoteProjectsViewModel(
                 }
                 const row: ManagedRemoteProjectRowViewModel = {
                     ...project,
+                    conflict: projectConflict,
                     machineId: machine.id,
                     machineName: machine.name,
                     machineEndpoint,
@@ -142,6 +149,7 @@ export function buildManagedRemoteProjectsViewModel(
             const reason = unavailableReason(
                 active,
                 machineConflict || environmentConflict,
+                machineConflict ? 'Machine' : 'Environment',
             );
             return {
                 ...environment,
@@ -162,10 +170,33 @@ export function buildManagedRemoteProjectsViewModel(
             conflict: machineConflict,
         };
     });
+    annotateProjectPathHints(Array.from(projectRows.values()), row => row.remotePath);
     const favorites = (snapshot.catalog.layout.favoriteProjectIds || [])
         .map(id => projectRows.get(id))
         .filter((value): value is ManagedRemoteProjectRowViewModel => Boolean(value));
+    const renderedEnvironmentIds = new Set<string>();
+    for (const machine of machines) {
+        for (const environment of machine.environments) { renderedEnvironmentIds.add(environment.id); }
+    }
+    const orphanConflicts: NonNullable<ManagedRemoteProjectsViewModel['orphanConflicts']> = [];
+    const seenConflicts = new Set<string>();
+    for (const conflict of snapshot.catalog.conflicts) {
+        const kind = conflict.entityType;
+        if (kind !== 'project' && kind !== 'environment') { continue; }
+        const key = `${kind}:${conflict.entityId}`;
+        if (seenConflicts.has(key) || (kind === 'project' ? projectRows.has(conflict.entityId) : renderedEnvironmentIds.has(conflict.entityId))) { continue; }
+        const candidates: Array<ManagedEnvironment | ManagedRemoteProject | null> | undefined = kind === 'project'
+            ? snapshot.projectConflictCandidates?.[conflict.entityId]
+            : snapshot.environmentConflictCandidates?.[conflict.entityId];
+        const deletionConflict = candidates && candidates.length >= 2 && candidates.includes(null);
+        const missingParent = conflict.kind === 'missing-parent' && candidates && candidates.some(value => value !== null);
+        if (!deletionConflict && !missingParent) { continue; }
+        seenConflicts.add(key);
+        orphanConflicts.push({ entityType: kind, id: conflict.entityId,
+            name: candidates?.find(value => value !== null)?.name || `Removed ${kind}` });
+    }
     return {
+        orphanConflicts,
         revisionId: snapshot.revisionId,
         lifecycle: snapshot.lifecycle,
         projectCount: snapshot.catalog.projects.length,

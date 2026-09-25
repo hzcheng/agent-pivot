@@ -6,6 +6,8 @@ import { ChildProcess, spawn } from 'child_process';
 import { constants, Stats } from 'fs';
 import { access, FileHandle, lstat, mkdir, open, opendir, realpath, stat } from 'fs/promises';
 import * as path from 'path';
+import { homedir } from 'os';
+import { isManagedSshAliasForMachine } from '../../../src/projects/managedRemote/sshAlias';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
     FileTransferDirectoryEntry,
@@ -1072,6 +1074,72 @@ function stopFileTransferProcess(child: ChildProcess): void {
     child.kill();
 }
 
+/** Read literal Host names only; never evaluate Match exec, proxies, or substitutions. */
+export async function listSshConfigAliases(configPath: string): Promise<string[]> {
+    const aliases = new Set<string>();
+    const visited = new Set<string>();
+    const home = homedir();
+    let totalBytes = 0;
+    let scannedEntries = 0;
+    let attemptedFiles = 0;
+    async function expand(pattern: string): Promise<string[]> {
+        const resolved = pattern.startsWith('~/') ? path.join(home, pattern.slice(2))
+            : path.isAbsolute(pattern) ? pattern : path.join(home, '.ssh', pattern);
+        if (!/[*?]/u.test(resolved)) return [resolved];
+        // Directory expansion is bounded and never shells out.
+        const root = path.parse(resolved).root;
+        let paths = [root];
+        for (const part of resolved.slice(root.length).split(path.sep)) {
+            const next: string[] = [];
+            for (const parent of paths) {
+                if (!/[*?]/u.test(part)) { next.push(path.join(parent, part)); continue; }
+                const regex = new RegExp('^' + part.replace(/[.+^${}()|[\]\\]/gu, '\\$&')
+                    .replace(/\*/gu, '.*').replace(/\?/gu, '.') + '$');
+                try {
+                    for await (const entry of await opendir(parent)) {
+                        if (++scannedEntries > 4096) return next;
+                        if (regex.test(entry.name)) next.push(path.join(parent, entry.name));
+                        if (next.length >= 64) break;
+                    }
+                } catch (_error) { /* Missing include directories are not connections. */ }
+            }
+            paths = next.slice(0, 64);
+        }
+        return paths;
+    }
+    async function visit(file: string, depth: number): Promise<void> {
+        if (depth > 8 || ++attemptedFiles > 128 || visited.size >= 64 || totalBytes >= 1024 * 1024) return;
+        let handle: FileHandle | undefined;
+        try {
+            const canonical = await realpath(file);
+            if (visited.has(canonical)) return;
+            visited.add(canonical);
+            handle = await open(canonical, 'r');
+            const metadata = await handle.stat();
+            if (!metadata.isFile() || metadata.size > 1024 * 1024 - totalBytes) return;
+            const buffer = Buffer.alloc(Math.min(metadata.size + 1, 1024 * 1024 - totalBytes));
+            const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+            totalBytes += bytesRead;
+            for (const line of buffer.toString('utf8', 0, bytesRead).split(/\r?\n/u)) {
+                const tokens = line.match(/"[^"\n]*"|'[^'\n]*'|[^\s=]+/gu) || [];
+                const directive = (tokens.shift() || '').toLowerCase();
+                for (const raw of tokens) {
+                    if (raw.startsWith('#')) break;
+                    const value = raw.replace(/^(["'])(.*)\1$/u, '$2');
+                    if (directive === 'host' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value)
+) aliases.add(value);
+                    if (directive === 'include' && !/[%$`\0]/u.test(value)) {
+                        for (const included of await expand(value)) await visit(included, depth + 1);
+                    }
+                }
+            }
+        } catch (_error) { /* Partial discovery always permits manual entry. */ }
+        finally { await handle?.close(); }
+    }
+    await visit(configPath, 0);
+    return [...aliases].sort((a, b) => a.localeCompare(b)).slice(0, 500);
+}
+
 export class ManagedRemoteBridgeController {
     private readonly fileTransferRoots = new Map<string, FileTransferLocalRoot>();
     private readonly fileTransferRemoteDirectories = new Map<string, FileTransferRemoteDirectory>();
@@ -1202,6 +1270,18 @@ export class ManagedRemoteBridgeController {
                     coordinator,
                     preflight,
                 ));
+            }
+            if (request.operation === 'listSshAliases') {
+                const aliases = await listSshConfigAliases(coordinator.getActiveConfigPath());
+                const slot = readManagedActiveRevisionSlot(this.catalog.readManagedCatalogEnvelope());
+                const machines = slot ? materializeManagedRemoteCatalog(slot.document).machines : [];
+                return response(request.requestId, 'ok', aliases.filter(alias => !machines.some(machine =>
+                    !machine.connection.sshConfigAlias && isManagedSshAliasForMachine(alias, machine.id))));
+            }
+            if (request.operation === 'checkConnection') {
+                const slot = this.readExpectedSlot(request);
+                resolveManagedMachineTarget(materializeManagedRemoteCatalog(slot.document), request.targetId!);
+                return response(request.requestId, 'ok', { message: 'SSH configuration is ready on this computer. Authentication and network access are checked when you connect.' });
             }
             if (request.operation === 'inspectLegacySshTarget') {
                 if (!this.localActions || !request.legacySshTarget) {

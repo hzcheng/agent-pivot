@@ -36,7 +36,8 @@ test('MACHINE-PROJECTS-ARIA-001 renders a plain derived hierarchy with directly 
     assert.match(html, /data-machine-projects/);
     assert.match(html, /<ul class="machine-projects-machines"/);
     assert.match(html, /aria-label="Collapse devbox"/);
-    assert.match(html, /aria-label="Collapse Host"/);
+    assert.doesNotMatch(html, /aria-label="Collapse Host"/);
+    assert.match(html, /machine-host-environment/);
     assert.match(html, /data-action="open-machine-project"/);
     assert.match(html, /aria-label="Open API &lt;unsafe&gt; on devbox, Host"/);
     assert.match(html, /data-action="open-machine-host"/);

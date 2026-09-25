@@ -204,7 +204,10 @@ function assertImmutableProjectPlacement(
         const placements = distinctCandidateValues(document.projects[projectId])
             .filter((value): value is ManagedRemoteProject => value !== null)
             .map(value => value.environmentId);
-        if (placements.some(environmentId => environmentId !== project.environmentId)) {
+        const candidates = distinctCandidateValues(document.projects[projectId]);
+        const selectsConflictCandidate = candidates.length > 1 && candidates.some(candidate =>
+            stableManagedValue(candidate) === stableManagedValue(project));
+        if (!selectsConflictCandidate && placements.some(environmentId => environmentId !== project.environmentId)) {
             throw new Error('Managed Project Machine/Environment ownership is immutable.');
         }
     }

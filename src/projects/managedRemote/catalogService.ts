@@ -407,37 +407,102 @@ export class ManagedRemoteCatalogService {
         });
     }
 
+    /** Remove only catalog records in one causal transaction; remote files are untouched. */
     removeMachine(machineId: string): void {
         singleValue<ManagedSshMachine>(this.document.machines[machineId], 'Managed Machine');
         const environmentIds = Object.entries(this.document.environments)
             .filter(([, register]) => nonNullValues(register)
                 .some(environment => environment.machineId === machineId))
             .map(([environmentId]) => environmentId);
-        for (const environmentId of environmentIds) {
-            const kinds = new Set(nonNullValues(this.document.environments[environmentId])
-                .map(environment => environment.kind));
-            if (kinds.size !== 1 || !kinds.has('host')) {
-                throw new Error('Remove Dev Container Environments before removing this Machine.');
+        const transaction = this.removeEnvironmentRecords(environmentIds);
+        transaction.machines = { [machineId]: null };
+        transaction.layout = removeFromLayout(transaction.layout!, { machineId });
+        this.commit(transaction);
+    }
+
+    resolveProjectConflict(projectId: string, selected: ManagedRemoteProject | null): void {
+        const values = this.document.projects[projectId] ? nonNullValues(this.document.projects[projectId]) : [];
+        const removesOrphan = selected === null && values.length > 0
+            && values.every(value => !this.hasLiveEnvironmentParent(value.environmentId));
+        if (!removesOrphan) { this.assertConflictCandidate(this.document.projects[projectId], selected, 'Project'); }
+        const layout = removeFromLayout(this.getCatalog().layout, { projectId });
+        if (selected) {
+            singleValue(this.document.environments[selected.environmentId], 'Parent Environment');
+            layout.projectIdsByEnvironment[selected.environmentId] ||= [];
+            layout.projectIdsByEnvironment[selected.environmentId].push(projectId);
+            if (selected.favorite) { layout.favoriteProjectIds.push(projectId); }
+        }
+        this.commit({ projects: { [projectId]: cloneManagedValue(selected) }, layout });
+    }
+
+    resolveEnvironmentConflict(environmentId: string, selected: ManagedEnvironment | null): void {
+        const values = this.document.environments[environmentId] ? nonNullValues(this.document.environments[environmentId]) : [];
+        const removesOrphan = selected === null && values.length > 0
+            && values.every(value => !this.hasLiveMachineParent(value.machineId));
+        if (!removesOrphan) { this.assertConflictCandidate(this.document.environments[environmentId], selected, 'Environment'); }
+        if (!selected) {
+            const hasLiveHostParent = nonNullValues(this.document.environments[environmentId])
+                .some(environment => environment.kind === 'host'
+                    && this.hasLiveMachineParent(environment.machineId));
+            if (hasLiveHostParent) {
+                throw new Error('Keep the Host Environment, or remove its Machine and saved Projects together.');
             }
-            if (this.hasLiveProjectPlacement(environmentId)) {
-                throw new Error('Remove Projects from this Machine first.');
+            this.commit(this.removeEnvironmentRecords([environmentId]));
+            return;
+        }
+        singleValue(this.document.machines[selected.machineId], 'Parent Machine');
+        const layout = removeFromLayout(this.getCatalog().layout, { environmentId });
+        layout.environmentIdsByMachine[selected.machineId] ||= [];
+        layout.environmentIdsByMachine[selected.machineId].push(environmentId);
+        layout.projectIdsByEnvironment[environmentId] = this.getCatalog().layout.projectIdsByEnvironment[environmentId] || [];
+        this.commit({ environments: { [environmentId]: cloneManagedValue(selected) }, layout });
+    }
+
+    private hasLiveMachineParent(machineId: string): boolean {
+        const register = this.document.machines[machineId];
+        return Boolean(register && nonNullValues(register).length);
+    }
+
+    private hasLiveEnvironmentParent(environmentId: string): boolean {
+        const register = this.document.environments[environmentId];
+        return Boolean(register && nonNullValues(register).some(environment => this.hasLiveMachineParent(environment.machineId)));
+    }
+
+    private assertConflictCandidate<T>(
+        register: VersionedCandidates<T | null> | undefined,
+        selected: T | null,
+        label: string,
+    ): void {
+        const candidates = register ? distinctCandidateValues(register) : [];
+        if (candidates.length < 2) { throw new Error(`${label} no longer has concurrent changes.`); }
+        if (!candidates.some(value => stableManagedValue(value) === stableManagedValue(selected))) {
+            throw new Error(`Select an existing ${label} conflict version.`);
+        }
+    }
+
+    private removeEnvironmentRecords(environmentIds: string[]): ManagedCatalogTransaction {
+        const removed = new Set(environmentIds);
+        const projectIds = Object.entries(this.document.projects)
+            .filter(([, register]) => nonNullValues(register)
+                .some(project => removed.has(project.environmentId)))
+            .map(([projectId]) => projectId);
+        for (const projectId of projectIds) {
+            if (nonNullValues(this.document.projects[projectId]).some(project => !removed.has(project.environmentId))) {
+                throw new Error('Resolve Project placement conflicts before removing this Machine or Environment.');
             }
         }
+        let layout = this.getCatalog().layout;
+        for (const projectId of projectIds) { layout = removeFromLayout(layout, { projectId }); }
+        for (const environmentId of environmentIds) { layout = removeFromLayout(layout, { environmentId }); }
         const environments: Record<string, null> = {};
-        for (const environmentId of environmentIds) {
-            environments[environmentId] = null;
-        }
-        this.commit({
-            machines: { [machineId]: null },
-            environments,
-            layout: environmentIds.reduce(
-                (layout, environmentId) => removeFromLayout(layout, { environmentId }),
-                removeFromLayout(this.getCatalog().layout, { machineId }),
-            ),
-        });
+        const projects: Record<string, null> = {};
+        for (const id of environmentIds) { environments[id] = null; }
+        for (const id of projectIds) { projects[id] = null; }
+        return { environments, projects, layout };
     }
 
     resolveMachineConflict(machineId: string, selected: ManagedSshMachine): ManagedSshMachine {
+        this.assertConflictCandidate(this.document.machines[machineId], selected, 'Machine');
         if (!selected || selected.id !== machineId) {
             throw new Error('Conflict resolution must retain the Managed Machine ID.');
         }

@@ -13,6 +13,7 @@ const { managedSshAliasSuffix } = require('../../../out/projects/managedRemote/s
 const {
     formatManagedSshCommand,
     ManagedRemoteBridgeController,
+    listSshConfigAliases,
     parseSftpLongListing,
     parseSftpPathKind,
     verifyCopiedFileTransferTree,
@@ -734,4 +735,21 @@ test('MANAGED-REMOTE-NAVIGATION-001 validates native SSH references on this comp
     endpoint.host = 'wrong.internal';
     assert.equal((await controller.execute(action)).status, 'failed');
     assert.equal(opened.length, 1);
+});
+
+test('SSH alias discovery reads bounded includes without executing configuration commands', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pivot-aliases-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    fs.mkdirSync(path.join(root, 'hosts'));
+    const config = path.join(root, 'config');
+    fs.writeFileSync(config, `Host work alias * !excluded
+Include "${root}/hosts/*.conf"
+Match exec "touch never"
+Host=home
+`);
+    fs.writeFileSync(path.join(root, 'hosts', 'one.conf'), `Host jump
+Include "${config}"
+`);
+    assert.deepEqual(await listSshConfigAliases(config), ['alias', 'home', 'jump', 'work']);
+    assert.deepEqual(await listSshConfigAliases(path.join(root, 'missing')), []);
 });

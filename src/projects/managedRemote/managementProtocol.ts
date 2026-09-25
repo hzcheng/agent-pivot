@@ -13,7 +13,9 @@ export type ManagedRemoteManagementOperation =
     | 'editProject'
     | 'removeProject'
     | 'toggleFavorite'
-    | 'resolveMachineConflict';
+    | 'resolveMachineConflict'
+    | 'resolveProjectConflict'
+    | 'resolveEnvironmentConflict';
 
 export interface ManagedRemoteManagementRequest {
     type: 'managed-remote-action';
@@ -59,6 +61,8 @@ const TARGET_OPERATIONS = new Set<ManagedRemoteManagementOperation>([
     'removeProject',
     'toggleFavorite',
     'resolveMachineConflict',
+    'resolveProjectConflict',
+    'resolveEnvironmentConflict',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -155,6 +159,8 @@ export function parseManagedRemoteManagementRequest(
         'removeProject',
         'toggleFavorite',
         'resolveMachineConflict',
+        'resolveProjectConflict',
+        'resolveEnvironmentConflict',
     ].includes(operation) || !isRevisionId(value.expectedRevisionId)) {
         return null;
     }

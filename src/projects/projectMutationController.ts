@@ -6,6 +6,8 @@ import { USER_CANCELED, WSL_DEFAULT_REGEX } from '../constants';
 import { Group, Project, ProjectRemoteType } from '../models';
 import { getLastPartOfPath, isUriString } from './openProjectService';
 import type { ProjectPromptController } from './projectPromptController';
+import { isLocalMachineProjectPath } from './machineProjectsViewModel';
+import { uriToProjectPath } from './openProjectMatcher';
 
 export interface ProjectDetailsForSave {
     path: string;
@@ -23,7 +25,7 @@ export interface ProjectMutationControllerOptions {
     removeGroup: (groupId: string, skipConfirmation?: boolean) => Promise<unknown>;
     getRandomColor: () => string;
     isFolderGitRepo: (projectPath: string) => boolean;
-    prompt: Pick<ProjectPromptController, 'queryProjectFields' | 'queryGroup' | 'queryProjectDescription' | 'queryProjectColor'>;
+    prompt: Pick<ProjectPromptController, 'queryProjectFields' | 'queryGroup' | 'queryProjectDescription' | 'queryProjectColor' | 'queryLocalProjectUri'>;
     showInputBox: (options: vscode.InputBoxOptions) => Thenable<string | undefined>;
     showWarningMessage: (message: string) => unknown;
     showInformationMessage: (message: string) => unknown;
@@ -61,12 +63,43 @@ export class ProjectMutationController {
         this.options.refreshAfterMutation();
     }
 
-    async saveWorkspaceProject(projectDetails: ProjectDetailsForSave | null): Promise<void> {
+    async saveWorkspaceProject(projectDetails: ProjectDetailsForSave | null): Promise<boolean> {
         if (!projectDetails || !projectDetails.path) {
             this.options.showWarningMessage('No project is currently open.');
-            return;
+            return false;
         }
-        await this.saveProject(null, false, projectDetails);
+        if (!isLocalMachineProjectPath(projectDetails.path)
+            || (projectDetails.remoteType !== ProjectRemoteType.None
+                && !isUriString(projectDetails.path) && !projectDetails.path.match(WSL_DEFAULT_REGEX))) {
+            throw new Error('Save remote Projects from a Managed Machine.');
+        }
+        const duplicate = this.options.getProjectsFlat().find(project => project.path === projectDetails.path);
+        if (duplicate) {
+            this.options.showInformationMessage(`Project "${duplicate.name}" is already saved.`);
+            return true;
+        }
+        const name = getLastPartOfPath(projectDetails.path).replace(/\.code-workspace$/iu, '') || 'Project';
+        const project = new Project(name, projectDetails.path);
+        project.color = this.options.getRandomColor();
+        project.isGitRepo = this.options.isFolderGitRepo(projectDetails.path);
+        project.remoteType = projectDetails.remoteType;
+        // The storage service reuses the first compatibility group, or creates
+        // its default group atomically with the Project. Groups are not a step
+        // in the Machine-based Projects workflow.
+        await this.options.addProjectToGroup(project, null);
+        this.options.refreshAfterMutation();
+        return true;
+    }
+
+    async addLocalProject(): Promise<boolean> {
+        const uri = await this.options.prompt.queryLocalProjectUri();
+        if (!uri) { return false; }
+        if (uri.scheme !== 'file') {
+            throw new Error('Choose a local folder or workspace.');
+        }
+        // A local picker selection must not inherit the current window's SSH
+        // authority through the current-workspace resolver.
+        return this.saveWorkspaceProject({ path: uriToProjectPath(uri), remoteType: ProjectRemoteType.None });
     }
 
     async saveProject(groupId: string = null, groupWasNewlyCreated: boolean = false, projectDetails: ProjectDetailsForSave = null): Promise<void> {

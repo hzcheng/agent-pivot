@@ -163,3 +163,93 @@ test('MANAGED-REMOTE-ACTIONS-001 validates and routes the complete webview messa
         'openManagedProject', revisionId, 'project:api',
     ]]);
 });
+
+function clientRequest(action, targetId = 'machine:build') {
+    return {
+        type: 'managed-remote-client-action', version: 1,
+        requestId: 'managed-client-request-12345678', action, targetId,
+        expectedRevisionId: revisionId,
+    };
+}
+
+test('managed client navigation settles its exact request only after the bridge completes', async () => {
+    let complete;
+    const bridgeResult = new Promise(resolve => { complete = resolve; });
+    const settlements = [];
+    const { instance } = controller({
+        bridge: { execute: async () => bridgeResult },
+        postSettlement: async result => { settlements.push(result); },
+    });
+    const request = clientRequest('openMachine');
+    const operation = instance.handleMessage(request);
+    await Promise.resolve();
+    assert.equal(settlements.length, 0);
+    complete({});
+    await operation;
+    assert.equal(settlements.length, 1);
+    assert.deepEqual(settlements[0], {
+        type: 'managed-remote-client-settlement', version: 1,
+        requestId: request.requestId, targetId: request.targetId, action: request.action,
+        status: 'completed', message: 'Connection handed to VS Code.',
+    });
+});
+
+test('managed client failures settle visibly with correlation without duplicate error notification', async () => {
+    for (const [action, targetId] of [['openMachine', 'machine:build'], ['openProject', 'project:api'], ['checkConnection', 'machine:build']]) {
+        const settlements = [];
+        const { instance, effects } = controller({
+            bridge: { execute: async () => { throw new Error('SSH alias is missing on this computer.'); } },
+            postSettlement: async result => { settlements.push(result); },
+        });
+        const request = clientRequest(action, targetId);
+        await instance.handleMessage(request);
+        assert.equal(settlements.length, 1);
+        assert.equal(settlements[0].status, 'failed');
+        assert.equal(settlements[0].requestId, request.requestId);
+        assert.equal(settlements[0].targetId, targetId);
+        assert.equal(settlements[0].action, action);
+        assert.match(settlements[0].message, /SSH alias is missing/);
+        assert.equal(effects.filter(effect => effect[0] === 'error').length, 0);
+    }
+});
+
+test('managed configuration check reports local configuration readiness without promising connectivity', async () => {
+    const settlements = [];
+    const { instance, effects } = controller({ postSettlement: async result => { settlements.push(result); } });
+    await instance.handleMessage(clientRequest('checkConnection'));
+    assert.deepEqual(effects, [['bridge', 'checkConnection', revisionId, 'machine:build']]);
+    assert.equal(settlements.length, 1);
+    assert.equal(settlements[0].status, 'completed');
+    assert.match(settlements[0].message, /configuration is ready/);
+    assert.match(settlements[0].message, /check authentication and network access/);
+});
+
+test('managed client stale and invalid targets fail before effects and malformed requests cannot execute', async () => {
+    const settlements = [];
+    const { instance, effects } = controller({ postSettlement: async result => { settlements.push(result); } });
+    const stale = { ...clientRequest('openMachine'), expectedRevisionId: `revision:${'b'.repeat(64)}` };
+    await instance.handleMessage(stale);
+    assert.equal(settlements[0].status, 'failed');
+    assert.match(settlements[0].message, /changed/);
+    await instance.handleMessage(clientRequest('openMachine', 'machine:missing'));
+    assert.equal(settlements.length, 2);
+    assert.equal(settlements[1].status, 'failed');
+    await instance.handleMessage({ ...clientRequest('checkConnection'), host: 'untrusted.example.com' });
+    assert.equal(settlements.length, 2);
+    assert.equal(effects.length, 0);
+});
+
+test('managed client current project reuse and clipboard both settle without opening a new connection', async () => {
+    const settlements = [];
+    const { instance, effects } = controller({
+        openCurrentProject: async () => true,
+        postSettlement: async result => { settlements.push(result); },
+    });
+    await instance.handleMessage(clientRequest('openProject', 'project:api'));
+    await instance.handleMessage(clientRequest('copySsh'));
+    assert.equal(settlements.length, 2);
+    assert.equal(settlements.every(result => result.status === 'completed'), true);
+    assert.equal(effects.some(effect => effect[0] === 'bridge'), false);
+    assert.equal(effects.filter(effect => effect[0] === 'clipboard').length, 1);
+    assert.equal(settlements[1].message, 'SSH command copied.');
+});

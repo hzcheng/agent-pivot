@@ -169,3 +169,66 @@ test('MANAGED-REMOTE-MANAGEMENT-004 failed browsing allows a manual path without
     assert.equal(result.environmentId, 'host:home');
     assert.match(ui.picks[0].items[0].detail, /Authenticate/);
 });
+
+test('MANAGED-REMOTE-MANAGEMENT-004 import discovers existing aliases and keeps manual fallback', async () => {
+    const endpoint = { host: 'home.internal', user: 'dev', port: 22 };
+    const inspected = [];
+    const connections = {
+        async listAliases() { return ['home', '*', 'home']; },
+        async inspect(alias) { inspected.push(alias); return { status: 'supported', endpoint }; },
+    };
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: 'home' }, { action: 'accept', value: 'save' }]);
+    const machine = await new ManagedRemotePromptController(ui, connections).importMachine();
+    assert.equal(machine.sshConfigAlias, 'home');
+    assert.deepEqual(ui.picks[0].items.map(value => value.value), ['home', '']);
+    assert.equal(ui.inputs.length, 0);
+    const manual = new ScriptedWizardUi([{ action: 'accept', value: '' }, { action: 'accept', value: 'other' }, { action: 'accept', value: 'save' }]);
+    assert.equal((await new ManagedRemotePromptController(manual, connections).importMachine()).sshConfigAlias, 'other');
+    const unavailable = new ScriptedWizardUi([{ action: 'accept', value: 'manual' }, { action: 'accept', value: 'save' }]);
+    await new ManagedRemotePromptController(unavailable, { ...connections, async listAliases() { throw new Error('unreadable config'); } }).importMachine();
+    assert.deepEqual(inspected, ['home', 'other', 'manual']);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-004 deletion previews impact and distinguishes recovery deletion from cancellation', async () => {
+    let confirmation;
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: null }, { action: 'cancel' }]);
+    ui.confirm = async message => { confirmation = message; return true; };
+    const prompts = new ManagedRemotePromptController(ui);
+    await prompts.confirmRemoveMachine({ name: 'Build', connection: { user: 'dev', host: 'build', port: 22 } }, { projectCount: 3, environmentCount: 2 });
+    assert.match(confirmation, /3 saved Projects across 2 Environments/);
+    assert.match(confirmation, /all synced computers/);
+    assert.match(confirmation, /Remote files, containers, and SSH configuration are not deleted/);
+    const project = { id: 'p', name: 'API', remotePath: '/api', environmentId: 'env' };
+    assert.equal(await prompts.resolveProjectConflict('p', [project, null]), null);
+    assert.equal(await prompts.resolveProjectConflict('p', [project, null]), undefined);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-004 Host conflict does not offer an invalid standalone deletion', async () => {
+    const host = { id: 'host', name: 'Host', kind: 'host', machineId: 'machine' };
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: host }]);
+    assert.deepEqual(await new ManagedRemotePromptController(ui).resolveEnvironmentConflict('host', [host, null], 4), host);
+    assert.equal(ui.picks[0].items.length, 1);
+    assert.match(ui.picks[0].items[0].detail, /remove its Machine/);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-004 orphan conflicts offer only executable deletion or cancellation', async () => {
+    const project = { id: 'p', name: 'API', remotePath: '/api', environmentId: 'removed-env' };
+    const host = { id: 'removed-env', name: 'Host', kind: 'host', machineId: 'removed-machine' };
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: null }, { action: 'cancel' }]);
+    const prompts = new ManagedRemotePromptController(ui);
+    assert.equal(await prompts.resolveProjectConflict('p', [project, null], {}), null);
+    assert.deepEqual(ui.picks[0].items.map(value => value.value), [null]);
+    assert.match(ui.picks[0].items[0].detail, /parent Environment was removed/);
+    assert.equal(await prompts.resolveEnvironmentConflict(host.id, [host, null], 1, {}), undefined);
+    assert.deepEqual(ui.picks[1].items.map(value => value.value), [null]);
+    assert.match(ui.picks[1].items[0].detail, /parent Machine was removed/);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-004 orphan cleanup is an explicit removal intent, not a fabricated conflict version', async () => {
+    const project = { id: 'p', name: 'New project', remotePath: '/new', environmentId: 'removed-env' };
+    const candidates = [project];
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: null }]);
+    assert.equal(await new ManagedRemotePromptController(ui).resolveProjectConflict('p', candidates, {}, true), null);
+    assert.match(ui.picks[0].items[0].label, /Remove orphan Project record/);
+    assert.deepEqual(candidates, [project], 'raw causal candidates remain unchanged');
+});

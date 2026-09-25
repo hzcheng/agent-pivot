@@ -969,6 +969,10 @@ async function initializeDashboard(
                 new VscodeManagedRemoteWizardUi(vscode.window),
                 {
                     inspect: alias => managedRemoteBridgeClient.inspectLegacySshTarget(alias),
+                    listAliases: async () => {
+                        const result = await managedRemoteBridgeClient.execute('listSshAliases');
+                        return Array.isArray(result) ? result.filter((value): value is string => typeof value === 'string') : [];
+                    },
                     browse: (machineId, directoryId, path) => {
                         if (!managedRemoteSnapshot.revisionId) { throw new Error('Save a Machine before browsing folders.'); }
                         return managedRemoteBridgeClient.listFileTransferRemoteDirectory(
@@ -1048,6 +1052,7 @@ async function initializeDashboard(
             return true;
         },
         bridge: managedRemoteBridgeClient,
+        postSettlement: async result => { await provider.postMessage(result); },
         writeClipboard: value => vscode.env.clipboard.writeText(value),
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showErrorMessage: message => vscode.window.showErrorMessage(message),
@@ -1228,8 +1233,7 @@ async function initializeDashboard(
                 );
                 return false;
             }
-            await projectMutationController.saveWorkspaceProject(details);
-            return Boolean(details);
+            return projectMutationController.saveWorkspaceProject(details);
         },
         executeSaveWorkspaceAs: () => Promise.resolve(
             vscode.commands.executeCommand('workbench.action.saveWorkspaceAs')
@@ -3347,6 +3351,7 @@ async function initializeDashboard(
             });
             try {
                 const saved = await savedWorkspaceProjectAdapter.saveCurrentWorkspace(reportProgress);
+                if (saved) { await projectsPanelController?.postUpdated('replace'); }
                 logDashboardDiagnostic({
                     event: 'save-current-workspace-settled',
                     requestId,
@@ -3375,7 +3380,10 @@ async function initializeDashboard(
                         type: 'save-current-workspace-result', version: 1, requestId, projectId,
                         operation: 'save-current-workspace',
                         status: 'failed',
+                        message: error instanceof Error ? error.message : 'Unable to save this project. Please retry.',
                     });
+                } else {
+                    await vscode.window.showErrorMessage('Agent Pivot: Unable to save this project. Please retry.');
                 }
             }
         },
@@ -3389,6 +3397,21 @@ async function initializeDashboard(
                 const capability = managedRemoteCapability
                     || await managedRemoteCapabilityPromise;
                 await capability.controller.handle(message);
+            },
+            'add-local-project': async message => {
+                if (message.version !== 1 || typeof message.requestId !== 'string'
+                    || !/^projects-local-[A-Za-z0-9-]{1,128}$/u.test(message.requestId)
+                    || Object.keys(message).sort().join(',') !== 'requestId,type,version') { return; }
+                try {
+                    const saved = await projectMutationController.addLocalProject();
+                    if (saved) { await projectsPanelController?.postUpdated('replace'); }
+                    await provider.postMessage({ type: 'add-local-project-result', version: 1,
+                        requestId: message.requestId, status: saved ? 'saved' : 'cancelled' });
+                } catch (error) {
+                    await provider.postMessage({ type: 'add-local-project-result', version: 1,
+                        requestId: message.requestId, status: 'failed',
+                        message: error instanceof Error ? error.message : 'Unable to save this project.' });
+                }
             },
             'managed-remote-client-action': async message => {
                 await managedRemoteActions.handleMessage(message);

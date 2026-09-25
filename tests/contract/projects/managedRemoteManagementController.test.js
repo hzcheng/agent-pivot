@@ -364,3 +364,67 @@ test('MANAGED-REMOTE-MANAGEMENT-001 saves a first Dev Container without promptin
         ['refresh', 'save-workspace', 'addProject', nextRevisionId],
     ]);
 });
+
+test('MANAGED-REMOTE-MANAGEMENT-001 Project recovery applies a deletion but cancellation writes nothing', async () => {
+    const current = snapshot();
+    current.projectConflictCandidates = { 'project:one': [current.catalog.projects[0], null] };
+    const mutations = [];
+    const applied = fixture({ snapshot: current,
+        prompts: { async resolveProjectConflict(id, candidates) { assert.equal(id, 'project:one'); assert.ok(candidates.includes(null)); return null; } },
+        store: { async resolveProjectConflict(expected, id, selected) { mutations.push([expected, id, selected]); return { ...current, revisionId: nextRevisionId }; } },
+    });
+    await applied.controller.handle(request('resolveProjectConflict', 'project:one'));
+    assert.deepEqual(mutations, [[revisionId, 'project:one', null]]);
+    assert.equal(applied.settlements[0].status, 'applied');
+    const cancelled = fixture({ snapshot: current, prompts: { async resolveProjectConflict() { return undefined; } } });
+    await cancelled.controller.handle(request('resolveProjectConflict', 'project:one'));
+    assert.equal(cancelled.settlements[0].status, 'cancelled');
+    assert.equal(cancelled.calls.some(value => value[0] === 'refresh'), false);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-001 Environment recovery previews all affected Project records', async () => {
+    const current = snapshot();
+    const environment = current.catalog.environments[0];
+    current.environmentConflictCandidates = { [environment.id]: [environment, null] };
+    current.projectConflictCandidates = { hidden: [{ ...current.catalog.projects[0], id: 'hidden' }, null] };
+    const applied = fixture({ snapshot: current,
+        prompts: { async resolveEnvironmentConflict(id, candidates, count) { assert.equal(count, 2); return candidates[0]; } },
+        store: { async resolveEnvironmentConflict(expected, id, selected) { assert.equal(expected, revisionId); assert.equal(id, environment.id); assert.deepEqual(selected, environment); return { ...current, revisionId: nextRevisionId }; } },
+    });
+    await applied.controller.handle(request('resolveEnvironmentConflict', environment.id));
+    assert.equal(applied.settlements[0].status, 'applied');
+    const absent = fixture();
+    await absent.controller.handle(request('resolveEnvironmentConflict', environment.id));
+    assert.equal(absent.settlements[0].status, 'failed');
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-001 Machine removal confirms raw dependency counts before mutation', async () => {
+    const current = snapshot();
+    current.machineRemovalCounts = { 'machine:one': { projectCount: 8, environmentCount: 3 } };
+    const result = fixture({ snapshot: current, prompts: {
+        async confirmRemoveMachine(machine, counts) { assert.equal(machine.id, 'machine:one'); assert.deepEqual(counts, { projectCount: 8, environmentCount: 3 }); return false; },
+    } });
+    await result.controller.handle(request('removeMachine', 'machine:one'));
+    assert.equal(result.settlements[0].status, 'cancelled');
+    assert.equal(result.calls.some(value => value[0] === 'removeMachine'), false);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-001 single-live orphan cleanup requires an authoritative missing-parent conflict', async () => {
+    const current = snapshot();
+    const project = current.catalog.projects[0];
+    current.catalog.machines = [];
+    current.catalog.environments = [];
+    current.catalog.projects = [];
+    current.catalog.conflicts = [{ entityType: 'project', entityId: project.id, kind: 'missing-parent', relatedEntityIds: [project.environmentId] }];
+    current.projectConflictCandidates = { [project.id]: [project] };
+    const result = fixture({ snapshot: current,
+        prompts: { async resolveProjectConflict(id, candidates, names, allowOrphanRemoval) { assert.equal(allowOrphanRemoval, true); assert.deepEqual(candidates, [project]); assert.deepEqual(names, {}); return null; } },
+        store: { async resolveProjectConflict(expected, id, selected) { assert.equal(selected, null); return { ...current, revisionId: nextRevisionId }; } },
+    });
+    await result.controller.handle(request('resolveProjectConflict', project.id));
+    assert.equal(result.settlements[0].status, 'applied');
+    current.catalog.conflicts = [];
+    const stale = fixture({ snapshot: current });
+    await stale.controller.handle(request('resolveProjectConflict', project.id));
+    assert.equal(stale.settlements[0].status, 'failed');
+});

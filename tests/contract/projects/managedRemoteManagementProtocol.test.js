@@ -149,3 +149,13 @@ test('MANAGED-REMOTE-MANAGEMENT-001 accepts syncable jump paths and explicit rou
     assert.equal(parseManagedRemoteManagementRequest({ ...base, input: { ...endpoint, proxyJump: 123 } }), null);
     assert.equal(parseManagedRemoteManagementRequest({ ...base, input: { ...endpoint, sshConfigAlias: '-F /tmp/evil' } }), null);
 });
+
+test('MANAGED-REMOTE-MANAGEMENT-001 recovery accepts intent only, never a supplied candidate', () => {
+    for (const operation of ['resolveProjectConflict', 'resolveEnvironmentConflict']) {
+        const intent = { type: 'managed-remote-action', version: 1, requestId, operation, expectedRevisionId: null, targetId: 'entity:one' };
+        assert.deepEqual(parseManagedRemoteManagementRequest(intent), intent);
+        assert.equal(parseManagedRemoteManagementRequest({ ...intent, input: { name: 'Injected' } }), null);
+        assert.equal(parseManagedRemoteManagementRequest({ ...intent, selected: null }), null);
+        assert.equal(parseManagedRemoteManagementRequest({ ...intent, targetId: undefined }), null);
+    }
+});

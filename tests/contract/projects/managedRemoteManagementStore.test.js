@@ -238,3 +238,118 @@ test('MANAGED-REMOTE-MANAGEMENT-002 recovers into a usable catalog from an unrea
     assert.equal(added.lifecycle, 'active');
     assert.equal(added.catalog.machines[0].name, 'RedDev');
 });
+
+test('MANAGED-REMOTE-MANAGEMENT-002 exposes Project deletion candidates and refuses stale or injected recovery', async () => {
+    const { coordinator, store } = await fixture();
+    const seed = ManagedRemoteCatalogService.create('seed');
+    const machine = seed.addMachine({ name: 'Build', host: 'build', user: 'dev' });
+    const env = seed.getCatalog().environments[0];
+    const project = seed.addProject({ environmentId: env.id, name: 'API', remotePath: '/api' });
+    const base = seed.getDocument();
+    const edited = new ManagedRemoteCatalogService(base, 'edited');
+    const deleted = new ManagedRemoteCatalogService(base, 'deleted');
+    edited.editProject(project.id, { name: 'API updated' });
+    deleted.removeProject(project.id);
+    const joined = joinManagedRemoteCatalogs(edited.getDocument(), deleted.getDocument());
+    const stage = await coordinator.stageCatalog(joined);
+    await coordinator.activateStagedCatalog(stage);
+    const before = await store.getSnapshot();
+    assert.equal(before.projectConflictCandidates[project.id].length, 2);
+    assert.ok(before.projectConflictCandidates[project.id].includes(null));
+    assert.deepEqual(before.machineRemovalCounts[machine.id], { projectCount: 1, environmentCount: 1 });
+    await assert.rejects(store.resolveProjectConflict(before.revisionId, project.id, { ...project, name: 'Injected' }), /existing Project conflict version/);
+    const after = await store.resolveProjectConflict(before.revisionId, project.id, null);
+    assert.deepEqual(after.catalog.projects, []);
+    assert.equal(after.projectConflictCandidates[project.id], undefined);
+    await assert.rejects(store.resolveProjectConflict(before.revisionId, project.id, project), /catalog changed/);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-002 Machine cascade joined with Project editing retains an orphan deletion recovery', async () => {
+    const { coordinator, store } = await fixture();
+    const seed = ManagedRemoteCatalogService.create('seed');
+    const machine = seed.addMachine({ name: 'Build', host: 'build', user: 'dev' });
+    const environment = seed.getCatalog().environments[0];
+    const project = seed.addProject({ environmentId: environment.id, name: 'API', remotePath: '/api', favorite: true });
+    const deleted = new ManagedRemoteCatalogService(seed.getDocument(), 'deleted');
+    const edited = new ManagedRemoteCatalogService(seed.getDocument(), 'edited');
+    deleted.removeMachine(machine.id);
+    edited.editProject(project.id, { name: 'Changed while offline' });
+    const joined = joinManagedRemoteCatalogs(deleted.getDocument(), edited.getDocument());
+    await coordinator.activateStagedCatalog(await coordinator.stageCatalog(joined));
+    const before = await store.getSnapshot();
+    assert.deepEqual(before.catalog.machines, []);
+    assert.deepEqual(before.catalog.environments, []);
+    assert.deepEqual(before.catalog.projects, []);
+    assert.ok(before.catalog.conflicts.some(value => value.entityId === project.id && value.kind === 'missing-parent'));
+    assert.ok(before.projectConflictCandidates[project.id].includes(null));
+    assert.equal(before.projectConflictCandidates[project.id].filter(Boolean)[0].name, 'Changed while offline');
+    const recovered = await store.resolveProjectConflict(before.revisionId, project.id, null);
+    assert.deepEqual(recovered.catalog.conflicts, []);
+    assert.deepEqual(recovered.catalog.layout.favoriteProjectIds, []);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-002 orphan Host deletion is valid only after its Machine was deleted', async () => {
+    const { applyManagedCatalogTransaction } = require('../../../out/projects/managedRemote/merge');
+    const { coordinator, store } = await fixture();
+    const seed = ManagedRemoteCatalogService.create('seed');
+    const machine = seed.addMachine({ name: 'Build', host: 'build', user: 'dev' });
+    const environment = seed.getCatalog().environments[0];
+    seed.addProject({ environmentId: environment.id, name: 'API', remotePath: '/api' });
+    const base = seed.getDocument();
+    const deleted = new ManagedRemoteCatalogService(base, 'deleted');
+    deleted.removeMachine(machine.id);
+    const edited = applyManagedCatalogTransaction(base, 'edited', { environments: { [environment.id]: { ...environment, name: 'Renamed Host' } } });
+    const joined = joinManagedRemoteCatalogs(deleted.getDocument(), edited);
+    await coordinator.activateStagedCatalog(await coordinator.stageCatalog(joined));
+    const before = await store.getSnapshot();
+    assert.deepEqual(before.catalog.environments, []);
+    assert.ok(before.environmentConflictCandidates[environment.id].includes(null));
+    const recovered = await store.resolveEnvironmentConflict(before.revisionId, environment.id, null);
+    assert.deepEqual(recovered.catalog.conflicts, []);
+    const hostDeletedOnly = applyManagedCatalogTransaction(base, 'host-delete', { environments: { [environment.id]: null } });
+    const liveParentConflict = new ManagedRemoteCatalogService(joinManagedRemoteCatalogs(hostDeletedOnly, edited), 'resolve');
+    assert.throws(() => liveParentConflict.resolveEnvironmentConflict(environment.id, null), /Keep the Host Environment/);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-002 a concurrently added orphan Project can be removed without inventing a deletion candidate', async () => {
+    const { coordinator, store } = await fixture();
+    const seed = ManagedRemoteCatalogService.create('seed');
+    const machine = seed.addMachine({ name: 'Build', host: 'build', user: 'dev' });
+    const environment = seed.getCatalog().environments[0];
+    const deleted = new ManagedRemoteCatalogService(seed.getDocument(), 'deleted');
+    const added = new ManagedRemoteCatalogService(seed.getDocument(), 'added');
+    deleted.removeMachine(machine.id);
+    const project = added.addProject({ environmentId: environment.id, name: 'New offline Project', remotePath: '/new' });
+    const joined = joinManagedRemoteCatalogs(deleted.getDocument(), added.getDocument());
+    await coordinator.activateStagedCatalog(await coordinator.stageCatalog(joined));
+    const before = await store.getSnapshot();
+    assert.deepEqual(before.catalog.projects, []);
+    assert.deepEqual(before.projectConflictCandidates[project.id], [project]);
+    assert.ok(before.catalog.conflicts.some(value => value.kind === 'missing-parent' && value.entityId === project.id));
+    const recovered = await store.resolveProjectConflict(before.revisionId, project.id, null);
+    assert.deepEqual(recovered.catalog.conflicts, []);
+    assert.deepEqual(recovered.projectConflictCandidates, {});
+    assert.throws(() => added.resolveProjectConflict(project.id, null), /no longer has concurrent changes/);
+});
+
+test('MANAGED-REMOTE-MANAGEMENT-002 a concurrently added orphan Container removes its saved Project records', async () => {
+    const { coordinator, store } = await fixture();
+    const seed = ManagedRemoteCatalogService.create('seed');
+    const machine = seed.addMachine({ name: 'Build', host: 'build', user: 'dev' });
+    const deleted = new ManagedRemoteCatalogService(seed.getDocument(), 'deleted');
+    const added = new ManagedRemoteCatalogService(seed.getDocument(), 'added');
+    deleted.removeMachine(machine.id);
+    const environment = added.addDevContainer(machine.id, 'Offline Container', { version: 1, originalAuthority: 'dev-container+aa@ssh-remote+build', sourceKind: 'workspace', sourceLocator: '/work' });
+    added.addProject({ environmentId: environment.id, name: 'Offline API', remotePath: '/api' });
+    const joined = joinManagedRemoteCatalogs(deleted.getDocument(), added.getDocument());
+    await coordinator.activateStagedCatalog(await coordinator.stageCatalog(joined));
+    const before = await store.getSnapshot();
+    assert.deepEqual(before.catalog.environments, []);
+    assert.deepEqual(before.catalog.projects, []);
+    assert.deepEqual(before.environmentConflictCandidates[environment.id], [environment]);
+    assert.equal(before.environmentRemovalProjectCounts[environment.id], 1);
+    const recovered = await store.resolveEnvironmentConflict(before.revisionId, environment.id, null);
+    assert.deepEqual(recovered.catalog.conflicts, []);
+    assert.deepEqual(recovered.environmentRemovalProjectCounts, {});
+    assert.throws(() => added.resolveEnvironmentConflict(environment.id, null), /no longer has concurrent changes/);
+});

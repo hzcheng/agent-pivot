@@ -47,7 +47,7 @@ function renderDashboardSearchResults(container, sections) {
         var empty = document.createElement('div');
         empty.className = 'dashboard-search-empty';
         empty.setAttribute('role', 'status');
-        empty.textContent = 'No matching projects or AI sessions.';
+        empty.textContent = 'No matching items. Try a project, machine, workspace, or session name.';
         container.appendChild(empty);
         return;
     }
@@ -66,6 +66,11 @@ function renderDashboardSearchResults(container, sections) {
             button.type = 'button';
             button.className = 'dashboard-search-result';
             button.dataset.projectId = String(item.projectId || '');
+            if (item.unavailableReason) {
+                button.disabled = true;
+                button.title = String(item.unavailableReason);
+                button.setAttribute('aria-label', String(item.name || '') + '. ' + item.unavailableReason);
+            }
 
             var title = document.createElement('span');
             title.className = 'dashboard-search-result-title';

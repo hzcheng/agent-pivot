@@ -94,6 +94,7 @@ interface MachineDraft {
 }
 
 export interface ManagedRemotePromptConnections {
+    listAliases?(): Promise<string[]>;
     inspect(alias: string): Promise<unknown>;
     browse(machineId: string, directoryId?: string, path?: string): Promise<import('./bridgeProtocol').FileTransferLocalRootResponse>;
 }
@@ -126,6 +127,21 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
     }
 
     async importMachine(): Promise<AddManagedMachineInput | undefined> {
+        // Enumeration is a convenience: unreadable Includes must not prevent manual import.
+        let aliases: string[] = [];
+        try { aliases = await this.connections?.listAliases?.() || []; } catch { /* manual fallback */ }
+        aliases = Array.from(new Set(aliases.filter(value => /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u.test(value)))).sort();
+        if (aliases.length) {
+            const selected = await this.ui.pick({
+                title: 'Import SSH connection', step: 1, totalSteps: 2, canGoBack: false,
+                items: [
+                    ...aliases.map(alias => ({ label: alias, description: 'This computer’s SSH configuration', value: alias })),
+                    { label: 'Enter SSH alias manually…', value: '' },
+                ],
+            });
+            if (selected.action !== 'accept') { return undefined; }
+            if (selected.value) { return this.importAlias(selected.value); }
+        }
         const alias = await this.ui.input({
             title: 'Import SSH connection', step: 1, totalSteps: 2,
             prompt: 'SSH alias you already use, for example infra-home-inux',
@@ -256,9 +272,9 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         } : undefined;
     }
 
-    confirmRemoveMachine(machine: ManagedSshMachine): Promise<boolean> {
+    confirmRemoveMachine(machine: ManagedSshMachine, counts = { projectCount: 0, environmentCount: 0 }): Promise<boolean> {
         return this.ui.confirm(
-            `Remove ${machine.name} (${machineSummary(machine)})? This does not delete remote files.`,
+            `Remove ${machine.name} (${machineSummary(machine)}) and ${counts.projectCount} saved Project${counts.projectCount === 1 ? '' : 's'} across ${counts.environmentCount} Environment${counts.environmentCount === 1 ? '' : 's'}? This removes catalog records on all synced computers. Remote files, containers, and SSH configuration are not deleted.`,
             'Remove Machine',
         );
     }
@@ -418,6 +434,61 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
             `Remove ${project.name} from Agent Pivot? This does not delete remote files.`,
             'Remove Project',
         );
+    }
+
+    async resolveProjectConflict(
+        _projectId: string,
+        candidates: Array<ManagedRemoteProject | null>,
+        environmentNames?: Record<string, string>,
+        allowOrphanRemoval = false,
+    ): Promise<ManagedRemoteProject | null | undefined> {
+        const parentExists = (id: string) => environmentNames === undefined || typeof environmentNames[id] === 'string';
+        const parentRemoved = candidates.some(candidate => candidate && !parentExists(candidate.environmentId));
+        const choices = candidates.filter(candidate => candidate === null || parentExists(candidate.environmentId));
+        if (allowOrphanRemoval && !choices.includes(null)) { choices.push(null); }
+        if (!choices.length) { throw new Error('The parent Environment was removed. Restore it before keeping this Project.'); }
+        const result = await this.ui.pick({
+            title: 'Resolve Project sync conflict', step: 1, totalSteps: 1, canGoBack: false,
+            items: choices.map(candidate => candidate ? {
+                label: `Keep ${candidate.name}`,
+                description: `${candidate.remotePath} · ${environmentNames?.[candidate.environmentId] || 'Environment'}`,
+                detail: [candidate.description, candidate.tags?.length ? `Tags: ${candidate.tags.join(', ')}` : '',
+                    `Favorite: ${candidate.favorite ? 'yes' : 'no'}`, candidate.color ? `Color: ${candidate.color}` : '',
+                    'Applies to all synced computers.'].filter(Boolean).join(' · '),
+                value: candidate,
+            } : {
+                label: allowOrphanRemoval && !candidates.includes(null) ? 'Remove orphan Project record' : 'Keep deletion', description: 'Remove the saved Project record',
+                detail: `${parentRemoved ? 'The parent Environment was removed. Keep the deletion or cancel. ' : ''}Applies to all synced computers. Remote files are not deleted.`, value: null,
+            }),
+        });
+        return result.action === 'accept' ? result.value : undefined;
+    }
+
+    async resolveEnvironmentConflict(
+        _environmentId: string,
+        candidates: Array<ManagedEnvironment | null>,
+        projectCount: number,
+        machineNames?: Record<string, string>,
+        allowOrphanRemoval = false,
+    ): Promise<ManagedEnvironment | null | undefined> {
+        const parentExists = (id: string) => machineNames === undefined || typeof machineNames[id] === 'string';
+        const hasHost = candidates.some(value => value?.kind === 'host' && parentExists(value.machineId));
+        const parentRemoved = candidates.some(value => value && !parentExists(value.machineId));
+        const choices = candidates.filter(value => value === null ? !hasHost : parentExists(value.machineId));
+        if (allowOrphanRemoval && !choices.includes(null)) { choices.push(null); }
+        if (!choices.length) { throw new Error('The parent Machine was removed. Restore it before keeping this Environment.'); }
+        const result = await this.ui.pick({
+            title: 'Resolve Environment sync conflict', step: 1, totalSteps: 1, canGoBack: false,
+            items: choices.map(candidate => candidate ? {
+                label: `Keep ${candidate.name}`, description: `${candidate.kind === 'host' ? 'Host' : 'Dev Container'} · ${machineNames?.[candidate.machineId] || 'Machine'}`,
+                detail: `${candidate.devContainerAnchor?.sourceLocator || 'Host Environment'} · Applies to all synced computers.${hasHost ? ' To remove the Host, remove its Machine.' : ''}`,
+                value: candidate,
+            } : {
+                label: allowOrphanRemoval && !candidates.includes(null) ? 'Remove orphan Environment record' : 'Keep deletion', description: `Remove this Environment and ${projectCount} saved Project records`,
+                detail: `${parentRemoved ? 'The parent Machine was removed. Keep the deletion or cancel. ' : ''}Applies to all synced computers. Remote files and containers are not deleted.`, value: null,
+            }),
+        });
+        return result.action === 'accept' ? result.value : undefined;
     }
 
     async resolveMachineConflict(

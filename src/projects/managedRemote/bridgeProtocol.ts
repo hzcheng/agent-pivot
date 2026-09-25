@@ -30,6 +30,8 @@ export const MANAGED_REMOTE_BRIDGE_CAPABILITIES = [
 ] as const;
 
 export type ManagedRemoteBridgeOperation =
+    | 'listSshAliases'
+    | 'checkConnection'
     | 'getStatus'
     | 'reconcile'
     | 'recover'
@@ -253,6 +255,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         || !isCorrelationValue(value.requestId)
         || !isCorrelationValue(value.sessionToken)
         || ![
+            'listSshAliases', 'checkConnection',
             'getStatus',
             'reconcile',
             'recover',
@@ -276,6 +279,7 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         return null;
     }
     const requiresRevision = [
+        'checkConnection',
         'reconcile',
         'openLocalSshTerminal', 'copyLocalSshCommand',
         'openManagedMachine', 'openManagedProject', 'openManagedEnvironment',
@@ -291,7 +295,8 @@ export function parseManagedRemoteBridgeRequest(value: unknown): ManagedRemoteBr
         && value.expectedRevisionId !== undefined) {
         return null;
     }
-    const requiresTarget = value.operation === 'openLocalSshTerminal'
+    const requiresTarget = value.operation === 'checkConnection'
+        || value.operation === 'openLocalSshTerminal'
         || value.operation === 'copyLocalSshCommand'
         || value.operation === 'openManagedMachine'
         || value.operation === 'openManagedProject'

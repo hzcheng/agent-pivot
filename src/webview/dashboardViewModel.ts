@@ -47,6 +47,7 @@ export interface DashboardSearchProjectItem {
     description: string;
     action: 'open-saved-project' | 'open-managed-project' | 'open-managed-machine';
     expectedRevisionId?: string;
+    unavailableReason?: string;
     environmentLabel?: string;
     groupLabels: string[];
 }
@@ -205,6 +206,9 @@ function buildManagedProjectSearchItems(
             projectId: project.id,
             name: project.name || '',
             description: project.description || project.remotePath,
+            ...(snapshot.catalog.conflicts.some(conflict =>
+                conflict.entityId === project.id || conflict.entityId === environment.id || conflict.entityId === machine.id)
+                ? { unavailableReason: 'Resolve this item’s sync conflict in Projects before opening it.' } : {}),
             action: 'open-managed-project' as const,
             expectedRevisionId: snapshot.revisionId,
             environmentLabel: `${machine.name} · ${environment.name}`,
@@ -351,6 +355,8 @@ export function buildWorkspaceDashboardSearchCatalog(
             description: `${machine.connection.user}@${machine.connection.host}:${machine.connection.port}`,
             searchText: searchable(machine.name, machine.connection.host, machine.connection.user,
                 machine.connection.sshConfigAlias, machine.connection.proxyJump),
+            ...(managedRemoteSnapshot.catalog.conflicts.some(conflict => conflict.entityId === machine.id)
+                ? { unavailableReason: 'Resolve this machine’s sync conflict in Projects before connecting.' } : {}),
             action: 'open-managed-machine', expectedRevisionId: managedRemoteSnapshot.revisionId!,
             environmentLabel: machine.connection.sshConfigAlias ? `SSH config: ${machine.connection.sshConfigAlias}`
                 : machine.connection.proxyJump ? `Via ${machine.connection.proxyJump}` : 'Direct SSH',

@@ -89,6 +89,11 @@ function managedMarkup(clientState = 'preview') {
     });
 }
 
+async function openAddMachineForm(page) {
+    await page.locator('.machine-projects-toolbar [data-action="toggle-machine-menu"]').click();
+    await page.locator('[data-action="show-add-machine-form"]').click();
+}
+
 let browser;
 
 test.before(async () => {
@@ -146,12 +151,12 @@ test('WEBVIEW-COLLAPSE-BUTTON-STATE-001 collapses and expands the Machine hierar
     assert.equal(await toggle.getAttribute('aria-label'), 'Collapse All Groups');
     await toggle.click();
     assert.deepEqual(await page.locator('[data-machine-disclosure]').evaluateAll(controls =>
-        controls.map(control => control.getAttribute('aria-expanded'))), ['false', 'false', 'false']);
+        controls.map(control => control.getAttribute('aria-expanded'))), ['false', 'false']);
     assert.equal(await page.locator('[data-machine-row]').isVisible(), true);
     assert.equal(await toggle.getAttribute('aria-label'), 'Expand All Groups');
     await toggle.click();
     assert.deepEqual(await page.locator('[data-machine-disclosure]').evaluateAll(controls =>
-        controls.map(control => control.getAttribute('aria-expanded'))), ['true', 'true', 'true']);
+        controls.map(control => control.getAttribute('aria-expanded'))), ['true', 'true']);
 });
 
 test('MACHINE-PROJECTS-FILTER-001 applies AND tags without double-counting Favorites', async t => {
@@ -379,7 +384,7 @@ test('MACHINE-PROJECTS-KEYBOARD-001 exposes disclosure, Machine, Project, Favori
         buttons.filter(button => button.tabIndex === 0 && !button.closest('[hidden]')).map(button => button.getAttribute('data-action')
             || button.getAttribute('data-machine-disclosure')));
     assert.deepEqual(tabStops, [
-        'machine', 'open-machine-host', 'toggle-machine-menu', 'environment',
+        'machine', 'open-machine-host', 'toggle-machine-menu',
         'open-machine-project', 'toggle-machine-favorite', 'toggle-machine-project-menu',
         'open-machine-project', 'toggle-machine-favorite', 'toggle-machine-project-menu',
     ]);
@@ -445,7 +450,7 @@ test('MACHINE-PROJECTS-FOCUS-001 restores focus to Add Machine when the focused 
         restoreProjectsFocus(panel, state.focus);
     }, emptyMarkup);
 
-    assert.equal(await page.locator('[data-action="show-add-machine-form"]')
+    assert.equal(await page.locator('.machine-projects-toolbar [data-action="toggle-machine-menu"]')
         .evaluate(node => document.activeElement === node), true);
 });
 
@@ -461,7 +466,7 @@ test('MACHINE-PROJECTS-NARROW-001 avoids horizontal scrolling at 260px', async t
 
 test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after replacement', async t => {
     const page = await openPage(t, 360, managedMarkup());
-    await page.click('[data-action="show-add-machine-form"]');
+    await openAddMachineForm(page);
     assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isVisible(), true);
     assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"] input[name="name"]')
         .evaluate(node => document.activeElement === node), true);
@@ -495,7 +500,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
     assert.equal(await page.locator('[data-managed-operation="addMachine"]').isEnabled(), true);
     assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isHidden(), true,
         'a successful add must close the preserved inline form');
-    assert.equal(await page.locator('[data-action="show-add-machine-form"]')
+    assert.equal(await page.locator('.machine-projects-toolbar [data-action="toggle-machine-menu"]')
         .evaluate(node => document.activeElement === node), true,
     'the replacement panel must return focus to Add Machine after a successful add');
     assert.equal(await page.locator('[data-machine-projects-announcer]').textContent(),
@@ -504,8 +509,8 @@ test('MANAGED-REMOTE-MANAGEMENT-003 posts revisioned actions and settles after r
 
 test('MANAGED-REMOTE-MANAGEMENT-003 validates inline Machine drafts before posting', async t => {
     const page = await openPage(t, 260, managedMarkup());
-    await page.click('[data-action="show-add-machine-form"]');
-    const fieldPositions = await page.locator('[data-managed-machine-form-operation="addMachine"] input').evaluateAll(inputs =>
+    await openAddMachineForm(page);
+    const fieldPositions = await page.locator('[data-managed-machine-form-operation="addMachine"] input:visible').evaluateAll(inputs =>
         inputs.map(input => input.getBoundingClientRect().top),
     );
     assert.ok(fieldPositions.every((top, index) => index === 0 || top > fieldPositions[index - 1]),
@@ -542,7 +547,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 keeps direct management without a migration 
 
 test('MANAGED-REMOTE-MANAGEMENT-003 edits a Machine inline and restores focus after replacement', async t => {
     const page = await openPage(t, 360, managedMarkup());
-    await page.click('[data-action="show-add-machine-form"]');
+    await openAddMachineForm(page);
     assert.equal(await page.locator('[data-managed-machine-form-operation="addMachine"]').isVisible(), true);
     await page.click('[data-machine-row] [data-action="toggle-machine-menu"]');
     await page.getByRole('menuitem', { name: 'Edit…' }).click();
@@ -846,7 +851,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 stays within 260px with endpoint-qualified r
         clientWidth: document.documentElement.clientWidth,
     }));
     assert.equal(geometry.scrollWidth, geometry.clientWidth);
-    assert.equal(await page.locator('[data-action="show-add-machine-form"]').getAttribute('aria-label'), 'Add Machine');
+    assert.equal(await page.locator('.machine-projects-toolbar [data-action="toggle-machine-menu"]').getAttribute('aria-label'), 'Add a project or machine');
     assert.equal(await page.locator('.machine-projects-toolbar-actions [data-managed-operation="addProject"]').count(), 0);
     assert.equal(await page.locator('.managed-machine-endpoint').count(), 0);
     assert.equal(await page.locator('[data-managed-machine-row] .machine-row-primary').getAttribute('title'), 'Build — dev@build.example.com:22022');
@@ -878,19 +883,20 @@ test('DASHBOARD-OVERFLOW-MENUS-001 keeps local and remote menus inside narrow an
     }
 });
 
-test('MANAGED-REMOTE-MANAGEMENT-003 saves jump fields and retains their disclosure on refresh', async t => {
+test('MANAGED-REMOTE-MANAGEMENT-003 saves jump fields and retains the selected connection method on refresh', async t => {
     const page = await openPage(t, 320, managedMarkup('ready'));
-    await page.locator('[data-action="show-add-machine-form"]').click();
+    await openAddMachineForm(page);
     const form = page.locator('[data-managed-machine-form-operation="addMachine"]');
     await form.locator('input[name="name"]').fill('Home');
     await form.locator('input[name="host"]').fill('home.internal');
     await form.locator('input[name="user"]').fill('dev');
-    await form.locator('summary').click();
+    await form.locator('[data-managed-connection-mode]').selectOption('jump');
     await form.locator('input[name="proxyJump"]').fill('ops@bastion:2222');
     const saved = await page.evaluate(() => window.machineUi.captureManagedMachineFormState());
-    assert.equal(saved.connectionOptionsOpen, true);
+    assert.equal(saved.values.connectionMode, 'jump');
     await page.evaluate(state => window.machineUi.restoreManagedMachineFormState(state), saved);
-    assert.equal(await form.locator('details').getAttribute('open'), '');
+    assert.equal(await form.locator('[data-managed-connection-mode]').inputValue(), 'jump');
+    assert.equal(await form.locator('[data-managed-connection-fields="jump"]').isVisible(), true);
     await form.evaluate(node => node.requestSubmit());
     const request = await page.evaluate(() => window.messages.at(-1));
     assert.equal(request.input.proxyJump, 'ops@bastion:2222');
@@ -935,4 +941,134 @@ test('MANAGED-REMOTE-MANAGEMENT-003 keeps icon actions aligned with the machine 
     const toolbar = page.locator('.machine-projects-toolbar-actions > button');
     assert.equal(await toolbar.evaluateAll(buttons => buttons.every(button => !button.textContent.trim() && button.title && button.getAttribute('aria-label'))), true);
     assert.equal(await page.locator('.machine-favorite-row .machine-project-context').isVisible(), true);
+});
+
+test('Projects connection methods preserve drafts and exclude inactive route fields', async t => {
+    const page = await openPage(t, 260, managedMarkup('ready'));
+    await openAddMachineForm(page);
+    const form = page.locator('[data-managed-machine-form-operation="addMachine"]');
+    await form.locator('[name="name"]').fill('Home');
+    await form.locator('[name="host"]').fill('home.internal');
+    await form.locator('[name="user"]').fill('dev');
+    await form.locator('[name="connectionMode"]').selectOption('jump');
+    await form.locator('[name="proxyJump"]').fill('ops@bastion');
+    await form.locator('[name="connectionMode"]').selectOption('sshConfig');
+    assert.equal(await form.locator('[name="proxyJump"]').isDisabled(), true);
+    assert.equal(await form.locator('[data-managed-connection-fields="jump"]').isHidden(), true);
+    await form.locator('[name="sshConfigAlias"]').fill('home');
+    await form.evaluate(node => node.requestSubmit());
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.input.proxyJump, null);
+    assert.equal(request.input.sshConfigAlias, 'home');
+    await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'managed-remote-settlement', version: 1, requestId, operation: 'addMachine', status: 'failed', message: 'Try again',
+    } })), request.requestId);
+    assert.equal(await form.locator('[name="proxyJump"]').isDisabled(), true);
+    assert.equal(await form.locator('[name="sshConfigAlias"]').isEnabled(), true);
+    await form.locator('[name="connectionMode"]').selectOption('jump');
+    assert.equal(await form.locator('[name="proxyJump"]').inputValue(), 'ops@bastion');
+});
+
+test('Projects navigation failures stay visible and retry once with fresh correlation', async t => {
+    const page = await openPage(t, 260, managedMarkup('ready'));
+    const connect = page.locator('[data-managed-client-action="openMachine"]');
+    await connect.click();
+    assert.equal(await connect.getAttribute('aria-busy'), 'true');
+    const request = await page.evaluate(() => window.messages.at(-1));
+    await page.evaluate(request => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'managed-remote-client-settlement', version: 1, requestId: request.requestId,
+        action: request.action, targetId: request.targetId, status: 'failed', message: 'SSH alias is missing on this computer.',
+    } })), request);
+    const status = page.locator('[data-machine-operation-status]');
+    assert.equal(await status.isVisible(), true);
+    assert.match(await status.textContent(), /SSH alias is missing/);
+    assert.equal(await connect.isEnabled(), true);
+    await status.getByRole('button', { name: 'Retry action' }).click();
+    const retry = await page.evaluate(() => window.messages.at(-1));
+    assert.notEqual(retry.requestId, request.requestId);
+    assert.equal(retry.targetId, request.targetId);
+    assert.equal(await connect.getAttribute('aria-busy'), 'true');
+});
+
+test('A machine without projects stays counted and offers its first folder', async t => {
+    const html = renderManagedRemoteProjectsPanel({ revisionId: 'r', lifecycle: 'active', projectCount: 0, tags: [], favorites: [], machines: [{
+        id: 'empty', name: 'Empty server', endpoint: 'dev@empty:22', connection: { host: 'empty', user: 'dev', port: 22 },
+        projectCount: 0, openable: true, conflict: false, environments: [{ id: 'host-empty', kind: 'host', name: 'Host', projects: [], conflict: false }],
+    }] });
+    const page = await openPage(t, 260, html);
+    assert.equal(await page.locator('[data-machine-projects-summary]').textContent(), '0 projects on 1 machine');
+    assert.equal(await page.getByText('No saved projects', { exact: true }).isVisible(), true);
+    await page.locator('.machine-empty-hint [data-managed-operation="addProject"]').click();
+    assert.equal(await page.evaluate(() => window.messages.at(-1).targetId), 'empty');
+});
+
+test('Local and managed single Host projects share one visual tree level', async t => {
+    const local = await openPage(t, 400, markup());
+    const remote = await openPage(t, 400, managedMarkup('ready'));
+    for (const page of [local, remote]) {
+        assert.equal(await page.locator('[data-machine-disclosure="environment"]').count(), 0);
+        const tree = await page.locator('.machine-host-environment > .machine-project-list').evaluate(list => ({
+            margin: getComputedStyle(list).marginLeft, padding: getComputedStyle(list).paddingLeft, border: getComputedStyle(list).borderLeftWidth,
+        }));
+        assert.deepEqual(tree, { margin: '0px', padding: '0px', border: '0px' });
+    }
+});
+
+test('Duplicate names show distinguishing paths without horizontal overflow', async t => {
+    const { annotateProjectPathHints } = require('../../out/projects/machineProjectsViewModel');
+    const projects = [project('one', 'API', []), project('two', 'API', [])];
+    projects[0].path = '/work/one/api';
+    projects[1].path = '/work/two/api';
+    annotateProjectPathHints(projects, row => row.path);
+    const html = renderMachineProjectsPanel({ projectCount: 2, tags: [], favorites: [], machines: [{
+        id: 'machine', defaultName: 'devbox', displayName: 'devbox', renamed: false, hostOpenable: true, hostProjectId: 'one',
+        environments: [{ id: 'host', machineId: 'machine', kind: 'host', displayName: 'Host', projects }],
+    }] });
+    const page = await openPage(t, 260, html);
+    assert.deepEqual(await page.locator('.machine-project-path').allTextContents(), ['one/api', 'two/api']);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+});
+
+test('Saving current project keeps correlated busy feedback and a visible failure retry', async t => {
+    const page = await openPage(t, 260, managedMarkup('ready'));
+    const save = page.locator('[data-action="save-current-project"]');
+    await save.click();
+    const request = await page.evaluate(() => window.messages.at(-1));
+    assert.equal(request.type, 'save-current-workspace');
+    assert.equal(await save.isDisabled(), true);
+    assert.equal(await save.getAttribute('aria-busy'), 'true');
+    await page.evaluate(request => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'save-current-workspace-result', version: 1, requestId: request.requestId + '-stale',
+        projectId: request.projectId, operation: 'save-current-workspace', status: 'failed', message: 'Ignored stale result',
+    } })), request);
+    assert.equal(await save.isDisabled(), true);
+    await page.evaluate(request => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'save-current-workspace-result', version: 1, requestId: request.requestId,
+        projectId: request.projectId, operation: 'save-current-workspace', status: 'failed', message: 'Unable to save settings.',
+    } })), request);
+    const status = page.locator('[data-machine-operation-status]');
+    assert.equal(await status.isVisible(), true);
+    assert.match(await status.textContent(), /Unable to save settings/);
+    assert.equal(await save.isEnabled(), true);
+    await status.getByRole('button', { name: 'Retry action' }).click();
+    assert.equal(await save.getAttribute('aria-busy'), 'true');
+    assert.notEqual(await page.evaluate(() => window.messages.at(-1).requestId), request.requestId);
+});
+
+test('A replaced conflicted machine stays disabled when its pending folder action fails', async t => {
+    const page = await openPage(t, 260, managedMarkup('ready'));
+    await page.locator('[data-managed-operation="addProject"]').click();
+    const request = await page.evaluate(() => window.messages.at(-1));
+    await page.evaluate(html => {
+        document.getElementById('panel').innerHTML = html;
+        window.machineUi.mount(document.getElementById('panel'));
+    }, managedMarkup('preview'));
+    const folders = page.locator('[data-managed-operation="addProject"]');
+    assert.equal(await folders.isDisabled(), true);
+    await page.evaluate(requestId => window.dispatchEvent(new MessageEvent('message', { data: {
+        type: 'managed-remote-settlement', version: 1, requestId, operation: 'addProject', status: 'failed', message: 'Connection unavailable.',
+    } })), request.requestId);
+    assert.equal(await folders.isDisabled(), true);
+    assert.equal(await folders.getAttribute('aria-busy'), 'false');
+    assert.match(await page.locator('[data-machine-operation-status]').textContent(), /Connection unavailable/);
 });

@@ -184,8 +184,10 @@ function renderMachine(
         </div>
         ${renderEditMachineForm(machine)}
         ${machine.conflict ? '<div class="managed-remote-row-status">Machine sync conflict</div>' : ''}
-        ${machine.projectCount === 0 ? `<div class="machine-empty-hint"><span>No saved projects</span><button type="button" class="machine-pointer-action" ${operationAttributes('addProject', machine.id)} aria-label="Save a folder on ${escapeAttribute(machine.name)}" title="${escapeAttribute(machine.openable ? 'Browse and save a folder' : machine.unavailableReason || 'Connection unavailable')}"${machine.openable ? '' : ' disabled'}>${Icons.folder}</button></div>` : ''}
-        <ul id="${childrenId}" class="machine-environment-list">${machine.environments.map(environment => renderEnvironment(environment, machine.environments.length === 1 && !environment.conflict)).join('\n')}</ul>
+        <ul id="${childrenId}" class="machine-environment-list">
+            ${machine.projectCount === 0 ? `<li class="machine-empty-hint">No projects saved on ${escapeAttribute(machine.name)} yet. Use the folder button above to save one.</li>` : ''}
+            ${machine.environments.map(environment => renderEnvironment(environment, machine.environments.length === 1 && !environment.conflict)).join('\n')}
+        </ul>
     </li>`;
 }
 

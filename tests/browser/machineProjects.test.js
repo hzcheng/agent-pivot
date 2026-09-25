@@ -997,8 +997,14 @@ test('A machine without projects stays counted and offers its first folder', asy
     }] });
     const page = await openPage(t, 260, html);
     assert.equal(await page.locator('[data-machine-projects-summary]').textContent(), '0 projects on 1 machine');
-    assert.equal(await page.getByText('No saved projects', { exact: true }).isVisible(), true);
-    await page.locator('.machine-empty-hint [data-managed-operation="addProject"]').click();
+    const hint = page.getByText('No projects saved on Empty server yet. Use the folder button above to save one.', { exact: true });
+    assert.equal(await hint.isVisible(), true);
+    assert.equal(await page.locator('[data-managed-operation="addProject"]').count(), 1);
+    await page.locator('[data-machine-disclosure="machine"]').click();
+    assert.equal(await hint.isVisible(), false);
+    await page.locator('[data-machine-disclosure="machine"]').click();
+    assert.equal(await hint.isVisible(), true);
+    await page.locator('[data-managed-operation="addProject"]').click();
     assert.equal(await page.evaluate(() => window.messages.at(-1).targetId), 'empty');
 });
 
@@ -1071,4 +1077,24 @@ test('A replaced conflicted machine stays disabled when its pending folder actio
     assert.equal(await folders.isDisabled(), true);
     assert.equal(await folders.getAttribute('aria-busy'), 'false');
     assert.match(await page.locator('[data-machine-operation-status]').textContent(), /Connection unavailable/);
+});
+
+test('Machine open and menu actions align across local and remote rows at narrow widths', async t => {
+    for (const width of [260, 400]) {
+        const page = await openPage(t, width, markup(false) + managedMarkup('ready'));
+        await page.evaluate(() => {
+            const localRow = document.querySelector('[data-machine-row][data-machine-id="machine"]');
+            document.querySelector('[data-managed-remote-projects] .machine-projects-machines').prepend(localRow);
+            document.querySelector('[data-machine-projects]:not([data-managed-remote-projects])').remove();
+        });
+        const local = page.locator('[data-machine-row][data-machine-id="machine"] > .machine-row-line');
+        const remote = page.locator('[data-machine-row][data-machine-id="machine:managed"] > .machine-row-line');
+        for (const selector of ['.machine-primary-action', '.machine-more-action']) {
+            const a = await local.locator(selector).boundingBox();
+            const b = await remote.locator(selector).boundingBox();
+            assert.ok(Math.abs(a.x - b.x) < 1, `${selector} should align at ${width}px: ${a.x} vs ${b.x}`);
+        }
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        await page.screenshot({ path: `/tmp/projects-alignment-${width}.png`, fullPage: true });
+    }
 });

@@ -1144,6 +1144,29 @@ body .project {
     gap: 1px;
 }
 
+// Reserve the same trailing columns for open, browse, and more actions.
+.machine-projects { --machine-action-size: 24px; }
+.machine-row-actions {
+    min-width: calc(3 * var(--machine-action-size) + 2px);
+    justify-content: flex-end;
+}
+
+.machine-row-actions > .machine-primary-action:last-of-type {
+    margin-right: calc(var(--machine-action-size) + 1px);
+}
+
+.machine-environment-row .machine-row-actions > .machine-primary-action:last-child {
+    margin-right: calc(2 * (var(--machine-action-size) + 1px));
+}
+
+.machine-environment-list > .machine-empty-hint {
+    display: block;
+    padding: 6px 4px;
+    line-height: 1.5;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
 .machine-project-menu-shell {
     position: relative;
     display: flex;
@@ -1329,6 +1352,7 @@ body .project {
 }
 
 @media (max-width: 279px) {
+    .machine-projects { --machine-action-size: 22px; }
     .machine-project-context {
         display: none;
     }
@@ -3395,6 +3419,7 @@ body .project {
 }
 
 @media (max-width: 279px) {
+    .machine-projects { --machine-action-size: 22px; }
     .open-window-row {
         .open-window-focus {
             min-width: 0;

@@ -1,6 +1,9 @@
 # AI 会话停止通知 —— 设计方案
 
-> Status: designed (2026-07-31)
+> Status: historical; the shipped in-process portion remains descriptive, but
+> the unimplemented background-daemon design is superseded by
+> [`Machine Agent v1: Reliable Background Attention Delivery`](2026-08-22-machine-agent-v1-background-attention-design.md).
+> Do not implement `notifyd` from this document as the current architecture.
 > Date: 2026-07-31
 > Worktree: `.worktree/notify-on-session-stop`(分支 `feat/notify-on-session-stop`)
 

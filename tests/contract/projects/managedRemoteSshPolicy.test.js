@@ -118,3 +118,22 @@ test('MANAGED-REMOTE-SSH-POLICY-001 scopes the managed Include above a leading M
 
     assert.ok(inserted.indexOf('Include') < inserted.indexOf('Match host'));
 });
+
+test('Home-relative literal Includes are fingerprinted without weakening dynamic path checks', () => {
+    const root = '/home/dev/.ssh/config';
+    const included = '/home/dev/.ssh/home-infra.generated.conf';
+    const files = new MemoryFiles({ [root]: 'Include ~/.ssh/home-infra.generated.conf\n', [included]: 'Host infra-home-book\n HostName 100.101.7.100\n' });
+    const options = { platform: 'linux', homeDirectory: '/home/dev' };
+    const first = scanManagedSshConfigGraph(root, files, options);
+    assert.deepEqual(first.issues, []);
+    assert.equal(first.fingerprint.files.length, 2);
+    files.files[included] += ' Port 2222\n';
+    assert.notEqual(scanManagedSshConfigGraph(root, files, options).fingerprint.digest, first.fingerprint.digest);
+    for (const pattern of ['~other/.ssh/config', '~/.ssh/*.conf', '~/.ssh/%h', '~/.ssh/$CONFIG', '~/.ssh/%h/../safe.conf', '~/.ssh/*/../safe.conf']) {
+        files.files[root] = `Include ${pattern}\n`;
+        assert.ok(scanManagedSshConfigGraph(root, files, options).issues.some(x => x.startsWith('dynamic-include:')), pattern);
+    }
+    files.files[root] = 'Include ~/.ssh/home-infra.generated.conf\n';
+    files.files[included] = 'Include ~/.ssh/config\n';
+    assert.ok(scanManagedSshConfigGraph(root, files, options).issues.some(x => x.startsWith('include-cycle:')));
+});

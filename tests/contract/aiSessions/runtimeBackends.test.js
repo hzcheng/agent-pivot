@@ -67,6 +67,92 @@ test('CONVERSATION-ACTIVE-SESSION-NAVIGATION-COMMANDS-001 direct focus can revea
 
 // RUNTIME-TMUX-BACKEND-001
 for (const layout of ['project', 'session']) {
+    async function failedResume() {
+        const harness = createTmuxRuntimeHarness(layout);
+        const request = fakeResumeRequest('stale-resume');
+        const configure = harness.dependencies.client.configureManagedWindow;
+        harness.dependencies.client.configureManagedWindow = async () => {
+            throw new Error('list-panes: nonzero-exit');
+        };
+        await assert.rejects(harness.backend.ensureResume(request, layout), /list-panes/);
+        harness.dependencies.client.configureManagedWindow = configure;
+        assert.ok(await harness.store.getAmbiguous(request.identity));
+        return { harness, request };
+    }
+
+    test(`RUNTIME-TMUX-BACKEND-001 [${layout}] resumes after an ambiguous creation loses its tmux session`, async () => {
+        const { harness, request } = await failedResume();
+        harness.windows.splice(0);
+        const reloaded = harness.createReloadedBackend();
+        const [runtime, concurrent] = await Promise.all([
+            reloaded.ensureResume(request, layout),
+            harness.createReloadedBackend().ensureResume(request, layout),
+        ]);
+        assert.deepEqual(runtime.tmux, concurrent.tmux);
+        assert.equal(runtime.identity.sessionId, request.identity.sessionId);
+        assert.equal(harness.providerCreateCount(), 2);
+        assert.equal(await harness.store.getAmbiguous(request.identity), null);
+        await reloaded.ensureResume(request, layout);
+        assert.equal(harness.providerCreateCount(), 2, 'later clicks reuse the recovered runtime');
+    });
+
+    test(`RUNTIME-TMUX-BACKEND-001 [${layout}] retains ambiguity while an unverified tmux session exists`, async () => {
+        const { harness, request } = await failedResume();
+        // A renamed window is not proof that the prior provider exited.
+        harness.windows[0].windowName = 'renamed-unverified-window';
+        await assert.rejects(harness.createReloadedBackend().ensureResume(request, layout), /ambiguous/);
+        assert.equal(harness.providerCreateCount(), 1);
+        assert.ok(await harness.store.getAmbiguous(request.identity));
+    });
+
+    test(`RUNTIME-TMUX-BACKEND-001 [${layout}] retains ambiguity when the absence probe fails`, async () => {
+        const { harness, request } = await failedResume();
+        harness.windows.splice(0);
+        const getAmbiguous = harness.store.getAmbiguous;
+        harness.store.getAmbiguous = async identity => {
+            const record = await getAmbiguous(identity);
+            harness.setListError(new Error('list-panes: nonzero-exit'));
+            return record;
+        };
+        await assert.rejects(harness.createReloadedBackend().ensureResume(request, layout), /list-panes/);
+        assert.equal(harness.providerCreateCount(), 1);
+        assert.ok(await getAmbiguous(request.identity));
+    });
+
+    test(`RUNTIME-TMUX-BACKEND-001 [${layout}] retains ambiguity after an unverified session is renamed`, async () => {
+        const { harness, request } = await failedResume();
+        harness.windows[0].sessionName = 'renamed-unverified-session';
+        await assert.rejects(harness.createReloadedBackend().ensureResume(request, layout), /ambiguous/);
+        assert.equal(harness.providerCreateCount(), 1);
+        assert.ok(await harness.store.getAmbiguous(request.identity));
+    });
+
+    test(`RUNTIME-TMUX-BACKEND-001 [${layout}] recovers alongside a separately verified runtime`, async () => {
+        const { harness, request } = await failedResume();
+        harness.windows.splice(0);
+        await harness.backend.ensureResume(fakeResumeRequest('other-runtime'), 'session');
+        await harness.createReloadedBackend().ensureResume(request, layout);
+        assert.equal(harness.providerCreateCount(), 3);
+        assert.equal(await harness.store.getAmbiguous(request.identity), null);
+    });
+
+    test(`RUNTIME-TMUX-BACKEND-001 [${layout}] does not trust discovery when fresh window ownership changes`, async () => {
+        const { harness, request } = await failedResume();
+        harness.windows.splice(0);
+        await harness.backend.ensureResume(fakeResumeRequest('other-runtime'), 'session');
+        const getAmbiguous = harness.store.getAmbiguous;
+        harness.store.getAmbiguous = async identity => {
+            const record = await getAmbiguous(identity);
+            harness.windows[0].windowMetadata = {};
+            return record;
+        };
+        await assert.rejects(harness.createReloadedBackend().ensureResume(request, layout), /ambiguous/);
+        assert.equal(harness.providerCreateCount(), 2);
+        assert.ok(await getAmbiguous(request.identity));
+    });
+}
+
+for (const layout of ['project', 'session']) {
     defineRuntimeContract({
         backendId: 'tmux',
         layout,

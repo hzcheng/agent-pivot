@@ -800,7 +800,7 @@ function finalIdentitiesMatch(left: AiSessionRuntimeIdentity, right: AiSessionRu
         && left.workspaceScopeIdentity === right.workspaceScopeIdentity;
 }
 
-function parseRowMetadata(row: DiscoveryWindowRecord): AiSessionManagedTmuxMetadata | null {
+export function parseRowMetadata(row: DiscoveryWindowRecord): AiSessionManagedTmuxMetadata | null {
     if (!row.sessionMetadata || !row.windowMetadata) {
         return null;
     }

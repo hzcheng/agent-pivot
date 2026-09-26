@@ -79,7 +79,7 @@ import {
     TmuxPendingRuntimeBinding,
     validateTmuxPendingRuntimeBinding,
 } from './tmuxRuntimeBindingStore';
-import { getTmuxCollisionRuntimes, TmuxRuntimeDiscovery } from './tmuxRuntimeDiscovery';
+import { getTmuxCollisionRuntimes, parseRowMetadata, TmuxRuntimeDiscovery } from './tmuxRuntimeDiscovery';
 import {
     isBoundedOptionalLocalPath,
     isIdentityField,
@@ -245,7 +245,26 @@ implements AiSessionExecutableRuntimeBackend<TTerminal> {
             }
             const ambiguous = await this.dependencies.runtimeStore.getAmbiguous(identity);
             if (ambiguous) {
-                throw new Error('The prior tmux creation result is ambiguous; the provider command was not sent again.');
+                // Probe under the creation locks before retiring a failed resume.
+                // Names alone cannot prove absence: an unverified provider may
+                // have been renamed or moved. Account for every remaining window
+                // using fresh ownership metadata as well as verified discovery.
+                const rows = await this.dependencies.client.listWindows();
+                const unresolved = rows.some(row => {
+                    const metadata = parseRowMetadata(row);
+                    return row.sessionName === ambiguous.locator.sessionName
+                        || !metadata
+                        || (metadata.provider === identity.provider && metadata.sessionId === identity.sessionId)
+                        || !this.findVerified(metadata, {
+                            layout: metadata.layout,
+                            sessionName: row.sessionName,
+                            windowName: row.windowName,
+                        });
+                });
+                if (unresolved) {
+                    throw new Error('The prior tmux creation result is ambiguous; the provider command was not sent again.');
+                }
+                await this.dependencies.runtimeStore.removeAmbiguous(identity);
             }
             const locator = await this.resolveCreationLocator(identity, preferredLocator);
             return this.createFinalRuntime(input, layout, locator);

@@ -51,6 +51,7 @@ export interface ManagedRemoteManagementStore {
 }
 
 export interface ManagedRemoteManagementPrompts {
+    convertMachine?(machine: ManagedSshMachine): Promise<AddManagedMachineInput | undefined>;
     importMachine?(): Promise<AddManagedMachineInput | undefined>;
     addMachine(): Promise<AddManagedMachineInput | undefined>;
     adoptCurrentSshProject(input: AddManagedMachineProjectInput['project'] & { sshAlias: string }): Promise<AddManagedMachineInput | undefined>;
@@ -220,14 +221,15 @@ export class ManagedRemoteManagementController {
         if (operation === 'importMachine') {
             const machine = await this.options.prompts.importMachine?.();
             if (!machine) { return null; }
-            const alias = machine.sshConfigAlias;
+            const alias = machine.sshConfigAlias || machine.sourceSshAliases?.[0];
             const matches = alias ? snapshot.catalog.machines.filter(value =>
                 value.connection.sshConfigAlias === alias || value.sourceSshAliases?.includes(alias)) : [];
             if (matches.length > 1) { throw new Error('This SSH alias belongs to multiple Machines. Edit their connections first.'); }
             if (matches.length === 1) {
                 return this.options.store.editMachine(snapshot.revisionId, matches[0].id, {
                     host: machine.host, user: machine.user, port: machine.port,
-                    proxyJump: null, sshConfigAlias: alias,
+                    proxyJump: null, sshConfigAlias: machine.sshConfigAlias || null,
+                    ...(machine.jumpHosts ? { jumpHosts: machine.jumpHosts } : {}),
                 });
             }
             return this.options.store.addMachine(snapshot.revisionId, machine);
@@ -253,6 +255,13 @@ export class ManagedRemoteManagementController {
                 ? this.options.store.addProject(snapshot.revisionId, input) : null;
         }
         if (!targetId) { throw new Error('The Managed Remote target is missing.'); }
+        if (operation === 'convertMachine') {
+            const machine = findMachine(snapshot, targetId);
+            const converted = await this.options.prompts.convertMachine?.(machine);
+            return converted ? this.options.store.editMachine(snapshot.revisionId, machine.id, {
+                ...converted, sshConfigAlias: null, proxyJump: null,
+            }) : null;
+        }
         if (operation === 'editMachine') {
             const machine = findMachine(snapshot, targetId);
             const machineInput = input as ManagedRemoteMachineInput | undefined || await this.options.prompts.editMachine(

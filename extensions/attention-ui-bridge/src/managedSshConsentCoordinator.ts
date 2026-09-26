@@ -1,5 +1,7 @@
 'use strict';
 
+import { createHash } from 'crypto';
+
 import {
     buildManagedSshProjection,
     ManagedSshProjection,
@@ -97,10 +99,27 @@ export class ManagedSshConsentCoordinator {
         private readonly consent: ManagedSshConsentFileStore,
         private readonly validator: ManagedSshProjectionValidationService = new ManagedSshProjectionValidator(),
         activeConfigEditor?: ManagedSshActiveConfigEditingService,
+        private readonly identityFiles: Record<string, string> = {},
     ) {
         this.owned = new ManagedSshOwnedFileStore(activeConfigPath);
         this.activeConfigEditor = activeConfigEditor
             || new ManagedSshActiveConfigEditor(activeConfigPath, this.owned);
+    }
+
+    private buildProjection(slot: ManagedRevisionSlot): ManagedSshProjection {
+        const projection = buildManagedSshProjection(slot);
+        const credentials: Array<[string, string]> = [];
+        for (const entry of projection.entries) {
+            const identityFile = this.identityFiles[entry.machineId];
+            if (!identityFile || entry.sshConfigAlias) { continue; }
+            if (/[\r\n\0"%]/u.test(identityFile)) { throw new Error('The selected key path cannot be represented in SSH configuration.'); }
+            entry.identityFile = identityFile;
+            credentials.push([entry.machineId, identityFile]);
+        }
+        if (credentials.length) {
+            projection.connectionDigest = createHash('sha256').update(projection.connectionDigest + JSON.stringify(credentials)).digest('hex');
+        }
+        return projection;
     }
 
     getState(): ManagedSshConsentRecordV1 {
@@ -131,7 +150,7 @@ export class ManagedSshConsentCoordinator {
     }
 
     isProjectionReady(slot: ManagedRevisionSlot): boolean {
-        const projection = buildManagedSshProjection(slot);
+        const projection = this.buildProjection(slot);
         const record = this.getState();
         if (record.status !== 'enabled'
             || record.connectionDigest !== projection.connectionDigest
@@ -165,7 +184,7 @@ export class ManagedSshConsentCoordinator {
      */
     isProjectionResolvable(slot: ManagedRevisionSlot): boolean {
         try {
-            const projection = buildManagedSshProjection(slot);
+            const projection = this.buildProjection(slot);
             const current = this.owned.readCurrent();
             if (!current) { return false; }
             const active = this.configFiles.readSecureFile(this.activeConfigPath);
@@ -638,7 +657,7 @@ export class ManagedSshConsentCoordinator {
             throw new Error(`The active SSH config is unsafe: ${scan.issues.join(', ')}`);
         }
         await this.validator.probe(this.executable);
-        const projection = buildManagedSshProjection(slot);
+        const projection = this.buildProjection(slot);
         const includeBlock = renderManagedSshIncludeBlock(paths.current);
         return {
             activeConfigPath: this.activeConfigPath,
@@ -715,7 +734,7 @@ export class ManagedSshConsentCoordinator {
         if (!current || current.checksum !== record.journal.currentChecksum) {
             throw new Error('Managed SSH current.conf no longer matches the prepared revision.');
         }
-        const projection = buildManagedSshProjection(slot);
+        const projection = this.buildProjection(slot);
         const manifest = this.owned.readManifest();
         if (!manifest
             || manifest.revisionId !== slot.revisionId

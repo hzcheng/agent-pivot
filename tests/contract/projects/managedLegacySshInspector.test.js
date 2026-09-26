@@ -50,6 +50,7 @@ test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 uses OpenSSH argv without a sh
         configurationMatched: true,
         sshConfigAlias: 'build',
         route: { kind: 'direct' },
+        portable: { jumpHosts: [] },
         endpoint: { host: 'build.example.com', user: 'dev', port: 2207 },
     });
     assert.equal(JSON.stringify(result).includes('private diagnostic'), false);
@@ -73,7 +74,8 @@ test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 preserves jump routing by refe
     assert.equal(advanced.sshConfigAlias, 'build');
     assert.deepEqual(advanced.route, { kind: 'jump', jumpHosts: 'bastion' });
     assert.equal(hostile.status, 'unsupported');
-    assert.equal(runs, 1);
+    assert.equal(runs, 2);
+    assert.match(advanced.portableReason, /cycle/);
 });
 
 test('MANAGED-REMOTE-MIGRATION-SSH-INSPECTION-001 returns a noninteractive failure when OpenSSH cannot resolve an alias', async () => {
@@ -144,4 +146,38 @@ test('OpenSSH recognizes target-specific Match rules without breaking default-on
     assert.equal(existing.configurationMatched, false);
     assert.deepEqual(existing.endpoint, { host: 'build.example.com', user: 'dev', port: 22 });
     assert.notEqual(existing.status, 'unsupported');
+});
+
+test('Portable import resolves nested routes and explicit jump credentials without exporting key paths', async t => {
+    const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pivot-inspect-route-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const config = path.join(root, 'config');
+    fs.writeFileSync(config, `Host target
+  HostName target.example.com
+  User dev
+  ProxyJump override@inner:2222
+Host inner
+  HostName inner.example.com
+  User ignored
+  Port 22
+  ProxyJump outer
+  IdentityFile /local/private/key
+Host outer
+  HostName outer.example.com
+  User jump
+  Port 2229
+`);
+    const inspector = new ManagedLegacySshInspector({});
+    const result = await inspector.inspect('ssh', config, 'target');
+    assert.equal(result.configurationMatched, true);
+    assert.deepEqual(result.portable.jumpHosts, [
+        { name: 'outer', host: 'outer.example.com', user: 'jump', port: 2229 },
+        { name: 'inner', host: 'inner.example.com', user: 'override', port: 2222 },
+    ]);
+    assert.doesNotMatch(JSON.stringify(result), /\/local\/private/);
+    fs.appendFileSync(config, '\nHost command-target\n  HostName command.example.com\n  User dev\n  ProxyCommand custom-proxy %h\n');
+    const command = await inspector.inspect('ssh', config, 'command-target');
+    assert.equal(command.portable, undefined);
+    assert.match(command.portableReason, /custom ProxyCommand/);
 });

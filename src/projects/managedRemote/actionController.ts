@@ -3,7 +3,6 @@
 import type { ManagedRemoteManagementSnapshot } from './managementController';
 import type { ManagedRemoteBridgeClient } from './bridgeClient';
 import {
-    formatManagedSshCommand,
     resolveManagedEnvironmentTarget,
     resolveManagedMachineTarget,
     resolveManagedProjectIdentity,
@@ -44,7 +43,7 @@ export class ManagedRemoteActionController {
         const value = raw as Record<string, unknown>;
         const action = String(value.action);
         const actions = [
-            'sshTerminal', 'copySsh', 'openMachine', 'openProject', 'openEnvironment', 'checkConnection',
+            'sshTerminal', 'copySsh', 'openMachine', 'openProject', 'openEnvironment', 'checkConnection', 'configureAuthentication',
         ];
         if (!actions.includes(action)
             || value.version !== 1
@@ -65,10 +64,10 @@ export class ManagedRemoteActionController {
         const revisionId = value.expectedRevisionId as string | null;
         try {
             const snapshot = this.currentSnapshot(revisionId);
-            let message = 'Connection handed to VS Code.';
+            let message = action === 'checkConnection' ? 'Connection check completed.' : 'Connection handed to VS Code.';
             if (action === 'copySsh') {
                 const target = resolveManagedMachineTarget(snapshot.catalog, targetId);
-                await this.options.writeClipboard(formatManagedSshCommand(target.machine));
+                await this.options.bridge.execute('copyLocalSshCommand', snapshot.revisionId!, target.machine.id);
                 message = 'SSH command copied.';
             } else if (action === 'openProject') {
                 resolveManagedProjectIdentity(snapshot.catalog, targetId);
@@ -78,11 +77,12 @@ export class ManagedRemoteActionController {
             } else {
                 if (action === 'openEnvironment') { resolveManagedEnvironmentTarget(snapshot.catalog, targetId); }
                 else { resolveManagedMachineTarget(snapshot.catalog, targetId); }
-                const operation = action === 'checkConnection' ? 'checkConnection'
+                const operation = action === 'configureAuthentication' ? 'configureAuthentication' : action === 'checkConnection' ? 'checkConnection'
                     : action === 'openEnvironment' ? 'openManagedEnvironment'
                     : action === 'sshTerminal' ? 'openLocalSshTerminal' : 'openManagedMachine';
-                await this.options.bridge.execute(operation, snapshot.revisionId!, targetId);
-                if (action === 'checkConnection') { message = 'SSH configuration is ready on this computer. Connect to check authentication and network access.'; }
+                const result = await this.options.bridge.execute(operation, snapshot.revisionId!, targetId) as { message?: string } | undefined;
+                if (result?.message) { message = result.message; }
+
             }
             await this.options.postSettlement?.({ type: 'managed-remote-client-settlement', version: 1,
                 requestId: value.requestId, targetId, action, status: 'completed', message });
@@ -129,7 +129,7 @@ export class ManagedRemoteActionController {
         try {
             const snapshot = this.currentSnapshot(expectedRevisionId);
             const target = resolveManagedMachineTarget(snapshot.catalog, machineId);
-            await this.options.writeClipboard(formatManagedSshCommand(target.machine));
+            await this.options.bridge.execute('copyLocalSshCommand', snapshot.revisionId!, target.machine.id);
             await this.options.showInformationMessage(
                 `Copied SSH command for ${target.machine.name}.`,
             );

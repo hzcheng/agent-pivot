@@ -247,7 +247,7 @@ test('SSH import preserves the selected prefixed alias and shows its name and ro
     assert.equal(machine.sshConfigAlias, 'infra-home-linux');
     assert.deepEqual(machine.sourceSshAliases, ['infra-home-linux']);
     const review = ui.picks[1].items[0];
-    assert.equal(review.label, 'Save infra-home-linux');
+    assert.equal(review.label, 'Reference local SSH alias: infra-home-linux');
     assert.match(review.detail, /Via gateway.*Machine name: infra-home-linux.*connection not tested/);
 });
 
@@ -268,4 +268,24 @@ test('Saving an already connected DNS target still works with global SSH default
     });
     const machine = await controller.adoptCurrentSshProject({ name: 'API', remotePath: '/work/api', sshAlias: 'build.example.com' });
     assert.equal(machine.sshConfigAlias, 'build.example.com');
+});
+
+test('Import recommends syncing the full route and conversion preserves the chosen machine name', async () => {
+    const hop = { name: 'gateway', host: 'gateway.example.com', user: 'jump', port: 2229 };
+    const connections = { listAliases: async () => ['infra-home-linux'], inspect: async () => ({
+        status: 'needsInput', configurationMatched: true, sshConfigAlias: 'infra-home-linux',
+        endpoint: { host: 'linux.example.com', user: 'dev', port: 22 },
+        portable: { jumpHosts: [hop] }, route: { kind: 'jump', jumpHosts: 'gateway' },
+    }) };
+    const ui = new ScriptedWizardUi([{ action: 'accept', value: 'infra-home-linux' }, { action: 'accept', value: 'portable' }]);
+    const imported = await new ManagedRemotePromptController(ui, connections).importMachine();
+    assert.equal(ui.picks.at(-1).items[0].value, 'portable');
+    assert.deepEqual(imported.jumpHosts, [hop]);
+    assert.equal(imported.sshConfigAlias, undefined);
+    const convertUi = new ScriptedWizardUi([{ action: 'accept', value: 'portable' }]);
+    const converted = await new ManagedRemotePromptController(convertUi, connections).convertMachine({
+        id: 'saved-machine', name: 'My Linux', connection: { ...connections.endpoint, sshConfigAlias: 'infra-home-linux' },
+    });
+    assert.equal(converted.name, 'My Linux');
+    assert.deepEqual(converted.jumpHosts, [hop]);
 });

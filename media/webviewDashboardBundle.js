@@ -9355,6 +9355,16 @@ function createMachineProjectsUi() {
                 );
             });
         });
+        var jumpHosts = panel.querySelector('[data-jump-hosts]');
+        if (jumpHosts) {
+            if (textQuery) {
+                if (!jumpHosts.hasAttribute('data-before-search')) jumpHosts.setAttribute('data-before-search', jumpHosts.open ? 'open' : 'closed');
+                jumpHosts.open = true;
+            } else if (jumpHosts.hasAttribute('data-before-search')) {
+                jumpHosts.open = jumpHosts.getAttribute('data-before-search') === 'open';
+                jumpHosts.removeAttribute('data-before-search');
+            }
+        }
         var summary = panel.querySelector('[data-machine-projects-summary]');
         if (summary) summary.textContent = formatSummary(matchedIds.size, matchedMachines.size);
         var clear = panel.querySelector('[data-action="clear-machine-tags"]');
@@ -9777,7 +9787,7 @@ function createMachineProjectsUi() {
         form.querySelectorAll('[data-managed-connection-fields]').forEach(function (group) {
             var active = group.getAttribute('data-managed-connection-fields') === mode;
             group.hidden = !active;
-            group.querySelectorAll('input').forEach(function (input) { input.disabled = !active || form.getAttribute('aria-busy') === 'true'; });
+            group.querySelectorAll('input, select').forEach(function (input) { input.disabled = !active || form.getAttribute('aria-busy') === 'true'; });
         });
     }
 
@@ -10158,7 +10168,7 @@ function createMachineProjectsUi() {
         var requestId = 'managed-client-' + Date.now() + '-' + nextManagedRequestId++;
         pendingClientActions.set(key, { requestId: requestId, targetId: targetId, action: action });
         restoreClientPendingControls();
-        announceManaged(action === 'checkConnection' ? 'Checking SSH configuration on this computer…' : 'Opening connection…');
+        announceManaged(action === 'checkConnection' ? 'Testing the connection and jump hosts…' : action === 'configureAuthentication' ? 'Choose authentication on this computer…' : 'Opening connection…');
         closeProjectMenu(false);
         window.vscode.postMessage({
             type: 'managed-remote-client-action',

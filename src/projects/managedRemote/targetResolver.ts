@@ -1,5 +1,7 @@
 'use strict';
 
+import { managedJumpRoute } from './jumpRoutes';
+
 import {
     rebuildManagedDevContainerProjectUri,
 } from './devContainerCodec';
@@ -59,6 +61,7 @@ export function resolveManagedMachineTarget(
 ): ManagedMachineTarget {
     const machine = catalog.machines.find(value => value.id === machineId);
     if (!machine) { throw new Error('Managed Machine no longer exists.'); }
+    managedJumpRoute(catalog, machine);
     assertReady(blockedEntityIds(catalog), [machine.id]);
     const alias = machineSshAlias(machine);
     return { machine, alias, remoteAuthority: `ssh-remote+${alias}` };

@@ -29,7 +29,15 @@ import {
     VersionedCandidates,
 } from './types';
 import { parseManagedRemoteCatalog } from './validation';
+import { managedJumpAlias, managedJumpRoute } from './jumpRoutes';
 import { normalizePosixPath } from '../projectPathUtils';
+
+export interface PortableSshHop {
+    name: string;
+    host: string;
+    user: string;
+    port: number;
+}
 
 export interface AddManagedMachineInput {
     name: string;
@@ -39,9 +47,11 @@ export interface AddManagedMachineInput {
     proxyJump?: string;
     sshConfigAlias?: string;
     sourceSshAliases?: string[];
+    jumpHosts?: PortableSshHop[];
 }
 
 export interface EditManagedMachineInput {
+    jumpHosts?: PortableSshHop[];
     name?: string;
     host?: string;
     user?: string;
@@ -184,7 +194,31 @@ export class ManagedRemoteCatalogService {
         return materializeManagedRemoteCatalog(this.document);
     }
 
+    private importJumpHosts(hops: PortableSshHop[]): string | undefined {
+        if (hops.length > 8) { throw new Error('A connection supports at most eight jump hosts.'); }
+        let parent: string | undefined;
+        const endpoints = new Set<string>();
+        for (const hop of hops) {
+            const identity = `${hop.user}@${hop.host.toLowerCase()}:${hop.port}`;
+            if (endpoints.has(identity)) { throw new Error('The imported jump route contains a cycle.'); }
+            endpoints.add(identity);
+            const matches = this.getCatalog().machines.filter(machine => !machine.connection.sshConfigAlias
+                && machine.connection.host.toLowerCase() === hop.host.toLowerCase()
+                && machine.connection.user === hop.user && machine.connection.port === hop.port
+                && machine.connection.proxyJump === parent);
+            if (matches.length > 1) { throw new Error(`Multiple saved jump hosts match ${hop.name}. Resolve the duplicate connections first.`); }
+            const machine = matches[0] || this.addMachine({ ...hop, proxyJump: parent });
+            parent = managedJumpAlias(machine.id);
+        }
+        return parent;
+    }
+
     addMachine(input: AddManagedMachineInput): ManagedSshMachine {
+        if (input.jumpHosts) {
+            const before = cloneManagedValue(this.document);
+            try { return this.addMachine({ ...input, jumpHosts: undefined, proxyJump: this.importJumpHosts(input.jumpHosts), sshConfigAlias: undefined }); }
+            catch (error) { this.document = before; throw error; }
+        }
         this.assertUniqueMachineName(input.name, input.host);
         const machineId = this.createId('machine');
         const machine: ManagedSshMachine = {
@@ -202,6 +236,9 @@ export class ManagedRemoteCatalogService {
                 ...(input.sshConfigAlias ? { sshConfigAlias: input.sshConfigAlias } : {}),
             },
         };
+        const proposed = this.getCatalog();
+        proposed.machines.push(machine);
+        managedJumpRoute(proposed, machine);
         const hostId = hostEnvironmentId(machineId);
         const host: ManagedEnvironment = {
             id: hostId,
@@ -222,6 +259,11 @@ export class ManagedRemoteCatalogService {
     }
 
     editMachine(machineId: string, patch: EditManagedMachineInput): ManagedSshMachine {
+        if (patch.jumpHosts) {
+            const before = cloneManagedValue(this.document);
+            try { return this.editMachine(machineId, { ...patch, jumpHosts: undefined, proxyJump: this.importJumpHosts(patch.jumpHosts) || null, sshConfigAlias: null }); }
+            catch (error) { this.document = before; throw error; }
+        }
         const current = singleValue<ManagedSshMachine>(
             this.document.machines[machineId],
             'Managed Machine',
@@ -241,7 +283,11 @@ export class ManagedRemoteCatalogService {
             if (patch[key] === null) { delete machine.connection[key]; }
             else if (patch[key] !== undefined) { machine.connection[key] = patch[key]!; }
         }
+        this.assertSharedJumpHostIsPortable(machine);
         this.assertUniqueMachineName(machine.name, machine.connection.host, machineId);
+        const proposed = this.getCatalog();
+        proposed.machines = proposed.machines.map(value => value.id === machineId ? machine : value);
+        managedJumpRoute(proposed, machine);
         const transaction: ManagedCatalogTransaction = { machines: { [machineId]: machine } };
         const hostId = hostEnvironmentId(machineId);
         if (!this.document.environments[hostId]
@@ -410,6 +456,9 @@ export class ManagedRemoteCatalogService {
     /** Remove only catalog records in one causal transaction; remote files are untouched. */
     removeMachine(machineId: string): void {
         singleValue<ManagedSshMachine>(this.document.machines[machineId], 'Managed Machine');
+        const alias = managedJumpAlias(machineId);
+        const dependents = Object.values(this.document.machines).reduce<ManagedSshMachine[]>((values, register) => values.concat(nonNullValues(register)), []).filter(machine => (machine.connection.proxyJump || '').split(',').includes(alias));
+        if (dependents.length) { throw new Error(`This jump host is used by ${dependents.map(value => value.name).join(', ')}. Change their routes before removing it.`); }
         const environmentIds = Object.entries(this.document.environments)
             .filter(([, register]) => nonNullValues(register)
                 .some(environment => environment.machineId === machineId))
@@ -506,6 +555,7 @@ export class ManagedRemoteCatalogService {
         if (!selected || selected.id !== machineId) {
             throw new Error('Conflict resolution must retain the Managed Machine ID.');
         }
+        this.assertSharedJumpHostIsPortable(selected);
         this.assertUniqueMachineName(
             selected.name,
             selected.connection.host,
@@ -531,6 +581,14 @@ export class ManagedRemoteCatalogService {
         }
         this.commit(transaction);
         return cloneManagedValue(selected);
+    }
+
+    private assertSharedJumpHostIsPortable(machine: ManagedSshMachine): void {
+        if (machine.connection.sshConfigAlias && Object.values(this.document.machines).some(register =>
+            nonNullValues(register).some(value =>
+                (value.connection.proxyJump || '').split(',').includes(managedJumpAlias(machine.id))))) {
+            throw new Error('A shared jump host must keep synced connection settings. Change its dependents before switching to a local SSH reference.');
+        }
     }
 
     private hasLiveProjectPlacement(environmentId: string): boolean {

@@ -891,7 +891,8 @@ test('MANAGED-REMOTE-MANAGEMENT-003 saves jump fields and retains the selected c
     await form.locator('input[name="host"]').fill('home.internal');
     await form.locator('input[name="user"]').fill('dev');
     await form.locator('[data-managed-connection-mode]').selectOption('jump');
-    await form.locator('input[name="proxyJump"]').fill('ops@bastion:2222');
+    const jump = await form.locator('[name="proxyJump"] option').nth(1).getAttribute('value');
+    await form.locator('[name="proxyJump"]').selectOption(jump);
     const saved = await page.evaluate(() => window.machineUi.captureManagedMachineFormState());
     assert.equal(saved.values.connectionMode, 'jump');
     await page.evaluate(state => window.machineUi.restoreManagedMachineFormState(state), saved);
@@ -899,7 +900,7 @@ test('MANAGED-REMOTE-MANAGEMENT-003 saves jump fields and retains the selected c
     assert.equal(await form.locator('[data-managed-connection-fields="jump"]').isVisible(), true);
     await form.evaluate(node => node.requestSubmit());
     const request = await page.evaluate(() => window.messages.at(-1));
-    assert.equal(request.input.proxyJump, 'ops@bastion:2222');
+    assert.equal(request.input.proxyJump, jump);
     assert.equal(request.input.sshConfigAlias, null);
     assert.equal(await page.locator('input[type="search"]').count(), 0);
 });
@@ -951,7 +952,8 @@ test('Projects connection methods preserve drafts and exclude inactive route fie
     await form.locator('[name="host"]').fill('home.internal');
     await form.locator('[name="user"]').fill('dev');
     await form.locator('[name="connectionMode"]').selectOption('jump');
-    await form.locator('[name="proxyJump"]').fill('ops@bastion');
+    const jump = await form.locator('[name="proxyJump"] option').nth(1).getAttribute('value');
+    await form.locator('[name="proxyJump"]').selectOption(jump);
     await form.locator('[name="connectionMode"]').selectOption('sshConfig');
     assert.equal(await form.locator('[name="proxyJump"]').isDisabled(), true);
     assert.equal(await form.locator('[data-managed-connection-fields="jump"]').isHidden(), true);
@@ -966,7 +968,7 @@ test('Projects connection methods preserve drafts and exclude inactive route fie
     assert.equal(await form.locator('[name="proxyJump"]').isDisabled(), true);
     assert.equal(await form.locator('[name="sshConfigAlias"]').isEnabled(), true);
     await form.locator('[name="connectionMode"]').selectOption('jump');
-    assert.equal(await form.locator('[name="proxyJump"]').inputValue(), 'ops@bastion');
+    assert.equal(await form.locator('[name="proxyJump"]').inputValue(), jump);
 });
 
 test('Projects navigation failures stay visible and retry once with fresh correlation', async t => {
@@ -1096,5 +1098,25 @@ test('Machine open and menu actions align across local and remote rows at narrow
         }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
         await page.screenshot({ path: `/tmp/projects-alignment-${width}.png`, fullPage: true });
+    }
+});
+
+test('Synced routes show named jump hosts in one collapsible group without a second search box', async t => {
+    const { ManagedRemoteCatalogService } = require('../../out/projects/managedRemote/catalogService');
+    const { buildManagedRemoteProjectsViewModel } = require('../../out/projects/managedRemote/viewModel');
+    const catalog = ManagedRemoteCatalogService.create('visual-routes');
+    catalog.addMachine({ name: 'infra-home-linux', host: '100.106.15.126', user: 'dev', jumpHosts: [{ name: 'infra-ali-jump', host: 'gateway.example.com', user: 'jump', port: 2229 }] });
+    const model = buildManagedRemoteProjectsViewModel({ catalog: catalog.getCatalog(), lifecycle: 'active', revisionId: `revision:${'a'.repeat(64)}`, machineConflictCandidates: {} });
+    for (const width of [260, 400]) {
+        const page = await openPage(t, width, renderManagedRemoteProjectsPanel(model));
+        await page.addStyleTag({ content: 'body { font: 13px Arial, sans-serif; color: #ccc; background: #202020; --vscode-foreground:#ccc; --vscode-descriptionForeground:#aaa; --vscode-focusBorder:#8c70df; --vscode-widget-border:#444; } #outside-click-target, body > button { display:none; }' });
+        const group = page.locator('[data-jump-hosts]');
+        assert.equal(await group.locator('[data-machine-row]').count(), 1);
+        assert.equal(await group.getAttribute('open'), null);
+        await group.locator('summary').click();
+        assert.equal(await group.locator('[data-machine-row]').isVisible(), true);
+        assert.equal(await page.locator('input[type="search"]').count(), 0);
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+        await page.screenshot({ path: `/tmp/projects-portable-${width}.png`, fullPage: true });
     }
 });

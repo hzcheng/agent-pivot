@@ -2,6 +2,7 @@
 
 import { createHash } from 'crypto';
 
+import { managedJumpAlias, managedJumpRoute, jumpHostIds } from './jumpRoutes';
 import { stableManagedValue } from './causal';
 import { materializeManagedRemoteCatalog } from './merge';
 import { ManagedRevisionSlot } from './types';
@@ -15,6 +16,8 @@ export interface ManagedSshProjectionEntry {
     port: number;
     proxyJump?: string;
     sshConfigAlias?: string;
+    stableAlias?: string;
+    identityFile?: string;
 }
 
 export interface ManagedSshProjection {
@@ -37,12 +40,17 @@ export function buildManagedSshProjection(slot: ManagedRevisionSlot): ManagedSsh
     const unavailable = new Set(view.conflicts
         .filter(conflict => conflict.entityType === 'machine')
         .map(conflict => conflict.entityId));
+    const jumpIds = jumpHostIds(view.machines);
+    for (const machine of view.machines) {
+        try { managedJumpRoute(view, machine); } catch { unavailable.add(machine.id); }
+    }
     const entries = view.machines
         .filter(machine => !unavailable.has(machine.id))
         .map(machine => ({
             machineId: machine.id,
             alias: machineSshAlias(machine),
             name: machine.name,
+            ...(jumpIds.has(machine.id) ? { stableAlias: managedJumpAlias(machine.id) } : {}),
             host: machine.connection.host,
             user: machine.connection.user,
             port: machine.connection.port,
@@ -60,6 +68,7 @@ export function buildManagedSshProjection(slot: ManagedRevisionSlot): ManagedSsh
         host: entry.host,
         user: entry.user,
         port: entry.port,
+        ...(entry.stableAlias ? { stableAlias: entry.stableAlias } : {}),
         ...(entry.proxyJump ? { proxyJump: entry.proxyJump } : {}),
         ...(entry.sshConfigAlias ? { sshConfigAlias: entry.sshConfigAlias } : {}),
     }))));
@@ -81,7 +90,7 @@ export function renderManagedSshConfig(projection: ManagedSshProjection): string
         if (entry.sshConfigAlias) { continue; }
         lines.push(
             '',
-            `Host ${entry.alias}`,
+            `Host ${entry.alias}${entry.stableAlias ? ` ${entry.stableAlias}` : ''}`,
             `    HostName ${entry.host}`,
             `    User ${entry.user}`,
             `    Port ${entry.port}`,
@@ -92,6 +101,7 @@ export function renderManagedSshConfig(projection: ManagedSshProjection): string
             '    ForwardX11 no',
             '    RemoteCommand none',
             '    ControlMaster no',
+            ...(entry.identityFile ? [`    IdentityFile "${entry.identityFile.replace(/\\/gu, '/')}"`, '    IdentitiesOnly yes'] : []),
         );
     }
     return `${lines.join('\n')}\n`;

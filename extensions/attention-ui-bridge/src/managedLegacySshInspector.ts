@@ -4,6 +4,7 @@ import {
     ManagedSshCommandRunner,
     NodeManagedSshCommandRunner,
 } from './managedSshValidator';
+import type { PortableSshHop } from '../../../src/projects/managedRemote/catalogService';
 import { isManagedMachine } from '../../../src/projects/managedRemote/validation';
 
 export interface ManagedLegacySshInspection {
@@ -13,6 +14,8 @@ export interface ManagedLegacySshInspection {
     /** Reference local configuration; never export its commands or credentials. */
     sshConfigAlias?: string;
     configurationMatched?: boolean;
+    portable?: { jumpHosts: PortableSshHop[] };
+    portableReason?: string;
     route?: { kind: 'direct' | 'jump' | 'command'; jumpHosts?: string };
 }
 
@@ -45,10 +48,45 @@ export class ManagedLegacySshInspector {
         this.timeoutMs = options.timeoutMs || 10_000;
     }
 
-    async inspect(
+    async inspect(executable: string, activeConfigPath: string, target: string): Promise<ManagedLegacySshInspection> {
+        const inspected = await this.inspectOne(executable, activeConfigPath, target);
+        if (!inspected.endpoint || inspected.status === 'unsupported') { return inspected; }
+        const jumpHosts: PortableSshHop[] = [];
+        const visiting = new Set<string>([target]);
+        const endpoints = new Set<string>([`${inspected.endpoint.user}@${inspected.endpoint.host}:${inspected.endpoint.port}`]);
+        const walk = async (result: ManagedLegacySshInspection): Promise<void> => {
+            if (result.route?.kind === 'command') { throw new Error('This route uses a custom ProxyCommand that cannot be synced.'); }
+            const hops = result.route?.kind === 'jump' ? (result.route.jumpHosts || '').split(',') : [];
+            for (let index = 0; index < hops.length; index += 1) {
+                const hop = hops[index];
+                const match = /^(?:([A-Za-z0-9][A-Za-z0-9._-]*)@)?(\[[a-fA-F0-9:]+\]|[A-Za-z0-9][A-Za-z0-9._-]*)(?::([0-9]+))?$/u.exec(hop);
+                if (!match) { throw new Error('This jump destination cannot be represented as a synced connection.'); }
+                const alias = match[2].replace(/^\[|\]$/gu, '');
+                if (visiting.has(alias) || visiting.size > 8 || jumpHosts.length >= 8) { throw new Error('The SSH route contains a cycle or exceeds eight hops.'); }
+                visiting.add(alias);
+                const resolved = await this.inspectOne(executable, activeConfigPath, alias, match[1], match[3]);
+                if (!resolved.endpoint || resolved.status === 'unsupported') { throw new Error(`Cannot resolve jump host ${alias}. ${resolved.reason}`); }
+                // An explicit multi-hop list overrides later hops' own ProxyJump.
+                if (index === 0) { await walk(resolved); }
+                else if (resolved.route?.kind === 'command') { throw new Error(`Jump host ${alias} uses a custom ProxyCommand.`); }
+                const endpoint = resolved.endpoint;
+                const identity = `${endpoint.user}@${endpoint.host}:${endpoint.port}`;
+                if (endpoints.has(identity)) { throw new Error('The SSH route contains a repeated destination.'); }
+                endpoints.add(identity);
+                jumpHosts.push({ name: alias, ...endpoint });
+                visiting.delete(alias);
+            }
+        };
+        try { await walk(inspected); return { ...inspected, portable: { jumpHosts } }; }
+        catch (error) { return { ...inspected, portableReason: error instanceof Error ? error.message : 'This connection requires local SSH configuration.' }; }
+    }
+
+    private async inspectOne(
         executable: string,
         activeConfigPath: string,
         target: string,
+        userOverride?: string,
+        portOverride?: string,
     ): Promise<ManagedLegacySshInspection> {
         if (target.length > 256
             || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(target)) {
@@ -61,7 +99,7 @@ export class ManagedLegacySshInspector {
         try {
             result = await this.runner.run(
                 executable,
-                ['-F', activeConfigPath, '-vv', '-G', target],
+                ['-F', activeConfigPath, '-vv', '-G', ...(userOverride ? ['-l', userOverride] : []), ...(portOverride ? ['-p', portOverride] : []), target],
                 this.timeoutMs,
             );
         } catch (_error) {

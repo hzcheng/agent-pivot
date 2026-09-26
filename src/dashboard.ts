@@ -982,7 +982,24 @@ async function initializeDashboard(
                 },
             ),
             refreshAuthoritative: async (_requestId, _operation, snapshot) => {
+                const previous = managedRemoteSnapshot;
                 managedRemoteSnapshot = snapshot;
+                if (['importMachine', 'convertMachine'].includes(_operation) && snapshot.revisionId) {
+                    const imported = snapshot.catalog.machines.find(machine => !machine.connection.sshConfigAlias
+                        && machine.sourceSshAliases?.length
+                        && JSON.stringify(machine) !== JSON.stringify(previous.catalog.machines.find(value => value.id === machine.id)));
+                    if (imported) {
+                        void (async () => {
+                            const choice = await vscode.window.showInformationMessage(
+                                `${imported.name} and its connection route are synced. Authentication stays on each computer.`,
+                                'Configure authentication', 'Later',
+                            );
+                            if (choice === 'Configure authentication') {
+                                await managedRemoteBridgeClient.execute('configureAuthentication', snapshot.revisionId!, imported.id);
+                            }
+                        })().catch(error => { void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)); });
+                    }
+                }
                 publishFileTransferEndpointCatalog();
                 await projectsPanelController?.postUpdated('replace');
                 openWorkspaceDashboardController?.invalidatePendingUpdates();

@@ -5,6 +5,7 @@ import { isManagedMachine, isManagedProject } from './validation';
 export const MANAGED_REMOTE_MANAGEMENT_PROTOCOL_VERSION = 1;
 
 export type ManagedRemoteManagementOperation =
+    | 'convertMachine'
     | 'importMachine'
     | 'addMachine'
     | 'editMachine'
@@ -55,6 +56,7 @@ export interface ManagedRemoteManagementSettlement {
 }
 
 const TARGET_OPERATIONS = new Set<ManagedRemoteManagementOperation>([
+    'convertMachine',
     'editMachine',
     'removeMachine',
     'editProject',
@@ -150,6 +152,7 @@ export function parseManagedRemoteManagementRequest(
     if (!correlation || !isRecord(value)) { return null; }
     const operation = correlation.operation as ManagedRemoteManagementOperation;
     if (![
+        'convertMachine',
         'importMachine',
         'addMachine',
         'editMachine',

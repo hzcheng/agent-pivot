@@ -75,6 +75,7 @@ export class ManagedRemoteBridgeClient {
     ): Promise<unknown> {
         return this.executeAttempt(
             operation, expectedRevisionId, targetId, undefined, undefined, true,
+            operation === 'configureAuthentication' ? 300_000 : operation === 'checkConnection' ? 90_000 : this.timeoutMs,
         );
     }
 
@@ -86,7 +87,7 @@ export class ManagedRemoteBridgeClient {
      */
     inspectLegacySshTarget(target: string): Promise<unknown> {
         return this.executeAttempt(
-            'inspectLegacySshTarget', undefined, undefined, target, undefined, true,
+            'inspectLegacySshTarget', undefined, undefined, target, undefined, true, 100_000,
         );
     }
 

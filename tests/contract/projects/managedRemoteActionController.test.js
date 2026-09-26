@@ -61,7 +61,11 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 stalled background projection never blocks 
     const never = new Promise(() => undefined);
     const { instance, effects } = controller({
         bridge: {
-            execute: async operation => operation === 'reconcile' ? never : {},
+            execute: async (operation, revision, target) => {
+                if (operation === 'reconcile') return never;
+                effects.push(['bridge', operation, revision, target]);
+                return {};
+            },
         },
         writeClipboard: async value => { effects.push(['clipboard', value]); },
     });
@@ -70,7 +74,7 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 stalled background projection never blocks 
     await instance.copySshCommand('machine:build', revisionId);
 
     assert.deepEqual(effects, [
-        ['clipboard', 'ssh -p 22022 -l "domain\\dev" "2001:db8::8"'],
+        ['bridge', 'copyLocalSshCommand', revisionId, 'machine:build'],
         ['info', 'Copied SSH command for Build.'],
     ]);
 });
@@ -213,15 +217,14 @@ test('managed client failures settle visibly with correlation without duplicate 
     }
 });
 
-test('managed configuration check reports local configuration readiness without promising connectivity', async () => {
+test('managed connection check reports completion without inventing a result', async () => {
     const settlements = [];
     const { instance, effects } = controller({ postSettlement: async result => { settlements.push(result); } });
     await instance.handleMessage(clientRequest('checkConnection'));
     assert.deepEqual(effects, [['bridge', 'checkConnection', revisionId, 'machine:build']]);
     assert.equal(settlements.length, 1);
     assert.equal(settlements[0].status, 'completed');
-    assert.match(settlements[0].message, /configuration is ready/);
-    assert.match(settlements[0].message, /check authentication and network access/);
+    assert.equal(settlements[0].message, 'Connection check completed.');
 });
 
 test('managed client stale and invalid targets fail before effects and malformed requests cannot execute', async () => {
@@ -249,7 +252,9 @@ test('managed client current project reuse and clipboard both settle without ope
     await instance.handleMessage(clientRequest('copySsh'));
     assert.equal(settlements.length, 2);
     assert.equal(settlements.every(result => result.status === 'completed'), true);
-    assert.equal(effects.some(effect => effect[0] === 'bridge'), false);
-    assert.equal(effects.filter(effect => effect[0] === 'clipboard').length, 1);
+    assert.deepEqual(effects.filter(effect => effect[0] === 'bridge'), [
+        ['bridge', 'copyLocalSshCommand', revisionId, 'machine:build'],
+    ]);
+    assert.equal(effects.filter(effect => effect[0] === 'clipboard').length, 0);
     assert.equal(settlements[1].message, 'SSH command copied.');
 });

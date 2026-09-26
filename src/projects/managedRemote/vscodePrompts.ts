@@ -158,6 +158,8 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         const inspected = await this.connections?.inspect(alias) as {
             status?: string; reason?: string; configurationMatched?: boolean;
             route?: { kind: string; jumpHosts?: string };
+            portable?: { jumpHosts: import('./catalogService').PortableSshHop[] };
+            portableReason?: string;
             endpoint?: { host: string; user: string; port: number };
         } | undefined;
         const endpoint = inspected?.endpoint;
@@ -172,14 +174,33 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         const review = await this.ui.pick({
             title: project ? 'Save current Machine and Project' : 'Save SSH connection',
             step: 2, totalSteps: 2, canGoBack: false,
-            items: [{
-                label: project ? 'Save Machine and Project' : `Save ${alias}`,
-                description: `${alias} · ${endpoint.user}@${endpoint.host}:${endpoint.port}`,
-                detail: `${project ? project.remotePath + ' · ' : ''}${route}. Machine name: ${alias}. References this computer’s SSH config; connection not tested. Other computers need the same alias. Keys and commands are not synced.`,
-                value: 'save',
-            }],
+            items: [
+                ...(inspected?.portable ? [{
+                    label: `Sync ${alias} and its connection route`,
+                    description: `${endpoint.user}@${endpoint.host}:${endpoint.port}`,
+                    detail: `${inspected.portable.jumpHosts.map(hop => `${hop.name} (${hop.user}@${hop.host}:${hop.port})`).concat(alias).join(' → ')}. Saves connection settings across computers. Choose authentication separately on each computer.`,
+                    value: 'portable',
+                }] : []),
+                {
+                    label: project ? 'Save Machine and Project' : `Reference local SSH alias: ${alias}`,
+                    description: `${alias} · ${endpoint.user}@${endpoint.host}:${endpoint.port}`,
+                    detail: `${project ? project.remotePath + ' · ' : ''}${inspected?.portableReason || route}. Machine name: ${alias}. References this computer’s SSH config; connection not tested. Other computers need the same alias. Keys and commands are not synced.`,
+                    value: 'save',
+                },
+            ],
         });
-        return review.action === 'accept' ? { name: alias, ...endpoint, sshConfigAlias: alias, sourceSshAliases: [alias] } : undefined;
+        if (review.action !== 'accept') { return undefined; }
+        return review.value === 'portable' && inspected?.portable
+            ? { name: alias, ...endpoint, jumpHosts: inspected.portable.jumpHosts, sourceSshAliases: [alias] }
+            : { name: alias, ...endpoint, sshConfigAlias: alias, sourceSshAliases: [alias] };
+    }
+
+    async convertMachine(machine: ManagedSshMachine): Promise<AddManagedMachineInput | undefined> {
+        const alias = machine.connection.sshConfigAlias;
+        if (!alias) { throw new Error('This machine already has synced connection settings.'); }
+        const result = await this.importAlias(alias);
+        if (result && !result.jumpHosts) { throw new Error('Choose the synced connection option to convert this machine.'); }
+        return result ? { ...result, name: machine.name } : undefined;
     }
 
     private async browseProject(

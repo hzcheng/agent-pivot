@@ -111,7 +111,7 @@ test('MANAGED-REMOTE-BRIDGE-001 can recover local disable without catalog author
     assert.equal(reads, 0);
 });
 
-test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies the endpoint without projection', async () => {
+test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies the projected alias including local authentication', async () => {
     const { envelope, slot } = activeEnvelope();
     const terminals = [];
     const copied = [];
@@ -129,7 +129,7 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies the endpoint without proje
         platform: 'linux',
         openTerminal(options) { terminals.push(options); },
         async writeClipboard(value) { copied.push(value); },
-    });
+    }, { schedule() {}, async ensureReady() { reconciles += 1; } });
     const target = 'machine:one';
     const terminal = await controller.execute({
         ...request('openLocalSshTerminal', slot.revisionId),
@@ -142,16 +142,16 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 opens and copies the endpoint without proje
 
     assert.equal(terminal.status, 'ok');
     assert.equal(copy.status, 'ok');
-    assert.equal(reconciles, 0);
+    assert.equal(reconciles, 2);
     assert.equal(terminals[0].name, 'SSH: Build');
     assert.equal(terminals[0].shellPath, '/usr/local/bin/ssh');
     assert.deepEqual(terminals[0].shellArgs, [
-        '-p', '22', '-l', 'dev', 'build.example.com',
+        `build-${managedSshAliasSuffix('machine:one')}`,
     ]);
     assert.equal(copied[0], formatManagedSshCommand(
         '/usr/local/bin/ssh', terminals[0].shellArgs, 'linux',
     ));
-    assert.match(copied[0], /build\.example\.com/u);
+    assert.match(copied[0], /build-/u);
 });
 
 test('MANAGED-REMOTE-NAVIGATION-001 resolves Machine and Project identities inside the UI host', async () => {
@@ -752,4 +752,31 @@ Include "${config}"
 `);
     assert.deepEqual(await listSshConfigAliases(config), ['alias', 'home', 'jump', 'work']);
     assert.deepEqual(await listSshConfigAliases(path.join(root, 'missing')), []);
+});
+
+test('Connection check probes only the final destination through forwarding-only jump hosts', async () => {
+    const catalog = ManagedRemoteCatalogService.create('check');
+    const machine = catalog.addMachine({ name: 'Linux', host: 'linux.example.com', user: 'dev', jumpHosts: [{ name: 'Gateway', host: 'gateway.example.com', user: 'jump', port: 2229 }] });
+    const slot = createManagedRevisionSlot(catalog.getDocument());
+    const envelope = createEmptyManagedCatalogEnvelope('envelope');
+    const version = createCausalVersion(envelope.causalContext, 'envelope');
+    envelope.authority = createVersionedCandidates({ lifecycle: 'active', active: slot }, version);
+    envelope.causalContext = joinVersionVectors(envelope.causalContext, vectorIncludingVersion(version));
+    const calls = []; let ready = 0; let stderr = '';
+    const controller = new ManagedRemoteBridgeController({ readManagedCatalogEnvelope: () => envelope }, {
+        create: async () => ({ getExecutable: () => '/usr/bin/ssh' }),
+    }, 'session-12345678', undefined, { ensureReady: async () => { ready++; } }, undefined, {
+        run: async (executable, args) => { calls.push({ executable, args }); return { exitCode: stderr ? 255 : 0, stdout: '', stderr }; },
+    });
+    const input = { ...request('checkConnection', slot.revisionId), targetId: machine.id };
+    const success = await controller.execute(input);
+    assert.equal(success.status, 'ok', JSON.stringify(success));
+    assert.equal(calls.length, 1);
+    assert.equal(ready, 1);
+    assert.equal(calls[0].args[calls[0].args.length - 1], 'true');
+    assert.match(calls[0].args[calls[0].args.length - 2], /linux/i);
+    stderr = 'jump@gateway.example.com: Permission denied (publickey).';
+    const failed = await controller.execute(input);
+    assert.equal(failed.status, 'failed');
+    assert.match(failed.message, /Jump host Gateway.*Authentication required/);
 });

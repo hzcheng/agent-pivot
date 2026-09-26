@@ -30,11 +30,13 @@ import {
 import { ManagedRevisionSlot, ManagedSshMachine } from '../../../src/projects/managedRemote/types';
 import { materializeManagedRemoteCatalog } from '../../../src/projects/managedRemote/merge';
 import {
-    managedSshArguments,
     resolveManagedEnvironmentTarget,
     resolveManagedMachineTarget,
     resolveManagedProjectTarget,
 } from '../../../src/projects/managedRemote/targetResolver';
+import { managedJumpRoute } from '../../../src/projects/managedRemote/jumpRoutes';
+import { machineSshAlias } from '../../../src/projects/managedRemote/sshAlias';
+import { NodeManagedSshCommandRunner, ManagedSshCommandRunner } from './managedSshValidator';
 import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
 
 // Each asynchronous operation keeps the UI host's active SSH config, including
@@ -59,6 +61,7 @@ export interface ManagedRemoteBridgeProjection {
 }
 
 export interface ManagedRemoteBridgeLocalActions {
+    configureAuthentication?(machine: ManagedSshMachine, configPath: string, route: ManagedSshMachine[]): Promise<boolean>;
     platform: NodeJS.Platform;
     openTerminal(options: {
         name: string;
@@ -1153,6 +1156,7 @@ export class ManagedRemoteBridgeController {
         private readonly localActions?: ManagedRemoteBridgeLocalActions,
         private readonly projection?: ManagedRemoteBridgeProjection,
         private readonly reportDiagnostic?: (message: string) => void,
+        private readonly connectionTester: ManagedSshCommandRunner = new NodeManagedSshCommandRunner(),
     ) {
     }
 
@@ -1278,10 +1282,36 @@ export class ManagedRemoteBridgeController {
                 return response(request.requestId, 'ok', aliases.filter(alias => !machines.some(machine =>
                     !machine.connection.sshConfigAlias && isManagedSshAliasForMachine(alias, machine.id))));
             }
-            if (request.operation === 'checkConnection') {
+            if (request.operation === 'configureAuthentication' || request.operation === 'checkConnection') {
                 const slot = this.readExpectedSlot(request);
-                resolveManagedMachineTarget(materializeManagedRemoteCatalog(slot.document), request.targetId!);
-                return response(request.requestId, 'ok', { message: 'SSH configuration is ready on this computer. Authentication and network access are checked when you connect.' });
+                const view = materializeManagedRemoteCatalog(slot.document);
+                const { machine } = resolveManagedMachineTarget(view, request.targetId!);
+                const route = managedJumpRoute(view, machine);
+                if (request.operation === 'configureAuthentication') {
+                    if (machine.connection.sshConfigAlias) { throw new Error('Convert this local SSH reference to a synced connection before configuring its authentication here.'); }
+                    if (!this.localActions?.configureAuthentication) { throw new Error('Update the local Agent Pivot UI Bridge to configure authentication.'); }
+                    const changed = await this.localActions.configureAuthentication(machine, coordinator.getActiveConfigPath(), route);
+                    if (changed) { await this.ensureProjectionReady(slot); }
+                    return response(request.requestId, 'ok', { message: changed ? 'Authentication saved on this computer only.' : 'Authentication setup cancelled.' });
+                }
+                if (!machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
+                // Bastions may allow TCP forwarding while forbidding shell sessions.
+                // Test the complete route by executing only on its final target.
+                const result = await this.connectionTester.run(coordinator.getExecutable(), [
+                    ...activeSshConfigArguments(), '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8',
+                    '-o', 'ConnectionAttempts=1', machineSshAlias(machine), 'true',
+                ], 30_000);
+                if (result.exitCode !== 0) {
+                    const failedHop = route.find(hop => result.stderr.includes(`${hop.connection.user}@${hop.connection.host}:`));
+                    const stage = failedHop ? `Jump host ${failedHop.name}` : `Connection to ${machine.name}`;
+                    const detail = /Permission denied|authentication failed/iu.test(result.stderr)
+                        ? 'Authentication required. Choose Authentication on this computer, or use SSH terminal for interactive login.'
+                        : /Host key verification failed|REMOTE HOST IDENTIFICATION/iu.test(result.stderr)
+                            ? 'Host identity needs review. Open SSH terminal to review it.'
+                            : 'Connection failed. Check the address, network access and SSH service; open SSH terminal for details.';
+                    throw new Error(`${stage}: ${detail}`);
+                }
+                return response(request.requestId, 'ok', { message: 'Connection tested successfully on this computer, including its jump hosts.' });
             }
             if (request.operation === 'inspectLegacySshTarget') {
                 if (!this.localActions || !request.legacySshTarget) {
@@ -1358,10 +1388,8 @@ export class ManagedRemoteBridgeController {
                 }
                 const view = materializeManagedRemoteCatalog(slot.document);
                 const target = resolveManagedMachineTarget(view, request.targetId);
-                const args = [
-                    ...(target.machine.connection.proxyJump || target.machine.connection.sshConfigAlias ? activeSshConfigArguments() : []),
-                    ...managedSshArguments(target.machine),
-                ];
+                if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
+                const args = [...activeSshConfigArguments(), target.alias];
                 if (request.operation === 'openLocalSshTerminal') {
                     await this.localActions.openTerminal({
                         name: `SSH: ${target.machine.name}`,

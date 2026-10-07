@@ -9085,6 +9085,54 @@ async function runProviderDirectoryCapabilityChecks() {
     assert.ok(diagnostics.length >= 3);
     assert.ok(diagnostics.every(message => !message.includes('SECRET')),
         'capability diagnostics must not expose child output or executable details');
+
+    assert.strictEqual((await probe.probe(provider('nonzero'))).unavailableReason, 'help-nonzero');
+    assert.strictEqual((await probe.probe(provider('timeout'))).unavailableReason, 'help-timeout');
+    assert.strictEqual((await probe.probe(provider('missing'))).unavailableReason, 'missing');
+
+    // A provider installed after the first probe recovers without a window
+    // reload: missing-executable results are never cached.
+    let installState = 'absent';
+    const installProbe = new capability.ProviderDirectoryCapabilityProbe({
+        resolveExecutable: commandName => installState === 'absent' ? null : `/resolved/${commandName}`,
+        run: adapter.run,
+    }, () => undefined);
+    assert.strictEqual((await installProbe.probe(provider('codex'))).status, 'unavailable');
+    installState = 'installed';
+    assert.strictEqual((await installProbe.probe(provider('codex'))).status, 'supported',
+        'a provider installed after the first probe must recover without a window reload');
+
+    // Failed --help probes expire after a short TTL instead of sticking for
+    // the extension host lifetime.
+    let now = 1_000;
+    let flakyFailures = 1;
+    const flakyExecutions = [];
+    const flakyProbe = new capability.ProviderDirectoryCapabilityProbe({
+        resolveExecutable: () => '/resolved/flaky',
+        run: async executable => {
+            flakyExecutions.push(executable);
+            return flakyFailures-- > 0
+                ? { exitCode: 1, stdout: '', stderr: '' }
+                : { exitCode: 0, stdout: '--add-dir DIR', stderr: '' };
+        },
+    }, () => undefined, () => now);
+    const flakyProvider = provider('flaky');
+    const [concurrentA, concurrentB] = await Promise.all([
+        flakyProbe.probe(flakyProvider),
+        flakyProbe.probe(flakyProvider),
+    ]);
+    assert.strictEqual(concurrentA.status, 'unavailable');
+    assert.strictEqual(concurrentB.status, 'unavailable');
+    assert.strictEqual(flakyExecutions.length, 1,
+        'concurrent failing probes still execute --help once');
+    now += 29_999;
+    assert.strictEqual((await flakyProbe.probe(flakyProvider)).status, 'unavailable');
+    assert.strictEqual(flakyExecutions.length, 1,
+        'a failed probe is reused within the negative-cache TTL');
+    now += 2;
+    assert.strictEqual((await flakyProbe.probe(flakyProvider)).status, 'supported',
+        'a failed probe is retried once the negative-cache TTL expires');
+    assert.strictEqual(flakyExecutions.length, 2);
 }
 
 function runLifecycleParserChecks() {

@@ -152,6 +152,39 @@ test('SESSION-WORKSPACE-SCOPE-001 builds provider-specific add-directory argumen
     });
 });
 
+test('SESSION-WORKSPACE-SCOPE-001 explains each provider-unavailable cause and points at window reload', async () => {
+    const current = workspace();
+    const launch = capability => preflightAiSessionDirectoryScope({
+        workspace: current,
+        provider: { id: 'kimi', label: 'Kimi', commandName: 'kimi' },
+        action: 'create',
+        isWorkspaceTrusted: true,
+        getProviderDirectoryCapability: async () => capability,
+        isDirectory: () => true,
+        pickWorkspaceRoot: async () => undefined,
+        explicitRootId: 'root-api',
+    });
+    const cases = [
+        ['missing', /'kimi' executable was not found on the Extension Host PATH/],
+        ['help-failed', /'kimi' was found on the PATH but could not be executed/],
+        ['help-timeout', /'kimi --help' timed out/],
+        ['help-nonzero', /'kimi --help' exited with an error/],
+        [undefined, /Kimi is unavailable\. Install it or add it to the Extension Host PATH\./],
+    ];
+    for (const [reason, pattern] of cases) {
+        const capability = { status: 'unavailable' };
+        if (reason) {
+            capability.unavailableReason = reason;
+        }
+        const result = await launch(capability);
+        assert.equal(result.status, 'blocked');
+        assert.equal(result.reason, 'provider-unavailable');
+        assert.match(result.message, pattern);
+        assert.match(result.message, /Developer: Reload Window/,
+            'every provider-unavailable message must name the recovery action');
+    }
+});
+
 test('SESSION-WORKTREE-SCOPE-001 replaces the selected repository roots with linked-worktree paths', () => {
     const current = workspace({
         roots: [

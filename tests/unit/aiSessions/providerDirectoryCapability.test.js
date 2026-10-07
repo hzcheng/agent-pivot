@@ -64,6 +64,7 @@ test('kimi dialect detection: missing executables and failed help runs carry no 
     const unavailable = await missing.probe({ id: 'kimi', commandName: 'kimi' });
     assert.equal(unavailable.status, 'unavailable');
     assert.equal(unavailable.kimiDialect, undefined);
+    assert.equal(unavailable.unavailableReason, 'missing');
 
     const failing = new ProviderDirectoryCapabilityProbe({
         resolveExecutable: commandName => `/fake/bin/${commandName}`,
@@ -72,6 +73,25 @@ test('kimi dialect detection: missing executables and failed help runs carry no 
     const failed = await failing.probe({ id: 'kimi', commandName: 'kimi' });
     assert.equal(failed.status, 'unavailable');
     assert.equal(failed.kimiDialect, undefined);
+    assert.equal(failed.unavailableReason, 'help-failed');
+});
+
+test('kimi dialect detection: timed-out and non-zero help runs report their unavailable reason', async () => {
+    const timingOut = new ProviderDirectoryCapabilityProbe({
+        resolveExecutable: commandName => `/fake/bin/${commandName}`,
+        run: async () => ({ exitCode: null, stdout: '', stderr: '', timedOut: true }),
+    });
+    const timedOut = await timingOut.probe({ id: 'kimi', commandName: 'kimi' });
+    assert.equal(timedOut.status, 'unavailable');
+    assert.equal(timedOut.unavailableReason, 'help-timeout');
+
+    const nonZero = new ProviderDirectoryCapabilityProbe({
+        resolveExecutable: commandName => `/fake/bin/${commandName}`,
+        run: async () => ({ exitCode: 2, stdout: '', stderr: '' }),
+    });
+    const failed = await nonZero.probe({ id: 'kimi', commandName: 'kimi' });
+    assert.equal(failed.status, 'unavailable');
+    assert.equal(failed.unavailableReason, 'help-nonzero');
 });
 
 test('kimi dialect detection: probe results cache per resolved executable', async () => {

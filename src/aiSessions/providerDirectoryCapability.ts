@@ -50,10 +50,19 @@ export interface ProviderDirectoryCapabilityResult {
      * Undefined for other providers and when help output is unavailable.
      */
     kimiDialect?: KimiCliDialect;
+    /**
+     * Why the provider is unavailable; set only when `status` is
+     * 'unavailable' so launch surfaces can tell "executable missing" apart
+     * from a failing `--help` probe.
+     */
+    unavailableReason?: ProviderUnavailableReason;
 }
+
+export type ProviderUnavailableReason = 'missing' | 'help-failed' | 'help-timeout' | 'help-nonzero';
 
 const HELP_TIMEOUT_MS = 5_000;
 const HELP_OUTPUT_MAX_BYTES = 64 * 1024;
+const NEGATIVE_CACHE_TTL_MS = 30_000;
 const ADD_DIRECTORY_OPTION = /(?:^|\s)--add-dir(?=$|[\s=<\[(])/m;
 const WORK_DIR_OPTION = /(?:^|\s)--work-dir(?=$|[\s=<\[(])/m;
 
@@ -67,41 +76,58 @@ function boundedHelpOutput(help: BoundedChildProcessResult): string {
 
 function result(
     status: ProviderDirectoryCapabilityStatus,
-    kimiDialect?: KimiCliDialect
+    extras?: { kimiDialect?: KimiCliDialect; unavailableReason?: ProviderUnavailableReason }
 ): ProviderDirectoryCapabilityResult {
-    return Object.freeze(kimiDialect ? { status, kimiDialect } : { status });
+    return Object.freeze({
+        status,
+        ...(extras?.kimiDialect ? { kimiDialect: extras.kimiDialect } : {}),
+        ...(extras?.unavailableReason ? { unavailableReason: extras.unavailableReason } : {}),
+    });
+}
+
+interface ProbeCacheEntry {
+    promise: Promise<ProviderDirectoryCapabilityResult>;
+    expiresAt: number;
 }
 
 export class ProviderDirectoryCapabilityProbe {
-    private readonly cache = new Map<string, Promise<ProviderDirectoryCapabilityResult>>();
+    private readonly cache = new Map<string, ProbeCacheEntry>();
 
     constructor(
         private readonly childProcess: ProviderDirectoryCapabilityChildProcessAdapter,
         private readonly logDiagnostic: (message: string) => void = () => undefined,
+        private readonly nowMs: () => number = () => Date.now(),
     ) { }
 
     probe(provider: ProviderDirectoryCapabilityProvider): Promise<ProviderDirectoryCapabilityResult> {
         const resolvedExecutable = this.childProcess.resolveExecutable(provider.commandName);
         if (!resolvedExecutable) {
-            const cacheKey = `${provider.id}:missing:${provider.commandName}`;
-            const cached = this.cache.get(cacheKey);
-            if (cached) {
-                return cached;
-            }
-            const missing = Promise.resolve(result('unavailable'));
-            this.cache.set(cacheKey, missing);
+            // Never cached: the executable can appear without a window reload
+            // (for example when the user installs into a directory that is
+            // already on the extension host PATH), and the PATH scan itself
+            // is cheap.
             this.logDiagnostic(`AI provider directory capability unavailable (${provider.id}: executable missing).`);
-            return missing;
+            return Promise.resolve(result('unavailable', { unavailableReason: 'missing' }));
         }
 
         const cacheKey = `${provider.id}:${resolvedExecutable}`;
         const cached = this.cache.get(cacheKey);
-        if (cached) {
-            return cached;
+        if (cached && cached.expiresAt > this.nowMs()) {
+            return cached.promise;
         }
 
         const pending = this.execute(provider, resolvedExecutable);
-        this.cache.set(cacheKey, pending);
+        const entry: ProbeCacheEntry = { promise: pending, expiresAt: Number.POSITIVE_INFINITY };
+        this.cache.set(cacheKey, entry);
+        void pending.then(resolved => {
+            // Negative results expire instead of sticking for the extension
+            // host lifetime: a transient --help failure (cold start, timeout)
+            // recovers on a later probe, while a persistently broken provider
+            // is re-probed at most once per TTL window.
+            if (resolved.status === 'unavailable' && this.cache.get(cacheKey) === entry) {
+                entry.expiresAt = this.nowMs() + NEGATIVE_CACHE_TTL_MS;
+            }
+        });
         return pending;
     }
 
@@ -117,23 +143,23 @@ export class ProviderDirectoryCapabilityProbe {
             });
         } catch (error) {
             this.logDiagnostic(`AI provider directory capability unavailable (${provider.id}: help execution failed).`);
-            return result('unavailable');
+            return result('unavailable', { unavailableReason: 'help-failed' });
         }
 
         if (help?.timedOut) {
             this.logDiagnostic(`AI provider directory capability unavailable (${provider.id}: help execution timed out).`);
-            return result('unavailable');
+            return result('unavailable', { unavailableReason: 'help-timeout' });
         }
         if (!help || help.exitCode !== 0) {
             this.logDiagnostic(`AI provider directory capability unavailable (${provider.id}: help exited unsuccessfully).`);
-            return result('unavailable');
+            return result('unavailable', { unavailableReason: 'help-nonzero' });
         }
 
         const output = boundedHelpOutput(help);
         const kimiDialect = provider.id === 'kimi'
             ? (WORK_DIR_OPTION.test(output) ? 'kimi-cli' : 'kimi-code')
             : undefined;
-        return result(ADD_DIRECTORY_OPTION.test(output) ? 'supported' : 'unsupported', kimiDialect);
+        return result(ADD_DIRECTORY_OPTION.test(output) ? 'supported' : 'unsupported', { kimiDialect });
     }
 }
 

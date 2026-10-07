@@ -74,6 +74,26 @@ function blocked(
     return { status: 'blocked', reason, message };
 }
 
+const PROVIDER_UNAVAILABLE_RELOAD_HINT = 'Reload the window (Developer: Reload Window) after resolving this.';
+
+function providerUnavailableMessage(
+    provider: ProviderDirectoryCapabilityProvider & { label: string },
+    capability: ProviderDirectoryCapabilityResult
+): string {
+    switch (capability.unavailableReason) {
+        case 'missing':
+            return `${provider.label} is unavailable: the '${provider.commandName}' executable was not found on the Extension Host PATH. Install it or add its directory to the PATH. ${PROVIDER_UNAVAILABLE_RELOAD_HINT}`;
+        case 'help-failed':
+            return `${provider.label} is unavailable: '${provider.commandName}' was found on the PATH but could not be executed. Reinstall it or fix the installation. ${PROVIDER_UNAVAILABLE_RELOAD_HINT}`;
+        case 'help-timeout':
+            return `${provider.label} is unavailable: '${provider.commandName} --help' timed out. Check that the installed CLI starts correctly. ${PROVIDER_UNAVAILABLE_RELOAD_HINT}`;
+        case 'help-nonzero':
+            return `${provider.label} is unavailable: '${provider.commandName} --help' exited with an error. Check the installed CLI. ${PROVIDER_UNAVAILABLE_RELOAD_HINT}`;
+        default:
+            return `${provider.label} is unavailable. Install it or add it to the Extension Host PATH. ${PROVIDER_UNAVAILABLE_RELOAD_HINT}`;
+    }
+}
+
 export async function preflightAiSessionDirectoryScope(
     options: AiSessionWorkspaceLaunchPreflightOptions
 ): Promise<AiSessionWorkspaceLaunchPreflightResult> {
@@ -95,7 +115,7 @@ export async function preflightAiSessionDirectoryScope(
     if (capability.status === 'unavailable') {
         return blocked(
             'provider-unavailable',
-            `${options.provider.label} is unavailable. Install it or add it to the Extension Host PATH.`
+            providerUnavailableMessage(options.provider, capability)
         );
     }
     if (workspace.roots.length > 1 && capability.status !== 'supported') {

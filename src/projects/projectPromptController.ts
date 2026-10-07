@@ -42,6 +42,33 @@ export class ProjectPromptController {
     constructor(private readonly options: ProjectPromptControllerOptions) {
     }
 
+    async queryLocalProjectUri(): Promise<vscode.Uri | undefined> {
+        const kind = await this.options.showQuickPick([
+            { id: 'folder', label: 'Folder', description: 'Save a local folder as a Project' },
+            { id: 'workspace', label: 'Workspace', description: 'Save a .code-workspace file' },
+        ], { placeHolder: 'Add a local Project' });
+        if (!kind) { return undefined; }
+        const folders = kind.id === 'folder';
+        const selection = await this.options.showOpenDialog({
+            title: folders ? 'Save folder as Project' : 'Save workspace as Project',
+            openLabel: 'Save Project',
+            defaultUri: parsePathAsUri('file:///'),
+            canSelectFolders: folders,
+            canSelectFiles: !folders,
+            canSelectMany: false,
+            ...(!folders ? { filters: { 'VS Code Workspace': ['code-workspace'] } } : {}),
+        });
+        const uri = selection?.[0];
+        if (!uri) { return undefined; }
+        if (uri.scheme !== 'file') {
+            throw new Error('Choose a local folder or workspace. Save remote Projects from a Managed Machine.');
+        }
+        if (!folders && !/\.code-workspace$/iu.test(uri.path)) {
+            throw new Error('Choose a .code-workspace file.');
+        }
+        return uri;
+    }
+
     async queryProjectFields(
         groupId: string = null,
         isEditing: boolean,

@@ -2,6 +2,7 @@
 
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 export const MANAGED_SSH_MARKER_BEGIN = '# >>> Agent Pivot managed SSH hosts (do not edit)';
@@ -34,6 +35,7 @@ export interface ManagedSshScanResult {
 
 export interface ManagedSshConfigPolicyOptions {
     platform: NodeJS.Platform;
+    homeDirectory?: string;
     maxDepth?: number;
     maxFiles?: number;
     maxBytes?: number;
@@ -332,17 +334,22 @@ export function scanManagedSshConfigGraph(
                 continue;
             }
             for (const included of directive.arguments) {
-                if (!isAbsoluteLiteral(included, options.platform)) {
+                // ~/ is a deterministic local path, not host-dependent expansion.
+                // Keep glob, environment, token and other-user expansion rejected.
+                const localPath = included.startsWith('~/')
+                    ? `${options.homeDirectory || os.homedir()}/${included.slice(2)}`
+                    : included;
+                if (!isAbsoluteLiteral(localPath, options.platform)) {
                     issues.push(`dynamic-include:${filePath}:${lineNumber + 1}`);
                     continue;
                 }
                 if (ignoredIncludePaths.has(canonicalLexicalPath(
-                    included,
+                    localPath,
                     options.platform,
                 ))) {
                     continue;
                 }
-                visit(included, depth + 1);
+                visit(localPath, depth + 1);
             }
         }
         visiting.delete(key);
@@ -365,4 +372,28 @@ export function scanManagedSshConfigGraph(
             },
         }),
     };
+}
+
+/** Recover path boundaries that OpenSSH -G omits, without evaluating Host/Match ourselves. */
+export function resolveManagedKnownHostsPaths(configPath: string, effective: string): string[] {
+    if (!/\s/u.test(effective)) { return [effective]; }
+    const scanned = scanManagedSshConfigGraph(configPath, new NodeManagedSshConfigFileSystem(), {
+        platform: process.platform, homeDirectory: os.homedir(),
+    });
+    const candidates = new Map<string, string[]>();
+    for (const content of scanned.files.values()) {
+        for (const line of content.split(/\r?\n/u)) {
+            const tokens = tokenizeLine(line);
+            const directive = tokens && parseDirective(tokens);
+            if (directive?.name !== 'userknownhostsfile') { continue; }
+            const paths = directive.arguments.map(value => value.replace(/^~(?=\/)/u, os.homedir()));
+            if (paths.join(' ') === effective) { candidates.set(JSON.stringify(paths), paths); }
+        }
+    }
+    const defaults = ['known_hosts', 'known_hosts2'].map(name => path.join(os.homedir(), '.ssh', name));
+    if (defaults.join(' ') === effective) { candidates.set(JSON.stringify(defaults), defaults); }
+    if (candidates.size !== 1) {
+        throw new Error('Cannot unambiguously recover UserKnownHostsFile paths. Use the original SSH alias.');
+    }
+    return Array.from(candidates.values())[0];
 }

@@ -29,6 +29,10 @@ export interface ManagedRemoteManagementSnapshot {
     lifecycle: 'disabled' | 'active';
     catalog: MaterializedManagedRemoteCatalog;
     machineConflictCandidates: Record<string, ManagedSshMachine[]>;
+    projectConflictCandidates?: Record<string, Array<ManagedRemoteProject | null>>;
+    environmentConflictCandidates?: Record<string, Array<ManagedEnvironment | null>>;
+    machineRemovalCounts?: Record<string, { projectCount: number; environmentCount: number }>;
+    environmentRemovalProjectCounts?: Record<string, number>;
 }
 
 export interface ManagedRemoteManagementStore {
@@ -41,14 +45,18 @@ export interface ManagedRemoteManagementStore {
     addDevContainerProject(expectedRevisionId: string | null, input: AddManagedDevContainerProjectInput): Promise<ManagedRemoteManagementSnapshot>;
     editProject(expectedRevisionId: string | null, projectId: string, input: EditManagedProjectInput): Promise<ManagedRemoteManagementSnapshot>;
     removeProject(expectedRevisionId: string | null, projectId: string): Promise<ManagedRemoteManagementSnapshot>;
+    resolveProjectConflict?(expectedRevisionId: string | null, projectId: string, selected: ManagedRemoteProject | null): Promise<ManagedRemoteManagementSnapshot>;
+    resolveEnvironmentConflict?(expectedRevisionId: string | null, environmentId: string, selected: ManagedEnvironment | null): Promise<ManagedRemoteManagementSnapshot>;
     resolveMachineConflict(expectedRevisionId: string | null, machineId: string, selected: ManagedSshMachine): Promise<ManagedRemoteManagementSnapshot>;
 }
 
 export interface ManagedRemoteManagementPrompts {
+    convertMachine?(machine: ManagedSshMachine): Promise<AddManagedMachineInput | undefined>;
+    importMachine?(): Promise<AddManagedMachineInput | undefined>;
     addMachine(): Promise<AddManagedMachineInput | undefined>;
     adoptCurrentSshProject(input: AddManagedMachineProjectInput['project'] & { sshAlias: string }): Promise<AddManagedMachineInput | undefined>;
     editMachine(machine: ManagedSshMachine, affectedProjectCount: number): Promise<EditManagedMachineInput | undefined>;
-    confirmRemoveMachine(machine: ManagedSshMachine): Promise<boolean>;
+    confirmRemoveMachine(machine: ManagedSshMachine, counts?: { projectCount: number; environmentCount: number }): Promise<boolean>;
     chooseMachineForProject(machines: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
     addProject(
         machine: ManagedSshMachine,
@@ -56,6 +64,8 @@ export interface ManagedRemoteManagementPrompts {
     ): Promise<AddManagedProjectInput | undefined>;
     editProject(project: ManagedRemoteProject): Promise<EditManagedProjectInput | undefined>;
     confirmRemoveProject(project: ManagedRemoteProject): Promise<boolean>;
+    resolveProjectConflict?(projectId: string, candidates: Array<ManagedRemoteProject | null>, environmentNames?: Record<string, string>, allowOrphanRemoval?: boolean): Promise<ManagedRemoteProject | null | undefined>;
+    resolveEnvironmentConflict?(environmentId: string, candidates: Array<ManagedEnvironment | null>, projectCount: number, machineNames?: Record<string, string>, allowOrphanRemoval?: boolean): Promise<ManagedEnvironment | null | undefined>;
     resolveMachineConflict(machineId: string, candidates: ManagedSshMachine[]): Promise<ManagedSshMachine | undefined>;
 }
 
@@ -208,10 +218,30 @@ export class ManagedRemoteManagementController {
         snapshot: ManagedRemoteManagementSnapshot,
         input: ManagedRemoteMachineInput | ManagedRemoteProjectInput | undefined,
     ): Promise<ManagedRemoteManagementSnapshot | null> {
+        if (operation === 'importMachine') {
+            const machine = await this.options.prompts.importMachine?.();
+            if (!machine) { return null; }
+            const alias = machine.sshConfigAlias || machine.sourceSshAliases?.[0];
+            const matches = alias ? snapshot.catalog.machines.filter(value =>
+                value.connection.sshConfigAlias === alias || value.sourceSshAliases?.includes(alias)) : [];
+            if (matches.length > 1) { throw new Error('This SSH alias belongs to multiple Machines. Edit their connections first.'); }
+            if (matches.length === 1) {
+                return this.options.store.editMachine(snapshot.revisionId, matches[0].id, {
+                    host: machine.host, user: machine.user, port: machine.port,
+                    proxyJump: null, sshConfigAlias: machine.sshConfigAlias || null,
+                    ...(machine.jumpHosts ? { jumpHosts: machine.jumpHosts } : {}),
+                });
+            }
+            return this.options.store.addMachine(snapshot.revisionId, machine);
+        }
         if (operation === 'addMachine') {
             const machine = input as ManagedRemoteMachineInput | undefined || await this.options.prompts.addMachine();
             return machine
-                ? this.options.store.addMachine(snapshot.revisionId, machine) : null;
+                ? this.options.store.addMachine(snapshot.revisionId, {
+                    ...machine,
+                    ...(machine.proxyJump === null ? { proxyJump: undefined } : {}),
+                    ...(machine.sshConfigAlias === null ? { sshConfigAlias: undefined } : {}),
+                }) : null;
         }
         if (operation === 'addProject') {
             const machine = targetId
@@ -225,6 +255,13 @@ export class ManagedRemoteManagementController {
                 ? this.options.store.addProject(snapshot.revisionId, input) : null;
         }
         if (!targetId) { throw new Error('The Managed Remote target is missing.'); }
+        if (operation === 'convertMachine') {
+            const machine = findMachine(snapshot, targetId);
+            const converted = await this.options.prompts.convertMachine?.(machine);
+            return converted ? this.options.store.editMachine(snapshot.revisionId, machine.id, {
+                ...converted, sshConfigAlias: null, proxyJump: null,
+            }) : null;
+        }
         if (operation === 'editMachine') {
             const machine = findMachine(snapshot, targetId);
             const machineInput = input as ManagedRemoteMachineInput | undefined || await this.options.prompts.editMachine(
@@ -236,7 +273,10 @@ export class ManagedRemoteManagementController {
         }
         if (operation === 'removeMachine') {
             const machine = findMachine(snapshot, targetId);
-            return await this.options.prompts.confirmRemoveMachine(machine)
+            return await this.options.prompts.confirmRemoveMachine(machine, snapshot.machineRemovalCounts?.[targetId] || {
+                projectCount: affectedProjectCount(snapshot, targetId),
+                environmentCount: snapshot.catalog.environments.filter(value => value.machineId === targetId).length,
+            })
                 ? this.options.store.removeMachine(snapshot.revisionId, targetId) : null;
         }
         if (operation === 'editProject') {
@@ -255,6 +295,39 @@ export class ManagedRemoteManagementController {
             return this.options.store.editProject(snapshot.revisionId, targetId, {
                 favorite: project.favorite !== true,
             });
+        }
+        if (operation === 'resolveProjectConflict') {
+            const candidates = snapshot.projectConflictCandidates?.[targetId] || [];
+            const orphan = candidates.some(Boolean)
+                && candidates.every(value => !value || !snapshot.catalog.environments.some(environment => environment.id === value.environmentId))
+                && snapshot.catalog.conflicts.some(conflict => conflict.entityType === 'project' && conflict.entityId === targetId && conflict.kind === 'missing-parent');
+            if (candidates.length < 2 && !orphan) { throw new Error('This Project no longer has a sync conflict.'); }
+            const environmentNames: Record<string, string> = {};
+            for (const environment of snapshot.catalog.environments) {
+                const machine = snapshot.catalog.machines.find(value => value.id === environment.machineId);
+                environmentNames[environment.id] = `${machine?.name || 'Unavailable Machine'} › ${environment.name}`;
+            }
+            const selected = await this.options.prompts.resolveProjectConflict?.(targetId, candidates, environmentNames, orphan);
+            if (selected === undefined) { return null; }
+            if (!this.options.store.resolveProjectConflict) { throw new Error('Project conflict recovery is unavailable.'); }
+            return this.options.store.resolveProjectConflict(snapshot.revisionId, targetId, selected);
+        }
+        if (operation === 'resolveEnvironmentConflict') {
+            const candidates = snapshot.environmentConflictCandidates?.[targetId] || [];
+            const orphan = candidates.some(Boolean)
+                && candidates.every(value => !value || !snapshot.catalog.machines.some(machine => machine.id === value.machineId))
+                && snapshot.catalog.conflicts.some(conflict => conflict.entityType === 'environment' && conflict.entityId === targetId && conflict.kind === 'missing-parent');
+            if (candidates.length < 2 && !orphan) { throw new Error('This Environment no longer has a sync conflict.'); }
+            const projectIds = new Set(snapshot.catalog.projects.filter(value => value.environmentId === targetId).map(value => value.id));
+            for (const [id, values] of Object.entries(snapshot.projectConflictCandidates || {})) {
+                if (values.some(value => value?.environmentId === targetId)) { projectIds.add(id); }
+            }
+            const machineNames: Record<string, string> = {};
+            for (const machine of snapshot.catalog.machines) { machineNames[machine.id] = machine.name; }
+            const selected = await this.options.prompts.resolveEnvironmentConflict?.(targetId, candidates, snapshot.environmentRemovalProjectCounts?.[targetId] ?? projectIds.size, machineNames, orphan);
+            if (selected === undefined) { return null; }
+            if (!this.options.store.resolveEnvironmentConflict) { throw new Error('Environment conflict recovery is unavailable.'); }
+            return this.options.store.resolveEnvironmentConflict(snapshot.revisionId, targetId, selected);
         }
         const candidates = snapshot.machineConflictCandidates[targetId] || [];
         if (!candidates.length) {

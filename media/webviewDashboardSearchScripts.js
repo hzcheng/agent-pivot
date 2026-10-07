@@ -23,6 +23,7 @@ function filterDashboardCatalog(catalog, query) {
         { id: 'worktrees', title: 'WORKTREES', type: 'worktree', items: catalog.worktrees },
         { id: 'open-workspaces', title: 'OPEN WORKSPACES', type: 'open-workspace', items: catalog.openWorkspaces },
         { id: 'saved-projects', title: 'SAVED PROJECTS', type: 'saved-project', items: catalog.savedProjects },
+        { id: 'machines', title: 'MACHINES', type: 'machine', items: catalog.machines || [] },
         { id: 'skills', title: 'SKILLS', type: 'skill', items: catalog.skills || [] },
     ];
     return sections
@@ -46,7 +47,7 @@ function renderDashboardSearchResults(container, sections) {
         var empty = document.createElement('div');
         empty.className = 'dashboard-search-empty';
         empty.setAttribute('role', 'status');
-        empty.textContent = 'No matching projects or AI sessions.';
+        empty.textContent = 'No matching items. Try a project, machine, workspace, or session name.';
         container.appendChild(empty);
         return;
     }
@@ -65,6 +66,11 @@ function renderDashboardSearchResults(container, sections) {
             button.type = 'button';
             button.className = 'dashboard-search-result';
             button.dataset.projectId = String(item.projectId || '');
+            if (item.unavailableReason) {
+                button.disabled = true;
+                button.title = String(item.unavailableReason);
+                button.setAttribute('aria-label', String(item.name || '') + '. ' + item.unavailableReason);
+            }
 
             var title = document.createElement('span');
             title.className = 'dashboard-search-result-title';
@@ -106,7 +112,8 @@ function renderDashboardSearchResults(container, sections) {
                 button.dataset.skillDir = String(item.dirPath || '');
                 metadata.textContent = [item.scope === 'project' ? 'Project' : 'Global', item.description].filter(Boolean).join(' · ');
             } else {
-                button.dataset.searchAction = item.action === 'open-managed-project'
+                button.dataset.searchAction = item.action === 'open-managed-machine' ? 'open-managed-machine'
+                    : item.action === 'open-managed-project'
                     ? 'open-managed-project'
                     : 'open-saved-project';
                 if (item.expectedRevisionId) {

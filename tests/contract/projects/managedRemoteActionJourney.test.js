@@ -218,13 +218,12 @@ test('MANAGED-REMOTE-SSH-COMMAND-001 copies and opens a terminal for a custom po
 
     assert.equal(terminal.status, 'ok');
     assert.equal(copy.status, 'ok');
-    // Both address the endpoint directly, so neither depends on current.conf
-    // having been projected yet.
+    // The projected alias carries its endpoint, jump route and local authentication.
     assert.deepEqual(effects.terminals[0].shellArgs, [
-        '-p', '22022', '-l', 'dev', 'reddev.example.com',
+        `reddev.example.com-${managedSshAliasSuffix(MACHINE_ID)}`,
     ]);
     assert.equal(effects.terminals[0].name, `SSH: ${MACHINE_NAME}`);
-    assert.match(effects.copied[0], /22022/u);
+    assert.match(effects.copied[0], /reddev.example.com-/u);
     assert.match(effects.copied[0], /reddev\.example\.com/u);
 });
 

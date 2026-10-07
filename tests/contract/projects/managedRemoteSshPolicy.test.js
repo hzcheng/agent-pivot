@@ -118,3 +118,33 @@ test('MANAGED-REMOTE-SSH-POLICY-001 scopes the managed Include above a leading M
 
     assert.ok(inserted.indexOf('Include') < inserted.indexOf('Match host'));
 });
+
+test('Home-relative literal Includes are fingerprinted without weakening dynamic path checks', () => {
+    const root = '/home/dev/.ssh/config';
+    const included = '/home/dev/.ssh/home-infra.generated.conf';
+    const files = new MemoryFiles({ [root]: 'Include ~/.ssh/home-infra.generated.conf\n', [included]: 'Host infra-home-book\n HostName 100.101.7.100\n' });
+    const options = { platform: 'linux', homeDirectory: '/home/dev' };
+    const first = scanManagedSshConfigGraph(root, files, options);
+    assert.deepEqual(first.issues, []);
+    assert.equal(first.fingerprint.files.length, 2);
+    files.files[included] += ' Port 2222\n';
+    assert.notEqual(scanManagedSshConfigGraph(root, files, options).fingerprint.digest, first.fingerprint.digest);
+    for (const pattern of ['~other/.ssh/config', '~/.ssh/*.conf', '~/.ssh/%h', '~/.ssh/$CONFIG', '~/.ssh/%h/../safe.conf', '~/.ssh/*/../safe.conf']) {
+        files.files[root] = `Include ${pattern}\n`;
+        assert.ok(scanManagedSshConfigGraph(root, files, options).issues.some(x => x.startsWith('dynamic-include:')), pattern);
+    }
+    files.files[root] = 'Include ~/.ssh/home-infra.generated.conf\n';
+    files.files[included] = 'Include ~/.ssh/config\n';
+    assert.ok(scanManagedSshConfigGraph(root, files, options).issues.some(x => x.startsWith('include-cycle:')));
+});
+
+test('MANAGED-REMOTE-SSH-CONSENT-001 recovers known-host filenames without guessing whitespace boundaries', t => {
+    const { resolveManagedKnownHostsPaths } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedSshConfigPolicy');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pivot-trust-paths-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const config = path.join(root, 'config');
+    fs.writeFileSync(config, 'Host one\n UserKnownHostsFile "/tmp/trusted /hosts" relative_file\n', { mode: 0o600 });
+    assert.deepEqual(resolveManagedKnownHostsPaths(config, '/tmp/trusted /hosts relative_file'), ['/tmp/trusted /hosts', 'relative_file']);
+    fs.appendFileSync(config, 'Host two\n UserKnownHostsFile /tmp/trusted /hosts relative_file\n');
+    assert.throws(() => resolveManagedKnownHostsPaths(config, '/tmp/trusted /hosts relative_file'), /unambiguously/);
+});

@@ -334,3 +334,59 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 serializes reconcile and disable transition
     assert.equal(disable.status, 'disabled');
     assert.equal(serial.getState().status, 'disabled');
 });
+
+test('Local authentication changes regenerate projection without changing synced catalog', async t => {
+    const { config, consent, validator, catalog, machine } = fixture(t);
+    const document = JSON.stringify(catalog.getDocument());
+    const slot = createManagedRevisionSlot(catalog.getDocument());
+    const make = bindings => new ManagedSshConsentCoordinator(config, '/usr/bin/ssh', consent, validator, undefined, bindings);
+    const first = make({ [machine.id]: '/home/me/key one' });
+    await first.beginEnable(slot);
+    const file = path.join(path.dirname(config), 'agent-pivot', 'current.conf');
+    assert.match(fs.readFileSync(file, 'utf8'), /IdentityFile "\/home\/me\/key one"/);
+    const second = make({ [machine.id]: '/home/me/key two' });
+    assert.equal(second.isProjectionReady(slot), false);
+    assert.equal(second.isProjectionResolvable(slot), false);
+    await second.reconcile(slot);
+    assert.match(fs.readFileSync(file, 'utf8'), /IdentityFile "\/home\/me\/key two"/);
+    const defaultAuth = make({});
+    assert.equal(defaultAuth.isProjectionReady(slot), false);
+    await defaultAuth.reconcile(slot);
+    assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /IdentityFile|IdentitiesOnly/);
+    assert.equal(JSON.stringify(catalog.getDocument()), document);
+});
+
+test('MANAGED-REMOTE-SSH-CONSENT-001 materializes local trust for imported hosts and refreshes it', async t => {
+    const { config, consent, validator, catalog, machine } = fixture(t);
+    const auth = { [machine.id]: {
+        hostKeyAlias: '[gateway.example.com]:2220',
+        userKnownHostsFiles: ['/home/test/.ssh/trusted hosts'],
+        identityFiles: ['~/.ssh/custom_key', '~/.ssh/second_key'], identitiesOnly: true,
+    } };
+    const coordinator = new ManagedSshConsentCoordinator(config, '/usr/bin/ssh', consent, validator, undefined, {}, auth);
+    const slot = createManagedRevisionSlot(catalog.getDocument());
+    await coordinator.beginEnable(slot);
+    const file = path.join(path.dirname(config), 'agent-pivot', 'current.conf');
+    assert.match(fs.readFileSync(file, 'utf8'), /HostKeyAlias "\[gateway.example.com\]:2220"/);
+    assert.match(fs.readFileSync(file, 'utf8'), /UserKnownHostsFile "\/home\/test\/\.ssh\/trusted hosts"/);
+    assert.match(fs.readFileSync(file, 'utf8'), /IdentityFile "~\/.ssh\/second_key"/);
+    assert.doesNotMatch(JSON.stringify(catalog.getDocument()), /trusted hosts|custom_key/);
+    auth[machine.id].hostKeyAlias = 'updated-trust';
+    assert.equal(coordinator.isProjectionReady(slot), false);
+    await coordinator.reconcile(slot);
+    assert.match(fs.readFileSync(file, 'utf8'), /HostKeyAlias "updated-trust"/);
+});
+
+test('MANAGED-REMOTE-SSH-CONSENT-001 explicit agent authentication overrides imported keys but preserves trust', async t => {
+    const { config, consent, validator, catalog, machine } = fixture(t);
+    const coordinator = new ManagedSshConsentCoordinator(config, '/usr/bin/ssh', consent, validator, undefined,
+        { [machine.id]: '' }, { [machine.id]: {
+            hostKeyAlias: 'trusted-source', userKnownHostsFiles: ['/home/test/.ssh/trust'],
+            identityFiles: ['~/.ssh/imported_key'], identitiesOnly: true,
+        } });
+    await coordinator.beginEnable(createManagedRevisionSlot(catalog.getDocument()));
+    const content = fs.readFileSync(path.join(path.dirname(config), 'agent-pivot', 'current.conf'), 'utf8');
+    assert.doesNotMatch(content, /IdentityFile|IdentitiesOnly yes/);
+    assert.match(content, /HostKeyAlias "trusted-source"/);
+    assert.match(content, /UserKnownHostsFile "\/home\/test\/\.ssh\/trust"/);
+});

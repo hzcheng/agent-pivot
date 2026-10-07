@@ -1,5 +1,7 @@
 'use strict';
 
+import { machineSshAlias } from './sshAlias';
+
 import {
     candidateKey,
     cloneManagedValue,
@@ -202,7 +204,10 @@ function assertImmutableProjectPlacement(
         const placements = distinctCandidateValues(document.projects[projectId])
             .filter((value): value is ManagedRemoteProject => value !== null)
             .map(value => value.environmentId);
-        if (placements.some(environmentId => environmentId !== project.environmentId)) {
+        const candidates = distinctCandidateValues(document.projects[projectId]);
+        const selectsConflictCandidate = candidates.length > 1 && candidates.some(candidate =>
+            stableManagedValue(candidate) === stableManagedValue(project));
+        if (!selectsConflictCandidate && placements.some(environmentId => environmentId !== project.environmentId)) {
             throw new Error('Managed Project Machine/Environment ownership is immutable.');
         }
     }
@@ -427,6 +432,19 @@ export function materializeManagedRemoteCatalog(
                     entityId: id,
                     relatedEntityIds: ids.filter(candidate => candidate !== id),
                 });
+            }
+        }
+    }
+    const machineIdsByAlias = new Map<string, string[]>();
+    for (const machine of machinesById.values()) {
+        const alias = machineSshAlias(machine).toLowerCase();
+        machineIdsByAlias.set(alias, [...(machineIdsByAlias.get(alias) || []), machine.id]);
+    }
+    for (const ids of machineIdsByAlias.values()) {
+        if (ids.length > 1) {
+            for (const id of ids.sort()) {
+                conflicts.push({ kind: 'duplicate-ssh-alias', entityType: 'machine', entityId: id,
+                    relatedEntityIds: ids.filter(candidate => candidate !== id) });
             }
         }
     }

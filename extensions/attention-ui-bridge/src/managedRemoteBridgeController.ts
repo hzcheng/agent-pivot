@@ -1,10 +1,13 @@
 'use strict';
 
 import { createHash, randomBytes } from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 import { ChildProcess, spawn } from 'child_process';
 import { constants, Stats } from 'fs';
 import { access, FileHandle, lstat, mkdir, open, opendir, realpath, stat } from 'fs/promises';
 import * as path from 'path';
+import { homedir } from 'os';
+import { isManagedSshAliasForMachine } from '../../../src/projects/managedRemote/sshAlias';
 import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
 import {
     FileTransferDirectoryEntry,
@@ -24,15 +27,25 @@ import {
     MANAGED_REMOTE_BRIDGE_PROTOCOL_VERSION,
     parseManagedRemoteBridgeRequest,
 } from '../../../src/projects/managedRemote/bridgeProtocol';
-import { ManagedRevisionSlot } from '../../../src/projects/managedRemote/types';
+import { ManagedRevisionSlot, ManagedSshMachine } from '../../../src/projects/managedRemote/types';
 import { materializeManagedRemoteCatalog } from '../../../src/projects/managedRemote/merge';
 import {
-    managedSshArguments,
     resolveManagedEnvironmentTarget,
     resolveManagedMachineTarget,
     resolveManagedProjectTarget,
 } from '../../../src/projects/managedRemote/targetResolver';
+import { managedJumpRoute } from '../../../src/projects/managedRemote/jumpRoutes';
+import { machineSshAlias } from '../../../src/projects/managedRemote/sshAlias';
+import { NodeManagedSshCommandRunner, ManagedSshCommandRunner } from './managedSshValidator';
 import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
+
+// Each asynchronous operation keeps the UI host's active SSH config, including
+// concurrent transfers. No process-global mutable config or remote-host paths.
+const sshConfigContext = new AsyncLocalStorage<string | undefined>();
+function activeSshConfigArguments(): string[] {
+    const config = sshConfigContext.getStore();
+    return config ? ['-F', config] : [];
+}
 
 export interface ManagedRemoteBridgeCatalogReader {
     readManagedCatalogEnvelope(): unknown;
@@ -48,6 +61,7 @@ export interface ManagedRemoteBridgeProjection {
 }
 
 export interface ManagedRemoteBridgeLocalActions {
+    configureAuthentication?(machine: ManagedSshMachine, configPath: string, route: ManagedSshMachine[]): Promise<boolean>;
     platform: NodeJS.Platform;
     openTerminal(options: {
         name: string;
@@ -811,6 +825,7 @@ function copyFileTransferEntry(
 ): Promise<void> {
     const executable = path.join(path.dirname(sshExecutable), process.platform === 'win32' ? 'scp.exe' : 'scp');
     const args = [
+        ...activeSshConfigArguments(),
         ...(recursive ? ['-r'] : []),
         // OpenSSH's -3 mode relays both remote streams through this UI Bridge
         // process. It neither asks the Managed Machines to reach each other
@@ -879,6 +894,7 @@ function quoteRemoteShellArgument(value: string): string {
 
 function fileTransferSshOptions(): string[] {
     return [
+        ...activeSshConfigArguments(),
         '-o', 'BatchMode=yes',
         '-o', 'ConnectTimeout=20',
         '-o', 'ServerAliveInterval=15',
@@ -1061,6 +1077,72 @@ function stopFileTransferProcess(child: ChildProcess): void {
     child.kill();
 }
 
+/** Read literal Host names only; never evaluate Match exec, proxies, or substitutions. */
+export async function listSshConfigAliases(configPath: string): Promise<string[]> {
+    const aliases = new Set<string>();
+    const visited = new Set<string>();
+    const home = homedir();
+    let totalBytes = 0;
+    let scannedEntries = 0;
+    let attemptedFiles = 0;
+    async function expand(pattern: string): Promise<string[]> {
+        const resolved = pattern.startsWith('~/') ? path.join(home, pattern.slice(2))
+            : path.isAbsolute(pattern) ? pattern : path.join(home, '.ssh', pattern);
+        if (!/[*?]/u.test(resolved)) return [resolved];
+        // Directory expansion is bounded and never shells out.
+        const root = path.parse(resolved).root;
+        let paths = [root];
+        for (const part of resolved.slice(root.length).split(path.sep)) {
+            const next: string[] = [];
+            for (const parent of paths) {
+                if (!/[*?]/u.test(part)) { next.push(path.join(parent, part)); continue; }
+                const regex = new RegExp('^' + part.replace(/[.+^${}()|[\]\\]/gu, '\\$&')
+                    .replace(/\*/gu, '.*').replace(/\?/gu, '.') + '$');
+                try {
+                    for await (const entry of await opendir(parent)) {
+                        if (++scannedEntries > 4096) return next;
+                        if (regex.test(entry.name)) next.push(path.join(parent, entry.name));
+                        if (next.length >= 64) break;
+                    }
+                } catch (_error) { /* Missing include directories are not connections. */ }
+            }
+            paths = next.slice(0, 64);
+        }
+        return paths;
+    }
+    async function visit(file: string, depth: number): Promise<void> {
+        if (depth > 8 || ++attemptedFiles > 128 || visited.size >= 64 || totalBytes >= 1024 * 1024) return;
+        let handle: FileHandle | undefined;
+        try {
+            const canonical = await realpath(file);
+            if (visited.has(canonical)) return;
+            visited.add(canonical);
+            handle = await open(canonical, 'r');
+            const metadata = await handle.stat();
+            if (!metadata.isFile() || metadata.size > 1024 * 1024 - totalBytes) return;
+            const buffer = Buffer.alloc(Math.min(metadata.size + 1, 1024 * 1024 - totalBytes));
+            const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+            totalBytes += bytesRead;
+            for (const line of buffer.toString('utf8', 0, bytesRead).split(/\r?\n/u)) {
+                const tokens = line.match(/"[^"\n]*"|'[^'\n]*'|[^\s=]+/gu) || [];
+                const directive = (tokens.shift() || '').toLowerCase();
+                for (const raw of tokens) {
+                    if (raw.startsWith('#')) break;
+                    const value = raw.replace(/^(["'])(.*)\1$/u, '$2');
+                    if (directive === 'host' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(value)
+) aliases.add(value);
+                    if (directive === 'include' && !/[%$`\0]/u.test(value)) {
+                        for (const included of await expand(value)) await visit(included, depth + 1);
+                    }
+                }
+            }
+        } catch (_error) { /* Partial discovery always permits manual entry. */ }
+        finally { await handle?.close(); }
+    }
+    await visit(configPath, 0);
+    return [...aliases].sort((a, b) => a.localeCompare(b)).slice(0, 500);
+}
+
 export class ManagedRemoteBridgeController {
     private readonly fileTransferRoots = new Map<string, FileTransferLocalRoot>();
     private readonly fileTransferRemoteDirectories = new Map<string, FileTransferRemoteDirectory>();
@@ -1074,7 +1156,25 @@ export class ManagedRemoteBridgeController {
         private readonly localActions?: ManagedRemoteBridgeLocalActions,
         private readonly projection?: ManagedRemoteBridgeProjection,
         private readonly reportDiagnostic?: (message: string) => void,
+        private readonly connectionTester: ManagedSshCommandRunner = new NodeManagedSshCommandRunner(),
     ) {
+    }
+
+    private async validateReferencedConnection(
+        coordinator: ManagedSshConsentCoordinator,
+        machine: ManagedSshMachine,
+    ): Promise<void> {
+        const alias = machine.connection.sshConfigAlias;
+        if (!alias) { return; }
+        const inspection = await this.localActions?.inspectLegacySshTarget(
+            coordinator.getExecutable(), coordinator.getActiveConfigPath(), alias,
+        ) as { status?: string; endpoint?: { host: string; user: string; port: number } } | undefined;
+        const endpoint = inspection?.endpoint;
+        if (inspection?.status === 'unsupported' || !endpoint
+            || endpoint.host.toLowerCase() !== machine.connection.host.toLowerCase()
+            || endpoint.user !== machine.connection.user || endpoint.port !== machine.connection.port) {
+            throw new Error(`Configure SSH alias "${alias}" on this computer to match ${machine.name}, or import its updated connection. No keys or SSH commands are synced.`);
+        }
     }
 
     dispose(): void {
@@ -1087,7 +1187,11 @@ export class ManagedRemoteBridgeController {
         }
     }
 
-    async execute(raw: unknown): Promise<ManagedRemoteBridgeResponse> {
+    execute(raw: unknown): Promise<ManagedRemoteBridgeResponse> {
+        return sshConfigContext.run(undefined, () => this.executeInContext(raw));
+    }
+
+    private async executeInContext(raw: unknown): Promise<ManagedRemoteBridgeResponse> {
         const request = parseManagedRemoteBridgeRequest(raw);
         if (!request) {
             return response('invalid-request', 'failed', 'Invalid Managed Remote bridge request.');
@@ -1123,6 +1227,25 @@ export class ManagedRemoteBridgeController {
                 }
             }
             const coordinator = await this.coordinators.create();
+            sshConfigContext.enterWith(coordinator.getActiveConfigPath?.());
+            if (request.expectedRevisionId && !['reconcile', 'recover'].includes(request.operation)) {
+                const view = materializeManagedRemoteCatalog(this.readExpectedSlot(request).document);
+                const ids = new Set<string>();
+                if (request.targetId) {
+                    const project = view.projects.find(value => value.id === request.targetId);
+                    const environment = view.environments.find(value => value.id === (project?.environmentId || request.targetId));
+                    ids.add(environment?.machineId || request.targetId);
+                }
+                if (request.operation === 'copyFileTransferEntries' || request.operation === 'preflightFileTransfer') {
+                    const plan = request.fileTransfer as FileTransferCopyRequest;
+                    for (const endpoint of [plan.source, plan.destination]) {
+                        if (endpoint.kind === 'managedMachine') { ids.add(endpoint.machineId); }
+                    }
+                }
+                for (const machine of view.machines.filter(value => ids.has(value.id))) {
+                    await this.validateReferencedConnection(coordinator, machine);
+                }
+            }
             if (request.operation === 'listFileTransferRemoteDirectory') {
                 const remoteDirectory = request.fileTransfer as FileTransferRemoteDirectoryRequest;
                 const slot = this.readExpectedSlot(request);
@@ -1151,6 +1274,44 @@ export class ManagedRemoteBridgeController {
                     coordinator,
                     preflight,
                 ));
+            }
+            if (request.operation === 'listSshAliases') {
+                const aliases = await listSshConfigAliases(coordinator.getActiveConfigPath());
+                const slot = readManagedActiveRevisionSlot(this.catalog.readManagedCatalogEnvelope());
+                const machines = slot ? materializeManagedRemoteCatalog(slot.document).machines : [];
+                return response(request.requestId, 'ok', aliases.filter(alias => !machines.some(machine =>
+                    !machine.connection.sshConfigAlias && isManagedSshAliasForMachine(alias, machine.id))));
+            }
+            if (request.operation === 'configureAuthentication' || request.operation === 'checkConnection') {
+                const slot = this.readExpectedSlot(request);
+                const view = materializeManagedRemoteCatalog(slot.document);
+                const { machine } = resolveManagedMachineTarget(view, request.targetId!);
+                const route = managedJumpRoute(view, machine);
+                if (request.operation === 'configureAuthentication') {
+                    if (machine.connection.sshConfigAlias) { throw new Error('Convert this local SSH reference to a synced connection before configuring its authentication here.'); }
+                    if (!this.localActions?.configureAuthentication) { throw new Error('Update the local Agent Pivot UI Bridge to configure authentication.'); }
+                    const changed = await this.localActions.configureAuthentication(machine, coordinator.getActiveConfigPath(), route);
+                    if (changed) { await this.ensureProjectionReady(slot); }
+                    return response(request.requestId, 'ok', { message: changed ? 'Authentication saved on this computer only.' : 'Authentication setup cancelled.' });
+                }
+                if (!machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
+                // Bastions may allow TCP forwarding while forbidding shell sessions.
+                // Test the complete route by executing only on its final target.
+                const result = await this.connectionTester.run(coordinator.getExecutable(), [
+                    ...activeSshConfigArguments(), '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8',
+                    '-o', 'ConnectionAttempts=1', machineSshAlias(machine), 'true',
+                ], 30_000);
+                if (result.exitCode !== 0) {
+                    const failedHop = route.find(hop => result.stderr.includes(`${hop.connection.user}@${hop.connection.host}:`));
+                    const stage = failedHop ? `Jump host ${failedHop.name}` : `Connection to ${machine.name}`;
+                    const detail = /Permission denied|authentication failed/iu.test(result.stderr)
+                        ? 'Authentication required. Choose Authentication on this computer, or use SSH terminal for interactive login.'
+                        : /Host key verification failed|REMOTE HOST IDENTIFICATION/iu.test(result.stderr)
+                            ? 'Host identity needs review. Open SSH terminal to review it.'
+                            : 'Connection failed. Check the address, network access and SSH service; open SSH terminal for details.';
+                    throw new Error(`${stage}: ${detail}`);
+                }
+                return response(request.requestId, 'ok', { message: 'Connection tested successfully on this computer, including its jump hosts.' });
             }
             if (request.operation === 'inspectLegacySshTarget') {
                 if (!this.localActions || !request.legacySshTarget) {
@@ -1191,7 +1352,7 @@ export class ManagedRemoteBridgeController {
                 const view = materializeManagedRemoteCatalog(slot.document);
                 if (request.operation === 'openManagedMachine') {
                     const target = resolveManagedMachineTarget(view, request.targetId);
-                    await this.ensureProjectionReady(slot);
+                    if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
                     await this.localActions.openRemoteWindow(target.remoteAuthority);
                     return response(request.requestId, 'ok', {
                         targetId: request.targetId,
@@ -1200,7 +1361,7 @@ export class ManagedRemoteBridgeController {
                     });
                 } else if (request.operation === 'openManagedEnvironment') {
                     const target = resolveManagedEnvironmentTarget(view, request.targetId);
-                    await this.ensureProjectionReady(slot);
+                    if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
                     await this.localActions.openRemoteWindow(
                         authorityFromRemoteUri(target.remoteUri),
                     );
@@ -1211,7 +1372,7 @@ export class ManagedRemoteBridgeController {
                     });
                 } else {
                     const target = resolveManagedProjectTarget(view, request.targetId);
-                    await this.ensureProjectionReady(slot);
+                    if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
                     await this.localActions.openRemoteFolder(target.remoteUri);
                     return response(request.requestId, 'ok', {
                         targetId: request.targetId,
@@ -1227,7 +1388,8 @@ export class ManagedRemoteBridgeController {
                 }
                 const view = materializeManagedRemoteCatalog(slot.document);
                 const target = resolveManagedMachineTarget(view, request.targetId);
-                const args = managedSshArguments(target.machine);
+                if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
+                const args = [...activeSshConfigArguments(), target.alias];
                 if (request.operation === 'openLocalSshTerminal') {
                     await this.localActions.openTerminal({
                         name: `SSH: ${target.machine.name}`,
@@ -1419,7 +1581,7 @@ export class ManagedRemoteBridgeController {
     ): Promise<FileTransferLocalRootResponse> {
         const view = materializeManagedRemoteCatalog(slot.document);
         const target = resolveManagedMachineTarget(view, machineId);
-        await this.ensureProjectionReady(slot);
+        if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
         let resolvedDirectoryId = directoryId;
         let directory: FileTransferRemoteDirectory | undefined;
         if (navigationPath !== undefined) {
@@ -1896,7 +2058,7 @@ export class ManagedRemoteBridgeController {
         const target = resolveManagedMachineTarget(
             materializeManagedRemoteCatalog(slot.document), endpoint.machineId,
         );
-        await this.ensureProjectionReady(slot);
+        if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
         const entries = entryIds.map(id => ({ id, entry: this.fileTransferRemoteEntries.get(id) }));
         if (entries.some(({ entry }) => !entry || entry.machineId !== endpoint.machineId
             || entry.directoryId !== endpoint.directoryId
@@ -1935,7 +2097,7 @@ export class ManagedRemoteBridgeController {
         const target = resolveManagedMachineTarget(
             materializeManagedRemoteCatalog(slot.document), endpoint.machineId,
         );
-        await this.ensureProjectionReady(slot);
+        if (!target.machine.connection.sshConfigAlias) { await this.ensureProjectionReady(slot); }
         return { kind: 'managedMachine', alias: target.alias, path: directory.path };
     }
 

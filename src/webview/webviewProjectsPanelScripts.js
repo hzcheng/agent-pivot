@@ -232,7 +232,7 @@ function focusProjectsPanelFallback(panel) {
         return;
     }
     var fallback = panel.querySelector('[data-action="save-current-project"]:not(:disabled)')
-        || panel.querySelector('[data-action="show-add-machine-form"], [data-managed-operation="addMachine"]')
+        || panel.querySelector('.machine-toolbar-button[data-action="toggle-machine-menu"], [data-managed-operation="addMachine"]')
         || panel.querySelector('[data-action="open-file-transfer"]')
         || panel.querySelector('button:not(:disabled)');
     if (fallback && typeof fallback.focus === 'function') {

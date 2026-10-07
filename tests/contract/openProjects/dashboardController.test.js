@@ -626,7 +626,7 @@ test('OPEN-WORKSPACE-SAVED-SSH-001 renders a saved SSH window using its own UI-h
     const catalog = {
         lifecycle: 'active',
         catalog: {
-            machines: [{ id: machineId }],
+            machines: [{ id: machineId, name: 'home-book', connection: { kind: 'ssh', host: 'home.example.com', user: 'dev', port: 22 } }],
             environments: [{ id: environmentId, machineId, kind: 'host' }],
             projects: [{ id: 'uquant', environmentId, remotePath, name: 'Saved uquant', color: '#123456' }],
         },

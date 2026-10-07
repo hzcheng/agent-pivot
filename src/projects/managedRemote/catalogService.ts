@@ -1,5 +1,7 @@
 'use strict';
 
+import { machineSshAlias, isManagedSshAliasForMachine } from './sshAlias';
+
 import { randomBytes } from 'crypto';
 
 import {
@@ -27,21 +29,35 @@ import {
     VersionedCandidates,
 } from './types';
 import { parseManagedRemoteCatalog } from './validation';
+import { managedJumpAlias, managedJumpRoute } from './jumpRoutes';
 import { normalizePosixPath } from '../projectPathUtils';
+
+export interface PortableSshHop {
+    name: string;
+    host: string;
+    user: string;
+    port: number;
+}
 
 export interface AddManagedMachineInput {
     name: string;
     host: string;
     user: string;
     port?: number;
+    proxyJump?: string;
+    sshConfigAlias?: string;
     sourceSshAliases?: string[];
+    jumpHosts?: PortableSshHop[];
 }
 
 export interface EditManagedMachineInput {
+    jumpHosts?: PortableSshHop[];
     name?: string;
     host?: string;
     user?: string;
     port?: number;
+    proxyJump?: string | null;
+    sshConfigAlias?: string | null;
 }
 
 export interface AddManagedProjectInput {
@@ -178,7 +194,31 @@ export class ManagedRemoteCatalogService {
         return materializeManagedRemoteCatalog(this.document);
     }
 
+    private importJumpHosts(hops: PortableSshHop[]): string | undefined {
+        if (hops.length > 8) { throw new Error('A connection supports at most eight jump hosts.'); }
+        let parent: string | undefined;
+        const endpoints = new Set<string>();
+        for (const hop of hops) {
+            const identity = `${hop.user}@${hop.host.toLowerCase()}:${hop.port}`;
+            if (endpoints.has(identity)) { throw new Error('The imported jump route contains a cycle.'); }
+            endpoints.add(identity);
+            const matches = this.getCatalog().machines.filter(machine => !machine.connection.sshConfigAlias
+                && machine.connection.host.toLowerCase() === hop.host.toLowerCase()
+                && machine.connection.user === hop.user && machine.connection.port === hop.port
+                && machine.connection.proxyJump === parent);
+            if (matches.length > 1) { throw new Error(`Multiple saved jump hosts match ${hop.name}. Resolve the duplicate connections first.`); }
+            const machine = matches[0] || this.addMachine({ ...hop, proxyJump: parent });
+            parent = managedJumpAlias(machine.id);
+        }
+        return parent;
+    }
+
     addMachine(input: AddManagedMachineInput): ManagedSshMachine {
+        if (input.jumpHosts) {
+            const before = cloneManagedValue(this.document);
+            try { return this.addMachine({ ...input, jumpHosts: undefined, proxyJump: this.importJumpHosts(input.jumpHosts), sshConfigAlias: undefined }); }
+            catch (error) { this.document = before; throw error; }
+        }
         this.assertUniqueMachineName(input.name, input.host);
         const machineId = this.createId('machine');
         const machine: ManagedSshMachine = {
@@ -192,8 +232,13 @@ export class ManagedRemoteCatalogService {
                 host: input.host,
                 user: input.user,
                 port: input.port === undefined ? 22 : input.port,
+                ...(input.proxyJump ? { proxyJump: input.proxyJump } : {}),
+                ...(input.sshConfigAlias ? { sshConfigAlias: input.sshConfigAlias } : {}),
             },
         };
+        const proposed = this.getCatalog();
+        proposed.machines.push(machine);
+        managedJumpRoute(proposed, machine);
         const hostId = hostEnvironmentId(machineId);
         const host: ManagedEnvironment = {
             id: hostId,
@@ -214,6 +259,11 @@ export class ManagedRemoteCatalogService {
     }
 
     editMachine(machineId: string, patch: EditManagedMachineInput): ManagedSshMachine {
+        if (patch.jumpHosts) {
+            const before = cloneManagedValue(this.document);
+            try { return this.editMachine(machineId, { ...patch, jumpHosts: undefined, proxyJump: this.importJumpHosts(patch.jumpHosts) || null, sshConfigAlias: null }); }
+            catch (error) { this.document = before; throw error; }
+        }
         const current = singleValue<ManagedSshMachine>(
             this.document.machines[machineId],
             'Managed Machine',
@@ -222,13 +272,22 @@ export class ManagedRemoteCatalogService {
             ...current,
             name: patch.name === undefined ? current.name : patch.name,
             connection: {
+                ...current.connection,
                 kind: 'ssh',
                 host: patch.host === undefined ? current.connection.host : patch.host,
                 user: patch.user === undefined ? current.connection.user : patch.user,
                 port: patch.port === undefined ? current.connection.port : patch.port,
             },
         };
+        for (const key of ['proxyJump', 'sshConfigAlias'] as const) {
+            if (patch[key] === null) { delete machine.connection[key]; }
+            else if (patch[key] !== undefined) { machine.connection[key] = patch[key]!; }
+        }
+        this.assertSharedJumpHostIsPortable(machine);
         this.assertUniqueMachineName(machine.name, machine.connection.host, machineId);
+        const proposed = this.getCatalog();
+        proposed.machines = proposed.machines.map(value => value.id === machineId ? machine : value);
+        managedJumpRoute(proposed, machine);
         const transaction: ManagedCatalogTransaction = { machines: { [machineId]: machine } };
         const hostId = hostEnvironmentId(machineId);
         if (!this.document.environments[hostId]
@@ -394,40 +453,109 @@ export class ManagedRemoteCatalogService {
         });
     }
 
+    /** Remove only catalog records in one causal transaction; remote files are untouched. */
     removeMachine(machineId: string): void {
         singleValue<ManagedSshMachine>(this.document.machines[machineId], 'Managed Machine');
+        const alias = managedJumpAlias(machineId);
+        const dependents = Object.values(this.document.machines).reduce<ManagedSshMachine[]>((values, register) => values.concat(nonNullValues(register)), []).filter(machine => (machine.connection.proxyJump || '').split(',').includes(alias));
+        if (dependents.length) { throw new Error(`This jump host is used by ${dependents.map(value => value.name).join(', ')}. Change their routes before removing it.`); }
         const environmentIds = Object.entries(this.document.environments)
             .filter(([, register]) => nonNullValues(register)
                 .some(environment => environment.machineId === machineId))
             .map(([environmentId]) => environmentId);
-        for (const environmentId of environmentIds) {
-            const kinds = new Set(nonNullValues(this.document.environments[environmentId])
-                .map(environment => environment.kind));
-            if (kinds.size !== 1 || !kinds.has('host')) {
-                throw new Error('Remove Dev Container Environments before removing this Machine.');
+        const transaction = this.removeEnvironmentRecords(environmentIds);
+        transaction.machines = { [machineId]: null };
+        transaction.layout = removeFromLayout(transaction.layout!, { machineId });
+        this.commit(transaction);
+    }
+
+    resolveProjectConflict(projectId: string, selected: ManagedRemoteProject | null): void {
+        const values = this.document.projects[projectId] ? nonNullValues(this.document.projects[projectId]) : [];
+        const removesOrphan = selected === null && values.length > 0
+            && values.every(value => !this.hasLiveEnvironmentParent(value.environmentId));
+        if (!removesOrphan) { this.assertConflictCandidate(this.document.projects[projectId], selected, 'Project'); }
+        const layout = removeFromLayout(this.getCatalog().layout, { projectId });
+        if (selected) {
+            singleValue(this.document.environments[selected.environmentId], 'Parent Environment');
+            layout.projectIdsByEnvironment[selected.environmentId] ||= [];
+            layout.projectIdsByEnvironment[selected.environmentId].push(projectId);
+            if (selected.favorite) { layout.favoriteProjectIds.push(projectId); }
+        }
+        this.commit({ projects: { [projectId]: cloneManagedValue(selected) }, layout });
+    }
+
+    resolveEnvironmentConflict(environmentId: string, selected: ManagedEnvironment | null): void {
+        const values = this.document.environments[environmentId] ? nonNullValues(this.document.environments[environmentId]) : [];
+        const removesOrphan = selected === null && values.length > 0
+            && values.every(value => !this.hasLiveMachineParent(value.machineId));
+        if (!removesOrphan) { this.assertConflictCandidate(this.document.environments[environmentId], selected, 'Environment'); }
+        if (!selected) {
+            const hasLiveHostParent = nonNullValues(this.document.environments[environmentId])
+                .some(environment => environment.kind === 'host'
+                    && this.hasLiveMachineParent(environment.machineId));
+            if (hasLiveHostParent) {
+                throw new Error('Keep the Host Environment, or remove its Machine and saved Projects together.');
             }
-            if (this.hasLiveProjectPlacement(environmentId)) {
-                throw new Error('Remove Projects from this Machine first.');
+            this.commit(this.removeEnvironmentRecords([environmentId]));
+            return;
+        }
+        singleValue(this.document.machines[selected.machineId], 'Parent Machine');
+        const layout = removeFromLayout(this.getCatalog().layout, { environmentId });
+        layout.environmentIdsByMachine[selected.machineId] ||= [];
+        layout.environmentIdsByMachine[selected.machineId].push(environmentId);
+        layout.projectIdsByEnvironment[environmentId] = this.getCatalog().layout.projectIdsByEnvironment[environmentId] || [];
+        this.commit({ environments: { [environmentId]: cloneManagedValue(selected) }, layout });
+    }
+
+    private hasLiveMachineParent(machineId: string): boolean {
+        const register = this.document.machines[machineId];
+        return Boolean(register && nonNullValues(register).length);
+    }
+
+    private hasLiveEnvironmentParent(environmentId: string): boolean {
+        const register = this.document.environments[environmentId];
+        return Boolean(register && nonNullValues(register).some(environment => this.hasLiveMachineParent(environment.machineId)));
+    }
+
+    private assertConflictCandidate<T>(
+        register: VersionedCandidates<T | null> | undefined,
+        selected: T | null,
+        label: string,
+    ): void {
+        const candidates = register ? distinctCandidateValues(register) : [];
+        if (candidates.length < 2) { throw new Error(`${label} no longer has concurrent changes.`); }
+        if (!candidates.some(value => stableManagedValue(value) === stableManagedValue(selected))) {
+            throw new Error(`Select an existing ${label} conflict version.`);
+        }
+    }
+
+    private removeEnvironmentRecords(environmentIds: string[]): ManagedCatalogTransaction {
+        const removed = new Set(environmentIds);
+        const projectIds = Object.entries(this.document.projects)
+            .filter(([, register]) => nonNullValues(register)
+                .some(project => removed.has(project.environmentId)))
+            .map(([projectId]) => projectId);
+        for (const projectId of projectIds) {
+            if (nonNullValues(this.document.projects[projectId]).some(project => !removed.has(project.environmentId))) {
+                throw new Error('Resolve Project placement conflicts before removing this Machine or Environment.');
             }
         }
+        let layout = this.getCatalog().layout;
+        for (const projectId of projectIds) { layout = removeFromLayout(layout, { projectId }); }
+        for (const environmentId of environmentIds) { layout = removeFromLayout(layout, { environmentId }); }
         const environments: Record<string, null> = {};
-        for (const environmentId of environmentIds) {
-            environments[environmentId] = null;
-        }
-        this.commit({
-            machines: { [machineId]: null },
-            environments,
-            layout: environmentIds.reduce(
-                (layout, environmentId) => removeFromLayout(layout, { environmentId }),
-                removeFromLayout(this.getCatalog().layout, { machineId }),
-            ),
-        });
+        const projects: Record<string, null> = {};
+        for (const id of environmentIds) { environments[id] = null; }
+        for (const id of projectIds) { projects[id] = null; }
+        return { environments, projects, layout };
     }
 
     resolveMachineConflict(machineId: string, selected: ManagedSshMachine): ManagedSshMachine {
+        this.assertConflictCandidate(this.document.machines[machineId], selected, 'Machine');
         if (!selected || selected.id !== machineId) {
             throw new Error('Conflict resolution must retain the Managed Machine ID.');
         }
+        this.assertSharedJumpHostIsPortable(selected);
         this.assertUniqueMachineName(
             selected.name,
             selected.connection.host,
@@ -455,6 +583,14 @@ export class ManagedRemoteCatalogService {
         return cloneManagedValue(selected);
     }
 
+    private assertSharedJumpHostIsPortable(machine: ManagedSshMachine): void {
+        if (machine.connection.sshConfigAlias && Object.values(this.document.machines).some(register =>
+            nonNullValues(register).some(value =>
+                (value.connection.proxyJump || '').split(',').includes(managedJumpAlias(machine.id))))) {
+            throw new Error('A shared jump host must keep synced connection settings. Change its dependents before switching to a local SSH reference.');
+        }
+    }
+
     private hasLiveProjectPlacement(environmentId: string): boolean {
         return Object.values(this.document.projects).some(register =>
             nonNullValues(register).some(project => project.environmentId === environmentId));
@@ -476,6 +612,17 @@ export class ManagedRemoteCatalogService {
     }
 
     private commit(transaction: ManagedCatalogTransaction): void {
+        for (const [id, machine] of Object.entries(transaction.machines || {})) {
+            if (!machine) { continue; }
+            const alias = machineSshAlias(machine).toLowerCase();
+            if (machine.connection.sshConfigAlias && [id, ...Object.keys(this.document.machines)]
+                .some(ownerId => isManagedSshAliasForMachine(alias, ownerId))) {
+                throw new Error('This SSH alias is generated by Agent Pivot. Keep its managed connection, or use the original alias from your SSH configuration.');
+            }
+            const collision = Object.entries(this.document.machines).some(([otherId, register]) =>
+                otherId !== id && nonNullValues(register).some(other => machineSshAlias(other).toLowerCase() === alias));
+            if (collision) { throw new Error('This SSH alias already belongs to another Machine. Use that Machine or choose a different SSH alias.'); }
+        }
         const before = new Set(collectManagedCatalogStructuralConflicts(this.document)
             .map(conflict => stableManagedValue(conflict)));
         const candidate = applyManagedCatalogTransaction(this.document, this.actorId, transaction);

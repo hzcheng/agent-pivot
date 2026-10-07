@@ -9263,6 +9263,12 @@ function createMachineProjectsUi() {
     var activeProjectMenuTrigger = null;
     var nextManagedRequestId = 1;
     var pendingManagedActions = new Map();
+    var pendingClientActions = new Map();
+    var pendingSave = null;
+    var pendingLocalAdd = null;
+    var savedProjectIdsBefore = new Set();
+    var lastOperationMessage = '';
+    var retryOperation = null;
     var nextLocalProjectRequestId = 1;
     var pendingLocalProjectEdits = new Map();
     var storageKeys = {
@@ -9332,7 +9338,10 @@ function createMachineProjectsUi() {
             }
         });
         panel.querySelectorAll('[data-machine-row]').forEach(function (machine) {
-            var zeroMatches = filtering
+            var machineName = (machine.getAttribute('data-machine-search') || machine.textContent || '').toLowerCase();
+            var machineMatches = !selectedTags.size && Boolean(textQuery) && machineName.indexOf(textQuery) !== -1;
+            if (!filtering || machineMatches) matchedMachines.add(machine.getAttribute('data-machine-id'));
+            var zeroMatches = filtering && !machineMatches
                 && !matchedMachines.has(machine.getAttribute('data-machine-id'));
             machine.toggleAttribute('data-zero-matches', zeroMatches);
             applyFilterCollapse(machine, zeroMatches);
@@ -9346,6 +9355,16 @@ function createMachineProjectsUi() {
                 );
             });
         });
+        var jumpHosts = panel.querySelector('[data-jump-hosts]');
+        if (jumpHosts) {
+            if (textQuery) {
+                if (!jumpHosts.hasAttribute('data-before-search')) jumpHosts.setAttribute('data-before-search', jumpHosts.open ? 'open' : 'closed');
+                jumpHosts.open = true;
+            } else if (jumpHosts.hasAttribute('data-before-search')) {
+                jumpHosts.open = jumpHosts.getAttribute('data-before-search') === 'open';
+                jumpHosts.removeAttribute('data-before-search');
+            }
+        }
         var summary = panel.querySelector('[data-machine-projects-summary]');
         if (summary) summary.textContent = formatSummary(matchedIds.size, matchedMachines.size);
         var clear = panel.querySelector('[data-action="clear-machine-tags"]');
@@ -9619,18 +9638,23 @@ function createMachineProjectsUi() {
     function setManagedControlsPending(operation, targetId, requestId, pending, projectFormSource) {
         findManagedControls(operation, targetId, projectFormSource).forEach(function (control) {
             if (pending) {
+                if (!control.hasAttribute('data-managed-pending')) control.setAttribute('data-managed-base-disabled', String(control.disabled));
                 control.setAttribute('data-managed-pending', requestId);
+                control.setAttribute('aria-busy', 'true');
                 control.disabled = true;
             } else if (control.getAttribute('data-managed-pending') === requestId) {
                 control.removeAttribute('data-managed-pending');
-                control.disabled = false;
+                control.disabled = control.getAttribute('data-managed-base-disabled') === 'true';
+                control.removeAttribute('data-managed-base-disabled');
+                control.setAttribute('aria-busy', 'false');
             }
         });
         if (operation === 'addMachine' || operation === 'editMachine') {
             var form = findManagedMachineForm(operation, targetId);
             if (form) {
                 form.setAttribute('aria-busy', String(pending));
-                form.querySelectorAll('input, button').forEach(function (item) { item.disabled = pending; });
+                form.querySelectorAll('input, select, button').forEach(function (item) { item.disabled = pending; });
+                updateConnectionMode(form);
             }
         }
         if (operation === 'editProject') {
@@ -9654,9 +9678,117 @@ function createMachineProjectsUi() {
         });
     }
 
-    function announceManaged(message) {
+    function renderOperationStatus() {
+        var status = panel && panel.querySelector('[data-machine-operation-status]');
+        if (!status) return;
+        status.textContent = lastOperationMessage;
+        status.hidden = !lastOperationMessage;
+        if (retryOperation) {
+            var retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'machine-pointer-action';
+            retry.title = 'Retry action';
+            retry.setAttribute('aria-label', 'Retry action');
+            retry.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M19 12a7 7 0 1 0-2 5"/></svg>';
+            retry.addEventListener('click', function () { var action = retryOperation; retryOperation = null; if (action) action(); });
+            status.appendChild(retry);
+        }
+    }
+
+    function announceManaged(message, retry) {
+        lastOperationMessage = message;
+        retryOperation = retry || null;
+        renderOperationStatus();
         var announcer = panel && panel.querySelector('[data-machine-projects-announcer]');
         if (announcer) announcer.textContent = message;
+    }
+
+    function restoreClientPendingControls() {
+        if (!panel) return;
+        panel.querySelectorAll('[data-managed-client-action]').forEach(function (control) {
+            var key = managedControlKey(control.getAttribute('data-managed-client-action'), control.getAttribute('data-managed-target-id'));
+            var pending = pendingClientActions.has(key);
+            if (pending && !control.hasAttribute('data-client-pending')) {
+                control.setAttribute('data-client-base-disabled', String(control.disabled));
+                control.setAttribute('data-client-pending', '');
+            }
+            if (pending) control.disabled = true;
+            else if (control.hasAttribute('data-client-pending')) {
+                control.disabled = control.getAttribute('data-client-base-disabled') === 'true';
+                control.removeAttribute('data-client-pending');
+                control.removeAttribute('data-client-base-disabled');
+            }
+            control.setAttribute('aria-busy', String(pending));
+        });
+        ['save-current-project', 'add-local-project'].forEach(function (action) {
+            var pending = action === 'save-current-project' ? pendingSave : pendingLocalAdd;
+            panel.querySelectorAll('[data-action="' + action + '"]').forEach(function (control) {
+                if (pending && !control.hasAttribute('data-save-pending')) {
+                    control.setAttribute('data-save-base-disabled', String(control.disabled));
+                    control.setAttribute('data-save-pending', '');
+                }
+                if (pending) control.disabled = true;
+                else if (control.hasAttribute('data-save-pending')) {
+                    control.disabled = control.getAttribute('data-save-base-disabled') === 'true';
+                    control.removeAttribute('data-save-pending');
+                    control.removeAttribute('data-save-base-disabled');
+                }
+                control.setAttribute('aria-busy', String(Boolean(pending)));
+            });
+        });
+    }
+
+    function captureSavedProjects() {
+        savedProjectIdsBefore = new Set(Array.from(panel ? panel.querySelectorAll('[data-machine-project-row]') : [])
+            .map(function (row) { return row.getAttribute('data-machine-project-id'); }));
+    }
+
+    function revealSavedProject() {
+        var row = panel && Array.from(panel.querySelectorAll('[data-machine-project-row]')).find(function (candidate) {
+            return !savedProjectIdsBefore.has(candidate.getAttribute('data-machine-project-id'));
+        });
+        if (!row) return;
+        selectedTags.clear();
+        writeArray(storageKeys.tags, selectedTags);
+        panel.querySelectorAll('[data-machine-tag-checkbox]').forEach(function (input) { input.checked = false; });
+        applyFilters();
+        var machine = row.closest('[data-machine-row]');
+        var disclosure = machine && machine.querySelector('[data-machine-disclosure="machine"]');
+        if (disclosure) setExpanded(disclosure, true, true);
+        var environment = row.closest('[data-machine-environment-row]');
+        var environmentDisclosure = environment && environment.querySelector('[data-machine-disclosure="environment"]');
+        if (environmentDisclosure) setExpanded(environmentDisclosure, true, true);
+        var primary = row.querySelector('.machine-project-primary');
+        if (primary) { primary.focus(); primary.scrollIntoView({ block: 'nearest' }); }
+    }
+
+    function saveCurrentProject() {
+        if (pendingSave || pendingLocalAdd) return;
+        captureSavedProjects();
+        pendingSave = 'save-current-workspace-projects-' + Date.now() + '-' + nextManagedRequestId++;
+        restoreClientPendingControls();
+        announceManaged('Saving project shortcut…');
+        window.vscode.postMessage({ type: 'save-current-workspace', requestId: pendingSave, projectId: 'projects-current-workspace' });
+    }
+
+    function addLocalProject() {
+        if (pendingLocalAdd || pendingSave) return;
+        captureSavedProjects();
+        closeProjectMenu(false);
+        pendingLocalAdd = 'projects-local-' + Date.now() + '-' + nextManagedRequestId++;
+        restoreClientPendingControls();
+        announceManaged('Choose a local folder or workspace to save…');
+        window.vscode.postMessage({ type: 'add-local-project', version: 1, requestId: pendingLocalAdd });
+    }
+
+    function updateConnectionMode(form) {
+        if (!form || !form.elements.connectionMode) return;
+        var mode = form.elements.connectionMode.value;
+        form.querySelectorAll('[data-managed-connection-fields]').forEach(function (group) {
+            var active = group.getAttribute('data-managed-connection-fields') === mode;
+            group.hidden = !active;
+            group.querySelectorAll('input, select').forEach(function (input) { input.disabled = !active || form.getAttribute('aria-busy') === 'true'; });
+        });
     }
 
     function postManagedAction(control, input) {
@@ -9704,7 +9836,7 @@ function createMachineProjectsUi() {
     }
 
     function setManagedMachineFormOpen(form, open, returnFocus) {
-        var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+        var trigger = panel && panel.querySelector('.machine-toolbar-button[data-action="toggle-machine-menu"]');
         if (!form || (!open && form.getAttribute('aria-busy') === 'true')) return;
         if (open && hasPendingInlineProjectForm()) return;
         if (open) {
@@ -9716,13 +9848,11 @@ function createMachineProjectsUi() {
                     else resetDismissedManagedMachineForm(other);
                 }
             });
-            if (trigger) trigger.setAttribute('aria-expanded', 'false');
+
         }
         form.hidden = !open;
         if (!open) resetDismissedManagedMachineForm(form);
-        if (trigger && form.getAttribute('data-managed-machine-form-operation') === 'addMachine') {
-            trigger.setAttribute('aria-expanded', String(open));
-        }
+
         if (open) {
             var name = form.elements.name;
             if (name && typeof name.focus === 'function') name.focus();
@@ -9740,6 +9870,7 @@ function createMachineProjectsUi() {
 
     function resetManagedMachineForm(form) {
         form.reset();
+        updateConnectionMode(form);
         form.querySelectorAll('input[aria-invalid]').forEach(function (input) {
             input.removeAttribute('aria-invalid');
             input.removeAttribute('aria-describedby');
@@ -9758,6 +9889,7 @@ function createMachineProjectsUi() {
 
     function resetManagedProjectForm(form) {
         form.reset();
+        updateConnectionMode(form);
         form.querySelectorAll('[aria-invalid]').forEach(function (input) {
             input.removeAttribute('aria-invalid');
             input.removeAttribute('aria-describedby');
@@ -9789,6 +9921,7 @@ function createMachineProjectsUi() {
 
     function resetLocalProjectForm(form) {
         form.reset();
+        updateConnectionMode(form);
         form.querySelectorAll('[aria-invalid]').forEach(function (input) {
             input.removeAttribute('aria-invalid');
             input.removeAttribute('aria-describedby');
@@ -9889,7 +10022,16 @@ function createMachineProjectsUi() {
             user: String(form.elements.user.value || '').trim(),
             port: Number(form.elements.port.value),
         };
+        var proxyJump = form.elements.proxyJump && !form.elements.proxyJump.disabled ? String(form.elements.proxyJump.value || '').trim() : '';
+        var sshConfigAlias = form.elements.sshConfigAlias && !form.elements.sshConfigAlias.disabled ? String(form.elements.sshConfigAlias.value || '').trim() : '';
+        if (form.elements.proxyJump) values.proxyJump = proxyJump || null;
+        if (form.elements.sshConfigAlias) values.sshConfigAlias = sshConfigAlias || null;
         var error = form.querySelector('[data-managed-machine-form-error]');
+        if (proxyJump && sshConfigAlias) {
+            if (error) { error.textContent = 'Choose jump hosts or an existing SSH alias, not both.'; error.hidden = false; }
+            form.elements.sshConfigAlias.focus();
+            return;
+        }
         var invalidField = !isValidMachineName(values.name) ? 'name'
             : !isValidHost(values.host) ? 'host'
             : !isValidSshUser(values.user) ? 'user'
@@ -9922,7 +10064,7 @@ function createMachineProjectsUi() {
         if (!form) return null;
         var activeElement = document.activeElement;
         var values = {};
-        form.querySelectorAll('input[name], textarea[name]').forEach(function (input) {
+        form.querySelectorAll('input[name], textarea[name], select[name]').forEach(function (input) {
             values[input.getAttribute('name')] = String(input.value || '');
         });
         return {
@@ -9934,6 +10076,7 @@ function createMachineProjectsUi() {
             projectFormSource: form.getAttribute('data-managed-project-form-source')
                 || form.getAttribute('data-local-project-form-source') || '',
             values: values,
+            connectionOptionsOpen: Boolean(form.querySelector('.managed-connection-options[open]')),
             focusField: activeElement && form.contains(activeElement)
                 ? activeElement.getAttribute('name') || '' : '',
         };
@@ -9953,6 +10096,9 @@ function createMachineProjectsUi() {
             if (form.elements[field] && typeof state.values[field] === 'string') form.elements[field].value = state.values[field];
         });
         form.hidden = false;
+        updateConnectionMode(form);
+        var connectionOptions = form.querySelector('.managed-connection-options');
+        if (connectionOptions) connectionOptions.open = Boolean(state.connectionOptionsOpen);
         if (state.operation === 'editLocalProject') {
             var hasPendingLocalSave = Array.from(pendingLocalProjectEdits.values()).some(function (pending) {
                 return pending.projectId === state.targetId
@@ -9963,10 +10109,7 @@ function createMachineProjectsUi() {
                 control.disabled = hasPendingLocalSave;
             });
         }
-        if (state.operation === 'addMachine') {
-            var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
-            if (trigger) trigger.setAttribute('aria-expanded', 'true');
-        }
+
         var focusField = state.focusField && form.elements[state.focusField];
         if (focusField && typeof focusField.focus === 'function') focusField.focus();
     }
@@ -10019,11 +10162,18 @@ function createMachineProjectsUi() {
         var action = control.getAttribute('data-managed-client-action');
         var root = managedRoot();
         if (!action || !root || control.disabled) return;
+        var targetId = control.getAttribute('data-managed-target-id') || '';
+        var key = managedControlKey(action, targetId);
+        if (pendingClientActions.has(key)) return;
+        var requestId = 'managed-client-' + Date.now() + '-' + nextManagedRequestId++;
+        pendingClientActions.set(key, { requestId: requestId, targetId: targetId, action: action });
+        restoreClientPendingControls();
+        announceManaged(action === 'checkConnection' ? 'Testing the connection and jump hosts…' : action === 'configureAuthentication' ? 'Choose authentication on this computer…' : 'Opening connection…');
         closeProjectMenu(false);
         window.vscode.postMessage({
             type: 'managed-remote-client-action',
             version: 1,
-            requestId: 'managed-client-' + Date.now() + '-' + nextManagedRequestId++,
+            requestId: requestId,
             action: action,
             expectedRevisionId: root.getAttribute('data-managed-revision-id') || null,
             ...(control.getAttribute('data-managed-target-id')
@@ -10063,6 +10213,7 @@ function createMachineProjectsUi() {
         }
         if (!panel.contains(control)) return;
         if (control.getAttribute('data-action') === 'show-add-machine-form') {
+            closeProjectMenu(false);
             setAddMachineFormOpen(true, false);
             return;
         }
@@ -10133,7 +10284,9 @@ function createMachineProjectsUi() {
             writeArray(storageKeys.tags, selectedTags);
             applyFilters();
         } else if (action === 'save-current-project') {
-            window.vscode.postMessage({ type: 'save-current-workspace' });
+            saveCurrentProject();
+        } else if (action === 'add-local-project') {
+            addLocalProject();
         } else if (action === 'open-file-transfer') {
             window.vscode.postMessage({ type: 'open-file-transfer', version: 1 });
         } else if (action === 'toggle-machine-favorite') {
@@ -10197,6 +10350,10 @@ function createMachineProjectsUi() {
     }
 
     function onChange(event) {
+        if (event.target && event.target.matches('[data-managed-connection-mode]')) {
+            updateConnectionMode(event.target.closest('form'));
+            return;
+        }
         if (!event.target || !event.target.matches('[data-machine-tag-checkbox]')) return;
         if (event.target.checked) selectedTags.add(event.target.value);
         else selectedTags.delete(event.target.value);
@@ -10317,6 +10474,43 @@ function createMachineProjectsUi() {
 
     function onWindowMessage(event) {
         var message = event && event.data;
+        if (message && message.version === 1 && message.type === 'managed-remote-client-settlement') {
+            var key = managedControlKey(message.action, message.targetId);
+            var clientPending = pendingClientActions.get(key);
+            if (!clientPending || clientPending.requestId !== message.requestId
+                || !['completed', 'failed'].includes(message.status)) return;
+            pendingClientActions.delete(key);
+            restoreClientPendingControls();
+            announceManaged(String(message.message || (message.status === 'failed' ? 'Unable to connect.' : 'Connection opened.')), message.status === 'failed' ? function () {
+                var control = panel && Array.from(panel.querySelectorAll('[data-managed-client-action]')).find(function (candidate) {
+                    return candidate.getAttribute('data-managed-client-action') === message.action
+                        && candidate.getAttribute('data-managed-target-id') === message.targetId;
+                });
+                if (control && !control.disabled) postManagedClientAction(control);
+            } : null);
+            return;
+        }
+        if (message && message.version === 1 && message.type === 'save-current-workspace-result'
+            && message.requestId === pendingSave && message.projectId === 'projects-current-workspace'
+            && message.operation === 'save-current-workspace' && ['saved', 'cancelled', 'failed'].includes(message.status)) {
+            pendingSave = null;
+            restoreClientPendingControls();
+            if (message.status === 'saved') revealSavedProject();
+            announceManaged(message.status === 'saved' ? 'Project shortcut saved. Your files stay in their original location.'
+                : message.status === 'cancelled' ? 'No project was saved.' : String(message.message || 'Unable to save project.'),
+            message.status === 'failed' ? saveCurrentProject : null);
+            return;
+        }
+        if (message && message.version === 1 && message.type === 'add-local-project-result'
+            && message.requestId === pendingLocalAdd && ['saved', 'cancelled', 'failed'].includes(message.status)) {
+            pendingLocalAdd = null;
+            restoreClientPendingControls();
+            if (message.status === 'saved') revealSavedProject();
+            announceManaged(message.status === 'saved' ? 'Local project shortcut saved.'
+                : message.status === 'cancelled' ? 'No project was saved.' : String(message.message || 'Unable to save project.'),
+            message.status === 'failed' ? addLocalProject : null);
+            return;
+        }
         if (message && message.type === 'project-inline-edit-settlement'
             && message.version === 1 && typeof message.requestId === 'string') {
             var localPending = pendingLocalProjectEdits.get(message.requestId);
@@ -10345,7 +10539,8 @@ function createMachineProjectsUi() {
             return;
         }
         if (!message || message.type !== 'managed-remote-settlement'
-            || message.version !== 1 || typeof message.requestId !== 'string') {
+            || message.version !== 1 || typeof message.requestId !== 'string'
+            || !['applied', 'cancelled', 'failed'].includes(message.status)) {
             return;
         }
         var pending = pendingManagedActions.get(message.requestId);
@@ -10364,7 +10559,7 @@ function createMachineProjectsUi() {
                 submittedForm.hidden = true;
                 resetManagedMachineForm(submittedForm);
                 if (pending.operation === 'addMachine') {
-                    var addTrigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+                    var addTrigger = panel && panel.querySelector('.machine-toolbar-button[data-action="toggle-machine-menu"]');
                     if (addTrigger) addTrigger.setAttribute('aria-expanded', 'false');
                 }
             }
@@ -10374,7 +10569,7 @@ function createMachineProjectsUi() {
                 resetManagedProjectForm(submittedProjectForm);
             }
             if (pending.focusAddMachine) {
-                var trigger = panel && panel.querySelector('[data-action="show-add-machine-form"]');
+                var trigger = panel && panel.querySelector('.machine-toolbar-button[data-action="toggle-machine-menu"]');
                 if (trigger) trigger.focus();
             } else if (pending.focusEditedMachineId) {
                 var editedMachine = panel && Array.from(panel.querySelectorAll('[data-machine-row]'))
@@ -10413,7 +10608,15 @@ function createMachineProjectsUi() {
                 if (projectError) { projectError.textContent = typeof message.message === 'string' ? message.message : 'Unable to save Project changes.'; projectError.hidden = false; }
             }
             announceManaged(typeof message.message === 'string'
-                ? message.message : 'The Managed Remote action failed.');
+                ? message.message : 'The Managed Remote action failed.', function () {
+                    var control = findManagedControls(pending.operation, pending.targetId, pending.projectFormSource)[0];
+                    if (control && !control.disabled) {
+                        var form = control.closest('[data-managed-machine-form], [data-managed-project-form]');
+                        if (form && form.hasAttribute('data-managed-machine-form')) submitManagedMachineForm(form);
+                        else if (form) submitManagedProjectForm(form);
+                        else postManagedAction(control);
+                    }
+                });
         }
     }
 
@@ -10432,6 +10635,8 @@ function createMachineProjectsUi() {
         }
         restoreState();
         restoreManagedPendingControls();
+        restoreClientPendingControls();
+        renderOperationStatus();
         return true;
     }
 
@@ -12073,7 +12278,7 @@ function focusProjectsPanelFallback(panel) {
         return;
     }
     var fallback = panel.querySelector('[data-action="save-current-project"]:not(:disabled)')
-        || panel.querySelector('[data-action="show-add-machine-form"], [data-managed-operation="addMachine"]')
+        || panel.querySelector('.machine-toolbar-button[data-action="toggle-machine-menu"], [data-managed-operation="addMachine"]')
         || panel.querySelector('[data-action="open-file-transfer"]')
         || panel.querySelector('button:not(:disabled)');
     if (fallback && typeof fallback.focus === 'function') {
@@ -12271,7 +12476,8 @@ function normalizeDashboardSearchCatalog(value) {
         && Array.isArray(value.openWorkspaces)
         && Array.isArray(value.savedProjects)
         && Array.isArray(value.todos)
-        && (value.skills === undefined || Array.isArray(value.skills))) {
+        && (value.skills === undefined || Array.isArray(value.skills))
+        && (value.machines === undefined || Array.isArray(value.machines))) {
         return value;
     }
     return {
@@ -12317,6 +12523,7 @@ function filterDashboardCatalog(catalog, query) {
         { id: 'worktrees', title: 'WORKTREES', type: 'worktree', items: catalog.worktrees },
         { id: 'open-workspaces', title: 'OPEN WORKSPACES', type: 'open-workspace', items: catalog.openWorkspaces },
         { id: 'saved-projects', title: 'SAVED PROJECTS', type: 'saved-project', items: catalog.savedProjects },
+        { id: 'machines', title: 'MACHINES', type: 'machine', items: catalog.machines || [] },
         { id: 'skills', title: 'SKILLS', type: 'skill', items: catalog.skills || [] },
     ];
     return sections
@@ -12340,7 +12547,7 @@ function renderDashboardSearchResults(container, sections) {
         var empty = document.createElement('div');
         empty.className = 'dashboard-search-empty';
         empty.setAttribute('role', 'status');
-        empty.textContent = 'No matching projects or AI sessions.';
+        empty.textContent = 'No matching items. Try a project, machine, workspace, or session name.';
         container.appendChild(empty);
         return;
     }
@@ -12359,6 +12566,11 @@ function renderDashboardSearchResults(container, sections) {
             button.type = 'button';
             button.className = 'dashboard-search-result';
             button.dataset.projectId = String(item.projectId || '');
+            if (item.unavailableReason) {
+                button.disabled = true;
+                button.title = String(item.unavailableReason);
+                button.setAttribute('aria-label', String(item.name || '') + '. ' + item.unavailableReason);
+            }
 
             var title = document.createElement('span');
             title.className = 'dashboard-search-result-title';
@@ -12400,7 +12612,8 @@ function renderDashboardSearchResults(container, sections) {
                 button.dataset.skillDir = String(item.dirPath || '');
                 metadata.textContent = [item.scope === 'project' ? 'Project' : 'Global', item.description].filter(Boolean).join(' · ');
             } else {
-                button.dataset.searchAction = item.action === 'open-managed-project'
+                button.dataset.searchAction = item.action === 'open-managed-machine' ? 'open-managed-machine'
+                    : item.action === 'open-managed-project'
                     ? 'open-managed-project'
                     : 'open-saved-project';
                 if (item.expectedRevisionId) {
@@ -13628,12 +13841,12 @@ function initDashboard(options) {
             });
             return;
         }
-        if (action === 'open-managed-project') {
+        if (action === 'open-managed-project' || action === 'open-managed-machine') {
             options.postMessage({
                 type: 'managed-remote-client-action',
                 version: 1,
                 requestId: 'managed-search-' + Date.now(),
-                action: 'openProject',
+                action: action === 'open-managed-machine' ? 'openMachine' : 'openProject',
                 expectedRevisionId: button.dataset.expectedRevisionId || null,
                 targetId: button.dataset.projectId,
             });

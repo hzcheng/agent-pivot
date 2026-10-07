@@ -3,7 +3,6 @@
 import type { ManagedRemoteManagementSnapshot } from './managementController';
 import type { ManagedRemoteBridgeClient } from './bridgeClient';
 import {
-    formatManagedSshCommand,
     resolveManagedEnvironmentTarget,
     resolveManagedMachineTarget,
     resolveManagedProjectIdentity,
@@ -20,6 +19,11 @@ export interface ManagedRemoteActionControllerOptions {
     showInformationMessage(message: string): Promise<unknown> | Thenable<unknown>;
     showErrorMessage(message: string): Promise<unknown> | Thenable<unknown>;
     logProjectionError(error: Error): void;
+    postSettlement?(result: {
+        type: 'managed-remote-client-settlement'; version: 1; requestId: string;
+        targetId: string; action: string; status: 'completed' | 'failed'; message: string;
+    }): Promise<void>;
+
 }
 
 export class ManagedRemoteActionController {
@@ -39,7 +43,7 @@ export class ManagedRemoteActionController {
         const value = raw as Record<string, unknown>;
         const action = String(value.action);
         const actions = [
-            'sshTerminal', 'copySsh', 'openMachine', 'openProject', 'openEnvironment',
+            'sshTerminal', 'copySsh', 'openMachine', 'openProject', 'openEnvironment', 'checkConnection', 'configureAuthentication',
         ];
         if (!actions.includes(action)
             || value.version !== 1
@@ -58,16 +62,36 @@ export class ManagedRemoteActionController {
         }
         const targetId = value.targetId;
         const revisionId = value.expectedRevisionId as string | null;
-        if (action === 'openMachine') {
-            await this.openMachine(targetId, revisionId);
-        } else if (action === 'openProject') {
-            await this.openProject(targetId, revisionId);
-        } else if (action === 'openEnvironment') {
-            await this.openEnvironment(targetId, revisionId);
-        } else if (action === 'sshTerminal') {
-            await this.openSshTerminal(targetId, revisionId);
-        } else {
-            await this.copySshCommand(targetId, revisionId);
+        try {
+            const snapshot = this.currentSnapshot(revisionId);
+            let message = action === 'checkConnection' ? 'Connection check completed.' : 'Connection handed to VS Code.';
+            if (action === 'copySsh') {
+                const target = resolveManagedMachineTarget(snapshot.catalog, targetId);
+                await this.options.bridge.execute('copyLocalSshCommand', snapshot.revisionId!, target.machine.id);
+                message = 'SSH command copied.';
+            } else if (action === 'openProject') {
+                resolveManagedProjectIdentity(snapshot.catalog, targetId);
+                if (!await this.options.openCurrentProject(snapshot, targetId)) {
+                    await this.options.bridge.execute('openManagedProject', snapshot.revisionId!, targetId);
+                }
+            } else {
+                if (action === 'openEnvironment') { resolveManagedEnvironmentTarget(snapshot.catalog, targetId); }
+                else { resolveManagedMachineTarget(snapshot.catalog, targetId); }
+                const operation = action === 'configureAuthentication' ? 'configureAuthentication' : action === 'checkConnection' ? 'checkConnection'
+                    : action === 'openEnvironment' ? 'openManagedEnvironment'
+                    : action === 'sshTerminal' ? 'openLocalSshTerminal' : 'openManagedMachine';
+                const result = await this.options.bridge.execute(operation, snapshot.revisionId!, targetId) as { message?: string } | undefined;
+                if (result?.message) { message = result.message; }
+
+            }
+            await this.options.postSettlement?.({ type: 'managed-remote-client-settlement', version: 1,
+                requestId: value.requestId, targetId, action, status: 'completed', message });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (this.options.postSettlement) {
+                await this.options.postSettlement({ type: 'managed-remote-client-settlement', version: 1,
+                    requestId: value.requestId, targetId, action, status: 'failed', message });
+            } else { await this.reportError(error); }
         }
     }
 
@@ -105,7 +129,7 @@ export class ManagedRemoteActionController {
         try {
             const snapshot = this.currentSnapshot(expectedRevisionId);
             const target = resolveManagedMachineTarget(snapshot.catalog, machineId);
-            await this.options.writeClipboard(formatManagedSshCommand(target.machine));
+            await this.options.bridge.execute('copyLocalSshCommand', snapshot.revisionId!, target.machine.id);
             await this.options.showInformationMessage(
                 `Copied SSH command for ${target.machine.name}.`,
             );

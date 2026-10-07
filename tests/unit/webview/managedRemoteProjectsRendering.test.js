@@ -33,12 +33,14 @@ function model() {
     };
 }
 
-test('MANAGED-REMOTE-MANAGEMENT-003 renders Save Current Project and no hand-authored Project creation action', () => {
+test('MANAGED-REMOTE-MANAGEMENT-003 renders Save Current Project and remote folder browsing', () => {
     const html = renderManagedRemoteProjectsPanel(model());
     assert.match(html, /data-managed-operation="addMachine"/);
     assert.doesNotMatch(html, /beginMigration|>Migrate</u);
     assert.match(html, /data-action="save-current-project"/);
-    assert.doesNotMatch(html, /data-managed-operation="addProject"/);
+    assert.match(html, /data-managed-operation="addProject"/);
+    assert.match(html, /data-managed-operation="importMachine"/);
+    assert.doesNotMatch(html, /type="search"/);
     assert.match(html, /data-managed-operation="editMachine"/);
     assert.match(html, /data-action="show-edit-machine-form" data-managed-target-id="machine:build"/u);
     assert.match(html, /Changing this connection affects 1 Project\./u);
@@ -134,4 +136,78 @@ test('MANAGED-REMOTE-LOCAL-PROJECTION-001 keeps client-local Projects beside the
     assert.match(html, /data-action="open-machine-project"/u);
     assert.match(html, /data-managed-client-action="openProject"/u);
     assert.match(html, /value="personal"/u);
+});
+
+
+test('Project conflicts expose direct recovery and unavailable tooltips', () => {
+    const value = model();
+    const project = value.machines[0].environments[0].projects[0];
+    project.conflict = true;
+    project.openable = false;
+    project.unavailableReason = 'Project sync conflict — Review';
+    project.pathHint = 'service/api';
+    const html = renderManagedRemoteProjectsPanel(value);
+    assert.match(html, /data-managed-operation="resolveProjectConflict" data-managed-target-id="project:api"/);
+    assert.match(html, /title="\/work\/api — Project sync conflict — Review" disabled/);
+    assert.match(html, /class="machine-project-path"[^>]*>service\/api</);
+});
+
+test('SSH configuration mode only enables its own route field', () => {
+    const value = model();
+    value.machines[0].connection.sshConfigAlias = 'build';
+    const html = renderManagedRemoteProjectsPanel(value);
+    assert.match(html, /value="sshConfig" selected/);
+    assert.match(html, /data-managed-connection-fields="jump" hidden/);
+    assert.match(html, /name="proxyJump"[^>]* disabled/);
+    assert.match(html, /data-managed-client-action="checkConnection"/);
+    assert.match(html, /data-machine-operation-status role="status"/);
+});
+
+test('An empty catalog offers local and remote entry points', () => {
+    const value = { ...model(), machines: [], favorites: [], projectCount: 0, tags: [] };
+    const html = renderManagedRemoteProjectsPanel(value);
+    assert.match(html, /data-action="add-local-project"/);
+    assert.match(html, /Import an SSH connection/);
+    assert.doesNotMatch(html, /type="search"/);
+});
+
+test('Duplicate project names receive shortest distinct path suffixes', () => {
+    const { annotateProjectPathHints } = require('../../../out/projects/machineProjectsViewModel');
+    const rows = [
+        { name: 'API', path: '/work/one/api' },
+        { name: 'API', path: '/work/two/api' },
+        { name: 'Unique', path: '/work/app' },
+    ];
+    annotateProjectPathHints(rows, row => row.path);
+    assert.deepEqual(rows.map(row => row.pathHint), ['one/api', 'two/api', undefined]);
+});
+
+test('Orphan sync conflicts remain recoverable beside the empty catalog', () => {
+    const { buildManagedRemoteProjectsViewModel } = require('../../../out/projects/managedRemote/viewModel');
+    const candidate = { id: 'orphan', name: 'API', environmentId: 'deleted-env', remotePath: '/api' };
+    const value = buildManagedRemoteProjectsViewModel({ revisionId: 'r', lifecycle: 'active',
+        catalog: { machines: [], environments: [], projects: [], conflicts: [
+            { entityType: 'project', entityId: 'orphan', kind: 'delete-update' },
+            { entityType: 'project', entityId: 'orphan', kind: 'missing-parent' },
+            { entityType: 'project', entityId: 'unrecoverable', kind: 'missing-parent' },
+        ], layout: {} }, machineConflictCandidates: {}, projectConflictCandidates: { orphan: [candidate, null] },
+    });
+    assert.deepEqual(value.orphanConflicts, [{ entityType: 'project', id: 'orphan', name: 'API' }]);
+    const html = renderManagedRemoteProjectsPanel(value);
+    assert.match(html, /Sync conflicts need review/);
+    assert.match(html, /data-managed-operation="resolveProjectConflict" data-managed-target-id="orphan"/);
+    assert.match(html, /Save a local folder/);
+});
+
+
+test('A newly added orphan project with one live candidate has a recovery entry', () => {
+    const { buildManagedRemoteProjectsViewModel } = require('../../../out/projects/managedRemote/viewModel');
+    const value = buildManagedRemoteProjectsViewModel({ revisionId: 'r', lifecycle: 'active',
+        catalog: { machines: [], environments: [], projects: [], conflicts: [
+            { entityType: 'project', entityId: 'new-orphan', kind: 'missing-parent' },
+        ], layout: {} }, machineConflictCandidates: {}, projectConflictCandidates: {
+            'new-orphan': [{ id: 'new-orphan', name: 'New API', environmentId: 'deleted-env', remotePath: '/api' }],
+        },
+    });
+    assert.deepEqual(value.orphanConflicts, [{ entityType: 'project', id: 'new-orphan', name: 'New API' }]);
 });

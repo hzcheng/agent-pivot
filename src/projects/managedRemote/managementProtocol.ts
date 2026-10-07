@@ -5,6 +5,8 @@ import { isManagedMachine, isManagedProject } from './validation';
 export const MANAGED_REMOTE_MANAGEMENT_PROTOCOL_VERSION = 1;
 
 export type ManagedRemoteManagementOperation =
+    | 'convertMachine'
+    | 'importMachine'
     | 'addMachine'
     | 'editMachine'
     | 'removeMachine'
@@ -12,7 +14,9 @@ export type ManagedRemoteManagementOperation =
     | 'editProject'
     | 'removeProject'
     | 'toggleFavorite'
-    | 'resolveMachineConflict';
+    | 'resolveMachineConflict'
+    | 'resolveProjectConflict'
+    | 'resolveEnvironmentConflict';
 
 export interface ManagedRemoteManagementRequest {
     type: 'managed-remote-action';
@@ -29,6 +33,8 @@ export interface ManagedRemoteMachineInput {
     host: string;
     user: string;
     port: number;
+    proxyJump?: string | null;
+    sshConfigAlias?: string | null;
 }
 
 export interface ManagedRemoteProjectInput {
@@ -50,12 +56,15 @@ export interface ManagedRemoteManagementSettlement {
 }
 
 const TARGET_OPERATIONS = new Set<ManagedRemoteManagementOperation>([
+    'convertMachine',
     'editMachine',
     'removeMachine',
     'editProject',
     'removeProject',
     'toggleFavorite',
     'resolveMachineConflict',
+    'resolveProjectConflict',
+    'resolveEnvironmentConflict',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,7 +85,7 @@ function isRevisionId(value: unknown): value is string | null {
 
 function parseMachineInput(value: unknown): ManagedRemoteMachineInput | null {
     if (!isRecord(value)
-        || Object.keys(value).length !== 4
+        || Object.keys(value).some(key => !['name', 'host', 'user', 'port', 'proxyJump', 'sshConfigAlias'].includes(key))
         || !['name', 'host', 'user', 'port'].every(key => Object.prototype.hasOwnProperty.call(value, key))
         || typeof value.name !== 'string'
         || typeof value.host !== 'string'
@@ -88,11 +97,20 @@ function parseMachineInput(value: unknown): ManagedRemoteMachineInput | null {
     const name = value.name.trim();
     const host = value.host.trim();
     const user = value.user.trim();
-    const input = { name, host, user, port: value.port };
+    if (value.proxyJump !== undefined && value.proxyJump !== null && typeof value.proxyJump !== 'string'
+        || value.sshConfigAlias !== undefined && value.sshConfigAlias !== null && typeof value.sshConfigAlias !== 'string') { return null; }
+    const proxyJump = typeof value.proxyJump === 'string' ? value.proxyJump.trim() : value.proxyJump;
+    const sshConfigAlias = typeof value.sshConfigAlias === 'string' ? value.sshConfigAlias.trim() : value.sshConfigAlias;
+    const input = { name, host, user, port: value.port,
+        ...(value.proxyJump !== undefined ? { proxyJump: proxyJump || null } : {}),
+        ...(value.sshConfigAlias !== undefined ? { sshConfigAlias: sshConfigAlias || null } : {}),
+    };
     return isManagedMachine({
         id: 'machine:inline-input',
         name,
-        connection: { kind: 'ssh', host, user, port: value.port },
+        connection: { kind: 'ssh', host, user, port: value.port,
+            ...(proxyJump ? { proxyJump } : {}), ...(sshConfigAlias ? { sshConfigAlias } : {}),
+        },
     }) ? input : null;
 }
 
@@ -134,6 +152,8 @@ export function parseManagedRemoteManagementRequest(
     if (!correlation || !isRecord(value)) { return null; }
     const operation = correlation.operation as ManagedRemoteManagementOperation;
     if (![
+        'convertMachine',
+        'importMachine',
         'addMachine',
         'editMachine',
         'removeMachine',
@@ -142,6 +162,8 @@ export function parseManagedRemoteManagementRequest(
         'removeProject',
         'toggleFavorite',
         'resolveMachineConflict',
+        'resolveProjectConflict',
+        'resolveEnvironmentConflict',
     ].includes(operation) || !isRevisionId(value.expectedRevisionId)) {
         return null;
     }

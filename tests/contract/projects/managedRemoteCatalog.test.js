@@ -147,7 +147,7 @@ test('MANAGED-REMOTE-CATALOG-001 keeps Project placement immutable', () => {
     ), /ownership is immutable/i);
 });
 
-test('MANAGED-REMOTE-CATALOG-001 requires explicit Dev Container removal before Machine removal', () => {
+test('MANAGED-REMOTE-CATALOG-001 removes Machine, environments, and saved Projects together', () => {
     const catalog = service();
     const machine = addMachine(catalog);
     const environment = catalog.addDevContainer(machine.id, 'API Container', {
@@ -157,9 +157,14 @@ test('MANAGED-REMOTE-CATALOG-001 requires explicit Dev Container removal before 
         sourceLocator: '/work/api/.devcontainer/devcontainer.json',
     });
 
-    assert.throws(() => catalog.removeMachine(machine.id), /Dev Container Environments/);
-    catalog.removeEnvironment(environment.id);
+    const project = catalog.addProject({ environmentId: environment.id, name: 'API', remotePath: '/work/api', favorite: true });
+    const beforeCounter = catalog.getDocument().versionVector['actor-a'];
     catalog.removeMachine(machine.id);
+    assert.equal(catalog.getDocument().versionVector['actor-a'], beforeCounter + 1, 'one causal transaction');
+    assert.deepEqual(catalog.getCatalog().projects, []);
+    assert.deepEqual(catalog.getCatalog().environments, []);
+    assert.deepEqual(catalog.getCatalog().layout.favoriteProjectIds, []);
+    assert.equal(catalog.getDocument().projects[project.id].candidates[0].value, null);
     assert.deepEqual(catalog.getCatalog().machines, []);
 });
 
@@ -214,10 +219,8 @@ test('MANAGED-REMOTE-CATALOG-002 keeps delete/update and missing Host conflicts 
         conflict.entityId === machine.id && conflict.kind === 'missing-host'));
 
     const recovery = new ManagedRemoteCatalogService(joined, 'resolver', idFactory());
-    recovery.resolveMachineConflict(machine.id, {
-        ...machine,
-        name: 'Recovered',
-    });
+    assert.throws(() => recovery.resolveMachineConflict(machine.id, { ...machine, name: 'Injected' }), /existing Machine conflict version/);
+    recovery.resolveMachineConflict(machine.id, updated.getCatalog().machines[0]);
     assert.deepEqual(recovery.getCatalog().conflicts, []);
     assert.equal(recovery.getCatalog().environments[0].kind, 'host');
 });
@@ -246,12 +249,12 @@ test('MANAGED-REMOTE-CATALOG-003 hidden placement candidates block parent deleti
     );
     const reconciled = new ManagedRemoteCatalogService(joined, 'reconciler', idFactory());
 
-    assert.throws(() => reconciled.removeMachine(second.id), /Remove Projects/);
+    assert.throws(() => reconciled.removeMachine(second.id), /Resolve Project placement conflicts/);
     assert.equal(reconciled.getDocument().machines[second.id].candidates
         .some(candidate => candidate.value !== null), true);
 });
 
-test('MANAGED-REMOTE-CATALOG-003 hidden Environment kind candidates block Machine cascade', () => {
+test('MANAGED-REMOTE-CATALOG-003 Machine cascade includes hidden Environment kind candidates', () => {
     const baseService = service('base');
     const machine = addMachine(baseService);
     const base = baseService.getDocument();
@@ -281,7 +284,9 @@ test('MANAGED-REMOTE-CATALOG-003 hidden Environment kind candidates block Machin
         idFactory(),
     );
 
-    assert.throws(() => catalog.removeMachine(machine.id), /Dev Container Environments/);
+    catalog.removeMachine(machine.id);
+    assert.deepEqual(catalog.getCatalog().machines, []);
+    assert.deepEqual(catalog.getCatalog().environments, []);
 });
 
 test('MANAGED-REMOTE-CATALOG-004 accepts a 10,001st causal writer', () => {
@@ -292,4 +297,95 @@ test('MANAGED-REMOTE-CATALOG-004 accepts a 10,001st causal writer', () => {
     const updated = applyManagedCatalogTransaction(document, 'writer-10001', {});
     assert.equal(updated.versionVector['writer-10001'], 1);
     assert.ok(parseManagedRemoteCatalog(updated));
+});
+
+test('MANAGED-REMOTE-CATALOG-001 rejects reused native aliases and isolates sync collisions', () => {
+    const a = service();
+    const first = a.addMachine({ name: 'One', host: 'one.internal', user: 'dev', sshConfigAlias: 'home' });
+    assert.throws(() => a.addMachine({ name: 'Two', host: 'two.internal', user: 'dev', sshConfigAlias: 'HOME' }), /already belongs/);
+    const safe = a.addMachine({ name: 'Safe', host: 'safe.internal', user: 'dev' });
+    const remote = applyManagedCatalogTransaction(a.getDocument(), 'remote-writer', {
+        machines: { 'machine:remote': { id: 'machine:remote', name: 'Other', connection: { kind: 'ssh', host: 'other.internal', user: 'dev', port: 22, sshConfigAlias: 'home' } } },
+        environments: { 'host:machine:remote': { id: 'host:machine:remote', machineId: 'machine:remote', kind: 'host', name: 'Host' } },
+    });
+    const view = materializeManagedRemoteCatalog(remote);
+    assert.equal(view.conflicts.filter(value => value.kind === 'duplicate-ssh-alias').length, 2);
+    const { buildManagedSshProjection } = require('../../../out/projects/managedRemote/sshConfigProjection');
+    const { createManagedRevisionSlot } = require('../../../out/projects/managedRemote/envelope');
+    const projection = buildManagedSshProjection(createManagedRevisionSlot(remote));
+    assert.deepEqual(projection.entries.map(value => value.machineId), [safe.id]);
+    assert.ok(projection.unavailableMachineIds.includes(first.id));
+});
+
+test('MANAGED-REMOTE-CATALOG-001 cannot turn an owned SSH projection into a self-reference', () => {
+    const catalog = service();
+    const machine = addMachine(catalog);
+    const { managedSshAlias } = require('../../../out/projects/managedRemote/sshConfigProjection');
+    const alias = managedSshAlias(machine.id, machine.name, machine.connection.host);
+    assert.throws(() => catalog.editMachine(machine.id, { sshConfigAlias: alias }), /generated by Agent Pivot/);
+    assert.equal(catalog.getCatalog().machines[0].connection.sshConfigAlias, undefined);
+    catalog.editMachine(machine.id, { name: 'Renamed' });
+    assert.throws(() => catalog.addMachine({ name: 'Imported old alias', host: 'build.example.com', user: 'dev', sshConfigAlias: alias }), /generated by Agent Pivot/);
+});
+
+
+test('MANAGED-REMOTE-CATALOG-002 resolves only existing Project versions, including deletion', () => {
+    const seed = service('base');
+    const machine = addMachine(seed);
+    const project = seed.addProject({ environmentId: hostEnvironmentId(machine.id), name: 'API', remotePath: '/api', favorite: true });
+    const base = seed.getDocument();
+    const left = new ManagedRemoteCatalogService(base, 'left', idFactory());
+    const right = new ManagedRemoteCatalogService(base, 'right', idFactory());
+    left.editProject(project.id, { name: 'Left' });
+    right.removeProject(project.id);
+    const joined = joinManagedRemoteCatalogs(left.getDocument(), right.getDocument());
+    const recovery = new ManagedRemoteCatalogService(joined, 'recovery', idFactory());
+    assert.throws(() => recovery.resolveProjectConflict(project.id, { ...project, remotePath: '/injected' }), /existing Project conflict version/);
+    recovery.resolveProjectConflict(project.id, left.getCatalog().projects[0]);
+    assert.equal(recovery.getCatalog().projects[0].name, 'Left');
+    assert.deepEqual(recovery.getCatalog().layout.favoriteProjectIds, [project.id]);
+    assert.deepEqual(recovery.getCatalog().conflicts, []);
+    const deletion = new ManagedRemoteCatalogService(joined, 'recovery', idFactory());
+    deletion.resolveProjectConflict(project.id, null);
+    assert.deepEqual(deletion.getCatalog().projects, []);
+    assert.deepEqual(deletion.getCatalog().layout.favoriteProjectIds, []);
+    assert.throws(() => deletion.resolveProjectConflict(project.id, null), /no longer has concurrent changes/);
+});
+
+test('MANAGED-REMOTE-CATALOG-002 selects an existing Project placement without permitting arbitrary moves', () => {
+    const seed = service('base');
+    const first = addMachine(seed, 'First');
+    const second = addMachine(seed, 'Second');
+    const base = seed.getDocument();
+    const left = new ManagedRemoteCatalogService(base, 'left', idFactory());
+    const right = new ManagedRemoteCatalogService(base, 'right', idFactory());
+    const selected = left.addProject({ id: 'shared', environmentId: hostEnvironmentId(first.id), name: 'Shared', remotePath: '/shared' });
+    right.addProject({ id: 'shared', environmentId: hostEnvironmentId(second.id), name: 'Shared', remotePath: '/shared' });
+    const recovery = new ManagedRemoteCatalogService(joinManagedRemoteCatalogs(left.getDocument(), right.getDocument()), 'resolver', idFactory());
+    recovery.resolveProjectConflict('shared', selected);
+    assert.equal(recovery.getCatalog().projects[0].environmentId, hostEnvironmentId(first.id));
+    assert.deepEqual(recovery.getCatalog().conflicts, []);
+    assert.throws(() => applyManagedCatalogTransaction(recovery.getDocument(), 'move', { projects: { shared: { ...selected, environmentId: hostEnvironmentId(second.id) } } }), /ownership is immutable/);
+});
+
+test('MANAGED-REMOTE-CATALOG-002 resolves Environment deletion and its dependent Project records atomically', () => {
+    const seed = service('base');
+    const machine = addMachine(seed);
+    const env = seed.addDevContainer(machine.id, 'Container', { version: 1, originalAuthority: 'dev-container+aa@ssh-remote+build', sourceKind: 'workspace', sourceLocator: '/work' });
+    const project = seed.addProject({ environmentId: env.id, name: 'API', remotePath: '/api', favorite: true });
+    const base = seed.getDocument();
+    const updated = applyManagedCatalogTransaction(base, 'update', { environments: { [env.id]: { ...env, name: 'Updated' } } });
+    const deleted = applyManagedCatalogTransaction(base, 'delete', { environments: { [env.id]: null } });
+    const joined = joinManagedRemoteCatalogs(updated, deleted);
+    const recovery = new ManagedRemoteCatalogService(joined, 'resolve', idFactory());
+    assert.throws(() => recovery.resolveEnvironmentConflict(env.id, { ...env, name: 'Injected' }), /existing Environment conflict version/);
+    recovery.resolveEnvironmentConflict(env.id, null);
+    assert.deepEqual(recovery.getCatalog().projects, []);
+    assert.deepEqual(recovery.getCatalog().conflicts, []);
+    assert.equal(recovery.getCatalog().environments.length, 1);
+    assert.equal(recovery.getDocument().projects[project.id].candidates[0].value, null);
+    const keep = new ManagedRemoteCatalogService(joined, 'resolve', idFactory());
+    keep.resolveEnvironmentConflict(env.id, { ...env, name: 'Updated' });
+    assert.equal(keep.getCatalog().environments.find(value => value.id === env.id).name, 'Updated');
+    assert.equal(keep.getCatalog().projects.length, 1);
 });

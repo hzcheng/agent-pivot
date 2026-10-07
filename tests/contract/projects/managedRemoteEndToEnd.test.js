@@ -170,3 +170,21 @@ test('MANAGED-REMOTE-E2E-001 surfaces a stale revision instead of failing silent
     assert.equal(bench.settlements[0].status, 'failed');
     assert.match(bench.settlements[0].message, /changed|refresh/iu);
 });
+
+test('MANAGED-REMOTE-E2E-001 reimport repairs the same Machine and keeps its Projects', async () => {
+    let host = 'home.internal';
+    const bench = await harness({ async importMachine() {
+        return { name: 'Home', host, user: 'dev', port: 22, sshConfigAlias: 'infra-home-inux', sourceSshAliases: ['infra-home-inux'] };
+    } });
+    await bench.controller.handle(webviewAction('importMachine', bench.current().revisionId));
+    const id = bench.current().catalog.machines[0].id;
+    await bench.controller.handle(webviewAction('addProject', bench.current().revisionId, id));
+    const projectId = bench.current().catalog.projects[0].id;
+    host = 'new-home.internal';
+    await bench.controller.handle(webviewAction('importMachine', bench.current().revisionId));
+    assert.equal(bench.current().catalog.machines.length, 1);
+    assert.equal(bench.current().catalog.machines[0].id, id);
+    assert.equal(bench.current().catalog.machines[0].connection.host, host);
+    assert.equal(bench.current().catalog.projects[0].id, projectId);
+    assert.equal(bench.settlements.at(-1).status, 'applied');
+});

@@ -21,15 +21,17 @@ export function renderMachineProjectsPanel(
     const addManagedMachine = managedRemoteRevisionId === undefined
         ? ''
         : `<button type="button" class="machine-toolbar-button" data-managed-operation="addMachine" aria-label="Add Managed Machine" title="Add Managed Machine">${Icons.add}<span class="managed-toolbar-label">Machine</span></button>`;
+    const addLocalProject = `<button type="button" class="machine-toolbar-button" data-action="add-local-project" aria-label="Save a local folder" title="Save a local folder">${Icons.folder}</button>`;
+    const status = '<div class="machine-operation-status" data-machine-operation-status role="status" aria-live="polite" hidden></div>';
     const openFileTransfer = `<button type="button" class="machine-toolbar-button" data-action="open-file-transfer" aria-label="Open File Transfer" title="Open File Transfer">${Icons.handoff}</button>`;
     const saveCurrentProject = `<button type="button" class="machine-toolbar-button" data-action="save-current-project" aria-label="Save Current Project" title="${canSaveCurrentProject ? 'Save Current Project' : 'Open a project before saving it'}"${canSaveCurrentProject ? '' : ' disabled'}>${Icons.save}</button>`;
     if (!model.machines.length) {
         return `<section class="machine-projects machine-projects-empty" data-machine-projects${managedAttributes} data-machine-project-count="0">
             <div class="machine-projects-toolbar">
                 <span class="machine-projects-summary">0 projects</span>
-                <div class="machine-projects-toolbar-actions">${openFileTransfer}${saveCurrentProject}${addManagedMachine}</div>
+                <div class="machine-projects-toolbar-actions">${openFileTransfer}${saveCurrentProject}${addLocalProject}${addManagedMachine}</div>
             </div>
-            <p>No projects have been added yet.</p>
+            ${status}<div class="machine-empty-state"><p>Keep your projects within reach.</p><div class="machine-empty-hint"><span>Save a local folder</span>${addLocalProject}</div><div class="machine-empty-hint"><span>Save the current project</span>${saveCurrentProject}</div></div>
         </section>`;
     }
     return `<section class="machine-projects" data-machine-projects${managedAttributes} data-machine-project-count="${model.projectCount}">
@@ -40,10 +42,12 @@ export function renderMachineProjectsPanel(
             <div class="machine-projects-toolbar-actions">
                 ${renderTagControls(model.tags)}
                 ${openFileTransfer}
+                ${addLocalProject}
                 ${addManagedMachine}
                 ${saveCurrentProject}
             </div>
         </div>
+        ${status}
         ${renderFavorites(model.favorites)}
         <section class="machine-projects-directory" aria-labelledby="machine-projects-directory-title">
             <h2 id="machine-projects-directory-title" class="machine-projects-visually-hidden">Machines</h2>
@@ -118,7 +122,7 @@ export function renderMachineProjectsMachine(machine: MachineRowViewModel): stri
             </div>
         </div>
         <ul id="${childrenId}" class="machine-environment-list">
-            ${machine.environments.map(environment => renderEnvironment(machine, environment)).join('\n')}
+            ${machine.environments.map(environment => renderEnvironment(machine, environment, machine.environments.length === 1)).join('\n')}
         </ul>
     </li>`;
 }
@@ -126,9 +130,13 @@ export function renderMachineProjectsMachine(machine: MachineRowViewModel): stri
 function renderEnvironment(
     machine: MachineRowViewModel,
     environment: MachineEnvironmentViewModel,
+    flatten = false,
 ): string {
     const childrenId = `environment-children-${environment.id}`;
     const isHost = environment.kind === 'host';
+    if (flatten && isHost) {
+        return `<li class="machine-environment-row machine-host-environment" data-machine-environment-row data-environment-id="${escapeAttribute(environment.id)}" data-environment-kind="host"><ul id="${childrenId}" class="machine-project-list">${environment.projects.map(project => renderMachineProjectsProject(project, false)).join('\n')}</ul></li>`;
+    }
     return `<li class="machine-environment-row" data-machine-environment-row data-environment-id="${escapeAttribute(environment.id)}" data-environment-kind="${environment.kind}">
         <div class="machine-row-line">
             <button type="button" class="machine-environment-primary machine-disclosure" data-machine-disclosure="environment" aria-expanded="true" aria-controls="${childrenId}" aria-label="Collapse ${escapeAttribute(environment.displayName)}">
@@ -154,7 +162,7 @@ export function renderMachineProjectsProject(project: MachineProjectRowViewModel
         <div class="machine-row-line">
             <button type="button" class="machine-project-primary" data-action="open-machine-project" aria-label="${escapeAttribute(identityName)}" title="${escapeAttribute(project.path)}">
                 <span class="machine-project-color"${color ? ` style="background: ${escapeAttribute(color)}"` : ''} aria-hidden="true"></span>
-                <span class="machine-row-name">${escapeAttribute(project.name)}</span>
+                <span class="machine-project-identity"><span class="machine-row-name">${escapeAttribute(project.name)}</span>${project.pathHint ? `<span class="machine-project-path" title="${escapeAttribute(project.path)}">${escapeAttribute(project.pathHint)}</span>` : ''}</span>
             </button>
             ${favorite
                 ? `<span class="machine-project-context" title="${escapeAttribute(`${project.machineName} › ${project.environmentName}`)}">${escapeAttribute(`${project.machineName} › ${project.environmentName}`)}</span>`

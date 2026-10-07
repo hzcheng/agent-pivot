@@ -59,6 +59,9 @@ import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
 import { ManagedSshConsentFileStore } from './managedSshConsentStore';
 import { discoverManagedSshLocalInputs } from './managedSshDiscovery';
 import { ManagedSshProjectionWorker } from './managedSshProjectionWorker';
+import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
+import { materializeManagedRemoteCatalog } from '../../../src/projects/managedRemote/merge';
+import type { ManagedSshLocalAuthentication } from '../../../src/projects/managedRemote/sshConfigProjection';
 import { buildManagedSshProjection } from '../../../src/projects/managedRemote/sshConfigProjection';
 import { managedRemoteLinuxPlatformUpdate } from './managedRemotePlatform';
 
@@ -120,10 +123,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             remoteSshPath: vscode.workspace.getConfiguration('remote.SSH').get('path'),
             remoteSshConfigFile: vscode.workspace.getConfiguration('remote.SSH').get('configFile'),
         });
+        const localAuthentication: Record<string, ManagedSshLocalAuthentication> = {};
+        const slot = readManagedActiveRevisionSlot(vscode.workspace.getConfiguration('agentPivot').get('managedRemoteCatalogData'));
+        for (const machine of slot ? materializeManagedRemoteCatalog(slot.document).machines : []) {
+            try {
+                const authentication = await managedLegacySshInspector.inspectLocalAuthentication(inputs.executable, inputs.activeConfigPath, machine);
+                if (authentication) { localAuthentication[machine.id] = authentication; }
+            } catch (error) {
+                outputChannel.appendLine(`[ManagedRemote] Local SSH authentication for ${machine.name} could not be imported: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
         return new ManagedSshConsentCoordinator(
             inputs.activeConfigPath,
             inputs.executable,
-            managedSshConsent,
+            managedSshConsent, undefined, undefined,
+            context.globalState.get<Record<string, Record<string, string>>>('managedSshAuthentication.v1', {})[inputs.activeConfigPath] || {},
+            localAuthentication,
         );
     };
     const managedSshProjection = new ManagedSshProjectionWorker({
@@ -175,6 +190,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
         inspectLegacySshTarget: (executable, activeConfigPath, target) =>
             managedLegacySshInspector.inspect(executable, activeConfigPath, target),
+        configureAuthentication: async (machine, configPath, route) => {
+            if (route.length) {
+                const step = await vscode.window.showQuickPick(route.concat(machine).map(value => ({
+                    label: value.name, description: value.id === machine.id ? 'Target machine' : 'Jump host', machine: value,
+                })), { placeHolder: 'Which machine needs authentication on this computer?' });
+                if (!step) { return false; }
+                machine = step.machine;
+            }
+            const selected = await vscode.window.showQuickPick([
+                { label: 'Use SSH agent / default keys', value: 'default', description: 'Authentication stays on this computer' },
+                { label: 'Choose a private key on this computer…', value: 'key' },
+            ], { placeHolder: `Authentication for ${machine.name}` });
+            if (!selected) { return false; }
+            let keyPath = '';
+            if (selected.value === 'key') {
+                const files = await vscode.window.showOpenDialog({ defaultUri: vscode.Uri.file(path.join(os.homedir(), '.ssh')), canSelectMany: false, canSelectFolders: false, openLabel: 'Use this key', title: `Private key for ${machine.name} (never synced)` });
+                if (!files?.[0]) { return false; }
+                if (files[0].scheme !== 'file') { throw new Error('Choose a private key stored on this computer.'); }
+                keyPath = files[0].fsPath;
+                const keyInfo = await fs.promises.stat(keyPath);
+                if (!keyInfo.isFile()) { throw new Error('Choose a local private key file.'); }
+                await fs.promises.access(keyPath, fs.constants.R_OK);
+                if (/[\r\n\0"%]/u.test(keyPath)) { throw new Error('This key path cannot be represented in SSH configuration.'); }
+            }
+            const bindings = context.globalState.get<Record<string, Record<string, string>>>('managedSshAuthentication.v1', {});
+            bindings[configPath] = { ...(bindings[configPath] || {}), [machine.id]: keyPath };
+            await context.globalState.update('managedSshAuthentication.v1', bindings);
+            return true;
+        },
         defaultLocalDirectory: () => os.homedir(),
     }, managedSshProjection, message => outputChannel.appendLine(`[FileTransfer] ${message}`));
     const instanceId = crypto.randomBytes(16).toString('hex');

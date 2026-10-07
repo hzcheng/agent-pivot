@@ -1,10 +1,12 @@
 'use strict';
 
+import { managedJumpRoute } from './jumpRoutes';
+
 import {
     rebuildManagedDevContainerProjectUri,
 } from './devContainerCodec';
 import { encodeRemotePath } from '../projectPathUtils';
-import { managedSshAlias } from './sshConfigProjection';
+import { machineSshAlias } from './sshConfigProjection';
 import type {
     ManagedEnvironment,
     ManagedRemoteProject,
@@ -59,12 +61,9 @@ export function resolveManagedMachineTarget(
 ): ManagedMachineTarget {
     const machine = catalog.machines.find(value => value.id === machineId);
     if (!machine) { throw new Error('Managed Machine no longer exists.'); }
+    managedJumpRoute(catalog, machine);
     assertReady(blockedEntityIds(catalog), [machine.id]);
-    const alias = managedSshAlias(
-        machine.id,
-        machine.name,
-        machine.connection.host,
-    );
+    const alias = machineSshAlias(machine);
     return { machine, alias, remoteAuthority: `ssh-remote+${alias}` };
 }
 
@@ -133,7 +132,9 @@ export function resolveManagedProjectIdentity(
 }
 
 export function managedSshArguments(machine: ManagedSshMachine): string[] {
+    if (machine.connection.sshConfigAlias) { return [machine.connection.sshConfigAlias]; }
     return [
+        ...(machine.connection.proxyJump ? ['-J', machine.connection.proxyJump] : []),
         '-p', String(machine.connection.port),
         '-l', machine.connection.user,
         machine.connection.host,
@@ -146,12 +147,6 @@ function quotePortableSshArgument(value: string): string {
 
 export function formatManagedSshCommand(machine: ManagedSshMachine): string {
     const args = managedSshArguments(machine);
-    return [
-        'ssh',
-        args[0],
-        args[1],
-        args[2],
-        quotePortableSshArgument(args[3]),
-        quotePortableSshArgument(args[4]),
-    ].join(' ');
+    return ['ssh', ...args.map(value => /^-[pJl]$/u.test(value) || /^\d+$/u.test(value)
+        ? value : quotePortableSshArgument(value))].join(' ');
 }

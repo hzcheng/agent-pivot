@@ -3354,7 +3354,8 @@ function runDashboardBridgeLifecycleChecks() {
     assert.ok(projectMutationControllerSource.includes('async saveWorkspaceProject('));
     assert.ok(projectMutationControllerSource.includes('if (!projectDetails || !projectDetails.path)'));
     assert.ok(projectMutationControllerSource.includes("this.options.showWarningMessage('No project is currently open.');"));
-    assert.ok(projectMutationControllerSource.includes('await this.saveProject(null, false, projectDetails);'));
+    assert.ok(projectMutationControllerSource.includes('await this.options.addProjectToGroup(project, null);'),
+        'saving the current local project must persist it without reopening the legacy group picker');
     assert.ok(!selectedProjectHandler.includes('e.uri'));
     assert.ok(!selectedProjectHandler.includes('projectUri'));
     assert.ok(dashboard.includes('vscode.window.onDidChangeWindowState(windowState =>'));

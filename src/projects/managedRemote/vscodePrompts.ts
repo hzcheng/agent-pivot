@@ -93,17 +93,29 @@ interface MachineDraft {
     port: string;
 }
 
+export interface ManagedRemotePromptConnections {
+    listAliases?(): Promise<string[]>;
+    inspect(alias: string): Promise<unknown>;
+    browse(machineId: string, directoryId?: string, path?: string): Promise<import('./bridgeProtocol').FileTransferLocalRootResponse>;
+}
+
 export class ManagedRemotePromptController implements ManagedRemoteManagementPrompts {
-    constructor(private readonly ui: ManagedRemoteWizardUi) {
+    constructor(
+        private readonly ui: ManagedRemoteWizardUi,
+        private readonly connections?: ManagedRemotePromptConnections,
+    ) {
     }
 
     addMachine(): Promise<AddManagedMachineInput | undefined> {
         return this.machineWizard({ name: '', host: '', user: '', port: '22' });
     }
 
-    adoptCurrentSshProject(
+    async adoptCurrentSshProject(
         project: Omit<AddManagedProjectInput, 'environmentId'> & { sshAlias: string },
     ): Promise<AddManagedMachineInput | undefined> {
+        if (this.connections) {
+            return this.importAlias(project.sshAlias, project);
+        }
         return this.machineWizard({
             name: project.sshAlias,
             host: '',
@@ -112,6 +124,156 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         }, {
             adoptedProject: project,
         });
+    }
+
+    async importMachine(): Promise<AddManagedMachineInput | undefined> {
+        // Enumeration is a convenience: unreadable Includes must not prevent manual import.
+        let aliases: string[] = [];
+        try { aliases = await this.connections?.listAliases?.() || []; } catch { /* manual fallback */ }
+        aliases = Array.from(new Set(aliases.filter(value => /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u.test(value)))).sort();
+        if (aliases.length) {
+            const selected = await this.ui.pick({
+                title: 'Import SSH connection', step: 1, totalSteps: 2, canGoBack: false,
+                items: [
+                    ...aliases.map(alias => ({ label: alias, description: 'This computer’s SSH configuration', value: alias })),
+                    { label: 'Enter SSH alias manually…', value: '' },
+                ],
+            });
+            if (selected.action !== 'accept') { return undefined; }
+            if (selected.value) { return this.importAlias(selected.value); }
+        }
+        const alias = await this.ui.input({
+            title: 'Import SSH connection', step: 1, totalSteps: 2,
+            prompt: 'SSH alias you already use, for example infra-home-linux',
+            validate: value => /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u.test(value.trim())
+                ? undefined : 'Enter an SSH host alias, not a command.',
+        });
+        return alias.action === 'accept' ? this.importAlias(alias.value.trim()) : undefined;
+    }
+
+    private async importAlias(
+        alias: string,
+        project?: Omit<AddManagedProjectInput, 'environmentId'>,
+    ): Promise<AddManagedMachineInput | undefined> {
+        const inspected = await this.connections?.inspect(alias) as {
+            status?: string; reason?: string; configurationMatched?: boolean;
+            route?: { kind: string; jumpHosts?: string };
+            portable?: { jumpHosts: import('./catalogService').PortableSshHop[] };
+            portableReason?: string;
+            endpoint?: { host: string; user: string; port: number };
+        } | undefined;
+        const endpoint = inspected?.endpoint;
+        if (inspected?.status === 'unsupported' || (!project && inspected?.configurationMatched === false) || !endpoint || !isManagedMachine({
+            id: 'import', name: alias, connection: { kind: 'ssh', ...endpoint, sshConfigAlias: alias },
+        })) {
+            throw new Error(inspected?.reason || 'Could not read this SSH alias. Check the SSH configuration on this computer.');
+        }
+        const route = inspected?.route?.kind === 'jump' ? `Via ${inspected.route.jumpHosts}`
+            : inspected?.route?.kind === 'command' ? 'Via your local ProxyCommand'
+                : inspected?.route?.kind === 'direct' ? 'Direct connection' : 'Uses local SSH routing';
+        const review = await this.ui.pick({
+            title: project ? 'Save current Machine and Project' : 'Save SSH connection',
+            step: 2, totalSteps: 2, canGoBack: false,
+            items: [
+                ...(inspected?.portable ? [{
+                    label: `Sync ${alias} and its connection route`,
+                    description: `${endpoint.user}@${endpoint.host}:${endpoint.port}`,
+                    detail: `${inspected.portable.jumpHosts.map(hop => `${hop.name} (${hop.user}@${hop.host}:${hop.port})`).concat(alias).join(' → ')}. Saves connection settings across computers. Choose authentication separately on each computer.`,
+                    value: 'portable',
+                }] : []),
+                {
+                    label: project ? 'Save Machine and Project' : `Reference local SSH alias: ${alias}`,
+                    description: `${alias} · ${endpoint.user}@${endpoint.host}:${endpoint.port}`,
+                    detail: `${project ? project.remotePath + ' · ' : ''}${inspected?.portableReason || route}. Machine name: ${alias}. References this computer’s SSH config; connection not tested. Other computers need the same alias. Keys and commands are not synced.`,
+                    value: 'save',
+                },
+            ],
+        });
+        if (review.action !== 'accept') { return undefined; }
+        return review.value === 'portable' && inspected?.portable
+            ? { name: alias, ...endpoint, jumpHosts: inspected.portable.jumpHosts, sourceSshAliases: [alias] }
+            : { name: alias, ...endpoint, sshConfigAlias: alias, sourceSshAliases: [alias] };
+    }
+
+    async convertMachine(machine: ManagedSshMachine): Promise<AddManagedMachineInput | undefined> {
+        const alias = machine.connection.sshConfigAlias;
+        if (!alias) { throw new Error('This machine already has synced connection settings.'); }
+        const result = await this.importAlias(alias);
+        if (result && !result.jumpHosts) { throw new Error('Choose the synced connection option to convert this machine.'); }
+        return result ? { ...result, name: machine.name } : undefined;
+    }
+
+    private async browseProject(
+        machine: ManagedSshMachine,
+        environments: ManagedEnvironment[],
+    ): Promise<AddManagedProjectInput | undefined> {
+        let environment = environments.find(value => value.kind === 'host') || environments[0];
+        if (environments.length > 1) {
+            const selected = await this.ui.pick({
+                title: `Add Project to ${machine.name}`, step: 1, totalSteps: 2, canGoBack: false,
+                items: environments.map(value => ({ label: value.name, value })),
+            });
+            if (selected.action !== 'accept') { return undefined; }
+            environment = selected.value;
+        }
+        let remotePath: string | undefined;
+        let directoryId: string | undefined;
+        let navigationPath: string | undefined;
+        while (!remotePath && environment.kind === 'host') {
+            let listing: import('./bridgeProtocol').FileTransferLocalRootResponse;
+            try {
+                listing = await this.connections!.browse(machine.id, directoryId, navigationPath);
+            } catch (error) {
+                const choice = await this.ui.pick({
+                    title: `Could not browse ${machine.name}`, step: 1, totalSteps: 2, canGoBack: false,
+                    items: [
+                        { label: 'Retry connection', detail: `${error instanceof Error ? error.message : 'Connection failed.'} Browsing needs noninteractive SSH authentication. For password/MFA, connect in VS Code, open a folder, then Save current.`, value: 'retry' },
+                        { label: 'Enter folder path manually', value: 'manual' },
+                    ],
+                });
+                if (choice.action !== 'accept') { return undefined; }
+                if (choice.value === 'retry') { continue; }
+                break;
+            }
+            const choice = await this.ui.pick({
+                title: `${machine.name} · ${listing.displayPath}`, step: 1, totalSteps: 2, canGoBack: false,
+                items: [
+                    { label: 'Save this folder as a Project', description: listing.displayPath, value: 'save' },
+                    { label: 'Enter folder path…', value: 'path' },
+                    ...(listing.displayPath !== '/' ? [{ label: '..', description: 'Parent folder', value: 'parent' }] : []),
+                    ...listing.entries.filter(entry => entry.kind === 'directory')
+                        .map(entry => ({ label: entry.name, description: 'Folder', value: entry.id })),
+                    ...(listing.hasMore ? [{ label: 'More folders — enter a path…', value: 'path' }] : []),
+                ],
+            });
+            if (choice.action !== 'accept') { return undefined; }
+            if (choice.value === 'save') { remotePath = listing.displayPath; break; }
+            if (choice.value === 'path') {
+                const pathInput = await this.ui.input({
+                    title: `Browse ${machine.name}`, step: 1, totalSteps: 2,
+                    prompt: 'Absolute remote folder path', value: listing.displayPath, validate: validRemotePath,
+                });
+                if (pathInput.action !== 'accept') { return undefined; }
+                navigationPath = pathInput.value.trim(); directoryId = undefined;
+            } else if (choice.value === 'parent') {
+                navigationPath = listing.displayPath.replace(/\/[^/]+\/?$/u, '') || '/'; directoryId = undefined;
+            } else { directoryId = choice.value; navigationPath = undefined; }
+        }
+        if (!remotePath) {
+            const pathInput = await this.ui.input({
+                title: `Add Project to ${machine.name}`, step: 1, totalSteps: 2,
+                prompt: 'Absolute folder path in this Environment', validate: validRemotePath,
+            });
+            if (pathInput.action !== 'accept') { return undefined; }
+            remotePath = pathInput.value.trim();
+        }
+        const name = await this.ui.input({
+            title: 'Save Project — files stay on the remote Machine', step: 2, totalSteps: 2,
+            prompt: 'Project name. The Machine and folder shortcut are saved to your sync settings.',
+            value: remotePath.split('/').filter(Boolean).pop() || machine.name,
+            validate: value => validText(value, 'Project name'),
+        });
+        return name.action === 'accept' ? { environmentId: environment.id, name: name.value.trim(), remotePath } : undefined;
     }
 
     async editMachine(
@@ -135,9 +297,9 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         } : undefined;
     }
 
-    confirmRemoveMachine(machine: ManagedSshMachine): Promise<boolean> {
+    confirmRemoveMachine(machine: ManagedSshMachine, counts = { projectCount: 0, environmentCount: 0 }): Promise<boolean> {
         return this.ui.confirm(
-            `Remove ${machine.name} (${machineSummary(machine)})? This does not delete remote files.`,
+            `Remove ${machine.name} (${machineSummary(machine)}) and ${counts.projectCount} saved Project${counts.projectCount === 1 ? '' : 's'} across ${counts.environmentCount} Environment${counts.environmentCount === 1 ? '' : 's'}? This removes catalog records on all synced computers. Remote files, containers, and SSH configuration are not deleted.`,
             'Remove Machine',
         );
     }
@@ -164,6 +326,7 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         environments: ManagedEnvironment[],
     ): Promise<AddManagedProjectInput | undefined> {
         if (!environments.length) { throw new Error('Managed Machine has no Environment.'); }
+        if (this.connections) { return this.browseProject(machine, environments); }
         let step = 0;
         let environment = environments.find(value => value.kind === 'host') || environments[0];
         const draft = { name: '', path: '', description: '', tags: '', color: '', favorite: false };
@@ -298,6 +461,61 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
         );
     }
 
+    async resolveProjectConflict(
+        _projectId: string,
+        candidates: Array<ManagedRemoteProject | null>,
+        environmentNames?: Record<string, string>,
+        allowOrphanRemoval = false,
+    ): Promise<ManagedRemoteProject | null | undefined> {
+        const parentExists = (id: string) => environmentNames === undefined || typeof environmentNames[id] === 'string';
+        const parentRemoved = candidates.some(candidate => candidate && !parentExists(candidate.environmentId));
+        const choices = candidates.filter(candidate => candidate === null || parentExists(candidate.environmentId));
+        if (allowOrphanRemoval && !choices.includes(null)) { choices.push(null); }
+        if (!choices.length) { throw new Error('The parent Environment was removed. Restore it before keeping this Project.'); }
+        const result = await this.ui.pick({
+            title: 'Resolve Project sync conflict', step: 1, totalSteps: 1, canGoBack: false,
+            items: choices.map(candidate => candidate ? {
+                label: `Keep ${candidate.name}`,
+                description: `${candidate.remotePath} · ${environmentNames?.[candidate.environmentId] || 'Environment'}`,
+                detail: [candidate.description, candidate.tags?.length ? `Tags: ${candidate.tags.join(', ')}` : '',
+                    `Favorite: ${candidate.favorite ? 'yes' : 'no'}`, candidate.color ? `Color: ${candidate.color}` : '',
+                    'Applies to all synced computers.'].filter(Boolean).join(' · '),
+                value: candidate,
+            } : {
+                label: allowOrphanRemoval && !candidates.includes(null) ? 'Remove orphan Project record' : 'Keep deletion', description: 'Remove the saved Project record',
+                detail: `${parentRemoved ? 'The parent Environment was removed. Keep the deletion or cancel. ' : ''}Applies to all synced computers. Remote files are not deleted.`, value: null,
+            }),
+        });
+        return result.action === 'accept' ? result.value : undefined;
+    }
+
+    async resolveEnvironmentConflict(
+        _environmentId: string,
+        candidates: Array<ManagedEnvironment | null>,
+        projectCount: number,
+        machineNames?: Record<string, string>,
+        allowOrphanRemoval = false,
+    ): Promise<ManagedEnvironment | null | undefined> {
+        const parentExists = (id: string) => machineNames === undefined || typeof machineNames[id] === 'string';
+        const hasHost = candidates.some(value => value?.kind === 'host' && parentExists(value.machineId));
+        const parentRemoved = candidates.some(value => value && !parentExists(value.machineId));
+        const choices = candidates.filter(value => value === null ? !hasHost : parentExists(value.machineId));
+        if (allowOrphanRemoval && !choices.includes(null)) { choices.push(null); }
+        if (!choices.length) { throw new Error('The parent Machine was removed. Restore it before keeping this Environment.'); }
+        const result = await this.ui.pick({
+            title: 'Resolve Environment sync conflict', step: 1, totalSteps: 1, canGoBack: false,
+            items: choices.map(candidate => candidate ? {
+                label: `Keep ${candidate.name}`, description: `${candidate.kind === 'host' ? 'Host' : 'Dev Container'} · ${machineNames?.[candidate.machineId] || 'Machine'}`,
+                detail: `${candidate.devContainerAnchor?.sourceLocator || 'Host Environment'} · Applies to all synced computers.${hasHost ? ' To remove the Host, remove its Machine.' : ''}`,
+                value: candidate,
+            } : {
+                label: allowOrphanRemoval && !candidates.includes(null) ? 'Remove orphan Environment record' : 'Keep deletion', description: `Remove this Environment and ${projectCount} saved Project records`,
+                detail: `${parentRemoved ? 'The parent Machine was removed. Keep the deletion or cancel. ' : ''}Applies to all synced computers. Remote files and containers are not deleted.`, value: null,
+            }),
+        });
+        return result.action === 'accept' ? result.value : undefined;
+    }
+
     async resolveMachineConflict(
         _machineId: string,
         candidates: ManagedSshMachine[],
@@ -358,6 +576,8 @@ export class ManagedRemotePromptController implements ManagedRemoteManagementPro
                     host: clean(draft.host),
                     user: clean(draft.user),
                     port: Number(clean(draft.port)),
+                ...(mode?.previous?.connection.proxyJump ? { proxyJump: mode.previous.connection.proxyJump } : {}),
+                ...(mode?.previous?.connection.sshConfigAlias ? { sshConfigAlias: mode.previous.connection.sshConfigAlias } : {}),
                 },
             };
             if (!isManagedMachine(candidate)) {

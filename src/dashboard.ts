@@ -967,9 +967,39 @@ async function initializeDashboard(
             catalogActorId: managedRemoteCatalogActorId,
             prompts: new ManagedRemotePromptController(
                 new VscodeManagedRemoteWizardUi(vscode.window),
+                {
+                    inspect: alias => managedRemoteBridgeClient.inspectLegacySshTarget(alias),
+                    listAliases: async () => {
+                        const result = await managedRemoteBridgeClient.execute('listSshAliases');
+                        return Array.isArray(result) ? result.filter((value): value is string => typeof value === 'string') : [];
+                    },
+                    browse: (machineId, directoryId, path) => {
+                        if (!managedRemoteSnapshot.revisionId) { throw new Error('Save a Machine before browsing folders.'); }
+                        return managedRemoteBridgeClient.listFileTransferRemoteDirectory(
+                            managedRemoteSnapshot.revisionId, machineId, directoryId, path,
+                        );
+                    },
+                },
             ),
             refreshAuthoritative: async (_requestId, _operation, snapshot) => {
+                const previous = managedRemoteSnapshot;
                 managedRemoteSnapshot = snapshot;
+                if (['importMachine', 'convertMachine'].includes(_operation) && snapshot.revisionId) {
+                    const imported = snapshot.catalog.machines.find(machine => !machine.connection.sshConfigAlias
+                        && machine.sourceSshAliases?.length
+                        && JSON.stringify(machine) !== JSON.stringify(previous.catalog.machines.find(value => value.id === machine.id)));
+                    if (imported) {
+                        void (async () => {
+                            const choice = await vscode.window.showInformationMessage(
+                                `${imported.name} and its connection route are synced. Authentication stays on each computer.`,
+                                'Configure authentication', 'Later',
+                            );
+                            if (choice === 'Configure authentication') {
+                                await managedRemoteBridgeClient.execute('configureAuthentication', snapshot.revisionId!, imported.id);
+                            }
+                        })().catch(error => { void vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error)); });
+                    }
+                }
                 publishFileTransferEndpointCatalog();
                 await projectsPanelController?.postUpdated('replace');
                 openWorkspaceDashboardController?.invalidatePendingUpdates();
@@ -1039,6 +1069,7 @@ async function initializeDashboard(
             return true;
         },
         bridge: managedRemoteBridgeClient,
+        postSettlement: async result => { await provider.postMessage(result); },
         writeClipboard: value => vscode.env.clipboard.writeText(value),
         showInformationMessage: message => vscode.window.showInformationMessage(message),
         showErrorMessage: message => vscode.window.showErrorMessage(message),
@@ -1219,8 +1250,7 @@ async function initializeDashboard(
                 );
                 return false;
             }
-            await projectMutationController.saveWorkspaceProject(details);
-            return Boolean(details);
+            return projectMutationController.saveWorkspaceProject(details);
         },
         executeSaveWorkspaceAs: () => Promise.resolve(
             vscode.commands.executeCommand('workbench.action.saveWorkspaceAs')
@@ -3338,6 +3368,7 @@ async function initializeDashboard(
             });
             try {
                 const saved = await savedWorkspaceProjectAdapter.saveCurrentWorkspace(reportProgress);
+                if (saved) { await projectsPanelController?.postUpdated('replace'); }
                 logDashboardDiagnostic({
                     event: 'save-current-workspace-settled',
                     requestId,
@@ -3366,7 +3397,10 @@ async function initializeDashboard(
                         type: 'save-current-workspace-result', version: 1, requestId, projectId,
                         operation: 'save-current-workspace',
                         status: 'failed',
+                        message: error instanceof Error ? error.message : 'Unable to save this project. Please retry.',
                     });
+                } else {
+                    await vscode.window.showErrorMessage('Agent Pivot: Unable to save this project. Please retry.');
                 }
             }
         },
@@ -3380,6 +3414,21 @@ async function initializeDashboard(
                 const capability = managedRemoteCapability
                     || await managedRemoteCapabilityPromise;
                 await capability.controller.handle(message);
+            },
+            'add-local-project': async message => {
+                if (message.version !== 1 || typeof message.requestId !== 'string'
+                    || !/^projects-local-[A-Za-z0-9-]{1,128}$/u.test(message.requestId)
+                    || Object.keys(message).sort().join(',') !== 'requestId,type,version') { return; }
+                try {
+                    const saved = await projectMutationController.addLocalProject();
+                    if (saved) { await projectsPanelController?.postUpdated('replace'); }
+                    await provider.postMessage({ type: 'add-local-project-result', version: 1,
+                        requestId: message.requestId, status: saved ? 'saved' : 'cancelled' });
+                } catch (error) {
+                    await provider.postMessage({ type: 'add-local-project-result', version: 1,
+                        requestId: message.requestId, status: 'failed',
+                        message: error instanceof Error ? error.message : 'Unable to save this project.' });
+                }
             },
             'managed-remote-client-action': async message => {
                 await managedRemoteActions.handleMessage(message);

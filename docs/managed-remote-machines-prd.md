@@ -8,7 +8,8 @@
 
 Agent Pivot owns a synchronized directory of remote development Machines and
 Projects. A Machine stores a display name and a non-secret SSH endpoint
-(`host`, `user`, and `port`). Projects and Dev Container environments reference
+(`host`, `user`, and `port`) plus an optional ordered `proxyJump` route or
+a reference to a computer-local `sshConfigAlias`. Projects and Dev Container environments reference
 the Machine by stable ID instead of inferring identity from a saved URI.
 
 The catalog is the only authority for managed remote Projects. Agent Pivot does
@@ -23,8 +24,9 @@ creation activates it immediately.
 2. **Automatic local projection.** Every client materializes the current catalog
    into an Agent Pivot-owned SSH fragment and maintains one exact marked
    `Include` in the config used by Remote - SSH.
-3. **No setup or migration flow.** There is no Enable, Disable, Setup, Assign,
-   migration, cleanup, rollback, or legacy fallback action.
+3. **Import existing connections.** Import SSH resolves a local alias and saves
+   its endpoint and alias reference. It never copies commands or authentication
+   material. Reimport updates the same recognized Machine and retains Projects.
 4. **Authentication stays with SSH.** Passwords, private keys, passphrases,
    certificates, and tokens are never stored or synchronized by Agent Pivot.
 5. **Stable identity.** Renaming a Machine or editing its endpoint preserves its
@@ -59,20 +61,47 @@ Container Environments must have those children removed first.
 
 ### Add, edit, save, and open a Project
 
-A Machine row provides `Add Project`. Placement is selected once and remains
+A Machine row provides `Folders` to browse and save a Project. Placement is selected once and remains
 immutable; moving code to another Environment creates a separate Project. A
 Project stores name, absolute POSIX path, optional description, tags, color, and
 Favorite state.
 
-`Save Project` recognizes a Host window opened through the exact managed alias. In
-a Dev Container window it also records the validated launch anchor and creates the
-Environment plus Project in one catalog mutation. A container launched through a
-hand-written or name-only SSH alias is not adopted. Local windows save only to the
+`Save current` recognizes managed and explicitly referenced SSH aliases. For an
+unregistered SSH window, it inspects the local SSH config and presents one review
+to save the Machine and Project together, without asking for known endpoint or
+path fields again. A Dev Container launched through a recognized Machine also
+records its validated launch anchor and Environment. Unregistered container
+aliases must first be imported as Machines. Local windows save only to the
 client-local catalog.
 
 Opening a Machine targets its Host Environment. Opening a Project targets its
 current Environment and path. Legal path characters such as `#`, `?`, and `%` are
 preserved structurally when the VS Code URI is created.
+
+### Jump hosts and existing SSH configuration
+
+Add/Edit Machine has optional connection settings: a comma-separated OpenSSH
+jump route, or an existing local SSH alias. The two modes are mutually exclusive.
+Jump routes synchronize with the endpoint. Fully qualified destinations are
+portable; a jump alias still requires that alias on each computer. Native alias
+references preserve ProxyJump, ProxyCommand and key selection without exporting
+those settings. Each computer must configure the referenced alias and authenticate.
+Opening or browsing a native alias verifies that its local endpoint matches the
+saved Machine. Missing aliases or endpoint drift return an actionable error.
+
+Generated config never shadows a referenced native alias. Alias collisions are
+rejected during local edits; concurrent sync collisions disable only affected
+Machines. Route edits change the projection digest without replacing Project IDs.
+
+### Browse and save a remote folder
+
+Each Machine provides Connect and Folders actions. Folders lists the remote home,
+allows subfolder/parent navigation and absolute path entry, and saves the selected
+folder with a name defaulted from the directory. Optional project metadata stays
+in Edit. Browsing reuses the UI host's active SSH configuration, including jumps.
+Background SFTP requires noninteractive authentication; password/MFA users can
+connect with Remote-SSH, open a folder, and Save current, or enter a path manually.
+Saving remembers a shortcut; it does not upload or back up source files.
 
 ### Use another computer
 
@@ -99,13 +128,16 @@ Machines
       Project
 ```
 
-The Projects toolbar contains Tags and `Add Machine`. Tags use AND matching.
+The Projects toolbar contains Tags, Save current, Import SSH, and Add Machine.
+Only the existing dashboard search field is used; its results include Machines
+without Projects, as well as saved Projects. A sole Host environment is shown
+without an extra disclosure level. Tags use AND matching.
 Machine and Environment rows disclose children with Enter/Space; row actions are
 available through buttons and Shift+F10. Disabled rows do not navigate by pointer,
 keyboard, or middle-click. Refresh, filtering, edit, and removal restore focus by
 stable identity, with `Add Machine` as the final fallback.
 
-Dashboard search indexes both local and managed Projects. Managed results carry
+Dashboard search indexes both local and managed Projects plus managed Machines. Managed results carry
 Project identity plus the expected catalog revision and route through the managed
 navigation protocol; they never fall back to the legacy selected-project path.
 

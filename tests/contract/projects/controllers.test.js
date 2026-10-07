@@ -67,6 +67,7 @@ function loadProjectPromptController() {
 }
 
 const ProjectPromptController = loadProjectPromptController();
+const { ProjectMutationController } = require('../../../out/projects/projectMutationController');
 const { FixedColorOptions } = require('../../../out/constants');
 
 function createPromptControllerFixture(responses) {
@@ -98,10 +99,98 @@ function createPromptControllerFixture(responses) {
             }
             return typeof respond === 'function' ? respond(items) : respond;
         },
-        showOpenDialog: async () => undefined,
+        showOpenDialog: async options => responses.openDialog ? responses.openDialog(options) : undefined,
     });
     return { controller, inputBoxes, quickPicks };
 }
+
+function quickSaveFixture(overrides = {}) {
+    const saved = [];
+    let refreshed = 0;
+    const controller = new ProjectMutationController({
+        getProjectsFlat: () => [],
+        addProjectToGroup: async (project, groupId) => saved.push({ project, groupId }),
+        getRandomColor: () => '#ffffff',
+        isFolderGitRepo: () => false,
+        prompt: new Proxy({}, { get: () => () => { throw new Error('Quick save must not prompt'); } }),
+        showInputBox: () => { throw new Error('Quick save must not prompt'); },
+        showWarningMessage: () => undefined,
+        showInformationMessage: () => undefined,
+        refreshAfterMutation: () => { refreshed++; },
+        ...overrides,
+    });
+    return { controller, saved, get refreshed() { return refreshed; } };
+}
+
+test('quick local save derives names and preserves compatibility storage without prompts', async () => {
+    for (const [projectPath, expectedName] of [['/work/api', 'api'], ['/work/Team.code-workspace', 'Team']]) {
+        const fixture = quickSaveFixture();
+        assert.equal(await fixture.controller.saveWorkspaceProject({ path: projectPath, remoteType: ProjectRemoteType.None }), true);
+        assert.equal(fixture.saved[0].project.name, expectedName);
+        assert.equal(fixture.saved[0].project.path, projectPath);
+        assert.equal(fixture.saved[0].project.description, null);
+        assert.equal(fixture.saved[0].groupId, null);
+        assert.equal(fixture.refreshed, 1);
+    }
+});
+
+test('quick save keeps duplicate metadata and reports absent workspace without writing', async () => {
+    const existing = { path: '/work/api', name: 'Custom name', description: 'Keep this', favorite: true };
+    const fixture = quickSaveFixture({ getProjectsFlat: () => [existing] });
+    assert.equal(await fixture.controller.saveWorkspaceProject({ path: existing.path, remoteType: ProjectRemoteType.None }), true);
+    assert.equal(await fixture.controller.saveWorkspaceProject(null), false);
+    assert.equal(fixture.saved.length, 0);
+    assert.equal(fixture.refreshed, 0);
+    assert.equal(existing.name, 'Custom name');
+    assert.equal(existing.favorite, true);
+});
+
+test('quick save propagates persistence failure and rejects remote identities', async () => {
+    const fixture = quickSaveFixture({ addProjectToGroup: async () => { throw new Error('disk full'); } });
+    await assert.rejects(fixture.controller.saveWorkspaceProject({ path: '/work/api', remoteType: ProjectRemoteType.None }), /disk full/);
+    await assert.rejects(fixture.controller.saveWorkspaceProject({ path: 'vscode-remote://ssh-remote+host/work/api', remoteType: ProjectRemoteType.SSH }), /Managed Machine/);
+    assert.equal(fixture.refreshed, 0);
+});
+
+test('local picker saves its URI without inheriting the current remote window and cancellation writes nothing', async () => {
+    const uri = parseUri('file:///work/api');
+    const fixture = quickSaveFixture({
+        prompt: { queryLocalProjectUri: async () => uri },
+        getProjectDetailsForSave: async () => { throw new Error('Must not resolve the current remote authority'); },
+    });
+    assert.equal(await fixture.controller.addLocalProject(), true);
+    assert.equal(fixture.saved[0].project.path, '/work/api');
+    assert.equal(fixture.saved[0].project.remoteType, ProjectRemoteType.None);
+    const cancelled = quickSaveFixture({ prompt: { queryLocalProjectUri: async () => undefined } });
+    assert.equal(await cancelled.controller.addLocalProject(), false);
+    assert.equal(cancelled.saved.length, 0);
+});
+
+test('local workspace picker constrains selection and never asks for group or metadata', async () => {
+    const { controller, inputBoxes, quickPicks } = createPromptControllerFixture({
+        quickPick: { 'Add a local Project': items => items.find(item => item.id === 'workspace') },
+        openDialog: options => {
+            assert.equal(options.canSelectFiles, true);
+            assert.equal(options.canSelectFolders, false);
+            assert.deepEqual(options.filters, { 'VS Code Workspace': ['code-workspace'] });
+            assert.equal(options.defaultUri.scheme, 'file');
+            return [parseUri('file:///work/team.code-workspace')];
+        },
+    });
+    assert.equal((await controller.queryLocalProjectUri()).path, '/work/team.code-workspace');
+    assert.deepEqual(quickPicks, ['Add a local Project']);
+    assert.equal(inputBoxes.length, 0);
+});
+
+test('local project picker cancellation and nonlocal selection cannot create a shortcut', async () => {
+    const cancelled = createPromptControllerFixture({ quickPick: { 'Add a local Project': () => undefined } });
+    assert.equal(await cancelled.controller.queryLocalProjectUri(), undefined);
+    const remote = createPromptControllerFixture({
+        quickPick: { 'Add a local Project': items => items[0] },
+        openDialog: () => [parseUri('vscode-remote://ssh-remote+host/work/api')],
+    });
+    await assert.rejects(remote.controller.queryLocalProjectUri(), /Choose a local folder/);
+});
 
 test('PROJECT-TAGS-001 editing prompts for tags prefilled and normalized', async () => {
     const { controller, inputBoxes } = createPromptControllerFixture({

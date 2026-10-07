@@ -91,13 +91,30 @@ function catalogVectorCoversRegister<T>(
             (vector[actorId] || 0) >= candidate.version.context[actorId]));
 }
 
+/** Literal SSH destinations only: no shell syntax, options, tokens, or whitespace. */
+export function isSshConfigAlias(value: unknown): value is string {
+    return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u.test(value);
+}
+
+export function isProxyJump(value: unknown): value is string {
+    if (typeof value !== 'string' || !value || value.length > 2048) { return false; }
+    const hops = value.split(',');
+    return hops.length <= 8 && hops.every(hop => {
+        const match = /^(?:([A-Za-z0-9][A-Za-z0-9._-]*)@)?(\[[a-fA-F0-9:]+\]|[A-Za-z0-9][A-Za-z0-9._-]*)(?::([0-9]+))?$/u.exec(hop);
+        if (!match || match[2].toLowerCase() === 'none') { return false; }
+        const host = match[2];
+        if (host.startsWith('[') && isIP(host.slice(1, -1)) !== 6) { return false; }
+        return !match[3] || (Number(match[3]) >= 1 && Number(match[3]) <= 65535);
+    });
+}
+
 export function isManagedMachine(value: unknown): value is ManagedSshMachine {
     if (!isRecord(value)
         || !hasExactKeys(value, ['id', 'name', 'connection'], ['sourceSshAliases'])
         || !isSafeId(value.id)
         || !isSafeText(value.name, 128)
         || !isRecord(value.connection)
-        || !hasExactKeys(value.connection, ['kind', 'host', 'user', 'port'])
+        || !hasExactKeys(value.connection, ['kind', 'host', 'user', 'port'], ['proxyJump', 'sshConfigAlias'])
         || value.connection.kind !== 'ssh'
         || typeof value.connection.host !== 'string'
         || typeof value.connection.user !== 'string'
@@ -106,6 +123,9 @@ export function isManagedMachine(value: unknown): value is ManagedSshMachine {
         || (value.connection.port as number) > 65535) {
         return false;
     }
+    if ((value.connection.proxyJump !== undefined && !isProxyJump(value.connection.proxyJump))
+        || (value.connection.sshConfigAlias !== undefined && !isSshConfigAlias(value.connection.sshConfigAlias))
+        || (value.connection.proxyJump !== undefined && value.connection.sshConfigAlias !== undefined)) { return false; }
     const host = value.connection.host as string;
     return (isIP(host) !== 0 || DNS_HOST.test(host))
         && SAFE_USER.test(value.connection.user as string)

@@ -7106,7 +7106,7 @@
   {
     "id": "MANAGED-REMOTE-CATALOG-003",
     "domain": "persistence",
-    "title": "Every live relationship and Environment-kind candidate participates in destructive-operation guards",
+    "title": "Machine removal includes every dependent Environment and Project candidate in one catalog transaction and protects cross-machine placement conflicts",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7191,7 +7191,7 @@
   {
     "id": "MANAGED-REMOTE-MANAGEMENT-003",
     "domain": "webview",
-    "title": "Managed Remote renders compact Machine rows with endpoint tooltips, Save Current Project as the only Project creation action, immutable placement, complete unavailable names, colors, tags, and management actions",
+    "title": "Managed Remote renders compact Machine rows with endpoint tooltips, Save Current Project and folder browsing as Project creation actions, immutable placement, complete unavailable names, colors, tags, and management actions",
     "priority": "P0",
     "status": "automated",
     "owners": [
@@ -7350,7 +7350,8 @@
       "tests/contract/projects/managedRemoteSshProjection.test.js"
     ],
     "evidence": [
-      "src/projects/managedRemote/sshConfigProjection.ts"
+      "src/projects/managedRemote/sshConfigProjection.ts",
+      "src/projects/managedRemote/sshAlias.ts"
     ]
   },
   {
@@ -7400,6 +7401,7 @@
     "status": "automated",
     "owners": [
       "tests/contract/projects/managedRemoteSshConsent.test.js",
+      "tests/contract/projects/managedLegacySshInspector.test.js",
       "tests/platform/windows/managedRemoteSshMaterializer.test.js"
     ],
     "evidence": [

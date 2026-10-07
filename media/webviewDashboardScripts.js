@@ -828,12 +828,12 @@ function initDashboard(options) {
             });
             return;
         }
-        if (action === 'open-managed-project') {
+        if (action === 'open-managed-project' || action === 'open-managed-machine') {
             options.postMessage({
                 type: 'managed-remote-client-action',
                 version: 1,
                 requestId: 'managed-search-' + Date.now(),
-                action: 'openProject',
+                action: action === 'open-managed-machine' ? 'openMachine' : 'openProject',
                 expectedRevisionId: button.dataset.expectedRevisionId || null,
                 targetId: button.dataset.projectId,
             });

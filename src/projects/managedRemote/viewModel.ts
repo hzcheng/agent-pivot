@@ -1,5 +1,7 @@
 'use strict';
 
+import { jumpHostIds, managedJumpRoute, managedJumpAlias } from './jumpRoutes';
+import { annotateProjectPathHints } from '../machineProjectsViewModel';
 import { ManagedRemoteManagementSnapshot } from './managementController';
 import {
     ManagedCatalogConflict,
@@ -9,6 +11,8 @@ import {
 } from './types';
 
 export interface ManagedRemoteProjectRowViewModel extends ManagedRemoteProject {
+    pathHint?: string;
+    conflict?: boolean;
     machineId: string;
     machineName: string;
     machineEndpoint: string;
@@ -27,6 +31,8 @@ export interface ManagedRemoteEnvironmentViewModel extends ManagedEnvironment {
 
 export interface ManagedRemoteMachineViewModel extends ManagedSshMachine {
     endpoint: string;
+    routeNames?: string[];
+    jumpOptions?: Array<{ alias: string; name: string }>;
     environments: ManagedRemoteEnvironmentViewModel[];
     projectCount: number;
     openable: boolean;
@@ -35,12 +41,14 @@ export interface ManagedRemoteMachineViewModel extends ManagedSshMachine {
 }
 
 export interface ManagedRemoteProjectsViewModel {
+    orphanConflicts?: Array<{ entityType: 'project' | 'environment'; id: string; name: string }>;
     revisionId: string | null;
     lifecycle: ManagedRemoteManagementSnapshot['lifecycle'];
     projectCount: number;
     tags: string[];
     favorites: ManagedRemoteProjectRowViewModel[];
     machines: ManagedRemoteMachineViewModel[];
+    jumpHosts?: ManagedRemoteMachineViewModel[];
 }
 
 function inLayoutOrder<T extends { id: string }>(
@@ -66,8 +74,9 @@ function endpoint(machine: ManagedSshMachine): string {
 function unavailableReason(
     active: boolean,
     conflicted: boolean,
+    entity = 'Machine',
 ): string | undefined {
-    if (conflicted) { return 'Connection conflict — Review'; }
+    if (conflicted) { return `${entity} sync conflict — Review`; }
     if (!active) { return 'The Managed Machine catalog is unavailable.'; }
     return undefined;
 }
@@ -92,6 +101,10 @@ export function buildManagedRemoteProjectsViewModel(
         snapshot.catalog.layout.machineIds,
     ).map(machine => {
         const machineEndpoint = endpoint(machine);
+        let routeNames: string[] = [];
+        let routeError: string | undefined;
+        try { routeNames = managedJumpRoute(snapshot.catalog, machine).map(hop => hop.name); }
+        catch (error) { routeError = error instanceof Error ? error.message : 'Jump route unavailable.'; }
         const machineConflict = hasConflict(
             snapshot.catalog.conflicts, 'machine', machine.id,
         );
@@ -110,9 +123,10 @@ export function buildManagedRemoteProjectsViewModel(
                 const projectConflict = hasConflict(
                     snapshot.catalog.conflicts, 'project', project.id,
                 );
-                const reason = unavailableReason(
+                const reason = routeError || unavailableReason(
                     active,
-                    machineConflict || environmentConflict || projectConflict,
+                    machineConflict || Boolean(routeError) || environmentConflict || projectConflict,
+                    machineConflict ? 'Machine' : environmentConflict ? 'Environment' : 'Project',
                 );
                 for (const tag of project.tags || []) {
                     const key = tag.toLocaleLowerCase();
@@ -120,6 +134,7 @@ export function buildManagedRemoteProjectsViewModel(
                 }
                 const row: ManagedRemoteProjectRowViewModel = {
                     ...project,
+                    conflict: projectConflict,
                     machineId: machine.id,
                     machineName: machine.name,
                     machineEndpoint,
@@ -139,9 +154,10 @@ export function buildManagedRemoteProjectsViewModel(
                 projectRows.set(project.id, row);
                 return row;
             });
-            const reason = unavailableReason(
+            const reason = routeError || unavailableReason(
                 active,
                 machineConflict || environmentConflict,
+                machineConflict ? 'Machine' : 'Environment',
             );
             return {
                 ...environment,
@@ -151,10 +167,12 @@ export function buildManagedRemoteProjectsViewModel(
                 conflict: environmentConflict,
             };
         });
-        const reason = unavailableReason(active, machineConflict);
+        const reason = routeError || unavailableReason(active, machineConflict);
         return {
             ...machine,
             endpoint: machineEndpoint,
+            routeNames,
+            jumpOptions: snapshot.catalog.machines.filter(value => value.id !== machine.id && !value.connection.sshConfigAlias).map(value => ({ alias: managedJumpAlias(value.id), name: value.name })),
             environments,
             projectCount: environments.reduce((sum, value) => sum + value.projects.length, 0),
             openable: !reason,
@@ -162,15 +180,40 @@ export function buildManagedRemoteProjectsViewModel(
             conflict: machineConflict,
         };
     });
+    annotateProjectPathHints(Array.from(projectRows.values()), row => row.remotePath);
     const favorites = (snapshot.catalog.layout.favoriteProjectIds || [])
         .map(id => projectRows.get(id))
         .filter((value): value is ManagedRemoteProjectRowViewModel => Boolean(value));
+    const renderedEnvironmentIds = new Set<string>();
+    for (const machine of machines) {
+        for (const environment of machine.environments) { renderedEnvironmentIds.add(environment.id); }
+    }
+    const orphanConflicts: NonNullable<ManagedRemoteProjectsViewModel['orphanConflicts']> = [];
+    const seenConflicts = new Set<string>();
+    for (const conflict of snapshot.catalog.conflicts) {
+        const kind = conflict.entityType;
+        if (kind !== 'project' && kind !== 'environment') { continue; }
+        const key = `${kind}:${conflict.entityId}`;
+        if (seenConflicts.has(key) || (kind === 'project' ? projectRows.has(conflict.entityId) : renderedEnvironmentIds.has(conflict.entityId))) { continue; }
+        const candidates: Array<ManagedEnvironment | ManagedRemoteProject | null> | undefined = kind === 'project'
+            ? snapshot.projectConflictCandidates?.[conflict.entityId]
+            : snapshot.environmentConflictCandidates?.[conflict.entityId];
+        const deletionConflict = candidates && candidates.length >= 2 && candidates.includes(null);
+        const missingParent = conflict.kind === 'missing-parent' && candidates && candidates.some(value => value !== null);
+        if (!deletionConflict && !missingParent) { continue; }
+        seenConflicts.add(key);
+        orphanConflicts.push({ entityType: kind, id: conflict.entityId,
+            name: candidates?.find(value => value !== null)?.name || `Removed ${kind}` });
+    }
+    const referenced = jumpHostIds(snapshot.catalog.machines);
     return {
+        orphanConflicts,
         revisionId: snapshot.revisionId,
         lifecycle: snapshot.lifecycle,
         projectCount: snapshot.catalog.projects.length,
         tags: Array.from(tags.values()).sort((left, right) => left.localeCompare(right)),
         favorites,
-        machines,
+        machines: machines.filter(machine => !referenced.has(machine.id) || machine.projectCount > 0),
+        jumpHosts: machines.filter(machine => referenced.has(machine.id) && machine.projectCount === 0),
     };
 }

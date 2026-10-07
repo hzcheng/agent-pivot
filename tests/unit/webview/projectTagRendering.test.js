@@ -202,7 +202,7 @@ test('TAG-FILTER-BAR-001 deduplicates and sorts tags case-insensitively', () => 
 test('WEBVIEW-DASHBOARD-SEARCH-001 indexes Machines with no Projects in the shared search catalog', () => {
     const catalog = buildWorkspaceDashboardSearchCatalog([], [], [], {
         lifecycle: 'active', revisionId: 'revision:current',
-        catalog: { machines: [{ id: 'home', name: 'Home Linux', connection: { host: 'home.internal', user: 'dev', port: 22, sshConfigAlias: 'infra-home-inux' } }], environments: [], projects: [] },
+        catalog: { conflicts: [], machines: [{ id: 'home', name: 'Home Linux', connection: { host: 'home.internal', user: 'dev', port: 22, sshConfigAlias: 'infra-home-inux' } }], environments: [], projects: [] },
     });
     assert.equal(catalog.savedProjects.length, 0);
     assert.equal(catalog.machines.length, 1);

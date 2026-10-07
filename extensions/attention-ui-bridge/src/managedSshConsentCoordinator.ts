@@ -113,7 +113,12 @@ export class ManagedSshConsentCoordinator {
         const credentials: Array<[string, string | ManagedSshLocalAuthentication]> = [];
         for (const entry of projection.entries) {
             if (entry.sshConfigAlias) { continue; }
-            const authentication = this.localAuthentication[entry.machineId];
+            const authentication = this.localAuthentication[entry.machineId]
+                ? { ...this.localAuthentication[entry.machineId] } : undefined;
+            if (authentication && this.identityFiles[entry.machineId] === '') {
+                delete authentication.identityFiles;
+                authentication.identitiesOnly = false;
+            }
             if (authentication) {
                 entry.localAuthentication = authentication;
                 credentials.push([entry.machineId, authentication]);

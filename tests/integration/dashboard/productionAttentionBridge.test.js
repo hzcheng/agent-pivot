@@ -68,6 +68,7 @@ test('ATTENTION-PRODUCTION-ATTENTION-BRIDGE-INTEGRATION-001 ATTENTION-SESSION-CA
     const context = {
         extensionPath: bridgeRoot,
         globalStoragePath: root,
+        globalState: { get: (_key, fallback) => fallback, update: async () => {} },
         globalStorageUri: { scheme: 'file' },
         subscriptions: [],
     };
@@ -368,6 +369,7 @@ test('OPEN-UNREGISTER-ON-DEACTIVATE-001 production bridge deactivation removes t
     const context = {
         extensionPath: bridgeRoot,
         globalStoragePath: root,
+        globalState: { get: (_key, fallback) => fallback, update: async () => {} },
         globalStorageUri: { scheme: 'file' },
         subscriptions: [],
     };

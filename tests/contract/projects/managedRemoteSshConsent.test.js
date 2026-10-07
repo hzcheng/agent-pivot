@@ -376,3 +376,17 @@ test('MANAGED-REMOTE-SSH-CONSENT-001 materializes local trust for imported hosts
     await coordinator.reconcile(slot);
     assert.match(fs.readFileSync(file, 'utf8'), /HostKeyAlias "updated-trust"/);
 });
+
+test('MANAGED-REMOTE-SSH-CONSENT-001 explicit agent authentication overrides imported keys but preserves trust', async t => {
+    const { config, consent, validator, catalog, machine } = fixture(t);
+    const coordinator = new ManagedSshConsentCoordinator(config, '/usr/bin/ssh', consent, validator, undefined,
+        { [machine.id]: '' }, { [machine.id]: {
+            hostKeyAlias: 'trusted-source', userKnownHostsFiles: ['/home/test/.ssh/trust'],
+            identityFiles: ['~/.ssh/imported_key'], identitiesOnly: true,
+        } });
+    await coordinator.beginEnable(createManagedRevisionSlot(catalog.getDocument()));
+    const content = fs.readFileSync(path.join(path.dirname(config), 'agent-pivot', 'current.conf'), 'utf8');
+    assert.doesNotMatch(content, /IdentityFile|IdentitiesOnly yes/);
+    assert.match(content, /HostKeyAlias "trusted-source"/);
+    assert.match(content, /UserKnownHostsFile "\/home\/test\/\.ssh\/trust"/);
+});

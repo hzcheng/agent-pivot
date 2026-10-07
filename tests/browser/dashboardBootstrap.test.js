@@ -166,6 +166,7 @@ test('WEBVIEW-DASHBOARD-BOOTSTRAP-001 binds the Managed Remote toolbar after a p
 
     // The real proof: opening and submitting the inline form has to reach the
     // extension. Without mount() the whole tab is inert.
+    await page.locator('.machine-projects-toolbar [data-action="toggle-machine-menu"]').click();
     await button.click();
     const form = page.locator('[data-managed-machine-form-operation="addMachine"]');
     await form.locator('input[name="name"]').fill('Build');
@@ -184,6 +185,6 @@ test('WEBVIEW-DASHBOARD-BOOTSTRAP-001 binds the Managed Remote toolbar after a p
     // very first action a new user takes.
     assert.equal(action.expectedRevisionId, null);
     assert.deepEqual(action.input, {
-        name: 'Build', host: 'build.example.com', user: 'dev', port: 22,
+        name: 'Build', host: 'build.example.com', user: 'dev', port: 22, proxyJump: null, sshConfigAlias: null,
     });
 });

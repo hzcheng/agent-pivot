@@ -7,6 +7,21 @@ import { stableManagedValue } from './causal';
 import { materializeManagedRemoteCatalog } from './merge';
 import { ManagedRevisionSlot } from './types';
 
+/** Client-local OpenSSH authentication; never part of the synced catalog. */
+export interface ManagedSshLocalAuthentication {
+    hostKeyAlias?: string;
+    userKnownHostsFiles?: string[];
+    identityFiles?: string[];
+    identitiesOnly?: boolean;
+}
+
+function sshQuoted(value: string): string {
+    if (!value || /[\r\n\0"%]/u.test(value)) {
+        throw new Error('Local SSH authentication contains an unsupported path or token. Use the original SSH alias.');
+    }
+    return `"${value.replace(/\\/gu, '/')}"`;
+}
+
 export interface ManagedSshProjectionEntry {
     machineId: string;
     alias: string;
@@ -18,6 +33,7 @@ export interface ManagedSshProjectionEntry {
     sshConfigAlias?: string;
     stableAlias?: string;
     identityFile?: string;
+    localAuthentication?: ManagedSshLocalAuthentication;
 }
 
 export interface ManagedSshProjection {
@@ -101,6 +117,10 @@ export function renderManagedSshConfig(projection: ManagedSshProjection): string
             '    ForwardX11 no',
             '    RemoteCommand none',
             '    ControlMaster no',
+            ...(entry.localAuthentication?.hostKeyAlias ? [`    HostKeyAlias ${sshQuoted(entry.localAuthentication.hostKeyAlias)}`] : []),
+            ...(entry.localAuthentication?.userKnownHostsFiles?.length ? [`    UserKnownHostsFile ${entry.localAuthentication.userKnownHostsFiles.map(sshQuoted).join(' ')}`] : []),
+            ...(!entry.identityFile ? (entry.localAuthentication?.identityFiles || []).map(value => `    IdentityFile ${sshQuoted(value)}`) : []),
+            ...(!entry.identityFile && entry.localAuthentication?.identitiesOnly !== undefined ? [`    IdentitiesOnly ${entry.localAuthentication.identitiesOnly ? 'yes' : 'no'}`] : []),
             ...(entry.identityFile ? [`    IdentityFile "${entry.identityFile.replace(/\\/gu, '/')}"`, '    IdentitiesOnly yes'] : []),
         );
     }

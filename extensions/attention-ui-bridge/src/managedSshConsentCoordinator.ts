@@ -5,6 +5,7 @@ import { createHash } from 'crypto';
 import {
     buildManagedSshProjection,
     ManagedSshProjection,
+    ManagedSshLocalAuthentication,
     renderManagedSshConfig,
     renderManagedSshIncludeBlock,
 } from '../../../src/projects/managedRemote/sshConfigProjection';
@@ -100,6 +101,7 @@ export class ManagedSshConsentCoordinator {
         private readonly validator: ManagedSshProjectionValidationService = new ManagedSshProjectionValidator(),
         activeConfigEditor?: ManagedSshActiveConfigEditingService,
         private readonly identityFiles: Record<string, string> = {},
+        private readonly localAuthentication: Record<string, ManagedSshLocalAuthentication> = {},
     ) {
         this.owned = new ManagedSshOwnedFileStore(activeConfigPath);
         this.activeConfigEditor = activeConfigEditor
@@ -108,8 +110,14 @@ export class ManagedSshConsentCoordinator {
 
     private buildProjection(slot: ManagedRevisionSlot): ManagedSshProjection {
         const projection = buildManagedSshProjection(slot);
-        const credentials: Array<[string, string]> = [];
+        const credentials: Array<[string, string | ManagedSshLocalAuthentication]> = [];
         for (const entry of projection.entries) {
+            if (entry.sshConfigAlias) { continue; }
+            const authentication = this.localAuthentication[entry.machineId];
+            if (authentication) {
+                entry.localAuthentication = authentication;
+                credentials.push([entry.machineId, authentication]);
+            }
             const identityFile = this.identityFiles[entry.machineId];
             if (!identityFile || entry.sshConfigAlias) { continue; }
             if (/[\r\n\0"%]/u.test(identityFile)) { throw new Error('The selected key path cannot be represented in SSH configuration.'); }

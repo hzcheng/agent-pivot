@@ -1,10 +1,15 @@
 'use strict';
 
+import { homedir, userInfo } from 'os';
+import { resolveManagedKnownHostsPaths } from './managedSshConfigPolicy';
+
 import {
     ManagedSshCommandRunner,
     NodeManagedSshCommandRunner,
 } from './managedSshValidator';
 import type { PortableSshHop } from '../../../src/projects/managedRemote/catalogService';
+import type { ManagedSshLocalAuthentication } from '../../../src/projects/managedRemote/sshConfigProjection';
+import type { ManagedSshMachine } from '../../../src/projects/managedRemote/types';
 import { isManagedMachine } from '../../../src/projects/managedRemote/validation';
 
 export interface ManagedLegacySshInspection {
@@ -46,6 +51,43 @@ export class ManagedLegacySshInspector {
     constructor(options: ManagedLegacySshInspectorOptions) {
         this.runner = options.runner || new NodeManagedSshCommandRunner();
         this.timeoutMs = options.timeoutMs || 10_000;
+    }
+
+    async inspectLocalAuthentication(
+        executable: string, activeConfigPath: string, machine: ManagedSshMachine,
+    ): Promise<ManagedSshLocalAuthentication | undefined> {
+        if (machine.connection.sshConfigAlias) { return undefined; }
+        // Older portable imports kept a jump alias only as its display name.
+        const aliases = machine.sourceSshAliases?.length ? machine.sourceSshAliases : [machine.name];
+        for (const alias of aliases) {
+            if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u.test(alias)) { continue; }
+            const result = await this.runner.run(executable, ['-F', activeConfigPath, '-G', alias], this.timeoutMs);
+            if (result.exitCode !== 0) { continue; }
+            const config = effectiveConfig(result.stdout);
+            if (config.get('hostname')?.toLowerCase() !== machine.connection.host.toLowerCase()
+                || config.get('user') !== machine.connection.user
+                || Number(config.get('port')) !== machine.connection.port) { continue; }
+            const identityFiles = result.stdout.split(/\r?\n/u)
+                .filter(line => /^identityfile\s/u.test(line)).map(line => line.slice(13).trim()).map(value => {
+                    const tokens: Record<string, string> = { d: homedir(), u: userInfo().username,
+                        h: machine.connection.host, n: alias, p: String(machine.connection.port), r: machine.connection.user, '%': '%' };
+                    return value.replace(/%([a-zA-Z%])/gu, (token, key: string) => tokens[key] ?? token);
+                });
+            const knownHosts = config.get('userknownhostsfile');
+            const userKnownHostsFiles = knownHosts
+                ? resolveManagedKnownHostsPaths(activeConfigPath, knownHosts) : undefined;
+            const values = [...identityFiles, ...(userKnownHostsFiles || []), config.get('hostkeyalias') || 'none'];
+            if (values.some(value => !value || /[\r\n\0"%]/u.test(value))) {
+                throw new Error(`SSH alias ${alias} uses authentication paths or tokens that require the original SSH alias.`);
+            }
+            return {
+                ...(config.get('hostkeyalias') ? { hostKeyAlias: config.get('hostkeyalias') } : {}),
+                ...(userKnownHostsFiles?.length ? { userKnownHostsFiles } : {}),
+                ...(identityFiles.length ? { identityFiles } : {}),
+                ...(config.has('identitiesonly') ? { identitiesOnly: config.get('identitiesonly') === 'yes' } : {}),
+            };
+        }
+        return undefined;
     }
 
     async inspect(executable: string, activeConfigPath: string, target: string): Promise<ManagedLegacySshInspection> {

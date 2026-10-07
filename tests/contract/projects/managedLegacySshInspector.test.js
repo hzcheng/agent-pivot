@@ -181,3 +181,69 @@ Host outer
     assert.equal(command.portable, undefined);
     assert.match(command.portableReason, /custom ProxyCommand/);
 });
+
+test('MANAGED-REMOTE-SSH-CONSENT-001 resolves imported authentication locally without exporting it', async () => {
+    const inspector = new ManagedLegacySshInspector({ runner: { async run() {
+        return { exitCode: 0, stderr: '', stdout: [
+            'hostname 100.101.7.100', 'user hzcheng', 'port 22',
+            'hostkeyalias [nginx.teraai.cn]:2220',
+            'userknownhostsfile /home/test/.ssh/trusted_hosts',
+            'identityfile ~/.ssh/custom_key', 'identityfile ~/.ssh/second_key',
+            'identitiesonly yes', 'proxycommand do-not-copy', 'stricthostkeychecking no',
+        ].join('\n') };
+    } } });
+    const machine = { id: 'imported', name: 'infra-home-book', sourceSshAliases: ['infra-home-book'],
+        connection: { kind: 'ssh', host: '100.101.7.100', user: 'hzcheng', port: 22 } };
+    const result = await inspector.inspectLocalAuthentication('ssh', '/tmp/config', machine);
+    assert.deepEqual(result, {
+        hostKeyAlias: '[nginx.teraai.cn]:2220', userKnownHostsFiles: ['/home/test/.ssh/trusted_hosts'],
+        identityFiles: ['~/.ssh/custom_key', '~/.ssh/second_key'], identitiesOnly: true,
+    });
+    assert.equal(await inspector.inspectLocalAuthentication('ssh', '/tmp/config', {
+        ...machine, connection: { ...machine.connection, port: 2222 },
+    }), undefined);
+});
+
+test('MANAGED-REMOTE-SSH-CONSENT-001 real OpenSSH retains target and jump trust after portable import', async t => {
+    const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+    const { spawnSync } = require('node:child_process');
+    const { ManagedRemoteCatalogService } = require('../../../out/projects/managedRemote/catalogService');
+    const { createManagedRevisionSlot } = require('../../../out/projects/managedRemote/envelope');
+    const { buildManagedSshProjection, renderManagedSshConfig } = require('../../../out/projects/managedRemote/sshConfigProjection');
+    if (spawnSync('ssh', ['-V']).status !== 0) { t.skip('OpenSSH unavailable'); return; }
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pivot-import-trust-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const config = path.join(root, 'config');
+    fs.writeFileSync(config, [
+        'Host infra-ali-jump', ' HostName gateway.example.com', ' User jump', ' Port 2229',
+        ' HostKeyAlias [gateway.example.com]:2229', ` UserKnownHostsFile "${root}/trusted hosts"`,
+        ' IdentityFile %d/.ssh/%r_key', ' IdentitiesOnly yes',
+        'Host infra-home-book', ' HostName 100.101.7.100', ' User hzcheng', ' Port 22',
+        ' HostKeyAlias [gateway.example.com]:2220', ' ProxyJump infra-ali-jump',
+    ].join('\n'), { mode: 0o600 });
+    const inspector = new ManagedLegacySshInspector({});
+    const imported = await inspector.inspect('ssh', config, 'infra-home-book');
+    let id = 0; const service = ManagedRemoteCatalogService.create('test', prefix => `${prefix}:${++id}`);
+    service.addMachine({ name: 'infra-home-book', ...imported.endpoint,
+        sourceSshAliases: ['infra-home-book'], jumpHosts: imported.portable.jumpHosts });
+    const projection = buildManagedSshProjection(createManagedRevisionSlot(service.getDocument()));
+    for (const machine of service.getCatalog().machines) {
+        projection.entries.find(x => x.machineId === machine.id).localAuthentication =
+            await inspector.inspectLocalAuthentication('ssh', config, machine);
+    }
+    const generated = path.join(root, 'generated');
+    fs.writeFileSync(generated, renderManagedSshConfig(projection));
+    const { ManagedSshProjectionValidator } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedSshValidator');
+    await new ManagedSshProjectionValidator().validate({ executable: 'ssh', aggregateConfigContent: `Include "${generated}"\n`, entries: projection.entries });
+    for (const entry of projection.entries) {
+        const result = spawnSync('ssh', ['-F', generated, '-G', entry.stableAlias || entry.alias], { encoding: 'utf8' });
+        assert.equal(result.status, 0, result.stderr);
+        assert.ok(result.stdout.includes(`hostkeyalias [gateway.example.com]:${entry.user === 'jump' ? 2229 : 2220}\n`));
+        if (entry.user === 'jump') {
+            assert.ok(result.stdout.includes(`userknownhostsfile ${root}/trusted hosts\n`), result.stdout);
+            assert.ok(result.stdout.includes(`identityfile ${os.homedir()}/.ssh/jump_key\n`));
+            assert.ok(fs.readFileSync(generated, 'utf8').includes(`UserKnownHostsFile "${root}/trusted hosts"`));
+            assert.match(result.stdout, /identitiesonly yes\n/);
+        }
+    }
+});

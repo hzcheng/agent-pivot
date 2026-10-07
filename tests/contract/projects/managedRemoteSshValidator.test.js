@@ -19,6 +19,7 @@ function output(overrides = {}) {
     if (overrides.localforward) { lines.push(`localforward ${overrides.localforward}`); }
     if (overrides.remotecommand) { lines.push(`remotecommand ${overrides.remotecommand}`); }
     if (overrides.forwardagent) { lines.push(`forwardagent ${overrides.forwardagent}`); }
+    if (overrides.hostkeyalias) { lines.push(`hostkeyalias ${overrides.hostkeyalias}`); }
     if (overrides.controlmaster) { lines.push(`controlmaster ${overrides.controlmaster}`); }
     return lines.join('\n');
 }
@@ -161,4 +162,17 @@ test('MANAGED-REMOTE-SSH-VALIDATION-001 permits only the explicitly saved jump r
         { exitCode: 0, stdout: output({ proxyjump: 'attacker' }), stderr: '' },
     ]);
     await assert.rejects(new ManagedSshProjectionValidator(drift).validate(value), /proxyjump/);
+});
+
+test('MANAGED-REMOTE-SSH-VALIDATION-001 only accepts the expected local host key alias', async () => {
+    for (const actual of ['expected', 'unexpected']) {
+        const value = input(); value.entries[0].localAuthentication = { hostKeyAlias: 'expected' };
+        const runner = new FakeRunner([
+            { exitCode: 0, stdout: 'OpenSSH_9.6', stderr: '' },
+            { exitCode: 0, stdout: output({ hostkeyalias: actual }), stderr: '' },
+        ]);
+        const checked = new ManagedSshProjectionValidator(runner).validate(value);
+        if (actual === 'expected') await checked;
+        else await assert.rejects(checked, /unsafe target/);
+    }
 });

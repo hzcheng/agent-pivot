@@ -137,3 +137,14 @@ test('Home-relative literal Includes are fingerprinted without weakening dynamic
     files.files[included] = 'Include ~/.ssh/config\n';
     assert.ok(scanManagedSshConfigGraph(root, files, options).issues.some(x => x.startsWith('include-cycle:')));
 });
+
+test('MANAGED-REMOTE-SSH-CONSENT-001 recovers known-host filenames without guessing whitespace boundaries', t => {
+    const { resolveManagedKnownHostsPaths } = require('../../../extensions/attention-ui-bridge/out/extensions/attention-ui-bridge/src/managedSshConfigPolicy');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pivot-trust-paths-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const config = path.join(root, 'config');
+    fs.writeFileSync(config, 'Host one\n UserKnownHostsFile "/tmp/trusted /hosts" relative_file\n', { mode: 0o600 });
+    assert.deepEqual(resolveManagedKnownHostsPaths(config, '/tmp/trusted /hosts relative_file'), ['/tmp/trusted /hosts', 'relative_file']);
+    fs.appendFileSync(config, 'Host two\n UserKnownHostsFile /tmp/trusted /hosts relative_file\n');
+    assert.throws(() => resolveManagedKnownHostsPaths(config, '/tmp/trusted /hosts relative_file'), /unambiguously/);
+});

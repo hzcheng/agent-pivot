@@ -59,6 +59,9 @@ import { ManagedSshConsentCoordinator } from './managedSshConsentCoordinator';
 import { ManagedSshConsentFileStore } from './managedSshConsentStore';
 import { discoverManagedSshLocalInputs } from './managedSshDiscovery';
 import { ManagedSshProjectionWorker } from './managedSshProjectionWorker';
+import { readManagedActiveRevisionSlot } from '../../../src/projects/managedRemote/envelope';
+import { materializeManagedRemoteCatalog } from '../../../src/projects/managedRemote/merge';
+import type { ManagedSshLocalAuthentication } from '../../../src/projects/managedRemote/sshConfigProjection';
 import { buildManagedSshProjection } from '../../../src/projects/managedRemote/sshConfigProjection';
 import { managedRemoteLinuxPlatformUpdate } from './managedRemotePlatform';
 
@@ -120,11 +123,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             remoteSshPath: vscode.workspace.getConfiguration('remote.SSH').get('path'),
             remoteSshConfigFile: vscode.workspace.getConfiguration('remote.SSH').get('configFile'),
         });
+        const localAuthentication: Record<string, ManagedSshLocalAuthentication> = {};
+        const slot = readManagedActiveRevisionSlot(vscode.workspace.getConfiguration('agentPivot').get('managedRemoteCatalogData'));
+        for (const machine of slot ? materializeManagedRemoteCatalog(slot.document).machines : []) {
+            try {
+                const authentication = await managedLegacySshInspector.inspectLocalAuthentication(inputs.executable, inputs.activeConfigPath, machine);
+                if (authentication) { localAuthentication[machine.id] = authentication; }
+            } catch (error) {
+                outputChannel.appendLine(`[ManagedRemote] Local SSH authentication for ${machine.name} could not be imported: ${error instanceof Error ? error.message : String(error)}`);
+            }
+        }
         return new ManagedSshConsentCoordinator(
             inputs.activeConfigPath,
             inputs.executable,
             managedSshConsent, undefined, undefined,
             context.globalState.get<Record<string, Record<string, string>>>('managedSshAuthentication.v1', {})[inputs.activeConfigPath] || {},
+            localAuthentication,
         );
     };
     const managedSshProjection = new ManagedSshProjectionWorker({

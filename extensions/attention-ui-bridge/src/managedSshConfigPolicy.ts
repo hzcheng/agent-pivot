@@ -373,3 +373,27 @@ export function scanManagedSshConfigGraph(
         }),
     };
 }
+
+/** Recover path boundaries that OpenSSH -G omits, without evaluating Host/Match ourselves. */
+export function resolveManagedKnownHostsPaths(configPath: string, effective: string): string[] {
+    if (!/\s/u.test(effective)) { return [effective]; }
+    const scanned = scanManagedSshConfigGraph(configPath, new NodeManagedSshConfigFileSystem(), {
+        platform: process.platform, homeDirectory: os.homedir(),
+    });
+    const candidates = new Map<string, string[]>();
+    for (const content of scanned.files.values()) {
+        for (const line of content.split(/\r?\n/u)) {
+            const tokens = tokenizeLine(line);
+            const directive = tokens && parseDirective(tokens);
+            if (directive?.name !== 'userknownhostsfile') { continue; }
+            const paths = directive.arguments.map(value => value.replace(/^~(?=\/)/u, os.homedir()));
+            if (paths.join(' ') === effective) { candidates.set(JSON.stringify(paths), paths); }
+        }
+    }
+    const defaults = ['known_hosts', 'known_hosts2'].map(name => path.join(os.homedir(), '.ssh', name));
+    if (defaults.join(' ') === effective) { candidates.set(JSON.stringify(defaults), defaults); }
+    if (candidates.size !== 1) {
+        throw new Error('Cannot unambiguously recover UserKnownHostsFile paths. Use the original SSH alias.');
+    }
+    return Array.from(candidates.values())[0];
+}

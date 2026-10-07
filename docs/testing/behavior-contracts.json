@@ -7401,6 +7401,7 @@
     "status": "automated",
     "owners": [
       "tests/contract/projects/managedRemoteSshConsent.test.js",
+      "tests/contract/projects/managedLegacySshInspector.test.js",
       "tests/platform/windows/managedRemoteSshMaterializer.test.js"
     ],
     "evidence": [

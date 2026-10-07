@@ -355,3 +355,24 @@ test('Local authentication changes regenerate projection without changing synced
     assert.doesNotMatch(fs.readFileSync(file, 'utf8'), /IdentityFile|IdentitiesOnly/);
     assert.equal(JSON.stringify(catalog.getDocument()), document);
 });
+
+test('MANAGED-REMOTE-SSH-CONSENT-001 materializes local trust for imported hosts and refreshes it', async t => {
+    const { config, consent, validator, catalog, machine } = fixture(t);
+    const auth = { [machine.id]: {
+        hostKeyAlias: '[gateway.example.com]:2220',
+        userKnownHostsFiles: ['/home/test/.ssh/trusted hosts'],
+        identityFiles: ['~/.ssh/custom_key', '~/.ssh/second_key'], identitiesOnly: true,
+    } };
+    const coordinator = new ManagedSshConsentCoordinator(config, '/usr/bin/ssh', consent, validator, undefined, {}, auth);
+    const slot = createManagedRevisionSlot(catalog.getDocument());
+    await coordinator.beginEnable(slot);
+    const file = path.join(path.dirname(config), 'agent-pivot', 'current.conf');
+    assert.match(fs.readFileSync(file, 'utf8'), /HostKeyAlias "\[gateway.example.com\]:2220"/);
+    assert.match(fs.readFileSync(file, 'utf8'), /UserKnownHostsFile "\/home\/test\/\.ssh\/trusted hosts"/);
+    assert.match(fs.readFileSync(file, 'utf8'), /IdentityFile "~\/.ssh\/second_key"/);
+    assert.doesNotMatch(JSON.stringify(catalog.getDocument()), /trusted hosts|custom_key/);
+    auth[machine.id].hostKeyAlias = 'updated-trust';
+    assert.equal(coordinator.isProjectionReady(slot), false);
+    await coordinator.reconcile(slot);
+    assert.match(fs.readFileSync(file, 'utf8'), /HostKeyAlias "updated-trust"/);
+});

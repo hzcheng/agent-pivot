@@ -68,7 +68,7 @@ function isSafeBoolean(value: string | undefined, safeValues: string[]): boolean
     return value === undefined || safeValues.includes(value);
 }
 
-function hasUnsafeInheritedBehavior(config: Map<string, string>): boolean {
+function hasUnsafeInheritedBehavior(config: Map<string, string>, entry: ManagedSshProjectionEntry): boolean {
     return [
         'localforward',
         'remoteforward',
@@ -85,7 +85,9 @@ function hasUnsafeInheritedBehavior(config: Map<string, string>): boolean {
         || !isSafeBoolean(config.get('controlmaster'), ['false', 'no'])
         || !isDisabledRoute(config.get('controlpath'))
         || !isDisabledRoute(config.get('knownhostscommand'))
-        || !isDisabledRoute(config.get('hostkeyalias'));
+        || (entry.localAuthentication?.hostKeyAlias
+            ? config.get('hostkeyalias') !== entry.localAuthentication.hostKeyAlias
+            : !isDisabledRoute(config.get('hostkeyalias')));
 }
 
 /**
@@ -123,7 +125,7 @@ function assertEffectiveTarget(
                     : !isDisabledRoute(config.get('proxyjump'))) ? 'proxyjump'
                     : !isDisabledRoute(config.get('proxycommand')) ? 'proxycommand'
                         : config.get('permitlocalcommand') !== 'no' ? 'permitlocalcommand'
-                            : hasUnsafeInheritedBehavior(config) ? 'inherited-behavior'
+                            : hasUnsafeInheritedBehavior(config, entry) ? 'inherited-behavior'
                                 : '';
     if (mismatch) {
         throw new Error(

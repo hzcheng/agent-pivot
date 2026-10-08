@@ -4,6 +4,34 @@ All notable changes to the "Agent Pivot" extension will be documented in this fi
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-08
+
+### Added
+
+- Synchronize reusable SSH jump routes and import validated local SSH aliases
+  for remote projects, while keeping authentication and trust paths local.
+- Recover remote-project catalog conflicts from the Projects interface.
+
+### Changed
+
+- Streamline machine and project actions, grouped overflow menus, and worktree
+  removal controls.
+- Show concise conversation telemetry actions and inline context and quota
+  percentages, and preserve reading positions across session switches and recovery.
+- Align Agent Pivot and Attention UI Bridge at version 1.7.0 for the
+  VS Code Marketplace release, preserving the existing Workspace Trust
+  declaration and progressively rendered AI Conversation.
+
+### Fixed
+
+- Preserve imported SSH host-key trust and identity settings for targets and
+  jump hosts, including home-relative includes and explicit default-key choices.
+- Retry unavailable AI provider capability probes and clarify launch errors.
+- Recover stale tmux resume bindings and resolve Codex daemon socket aliases
+  for live conversation streaming.
+- Follow Codex command directories in conversation Git actions and remove the
+  persistent comment rail and legacy sidebar surface animation.
+
 ## [1.6.0] - 2026-09-22
 
 ### Added

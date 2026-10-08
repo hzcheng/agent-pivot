@@ -269,7 +269,12 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 AI-SESSION-QUICK-CREATE-001 per
 });
 
 test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 wires refresh cadence, markers, and status posts', async () => {
-    const { controllerOptions, calls } = createFixture();
+    const started = [];
+    const { controllerOptions, calls } = createFixture({
+        compositionOptions: {
+            onSessionStarted: input => started.push(input),
+        },
+    });
     const creation = controllerOptions.creation;
 
     await creation.getExistingSessionIdsForCwd('codex', '/work/api');
@@ -289,6 +294,18 @@ test('SESSION-AI-SESSION-CREATION-CONTROLLER-001 wires refresh cadence, markers,
     assert.equal(creation.nowMs(), 1234);
     assert.equal(typeof creation.createPendingId(), 'string');
     assert.equal(creation.createPendingId().length, 32);
+    creation.onSessionStarted({
+        projectId: 'project-1',
+        navigationIdentity: 'window-1',
+        provider: 'codex',
+        pendingId: 'pending-1',
+    });
+    assert.deepEqual(started, [{
+        projectId: 'project-1',
+        navigationIdentity: 'window-1',
+        provider: 'codex',
+        pendingId: 'pending-1',
+    }]);
 });
 
 test('PERSIST-MULTI-PROVIDER-BATCH-ARCHIVE-001 wires archive guards, confirmations, and completion', async () => {
